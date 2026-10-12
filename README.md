@@ -56,9 +56,9 @@ npm run tauri build               # release build + installers in src-tauri/targ
 
 ```bash
 npm install
-npm test                          # 58 unit tests (Node)
+npm test                          # 74 unit tests (Node)
 npx playwright install chromium   # once, for the browser tests
-npm run test:e2e                  # 48 browser end-to-end tests (real OCR, OCR failure, QR decode, vault, idle purge, egress lock)
+npm run test:e2e                  # 53 browser end-to-end tests (real OCR, blurry-photo retake, OCR failure, QR decode, vault, idle purge, egress lock)
 SERVE_DIR=dist npm run test:e2e   # same suite against the Vite build (run `npm run build` first)
 (cd src-tauri && cargo test)      # 5 Rust tests (keychain device key)
 npm run test:tauri                # 20 desktop tests on Linux: real binary via tauri-driver, real Secret Service

@@ -21,6 +21,26 @@ let tesseractWorker = null;
 // How long the engine may take to start (core + English model, ~7 MB from local files) before we give up.
 export const OCR_INIT_TIMEOUT_MS = 60000;
 
+// Page segmentation mode: 11 = sparse text (short lines scattered over the card), see setParameters below.
+export const OCR_PAGE_SEG_MODE = '11';
+
+// A photo is too blurry or unclear to use when the engine's mean confidence is below this (sharp cards score in
+// the high 60s or more; 1 px of blur already drops a test card to 46 and turns its text to garbage), or when fewer
+// than OCR_MIN_READABLE_WORDS words are read with confidence of at least 60.
+export const OCR_MIN_CONFIDENCE = 55;
+export const OCR_MIN_READABLE_WORDS = 5;
+
+/** Thrown when the photo is too blurry or unclear to read; the caller should ask for a new photo. */
+export class OcrUnreadableError extends Error {
+    constructor(confidence, readableWords) {
+        super(`Image too blurry or unclear to read (confidence ${confidence}, ${readableWords} readable words)`);
+        this.name = 'OcrUnreadableError';
+        this.code = 'OCR_UNREADABLE';
+        this.confidence = confidence;
+        this.readableWords = readableWords;
+    }
+}
+
 /** Thrown when the OCR engine cannot start; the caller should tell the user and leave the form untouched. */
 export class OcrUnavailableError extends Error {
     constructor(reason) {
@@ -60,7 +80,9 @@ async function initOCREngine(timeoutMs) {
     }));
 
     try {
-        tesseractWorker = await Promise.race([created, failed]);
+        const worker = await Promise.race([created, failed]);
+        await worker.setParameters({ tessedit_pageseg_mode: OCR_PAGE_SEG_MODE });
+        tesseractWorker = worker;
         console.log(`[${MODULE_ID}] OCR Worker successfully initialized and locked for offline execution.`);
         return tesseractWorker;
     } catch (error) {
@@ -73,71 +95,57 @@ async function initOCREngine(timeoutMs) {
     }
 }
 
+/**
+ * Prepares a photo for OCR: greyscale, resized so the longer side is about 1800 px (small photos are enlarged up to 3x,
+ * large ones reduced to 2400 px), and contrast stretched between the 1st and 99th brightness percentiles.
+ * There is deliberately no hard black/white threshold: Tesseract binarises adaptively, which copes with the shadows,
+ * glare and coloured areas of phone photos far better than one global cut-off.
+ */
 export function preProcessImageBuffer(imageSrc) {
     return new Promise((resolve, reject) => {
         const img = new Image();
         img.crossOrigin = 'Anonymous';
-        
+
         img.onload = function() {
             try {
+                const longest = Math.max(img.width, img.height) || 1;
+                const scale = longest < 1200 ? Math.min(3, 1800 / longest) : (longest > 2400 ? 2400 / longest : 1);
+                const width = Math.max(1, Math.round(img.width * scale));
+                const height = Math.max(1, Math.round(img.height * scale));
+
                 const canvas = document.createElement('canvas');
-                const ctx = canvas.getContext('2d');
-                
-                let width = img.width;
-                let height = img.height;
-                const maxDim = 1600;
-
-                if (width > maxDim || height > maxDim) {
-                    if (width > height) {
-                        height = Math.round((height * maxDim) / width);
-                        width = maxDim;
-                    } else {
-                        width = Math.round((width * maxDim) / height);
-                        height = maxDim;
-                    }
-                } else if (width < 800) {
-                    const scale = 800 / width;
-                    width = 800;
-                    height = Math.round(height * scale);
-                }
-
                 canvas.width = width;
                 canvas.height = height;
+                const ctx = canvas.getContext('2d');
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
                 ctx.drawImage(img, 0, 0, width, height);
 
                 const imgData = ctx.getImageData(0, 0, width, height);
                 const data = imgData.data;
-
-                let totalLuminance = 0;
+                const histogram = new Uint32Array(256);
                 for (let i = 0; i < data.length; i += 4) {
-                    const gray = 0.299 * data[i] + 0.587 * data[i+1] + 0.114 * data[i+2];
-                    data[i] = gray;
-                    data[i+1] = gray;
-                    data[i+2] = gray;
-                    totalLuminance += gray;
+                    const gray = Math.round(0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2]);
+                    data[i] = data[i + 1] = data[i + 2] = gray;
+                    histogram[gray]++;
                 }
 
-                const avgLuminance = totalLuminance / (data.length / 4);
-
-                for (let i = 0; i < data.length; i += 4) {
-                    let gray = data[i];
-                    gray = ((gray - 128) * 1.5) + 128;
-                    gray = Math.max(0, Math.min(255, gray));
-
-                    if (gray > avgLuminance * 0.90) {
-                        gray = 255;
-                    } else {
-                        gray = 0;
+                // Contrast stretch: map the 1st..99th percentile of brightness onto 0..255.
+                const pixels = data.length / 4;
+                let low = 0, high = 255, seen = 0;
+                for (let v = 0; v < 256; v++) { seen += histogram[v]; if (seen >= pixels * 0.01) { low = v; break; } }
+                seen = 0;
+                for (let v = 255; v >= 0; v--) { seen += histogram[v]; if (seen >= pixels * 0.01) { high = v; break; } }
+                if (high - low > 10) {
+                    const k = 255 / (high - low);
+                    for (let i = 0; i < data.length; i += 4) {
+                        const v = Math.max(0, Math.min(255, Math.round((data[i] - low) * k)));
+                        data[i] = data[i + 1] = data[i + 2] = v;
                     }
-
-                    data[i] = gray;
-                    data[i+1] = gray;
-                    data[i+2] = gray;
                 }
 
                 ctx.putImageData(imgData, 0, 0);
-                const binarizedDataUrl = canvas.toDataURL('image/png');
-                resolve(binarizedDataUrl);
+                resolve(canvas.toDataURL('image/png'));
             } catch (err) {
                 reject(err);
             }
@@ -152,8 +160,9 @@ export function preProcessImageBuffer(imageSrc) {
 }
 
 /**
- * Runs OCR on an image (data URL) and returns { text }; mapping text to contact fields is MOD05's job.
- * Rejects with OcrUnavailableError when the engine cannot start, so no made-up text ever reaches the form.
+ * Runs OCR on an image (data URL) and returns { text, confidence }; mapping text to contact fields is MOD05's job.
+ * Rejects with OcrUnavailableError when the engine cannot start, and with OcrUnreadableError when the photo is too
+ * blurry or unclear, so neither made-up nor garbage text ever reaches the form.
  */
 export async function executeOCRScan(imageSrc, { initTimeoutMs = OCR_INIT_TIMEOUT_MS } = {}) {
     console.log(`[${MODULE_ID}] Starting OCR extraction pipeline...`);
@@ -161,10 +170,15 @@ export async function executeOCRScan(imageSrc, { initTimeoutMs = OCR_INIT_TIMEOU
     const worker = await initOCREngine(initTimeoutMs);
     const result = await worker.recognize(processedImage);
     const text = result.data.text || '';
+    const confidence = Math.round(result.data.confidence || 0);
+    const readableWords = (result.data.words || []).filter(w => w.confidence >= 60 && /[A-Za-z0-9]{2,}/.test(w.text)).length;
 
-    console.log(`[${MODULE_ID}] OCR extraction complete. Raw text length: ${text.length}`);
-    globalEventBus.publish(Events.OCR_TEXT_EXTRACTED, { sourceModule: MODULE_ID, text });
-    return { text };
+    console.log(`[${MODULE_ID}] OCR extraction complete. Confidence ${confidence}, ${readableWords} readable words, raw text length ${text.length}`);
+    if (confidence < OCR_MIN_CONFIDENCE || readableWords < OCR_MIN_READABLE_WORDS) {
+        throw new OcrUnreadableError(confidence, readableWords);
+    }
+    globalEventBus.publish(Events.OCR_TEXT_EXTRACTED, { sourceModule: MODULE_ID, text, confidence });
+    return { text, confidence };
 }
 
 export const getModuleName = () => MODULE_NAME;

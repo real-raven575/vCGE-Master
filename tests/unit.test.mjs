@@ -169,6 +169,32 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const noisy = fm.parseOCRText('Maria Gonzalez\n+1(312)555-0147\n312.555.0100');
   ok('mapper normalises OCR-noisy US phone numbers', noisy.phoneWork === '+1 (312) 555-0147' && noisy.phoneMobile === '+1 (312) 555-0100', noisy.phoneWork + ' / ' + noisy.phoneMobile);
   ok('mapper output keys are all CONTACT_FIELDS', keys.every(k => share.CONTACT_FIELDS.includes(k)), keys.join());
+
+  // Context clues. Fictional names and numbers; layout and OCR mistakes copied from real phone-photo scans.
+  const eq = (got, want) => Object.entries(want).every(([k, v]) => got[k] === v);
+  const labelled = fm.parseOCRText('ya O/\n\nYour Technology Partner\nDana Whitlock\nOwner & General Manager\n4120 Lakeshore Road, Suite 21%\nSpringfield, M\\ 49011\nE dwhitlock@BrightPathlT com\nT 616.555.0142\nM 616.555.0187\n\nw BrightPathlT.com/Holland\\');
+  ok('labelled card (E/T/M/W): every field mapped despite OCR slips', eq(labelled, {
+    firstName: 'Dana', lastName: 'Whitlock', jobTitle: 'Owner & General Manager', email: 'dwhitlock@BrightPathlT.com',
+    phoneWork: '+1 (616) 555-0142', phoneMobile: '+1 (616) 555-0187', website: 'BrightPathlT.com/Holland',
+    street: '4120 Lakeshore Road, Suite 21%', city: 'Springfield', state: 'MI', zip: '49011' }), JSON.stringify(labelled));
+  ok('logo debris and tagline are not the company; domain is used instead', labelled.organization === 'BrightPathlT', labelled.organization);
+
+  const office = fm.parseOCRText('Harbor Point Realty\nSam Ortiz\nLicensed Realtor\nTel: (555) 201-3344  Fax: (555) 201-3345\nCell 555.201.9988\nsortiz © harborpointrealty . com\nharborpointrealty.com\n100 Main St\nSuite 300\nAustin Texas 78701');
+  ok('name chosen by email match, not first line', office.firstName === 'Sam' && office.lastName === 'Ortiz', JSON.stringify(office));
+  ok('company matched to web domain; title from vocabulary', office.organization === 'Harbor Point Realty' && office.jobTitle === 'Licensed Realtor', JSON.stringify(office));
+  ok('Tel/Fax on one line: fax ignored; Cell is mobile', office.phoneWork === '+1 (555) 201-3344' && office.phoneMobile === '+1 (555) 201-9988', office.phoneWork + ' / ' + office.phoneMobile);
+  ok('email repaired from "©" and spaces; website without www', office.email === 'sortiz@harborpointrealty.com' && office.website === 'harborpointrealty.com', office.email + ' ' + office.website);
+  ok('two-line street with Suite, full state name without comma', office.street === '100 Main St, Suite 300' && office.city === 'Austin' && office.state === 'TX' && office.zip === '78701', JSON.stringify(office));
+
+  const oneLine = fm.parseOCRText('Jane Q. Roe\nAttorney at Law\nRoe & Partners LLC\n88 Elm Avenue, Burlington, VT 05401\njaneroe@gmail.com\n(802) 555-0110');
+  ok('whole address on one line', oneLine.street === '88 Elm Avenue' && oneLine.city === 'Burlington' && oneLine.state === 'VT' && oneLine.zip === '05401', JSON.stringify(oneLine));
+  ok('company by suffix (LLC); personal mail domain not used as company', oneLine.organization === 'Roe & Partners LLC' && oneLine.jobTitle === 'Attorney at Law', JSON.stringify(oneLine));
+  ok('middle initial kept with the last name', oneLine.firstName === 'Jane' && oneLine.lastName === 'Q. Roe', oneLine.lastName);
+
+  const noStreetWord = fm.parseOCRText('20\nAlex Kim\n2 rearmiogere\nakim@kimdesign.co');
+  ok('a stray number is not taken as a street', noStreetWord.street === '' && noStreetWord.organization === 'kimdesign', JSON.stringify(noStreetWord));
+  ok('IL keeps its L; OCR "Ml" repaired to MI', fm.parseOCRText('Chicago, IL 60606').state === 'IL' && fm.parseOCRText('Lansing Ml 48933').state === 'MI');
+  ok('PO Box accepted as street', fm.parseOCRText('PO Box 1234\nBoise, ID 83701').street === 'PO Box 1234');
 }
 
 // QR engine (ESM, delegates to shared formatter)
@@ -233,11 +259,21 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('OCR start-up that never finishes times out', slow && slow.code === 'OCR_UNAVAILABLE' && slow.message.includes('longer than'), slow && slow.message);
   ok('failed OCR publishes nothing to the form pipeline', evt === null);
 
-  let created = 0;
-  globalThis.Tesseract = { createWorker: async () => { created++; return { recognize: async () => ({ data: { text: 'Jane Doe\njane@example.com' } }), terminate() {} }; } };
+  let created = 0, psm = null, result = null;
+  const words = (n, conf) => Array.from({ length: n }, (_, i) => ({ text: `word${i}`, confidence: conf }));
+  globalThis.Tesseract = { createWorker: async () => { created++; return {
+    setParameters: async (p) => { psm = p.tessedit_pageseg_mode; }, recognize: async () => ({ data: result }), terminate() {} }; } };
+  result = { text: 'Jane Doe\njane@example.com', confidence: 88, words: words(8, 90) };
   const r = await ocr.executeOCRScan('data:image/png;base64,x');
-  await ocr.executeOCRScan('data:image/png;base64,x');
-  ok('OCR returns raw text and publishes OCR_TEXT_EXTRACTED', r.text === 'Jane Doe\njane@example.com' && evt && evt.text === r.text && !('simulated' in r));
+  ok('OCR returns raw text and confidence, publishes OCR_TEXT_EXTRACTED', r.text === 'Jane Doe\njane@example.com' && r.confidence === 88 && evt && evt.text === r.text && !('simulated' in r));
+  ok('OCR uses sparse-text page segmentation', psm === ocr.OCR_PAGE_SEG_MODE && psm === '11', String(psm));
+  evt = null;
+  result = { text: 'py A Year op WW es', confidence: 46, words: words(12, 70) };
+  const blurry = await failure(ocr.executeOCRScan('data:image/png;base64,x'));
+  ok('low-confidence photo rejected as unreadable (retake)', blurry && blurry.code === 'OCR_UNREADABLE' && blurry.confidence === 46 && evt === null, blurry && blurry.message);
+  result = { text: 'Jo', confidence: 80, words: words(3, 90) };
+  const sparse = await failure(ocr.executeOCRScan('data:image/png;base64,x'));
+  ok('photo with too few readable words rejected as unreadable', sparse && sparse.code === 'OCR_UNREADABLE' && sparse.readableWords === 3, sparse && sparse.message);
   ok('OCR worker is started once and reused after a failure', created === 1, String(created));
   ok('OCR no longer exposes a duplicate parser', !('parseExtractedTextToSchema' in ocr));
   console.log = origLog; console.error = origErr; delete globalThis.Tesseract;

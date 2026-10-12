@@ -10,16 +10,18 @@ const PORT = String(18000 + Math.floor(Math.random() * 2000));
 const ORIGIN = `http://localhost:${PORT}/`;
 
 // Renders a business card image in the page so OCR runs on real pixels.
-async function renderCardImage(page) {
-  const dataUrl = await page.evaluate(() => {
+// `blur` (px) simulates a shaky or out-of-focus photo.
+async function renderCardImage(page, blur = 0) {
+  const dataUrl = await page.evaluate((blur) => {
     const c = document.createElement('canvas'); c.width = 1050; c.height = 600;
     const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111';
+    if (blur) x.filter = `blur(${blur}px)`;
     const lines = [['bold 56px Arial', 'Maria Gonzalez'], ['34px Arial', 'Director of Engineering'], ['34px Arial', 'Northwind Systems'],
       ['30px Arial', '+1 (312) 555-0147'], ['30px Arial', 'maria.gonzalez@northwind.com'], ['30px Arial', 'https://northwind.com'],
       ['30px Arial', '233 South Wacker Drive'], ['30px Arial', 'Chicago, IL 60606']];
     let y = 80; for (const [f, t] of lines) { x.font = f; x.fillText(t, 70, y); y += f.startsWith('bold') ? 80 : 62; }
     return c.toDataURL('image/png');
-  });
+  }, blur);
   return { name: 'card.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') };
 }
 
@@ -195,6 +197,29 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p2.waitForSelector('#vaultModal', { state: 'hidden' });
     ok('encrypted card survives idle purge', (await p2.inputValue('#firstName')) === 'Kept');
     await ctx2.close();
+  }
+
+  // Blurry photo: OCR runs but the result is unreadable -> retake prompt, form untouched
+  {
+    const ctx4 = await browser.newContext();
+    const p4 = await ctx4.newPage();
+    await p4.goto(ORIGIN); await p4.waitForTimeout(300);
+    await p4.click('#vaultSkipBtn');
+    await p4.fill('#firstName', 'Typed');
+    await p4.setInputFiles('#imageUpload', await renderCardImage(p4, 6)); await p4.waitForTimeout(300);
+    await p4.click('#runOcrBtn');
+    await p4.waitForSelector('#ocrRetakeNotice', { state: 'visible', timeout: 90000 }).catch(() => {});
+    ok('blurry photo: retake prompt shown in the review dialog', await p4.isVisible('#ocrRetakeNotice') && await p4.isVisible('#retakePhotoBtn') && !(await p4.isVisible('#runOcrBtn')));
+    ok('blurry photo: form left unchanged', (await p4.inputValue('#firstName')) === 'Typed' && (await p4.inputValue('#email')) === '');
+    const chooser = p4.waitForEvent('filechooser', { timeout: 5000 }).then(() => true, () => false);
+    await p4.click('#retakePhotoBtn');
+    ok('Retake photo opens the photo picker', await chooser && !(await p4.isVisible('#cropReviewModal')));
+    await p4.setInputFiles('#imageUpload', await renderCardImage(p4)); await p4.waitForTimeout(300);
+    ok('new photo resets the dialog (Extract fields back, prompt hidden)', await p4.isVisible('#runOcrBtn') && !(await p4.isVisible('#ocrRetakeNotice')));
+    await p4.click('#runOcrBtn');
+    await p4.waitForSelector('#cropReviewModal', { state: 'hidden', timeout: 90000 });
+    ok('sharp retake is read normally', (await p4.inputValue('#email')) === 'maria.gonzalez@northwind.com', await p4.inputValue('#email'));
+    await ctx4.close();
   }
 
   // OCR engine cannot start (language model missing, as on a host that refuses .gz): no hang, clear message, form untouched

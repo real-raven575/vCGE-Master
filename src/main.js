@@ -236,9 +236,17 @@ function wipeVault() {
 
 // ---- Intake: camera / upload (MOD03) -> OCR (MOD04) -> mapper (MOD05) -----------------------------------------
 
+// Retake prompt in the review dialog (shown when a photo is too blurry or unclear to read).
+function showRetakePrompt(show) {
+    $('ocrRetakeNotice').classList.toggle('hidden', !show);
+    $('retakePhotoBtn').classList.toggle('hidden', !show);
+    $('runOcrBtn').classList.toggle('hidden', show);
+}
+
 async function runOcr() {
     const image = $('reviewImage').src;
     if (!image) return;
+    showRetakePrompt(false);
     $('runOcrBtn').disabled = true;
     $('runOcrBtn').textContent = 'Extracting…';
     try {
@@ -248,7 +256,9 @@ async function runOcr() {
         cardView.showToast('Fields extracted. Please review them.');
     } catch (e) {
         console.error('[vCGE] OCR failed:', e);
-        if (e && e.code === 'OCR_UNAVAILABLE') {
+        if (e && e.code === 'OCR_UNREADABLE') {
+            showRetakePrompt(true);
+        } else if (e && e.code === 'OCR_UNAVAILABLE') {
             $('cropReviewModal').classList.add('hidden');
             cardView.showToast('The OCR engine could not start, so your form was not changed. Type the details in, or try again.');
         } else {
@@ -277,6 +287,14 @@ function wireIntake() {
     });
     $('runOcrBtn').addEventListener('click', runOcr);
     $('cancelReviewBtn').addEventListener('click', () => $('cropReviewModal').classList.add('hidden'));
+    // Retake: with the camera open, close the dialog so the user can capture again; otherwise pick another photo
+    // (on phones the picker also offers the camera).
+    $('retakePhotoBtn').addEventListener('click', () => {
+        $('cropReviewModal').classList.add('hidden');
+        if ($('cameraPanel').classList.contains('hidden')) $('imageUpload').click();
+        else cardView.showToast('Hold the card steady and capture again.');
+    });
+    globalEventBus.subscribe(Events.IMAGE_CAPTURED, () => showRetakePrompt(false));
 }
 
 // ---- Egress (MOD08 only) ---------------------------------------------------------------------------------------
