@@ -28,7 +28,7 @@ All of this happens with no network access: the MOD01 gatekeeper and a Content-S
 
 OCR (Tesseract.js) and QR generation (qrcode-generator) run entirely on-device from bundled files in `src/vendor/`.
 
-**Desktop app:** Tauri v2. On the desktop the vault is additionally bound to a device key in the OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service). Linux builds are verified; macOS and Windows builds are configured but untested.
+**Desktop app:** Tauri v2. On the desktop the vault is additionally bound to a device key in the OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service). Linux builds are verified end to end; macOS and Windows builds and Rust tests pass in CI but the apps are not yet tested on those systems.
 
 The full verified status is in [`docs/spec.md` §3](docs/spec.md#3-current-progress--verification-status).
 
