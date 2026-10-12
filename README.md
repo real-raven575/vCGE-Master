@@ -66,6 +66,14 @@ npm run test:tauri                # 20 desktop tests on Linux: real binary via t
 
 `npm run test:tauri` needs `webkit2gtk-driver gnome-keyring libsecret-tools xvfb dbus-x11`, `cargo install tauri-driver --locked`, and a built app (`npx tauri build --debug --no-bundle`).
 
+### Continuous integration
+
+`.github/workflows/ci.yml` runs on pushes to `main` and `claude/**`, on pull requests, and on demand:
+- **web**: checks that the committed generated files are current, then runs the unit tests and the browser end-to-end tests against the source and the Vite build.
+- **desktop**: runs on Linux, macOS and Windows. Each builds the release app with installers and uploads them as artifacts for 14 days (`.deb`, `.rpm` and AppImage on Linux; `.app` and `.dmg` on macOS; `.msi` and setup `.exe` on Windows). Linux also runs the desktop end-to-end suite against the release binary.
+
+Actions are pinned to commit SHAs. The installers are **unsigned**: code signing and notarisation need certificates stored as repository secrets.
+
 ---
 
 ## 📦 Repository Structure
@@ -78,6 +86,7 @@ vCGE-Master/
 ├── vite.config.mjs                # Vite build → dist/ (Tauri frontend)
 ├── tailwind.config.js
 ├── index.html                     # App UI (loads src/main.js as an ES module; CSP egress lock)
+├── .github/workflows/ci.yml       # CI: web tests + desktop builds/tests on Linux, macOS, Windows
 ├── THIRD_PARTY_NOTICES.md         # Bundled libraries & licences (all MIT / Apache-2.0)
 ├── docs/
 │   └── spec.md                    # Architecture brief & verification status
