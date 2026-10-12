@@ -1,0 +1,49 @@
+/* STREAMING_CHUNK:Configuring typography, 3D perspective, and responsive layouts... */
+body { font-family: 'Inter', sans-serif; }
+.font-sans { font-family: 'Inter', sans-serif !important; }
+.font-serif { font-family: 'Playfair Display', serif !important; }
+.font-mono { font-family: 'Fira Code', monospace !important; }
+
+/* 3D Card Flip & Motion */
+.perspective-1000 { perspective: 1000px; }
+.transform-style-3d { transform-style: preserve-3d; transition: transform 0.6s cubic-bezier(0.23, 1, 0.32, 1); }
+.backface-hidden { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+.rotate-y-180 { transform: rotateY(180deg); }
+
+/* Scanning overlay animation */
+@keyframes laser-scan {
+    0% { top: 0%; opacity: 0.8; }
+    50% { opacity: 1; }
+    100% { top: 95%; opacity: 0.8; }
+}
+.animate-laser { animation: laser-scan 2s ease-in-out infinite alternate; }
+
+/* Glassmorphism card effect */
+.glass-card {
+    background: rgba(255, 255, 255, 0.75);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+}
+.dark .glass-card {
+    background: rgba(15, 23, 42, 0.8);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+.dark ::-webkit-scrollbar-thumb { background: #334155; }
+
+/* Print styles for physical business card printing */
+@media print {
+    body * { visibility: hidden; }
+    #cardFront, #cardFront * { visibility: visible; }
+    #cardFront {
+        position: absolute; left: 0; top: 0;
+        width: 3.5in !important; height: 2.0in !important;
+        box-shadow: none !important; border: 1px solid #000 !important;
+        page-break-after: always;
+    }
+}

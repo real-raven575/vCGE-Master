@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>vCard Generator Engine (vCGE)</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        brand: { 50: '#f0fdf4', 500: '#22c55e', 600: '#16a34a', 700: '#15803d', 900: '#14532d' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        .perspective-1000 { perspective: 1000px; }
+        .transform-style-3d { transform-style: preserve-3d; transition: transform 0.6s cubic-bezier(0.23, 1, 0.32, 1); }
+        .backface-hidden { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
+        .rotate-y-180 { transform: rotateY(180deg); }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased selection:bg-brand-500 selection:text-white">
+
+    <!-- MASTER HEADER -->
+    <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-50 px-4 py-3 flex items-center justify-between">
+        <div class="flex items-center space-x-3">
+            <div class="bg-brand-500 text-slate-950 font-bold px-2.5 py-1 rounded-lg text-sm tracking-wider">vCGE</div>
+            <div>
+                <h1 class="font-bold text-base tracking-tight">vCard Generator Engine</h1>
+                <p class="text-xs text-slate-400">Created by raven575 and Gemini</p>
+            </div>
+        </div>
+        <div class="flex items-center space-x-2">
+            <span id="gatekeeperStatus" class="text-xs px-2.5 py-1 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800/50 flex items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                Gatekeeper Active
+            </span>
+            <button id="themeToggle" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition" aria-label="Toggle Theme">
+                🌙
+            </button>
+        </div>
+    </header>
+
+    <!-- MAIN APP CONTAINER -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- LEFT COLUMN: Module Control Hub & Broker Status -->
+        <section class="lg:col-span-1 space-y-6">
+            <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 shadow-xl">
+                <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-400 mb-4 flex items-center justify-between">
+                    <span>Broker & Modules</span>
+                    <span class="text-xs text-brand-500 font-mono">MOD01 Active</span>
+                </h2>
+                <div class="space-y-2 text-sm">
+                    <div class="p-2.5 rounded-xl bg-slate-800/50 border border-slate-700/50 flex items-center justify-between">
+                        <span class="font-medium">MOD02: Secure Vault</span>
+                        <span id="vaultStateIndicator" class="text-xs text-emerald-400 font-mono">LOCKED / AES-256</span>
+                    </div>
+                    <div class="p-2.5 rounded-xl bg-slate-800/50 border border-slate-700/50 flex items-center justify-between">
+                        <span class="font-medium">MOD03/04: Intake & OCR</span>
+                        <span class="text-xs text-slate-400 font-mono">Ready</span>
+                    </div>
+                    <div class="p-2.5 rounded-xl bg-slate-800/50 border border-slate-700/50 flex items-center justify-between">
+                        <span class="font-medium">MOD08: Egress Gateway</span>
+                        <span class="text-xs text-brand-400 font-mono">Protected</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Action Simulator -->
+            <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
+                <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-400">Broker Event Simulators</h2>
+                <div class="grid grid-cols-1 gap-2.5">
+                    <button id="btnSimulateOCR" class="w-full py-2.5 px-4 bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold rounded-xl transition text-sm shadow-lg shadow-brand-600/20">
+                        Simulate OCR Extraction Event
+                    </button>
+                    <button id="btnTriggerPurge" class="w-full py-2.5 px-4 bg-slate-800 hover:bg-rose-950/50 hover:border-rose-800 border border-slate-700 text-slate-300 hover:text-rose-400 font-medium rounded-xl transition text-sm">
+                        Trigger TTL RAM Purge (3001 Check)
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- CENTER & RIGHT: Contact Form & 3D Preview Workspace -->
+        <section class="lg:col-span-2 space-y-6">
+            <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 md:p-6 shadow-xl space-y-6">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-4">
+                    <div>
+                        <h2 class="text-lg font-bold">Contact Schema Workspace</h2>
+                        <p class="text-xs text-slate-400">Live synchronized with secure volatile memory buffers.</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button id="btnFlipCard" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium transition">Flip 3D Card</button>
+                        <button id="btnExportShare" class="px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 text-xs font-bold transition">Export (MOD08)</button>
+                    </div>
+                </div>
+
+                <!-- Form Inputs with Null-Safe Bindings -->
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Full Name</label>
+                        <input type="text" id="inputName" placeholder="Jane Doe" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand-500 transition">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Job Title</label>
+                        <input type="text" id="inputTitle" placeholder="Chief Technology Officer" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand-500 transition">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Organization / Company</label>
+                        <input type="text" id="inputCompany" placeholder="Acme Corporation" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand-500 transition">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Phone Number</label>
+                        <input type="text" id="inputPhone" placeholder="+1 (555) 019-2834" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand-500 transition">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Email Address</label>
+                        <input type="email" id="inputEmail" placeholder="jane.doe@acme.com" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand-500 transition">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Website URL</label>
+                        <input type="url" id="inputWeb" placeholder="https://www.acme.com" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand-500 transition">
+                    </div>
+                </div>
+
+                <!-- 3D Card Preview Box -->
+                <div class="pt-4 border-t border-slate-800 flex flex-col items-center justify-center">
+                    <div class="w-full max-w-sm h-52 perspective-1000 cursor-pointer" id="cardContainer">
+                        <div id="cardInner" class="relative w-full h-full transform-style-3d shadow-2xl rounded-2xl">
+                            <!-- Card Front -->
+                            <div class="absolute inset-0 bg-gradient-to-br from-slate-900 to-slate-800 border border-slate-700/60 rounded-2xl p-6 flex flex-col justify-between backface-hidden">
+                                <div class="flex justify-between items-start">
+                                    <span class="text-xs uppercase tracking-widest text-brand-400 font-mono">vCGE Virtual ID</span>
+                                    <span class="w-2 h-2 rounded-full bg-brand-500"></span>
+                                </div>
+                                <div>
+                                    <h3 id="previewName" class="text-xl font-bold tracking-tight text-white">Jane Doe</h3>
+                                    <p id="previewTitle" class="text-sm text-brand-400 font-medium">Chief Technology Officer</p>
+                                    <p id="previewCompany" class="text-xs text-slate-400 mt-1">Acme Corporation</p>
+                                </div>
+                                <div class="text-xs text-slate-400 font-mono space-y-0.5">
+                                    <p id="previewPhone">+1 (555) 019-2834</p>
+                                    <p id="previewEmail">jane.doe@acme.com</p>
+                                </div>
+                            </div>
+                            <!-- Card Back -->
+                            <div class="absolute inset-0 bg-gradient-to-br from-slate-900 to-slate-800 border border-slate-700/60 rounded-2xl p-6 flex flex-col items-center justify-center backface-hidden rotate-y-180">
+                                <div class="w-28 h-28 bg-white p-2 rounded-xl flex items-center justify-center shadow-inner">
+                                    <!-- QR Code Mock Matrix -->
+                                    <div class="w-full h-full bg-slate-950 rounded-lg flex items-center justify-center text-xs font-mono text-brand-400 text-center p-2">
+                                        [vCard QR Matrix]
+                                    </div>
+                                </div>
+                                <p class="text-xs text-slate-400 mt-3 font-mono">Scan to import contact</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- MASTER FOOTER -->
+    <footer class="border-t border-slate-800 bg-slate-900/80 px-4 py-4 text-center text-xs text-slate-500">
+        <p>vCard Generator Engine (vCGE) &bull; Created by raven575 and Gemini</p>
+    </footer>
+
+    <!-- EXTERNALIZED SCRIPT ASSETS -->
+    <script src="themeManager.js"></script>
+    <script src="shell.js"></script>
+</body>
+</html>
