@@ -209,18 +209,38 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   delete globalThis.qrcode;
 }
 
-// OCR worker (ESM): returns raw text, flags simulation, publishes on the shared bus
+// OCR worker (ESM): returns raw text, publishes on the shared bus, and fails loudly (never with made-up text)
 {
-  globalThis.document = { createElement: () => ({ getContext: () => ({ drawImage() {}, getImageData: () => ({ data: new Uint8ClampedArray(4) }), putImageData() {} }), toDataURL: () => 'data:image/png;base64,' }) };
+  globalThis.document = { baseURI: 'http://localhost/', createElement: () => ({ getContext: () => ({ drawImage() {}, getImageData: () => ({ data: new Uint8ClampedArray(4) }), putImageData() {} }), toDataURL: () => 'data:image/png;base64,' }) };
   globalThis.Image = class { set src(v) { this.width = 10; this.height = 10; setTimeout(() => this.onload(), 0); } };
-  const origLog = console.log, origWarn = console.warn; console.log = () => {}; console.warn = () => {};
+  const origLog = console.log, origErr = console.error; console.log = () => {}; console.error = () => {};
   const ocr = await import(`${R}/modules/mod04-ocr/ocrWorker.js`);
   let evt = null; share.globalEventBus.subscribe(share.Events.OCR_TEXT_EXTRACTED, e => evt = e);
+  const failure = (p) => p.then(() => null, e => e);
+
+  delete globalThis.Tesseract;
+  const missing = await failure(ocr.executeOCRScan('data:image/png;base64,x'));
+  ok('OCR without Tesseract.js rejects with OCR_UNAVAILABLE', missing && missing.code === 'OCR_UNAVAILABLE' && missing instanceof ocr.OcrUnavailableError, missing && missing.message);
+
+  // Tesseract.js 5 behaviour when the language model 404s: errorHandler fires, createWorker never settles
+  globalThis.Tesseract = { createWorker: (l, o, opts) => { setTimeout(() => opts.errorHandler('Network error while fetching eng.traineddata.gz. Response code: 404'), 5); return new Promise(() => {}); } };
+  const t0 = Date.now();
+  const broken = await failure(ocr.executeOCRScan('data:image/png;base64,x'));
+  ok('OCR start-up error rejects promptly instead of hanging', broken && broken.code === 'OCR_UNAVAILABLE' && broken.message.includes('404') && Date.now() - t0 < 2000, broken && broken.message);
+
+  globalThis.Tesseract = { createWorker: () => new Promise(() => {}) };
+  const slow = await failure(ocr.executeOCRScan('data:image/png;base64,x', { initTimeoutMs: 50 }));
+  ok('OCR start-up that never finishes times out', slow && slow.code === 'OCR_UNAVAILABLE' && slow.message.includes('longer than'), slow && slow.message);
+  ok('failed OCR publishes nothing to the form pipeline', evt === null);
+
+  let created = 0;
+  globalThis.Tesseract = { createWorker: async () => { created++; return { recognize: async () => ({ data: { text: 'Jane Doe\njane@example.com' } }), terminate() {} }; } };
   const r = await ocr.executeOCRScan('data:image/png;base64,x');
-  console.log = origLog; console.warn = origWarn;
-  ok('OCR returns raw text and simulated flag', typeof r.text === 'string' && r.simulated === true);
-  ok('OCR publishes OCR_TEXT_EXTRACTED on shared bus', evt && evt.simulated === true && evt.text === r.text);
+  await ocr.executeOCRScan('data:image/png;base64,x');
+  ok('OCR returns raw text and publishes OCR_TEXT_EXTRACTED', r.text === 'Jane Doe\njane@example.com' && evt && evt.text === r.text && !('simulated' in r));
+  ok('OCR worker is started once and reused after a failure', created === 1, String(created));
   ok('OCR no longer exposes a duplicate parser', !('parseExtractedTextToSchema' in ocr));
+  console.log = origLog; console.error = origErr; delete globalThis.Tesseract;
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

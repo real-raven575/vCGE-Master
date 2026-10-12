@@ -197,6 +197,23 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await ctx2.close();
   }
 
+  // OCR engine cannot start (language model missing, as on a host that refuses .gz): no hang, clear message, form untouched
+  {
+    const ctx3 = await browser.newContext();
+    await ctx3.route('**/eng.traineddata.gz', r => r.fulfill({ status: 404, body: 'not found' }));
+    const p3 = await ctx3.newPage();
+    await p3.goto(ORIGIN); await p3.waitForTimeout(300);
+    await p3.click('#vaultSkipBtn');
+    await p3.fill('#firstName', 'Typed'); await p3.fill('#email', 'typed@example.com');
+    await p3.setInputFiles('#imageUpload', await renderCardImage(p3)); await p3.waitForTimeout(300);
+    await p3.click('#runOcrBtn');
+    const settled = await p3.waitForSelector('#cropReviewModal', { state: 'hidden', timeout: 30000 }).then(() => true, () => false);
+    ok('missing OCR model: extraction ends instead of hanging', settled && (await p3.textContent('#runOcrBtn')).trim() === 'Extract fields');
+    ok('missing OCR model: user told the engine could not start', (await p3.textContent('#toastMessage')).includes('OCR engine could not start'), await p3.textContent('#toastMessage'));
+    ok('missing OCR model: form left unchanged (no sample text)', (await p3.inputValue('#firstName')) === 'Typed' && (await p3.inputValue('#email')) === 'typed@example.com' && (await p3.inputValue('#lastName')) === '');
+    await ctx3.close();
+  }
+
   console.log(`\n${pass} passed, ${fail} failed`);
   await browser.close(); server.kill();
   process.exitCode = fail ? 1 : 0;

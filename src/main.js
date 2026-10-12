@@ -242,15 +242,18 @@ async function runOcr() {
     $('runOcrBtn').disabled = true;
     $('runOcrBtn').textContent = 'Extracting…';
     try {
-        const { text, simulated } = await executeOCRScan(image);
+        const { text } = await executeOCRScan(image);
         cardView.mergeContact(formMapper.parseOCRText(text));
         $('cropReviewModal').classList.add('hidden');
-        cardView.showToast(simulated
-            ? 'OCR engine (Tesseract.js) could not start: sample text was used, not your image.'
-            : 'Fields extracted. Please review them.');
+        cardView.showToast('Fields extracted. Please review them.');
     } catch (e) {
         console.error('[vCGE] OCR failed:', e);
-        cardView.showToast('Could not read that image.');
+        if (e && e.code === 'OCR_UNAVAILABLE') {
+            $('cropReviewModal').classList.add('hidden');
+            cardView.showToast('The OCR engine could not start, so your form was not changed. Type the details in, or try again.');
+        } else {
+            cardView.showToast('Could not read that image.');
+        }
     } finally {
         $('runOcrBtn').disabled = false;
         $('runOcrBtn').textContent = 'Extract fields';
@@ -301,7 +304,7 @@ function wireAuditLog() {
         [Events.VAULT_UNLOCKED]: (d) => (d.created ? 'Vault created' : 'Vault unlocked'),
         [Events.VAULT_LOCKED]: () => 'Vault locked',
         [Events.VAULT_WIPED]: () => 'Vault wiped',
-        [Events.OCR_TEXT_EXTRACTED]: (d) => `OCR text extracted${d.simulated ? ' (simulated)' : ''}`,
+        [Events.OCR_TEXT_EXTRACTED]: () => 'OCR text extracted',
         [Events.MEMORY_PURGED]: (d) => `RAM purged (${d.reason})`
     };
     Object.entries(describe).forEach(([event, fmt]) => {
