@@ -18,7 +18,10 @@ export class SecureStorageVault {
     async initialize(passphrase) {
         try {
             const encoder = new TextEncoder();
-            this.salt = window.crypto.getRandomValues(new Uint8Array(16));
+            // Reuse the salt of an existing vault so the same passphrase re-derives the same key after a restart.
+            const existing = localStorage.getItem(this.storageKey);
+            const storedSalt = existing ? JSON.parse(existing).salt : null;
+            this.salt = storedSalt ? new Uint8Array(storedSalt) : window.crypto.getRandomValues(new Uint8Array(16));
             
             const baseKey = await window.crypto.subtle.importKey(
                 'raw',

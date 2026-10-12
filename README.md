@@ -20,8 +20,7 @@ The **vCard Generator Engine (vCGE)** is a high-security, cross-platform digital
 
 **Prototype — not yet runnable end-to-end.** The architecture is designed and each module exists on its own, but nothing integrates them yet:
 
-- `index.html` points at the wrong paths for its scripts (the UI is inert until they're fixed), and it loads only MOD01.
-- The contents of the two MOD06 files are swapped, and `src/main.js` (the integration controller) is empty.
+- `index.html` loads only MOD01, and `src/main.js` (the integration controller) is empty.
 - There are no `package.json`, Vite or Tauri config files yet.
 - OCR and QR rendering are simulated.
 - Several privacy guarantees above aren't enforced yet: there are direct network calls outside MOD08 and plaintext `localStorage` writes.
@@ -54,7 +53,7 @@ vCGE-Master/
         ├── mod03-camera/          # camera.js (viewfinder, zoom, capture, crop review)
         ├── mod04-ocr/             # ocrWorker.js (Tesseract.js WASM pipeline)
         ├── mod05-form/            # formMapper.js, addressAutocomplete.js
-        ├── mod06-gui/             # card3dView.js, cardStyles.css (contents swapped — see spec §3.2)
+        ├── mod06-gui/             # card3dView.js (card logic, theming, presets), cardStyles.css
         ├── mod07-qr/              # qrGenerator.js (vCard 3.0 builder, QR canvas, PNG/VCF export)
         └── mod08-egress/          # egressController.js (Web Share, .vcf, mailto/sms, print), print.css
 ```
