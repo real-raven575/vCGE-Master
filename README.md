@@ -74,7 +74,7 @@ vCGE-Master/
 └── src/
     ├── main.js                    # Master Integration Controller (wires all modules over the event bus)
     ├── styles/                    # tailwind.input.css → tailwind.css (compiled, committed)
-    ├── vendor/                    # qrcode-generator, Tesseract.js + WASM core + English model (committed)
+    ├── vendor/                    # qrcode-generator, Tesseract.js + WASM core + English model, card fonts (committed)
     ├── share/                     # Global Shared Libraries (vCGE-SHARE)
     │   ├── index.js               # Export barrel
     │   ├── cardSchema.js          # Canonical contact schema (CONTACT_FIELDS) & validation
@@ -84,7 +84,7 @@ vCGE-Master/
     │   └── vcardFormatter.js      # The single vCard 3.0 builder (RFC 2426 escaping, CRLF)
     └── modules/                   # Isolated Core Functional Modules
         ├── mod01-shell/           # shell.js (network gatekeeper), themeManager.js (light/dark)
-        ├── mod02-vault/           # vault.js (PBKDF2 + AES-GCM-256, lock/wipe), ttlManager.js (120 s TTL, not wired yet)
+        ├── mod02-vault/           # vault.js (PBKDF2 + AES-GCM-256, lock/wipe), ttlManager.js (120 s idle purge)
         ├── mod03-camera/          # camera.js (viewfinder, zoom, capture, crop review)
         ├── mod04-ocr/             # ocrWorker.js (image pre-processing + bundled Tesseract.js, on-device)
         ├── mod05-form/            # formMapper.js (OCR text → contact), addressAutocomplete.js (local-only)

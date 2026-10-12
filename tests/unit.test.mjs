@@ -115,6 +115,17 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   await new Promise(r => setTimeout(r, 1300));
   ok('TTL expires and calls back 3001', expired && expired.code === '3001');
   ok('TTL overwrites string fields', buf.name === '0x000000_WIPED');
+  ok('TTL reports 0 remaining once expired', m.getRemainingTime() === 0);
+
+  // Deadline-based: a jump in wall-clock time (throttled background timers) still expires on the next tick.
+  const realNow = Date.now; let offset = 0; Date.now = () => realNow() + offset;
+  let expired2 = false; const m2 = new TTLMemoryStreamManager(120, () => expired2 = true);
+  m2.startStream({ a: 'x' });
+  ok('TTL starts at full duration', m2.getRemainingTime() === 120);
+  offset = 119500; ok('TTL remaining follows wall clock', m2.getRemainingTime() === 1, m2.getRemainingTime());
+  offset = 125000; await new Promise(r => setTimeout(r, 1100));
+  Date.now = realNow;
+  ok('TTL expires on next tick after a clock jump', expired2);
 }
 
 // Form mapper (single OCR text -> contact mapper)

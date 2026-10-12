@@ -1,4 +1,14 @@
-/* STREAMING_CHUNK:Configuring typography, 3D perspective, and responsive layouts... */
+/* Card typography: bundled fonts (SIL OFL 1.1, src/vendor/fonts), so no font CDN is contacted. */
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 400; font-display: swap; src: url('../../vendor/fonts/inter-latin-400.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 600; font-display: swap; src: url('../../vendor/fonts/inter-latin-600.woff2') format('woff2'); }
+@font-face { font-family: 'Inter'; font-style: normal; font-weight: 700; font-display: swap; src: url('../../vendor/fonts/inter-latin-700.woff2') format('woff2'); }
+@font-face { font-family: 'Playfair Display'; font-style: normal; font-weight: 400; font-display: swap; src: url('../../vendor/fonts/playfair-display-latin-400.woff2') format('woff2'); }
+@font-face { font-family: 'Playfair Display'; font-style: normal; font-weight: 600; font-display: swap; src: url('../../vendor/fonts/playfair-display-latin-600.woff2') format('woff2'); }
+@font-face { font-family: 'Playfair Display'; font-style: normal; font-weight: 700; font-display: swap; src: url('../../vendor/fonts/playfair-display-latin-700.woff2') format('woff2'); }
+@font-face { font-family: 'Fira Code'; font-style: normal; font-weight: 400; font-display: swap; src: url('../../vendor/fonts/fira-code-latin-400.woff2') format('woff2'); }
+@font-face { font-family: 'Fira Code'; font-style: normal; font-weight: 600; font-display: swap; src: url('../../vendor/fonts/fira-code-latin-600.woff2') format('woff2'); }
+@font-face { font-family: 'Fira Code'; font-style: normal; font-weight: 700; font-display: swap; src: url('../../vendor/fonts/fira-code-latin-700.woff2') format('woff2'); }
+
 body { font-family: 'Inter', sans-serif; }
 .font-sans { font-family: 'Inter', sans-serif !important; }
 .font-serif { font-family: 'Playfair Display', serif !important; }

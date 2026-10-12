@@ -10,27 +10,26 @@
 export class TTLMemoryStreamManager {
     constructor(durationSeconds = 120, onExpireCallback = null) {
         this.durationSeconds = durationSeconds;
-        this.remainingSeconds = durationSeconds;
+        this.expiresAt = 0;
         this.timerId = null;
         this.onExpireCallback = onExpireCallback;
         this.activeBuffer = null;
     }
 
+    // Deadline-based: expiry follows the wall clock, so throttled timers (background tabs) cannot extend the TTL.
     startStream(bufferData) {
         this.activeBuffer = bufferData;
-        this.remainingSeconds = this.durationSeconds;
-        
+        this.expiresAt = Date.now() + this.durationSeconds * 1000;
+
         if (this.timerId) clearInterval(this.timerId);
 
         this.timerId = setInterval(() => {
-            this.remainingSeconds--;
-            
-            if (this.remainingSeconds <= 0) {
+            if (Date.now() >= this.expiresAt) {
                 this.expireAndWipe();
             }
         }, 1000);
 
-        return { status: 'STREAM_ACTIVE', ttl: this.remainingSeconds };
+        return { status: 'STREAM_ACTIVE', ttl: this.getRemainingTime() };
     }
 
     expireAndWipe() {
@@ -64,6 +63,7 @@ export class TTLMemoryStreamManager {
     }
 
     getRemainingTime() {
-        return this.remainingSeconds;
+        if (!this.timerId) return 0;
+        return Math.max(0, Math.ceil((this.expiresAt - Date.now()) / 1000));
     }
 }

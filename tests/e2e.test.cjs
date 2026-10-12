@@ -142,10 +142,60 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   await page.click('#wipeVaultBtn'); await page.waitForTimeout(200);
   ok('wipe deletes vault and re-prompts in create mode', !(await storage()).includes('vCGE_secure_vault.dat') && (await text('vaultModalTitle')).includes('Create'));
 
+  // Bundled card fonts load locally
+  const fonts = await page.evaluate(async () => {
+    await document.fonts.ready;
+    const fams = ['Inter', 'Playfair Display', 'Fira Code'];
+    for (const f of fams) await document.fonts.load(`700 16px "${f}"`);
+    return fams.map(f => document.fonts.check(`700 16px "${f}"`));
+  });
+  ok('bundled fonts (Inter, Playfair Display, Fira Code) load', fonts.every(Boolean), JSON.stringify(fonts));
+
   ok('no external requests during whole session', external.length === 0, external.join(', '));
   // The vault logs ERR 2001 when the deliberately wrong passphrase is tried; any other error fails the test.
   const unexpected = errors.filter(e => !e.includes('[ERR 2001] Decryption failed'));
   ok('no page errors (besides the expected wrong-passphrase ERR 2001)', unexpected.length === 0 && errors.length === 1, errors.join(' | '));
+  // Startup residue check + 120 s idle purge (fresh context with a controllable clock)
+  {
+    const ctx2 = await browser.newContext();
+    await ctx2.addInitScript(() => {
+      if (!sessionStorage.getItem('seeded')) {
+        sessionStorage.setItem('seeded', '1');
+        localStorage.setItem('vcge_contact_state', '{"name":"Old Plaintext"}');
+        localStorage.setItem('vcge_state', '{"firstName":"Old"}');
+      }
+    });
+    const p2 = await ctx2.newPage();
+    p2.on('dialog', d => d.accept());
+    await p2.clock.install();
+    await p2.goto(ORIGIN); await p2.waitForTimeout(300);
+    const st2 = await p2.evaluate(() => JSON.stringify(localStorage));
+    ok('startup purges legacy plaintext keys', !st2.includes('Old Plaintext') && !st2.includes('vcge_state'), st2);
+    await p2.click('#vaultSkipBtn');
+    await p2.fill('#firstName', 'Idle'); await p2.fill('#lastName', 'Tester');
+    await p2.clock.fastForward(5000);
+    ok('countdown shows remaining time', /Auto-clear in 11\d s/.test(await p2.textContent('#purgeCountdown')), await p2.textContent('#purgeCountdown'));
+    await p2.clock.fastForward(60000);
+    await p2.fill('#organization', 'Activity resets');
+    await p2.clock.fastForward(100000);
+    ok('activity restarts the TTL (not purged at 165 s)', (await p2.inputValue('#firstName')) === 'Idle');
+    await p2.clock.fastForward(25000);
+    ok('idle 120 s purges in-memory card', (await p2.inputValue('#firstName')) === '' && (await p2.textContent('#previewFullName')).trim() === 'New Contact');
+    ok('purge logged in audit log', (await p2.textContent('#auditLog')).includes('RAM purged (idle)'));
+
+    // Vault mode: purge locks the vault, encrypted data survives
+    await p2.click('#wipeVaultBtn'); await p2.waitForTimeout(100);
+    await p2.fill('#vaultPassphrase', 'idle passphrase'); await p2.fill('#vaultPassphraseConfirm', 'idle passphrase'); await p2.click('#vaultUnlockBtn');
+    await p2.waitForSelector('#vaultModal', { state: 'hidden' });
+    await p2.fill('#firstName', 'Kept'); await p2.clock.fastForward(1000);
+    await p2.clock.fastForward(125000);
+    ok('idle purge locks vault and re-prompts', await p2.isVisible('#vaultModal') && (await p2.inputValue('#firstName')) === '');
+    await p2.fill('#vaultPassphrase', 'idle passphrase'); await p2.click('#vaultUnlockBtn');
+    await p2.waitForSelector('#vaultModal', { state: 'hidden' });
+    ok('encrypted card survives idle purge', (await p2.inputValue('#firstName')) === 'Kept');
+    await ctx2.close();
+  }
+
   console.log(`\n${pass} passed, ${fail} failed`);
   await browser.close(); server.kill();
   process.exitCode = fail ? 1 : 0;

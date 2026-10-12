@@ -1,12 +1,15 @@
 # Third-Party Notices
 
-vCGE bundles the following third-party software in `src/vendor/`. The files are copied from pinned npm packages by `npm run vendor` (`scripts/vendor.mjs`) and committed, so the app runs offline with no CDN. All of these licences allow use in MIT-licensed source and in proprietary binary distributions, provided their notices are kept.
+vCGE bundles the following third-party software in `src/vendor/`. The files are copied from pinned npm packages by `npm run vendor` (`scripts/vendor.mjs`) and committed, so the app runs offline with no CDN. All of these licences allow use in MIT-licensed source and in proprietary binary distributions, provided their notices are kept. (The OFL fonts may be bundled and sold with software; they just can't be sold on their own.)
 
 | Component | Version | Licence | Bundled files | Copyright |
 |---|---|---|---|---|
 | [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) | 1.4.4 | MIT (notice in file header) | `src/vendor/qrcode-generator/qrcode.js` | © 2009 Kazuhiko Arase |
 | [Tesseract.js](https://github.com/naptha/tesseract.js) | 5.1.1 | Apache-2.0 (`src/vendor/tesseract/LICENSE.md`) | `src/vendor/tesseract/tesseract.min.js`, `worker.min.js` | Tesseract.js contributors |
 | [tesseract.js-core](https://github.com/naptha/tesseract.js-core) | 5.1.1 | Apache-2.0 (`src/vendor/tesseract/core/LICENSE`) | `src/vendor/tesseract/core/tesseract-core-*-lstm.wasm.js` (Tesseract OCR engine compiled to WebAssembly) | Tesseract OCR / Google, tesseract.js-core contributors |
+| [Inter](https://github.com/rsms/inter) via [@fontsource/inter](https://fontsource.org/fonts/inter) | 5.3.0 | SIL OFL 1.1 (`src/vendor/fonts/LICENSE-inter.txt`) | `src/vendor/fonts/inter-latin-{400,600,700}.woff2` | © 2016 The Inter Project Authors |
+| [Playfair Display](https://github.com/clauseggers/Playfair-Display) via [@fontsource/playfair-display](https://fontsource.org/fonts/playfair-display) | 5.3.0 | SIL OFL 1.1 (`src/vendor/fonts/LICENSE-playfair-display.txt`) | `src/vendor/fonts/playfair-display-latin-{400,600,700}.woff2` | © 2017 The Playfair Display Project Authors (Reserved Font Name "Playfair Display") |
+| [Fira Code](https://github.com/tonsky/FiraCode) via [@fontsource/fira-code](https://fontsource.org/fonts/fira-code) | 5.3.0 | SIL OFL 1.1 (`src/vendor/fonts/LICENSE-fira-code.txt`) | `src/vendor/fonts/fira-code-latin-{400,600,700}.woff2` | © 2014-2020 The Fira Code Project Authors |
 | [@tesseract.js-data/eng](https://www.npmjs.com/package/@tesseract.js-data/eng) | 1.0.0 (`4.0.0_best_int` model) | MIT (package); the model comes from [tesseract-ocr/tessdata](https://github.com/tesseract-ocr/tessdata), Apache-2.0 | `src/vendor/tesseract/lang/eng.traineddata.gz` | Google / Tesseract OCR contributors |
 
 "QR Code" is a registered trademark of DENSO WAVE INCORPORATED.

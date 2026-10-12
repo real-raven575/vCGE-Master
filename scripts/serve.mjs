@@ -14,7 +14,8 @@ const TYPES = {
     '.json': 'application/json',
     '.png': 'image/png',
     '.svg': 'image/svg+xml',
-    '.wasm': 'application/wasm'
+    '.wasm': 'application/wasm',
+    '.woff2': 'font/woff2'
 };
 
 http.createServer((req, res) => {

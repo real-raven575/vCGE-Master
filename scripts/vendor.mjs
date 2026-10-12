@@ -18,7 +18,20 @@ const FILES = [
     ['tesseract.js-core/tesseract-core-lstm.wasm.js', 'tesseract/core/tesseract-core-lstm.wasm.js'],
     ['tesseract.js-core/LICENSE', 'tesseract/core/LICENSE'],
     // "best_int" English model: integer-quantised, ~3 MB, the Tesseract.js default.
-    ['@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz', 'tesseract/lang/eng.traineddata.gz']
+    ['@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz', 'tesseract/lang/eng.traineddata.gz'],
+    // Card typography (SIL OFL 1.1), Latin subset, weights 400/600/700; declared in mod06-gui/cardStyles.css.
+    ['@fontsource/inter/files/inter-latin-400-normal.woff2', 'fonts/inter-latin-400.woff2'],
+    ['@fontsource/inter/files/inter-latin-600-normal.woff2', 'fonts/inter-latin-600.woff2'],
+    ['@fontsource/inter/files/inter-latin-700-normal.woff2', 'fonts/inter-latin-700.woff2'],
+    ['@fontsource/inter/LICENSE', 'fonts/LICENSE-inter.txt'],
+    ['@fontsource/playfair-display/files/playfair-display-latin-400-normal.woff2', 'fonts/playfair-display-latin-400.woff2'],
+    ['@fontsource/playfair-display/files/playfair-display-latin-600-normal.woff2', 'fonts/playfair-display-latin-600.woff2'],
+    ['@fontsource/playfair-display/files/playfair-display-latin-700-normal.woff2', 'fonts/playfair-display-latin-700.woff2'],
+    ['@fontsource/playfair-display/LICENSE', 'fonts/LICENSE-playfair-display.txt'],
+    ['@fontsource/fira-code/files/fira-code-latin-400-normal.woff2', 'fonts/fira-code-latin-400.woff2'],
+    ['@fontsource/fira-code/files/fira-code-latin-600-normal.woff2', 'fonts/fira-code-latin-600.woff2'],
+    ['@fontsource/fira-code/files/fira-code-latin-700-normal.woff2', 'fonts/fira-code-latin-700.woff2'],
+    ['@fontsource/fira-code/LICENSE', 'fonts/LICENSE-fira-code.txt']
 ];
 
 fs.rmSync(OUT, { recursive: true, force: true });
