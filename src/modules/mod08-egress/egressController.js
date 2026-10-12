@@ -6,7 +6,22 @@
  * native vCard downloads, SMS/Email mailto links, and physical card printing.
  */
 
-/* STREAMING_CHUNK:Defining EgressController class... */
+import { globalEventBus, Events } from '../../share/eventBus.js';
+
+// Every outbound action is announced on the bus so the shell can show a complete egress audit trail.
+function audit(method, detail = {}) {
+    globalEventBus.publish(Events.EXPORT_DISPATCHED, { module: 'vCGE-MOD08', method, timestamp: Date.now(), ...detail });
+}
+
+function clickDownload(href, filename) {
+    const link = document.createElement('a');
+    link.href = href;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
 export class EgressController {
     constructor() {
         this.currentVCard = "";
@@ -38,6 +53,7 @@ export class EgressController {
                         text: 'Digital Business Card Contact',
                         files: [file]
                     });
+                    audit('share_file');
                     return { success: true, method: 'native_file' };
                 }
 
@@ -45,6 +61,7 @@ export class EgressController {
                     title: 'Digital vCard',
                     text: this.currentVCard
                 });
+                audit('share_text');
                 return { success: true, method: 'native_text' };
             } catch (error) {
                 if (error.name === 'AbortError') return { success: false, reason: 'cancelled' };
@@ -52,7 +69,12 @@ export class EgressController {
         }
 
         // Fallback to clipboard
-        await navigator.clipboard.writeText(this.currentVCard);
+        try {
+            await navigator.clipboard.writeText(this.currentVCard);
+        } catch (e) {
+            return { success: false, reason: 'clipboard_unavailable' };
+        }
+        audit('clipboard');
         return { success: true, method: 'clipboard_fallback' };
     }
 
@@ -67,6 +89,28 @@ export class EgressController {
     }
 
     /**
+     * Saves the current vCard as a .vcf file.
+     */
+    downloadVcf() {
+        if (!this.currentVCard) return false;
+        const { url, filename } = this.generateDownloadBlob();
+        clickDownload(url, filename);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        audit('download_vcf', { filename });
+        return true;
+    }
+
+    /**
+     * Saves a canvas (the QR code) as a PNG file.
+     */
+    exportQRPNG(canvas, filename = `${this.contactData.firstName || 'Contact'}_QR.png`) {
+        if (!canvas) return false;
+        clickDownload(canvas.toDataURL('image/png'), filename);
+        audit('export_png', { filename });
+        return true;
+    }
+
+    /**
      * Triggers email client with pre-filled vCard attachment body.
      */
     triggerEmailShare() {
@@ -74,6 +118,7 @@ export class EgressController {
         const subject = encodeURIComponent(`Digital vCard: ${name}`);
         const body = encodeURIComponent(`Here is the digital vCard contact information for ${name}:\n\n${this.currentVCard}`);
         window.location.href = `mailto:?subject=${subject}&body=${body}`;
+        audit('email');
         return true;
     }
 
@@ -84,6 +129,7 @@ export class EgressController {
         const name = `${this.contactData.firstName || ''} ${this.contactData.lastName || ''}`.trim() || 'Contact';
         const body = encodeURIComponent(`Digital vCard for ${name}: ${this.contactData.website || 'Contact Attached'}`);
         window.location.href = `sms:?body=${body}`;
+        audit('sms');
         return true;
     }
 
@@ -91,6 +137,7 @@ export class EgressController {
      * Invokes the browser print pipeline for physical 3.5" x 2" cards.
      */
     triggerPhysicalPrint() {
+        audit('print');
         window.print();
         return true;
     }

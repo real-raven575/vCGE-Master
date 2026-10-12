@@ -3,167 +3,221 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- Browser-enforced egress lock: only same-origin resources and connections (see shell.js Gatekeeper) -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
+    <!-- Browser-enforced egress lock: only same-origin resources and connections (see MOD01 gatekeeper) -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
     <title>vCard Generator Engine (vCGE)</title>
     <!-- Tailwind CSS, compiled locally (npm run build:css) so the app makes no runtime CDN request -->
     <link rel="stylesheet" href="src/styles/tailwind.css">
-    <style>
-        .perspective-1000 { perspective: 1000px; }
-        .transform-style-3d { transform-style: preserve-3d; transition: transform 0.6s cubic-bezier(0.23, 1, 0.32, 1); }
-        .backface-hidden { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
-        .rotate-y-180 { transform: rotateY(180deg); }
-    </style>
+    <link rel="stylesheet" href="src/modules/mod06-gui/cardStyles.css">
+    <link rel="stylesheet" href="src/modules/mod08-egress/print.css">
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen flex flex-col antialiased selection:bg-brand-500 selection:text-white">
+<body class="bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100 min-h-screen flex flex-col antialiased">
 
-    <!-- MASTER HEADER -->
-    <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-50 px-4 py-3 flex items-center justify-between">
-        <div class="flex items-center space-x-3">
+    <!-- MASTER HEADER (MOD01) -->
+    <header class="border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur sticky top-0 z-40 px-4 py-3 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-3">
             <div class="bg-brand-500 text-slate-950 font-bold px-2.5 py-1 rounded-lg text-sm tracking-wider">vCGE</div>
             <div>
                 <h1 class="font-bold text-base tracking-tight">vCard Generator Engine</h1>
-                <p class="text-xs text-slate-400">Created by raven575 and Gemini</p>
+                <p class="text-xs text-slate-500 dark:text-slate-400">Created by raven575, Gemini &amp; Claude</p>
             </div>
         </div>
-        <div class="flex items-center space-x-2">
-            <span id="gatekeeperStatus" class="text-xs px-2.5 py-1 rounded-full bg-emerald-950 text-emerald-400 border border-emerald-800/50 flex items-center gap-1.5">
-                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                Gatekeeper Active
+        <div class="flex items-center gap-2">
+            <span class="hidden sm:flex text-xs px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/50 items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>Offline · Egress locked
             </span>
-            <button id="themeToggle" class="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition" aria-label="Toggle Theme">
-                🌙
-            </button>
+            <button id="lockVaultBtn" type="button" class="hidden px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition">🔒 Lock</button>
+            <button id="themeToggle" type="button" class="p-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition" aria-label="Toggle light or dark theme">🌙</button>
         </div>
     </header>
 
-    <!-- MAIN APP CONTAINER -->
     <main class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-        
-        <!-- LEFT COLUMN: Module Control Hub & Broker Status -->
-        <section class="lg:col-span-1 space-y-6">
-            <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 shadow-xl">
-                <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-400 mb-4 flex items-center justify-between">
-                    <span>Broker & Modules</span>
-                    <span class="text-xs text-brand-500 font-mono">MOD01 Active</span>
-                </h2>
-                <div class="space-y-2 text-sm">
-                    <div class="p-2.5 rounded-xl bg-slate-800/50 border border-slate-700/50 flex items-center justify-between">
-                        <span class="font-medium">MOD02: Secure Vault</span>
-                        <span id="vaultStateIndicator" class="text-xs text-emerald-400 font-mono">LOCKED / AES-256</span>
+
+        <!-- LEFT: Intake (MOD03/04) & Security (MOD02/MOD08 audit) -->
+        <section class="space-y-6">
+            <div class="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+                <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Scan a business card</h2>
+                <div class="grid grid-cols-2 gap-2">
+                    <label class="cursor-pointer text-center py-2.5 px-3 bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold rounded-xl transition text-sm">
+                        Upload image
+                        <input id="imageUpload" type="file" accept="image/*" class="hidden">
+                    </label>
+                    <button id="startCameraBtn" type="button" class="py-2.5 px-3 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 font-semibold rounded-xl transition text-sm">Use camera</button>
+                </div>
+                <div id="cameraPanel" class="hidden space-y-3">
+                    <div id="viewfinderArea" class="relative rounded-xl overflow-hidden bg-black aspect-video cursor-crosshair">
+                        <video id="cameraStream" autoplay playsinline muted class="w-full h-full object-cover"></video>
+                        <div id="focusRing" class="hidden absolute w-12 h-12 -ml-6 -mt-6 border-2 border-brand-400 rounded-full pointer-events-none"></div>
                     </div>
-                    <div class="p-2.5 rounded-xl bg-slate-800/50 border border-slate-700/50 flex items-center justify-between">
-                        <span class="font-medium">MOD03/04: Intake & OCR</span>
-                        <span class="text-xs text-slate-400 font-mono">Ready</span>
+                    <div class="flex items-center gap-2 text-xs">
+                        <label for="zoomSlider" class="text-slate-500 dark:text-slate-400">Zoom</label>
+                        <input id="zoomSlider" type="range" min="1" max="4" step="0.1" value="1" class="flex-1">
+                        <span id="zoomDisplay" class="font-mono w-10 text-right">1.0x</span>
                     </div>
-                    <div class="p-2.5 rounded-xl bg-slate-800/50 border border-slate-700/50 flex items-center justify-between">
-                        <span class="font-medium">MOD08: Egress Gateway</span>
-                        <span class="text-xs text-brand-400 font-mono">Protected</span>
+                    <div class="grid grid-cols-3 gap-2">
+                        <button id="captureBtn" type="button" class="py-2 bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold rounded-lg text-xs transition">Capture</button>
+                        <button id="switchCameraBtn" type="button" class="py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg text-xs transition">Switch</button>
+                        <button id="stopCameraBtn" type="button" class="py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg text-xs transition">Close</button>
                     </div>
                 </div>
+                <p id="eventLog" class="text-xs font-mono text-slate-500 dark:text-slate-400 break-words"></p>
+                <canvas id="captureCanvas" class="hidden"></canvas>
             </div>
 
-            <!-- Quick Action Simulator -->
-            <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 shadow-xl space-y-4">
-                <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-400">Broker Event Simulators</h2>
-                <div class="grid grid-cols-1 gap-2.5">
-                    <button id="btnSimulateOCR" class="w-full py-2.5 px-4 bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold rounded-xl transition text-sm shadow-lg shadow-brand-600/20">
-                        Simulate OCR Extraction Event
-                    </button>
-                    <button id="btnTriggerPurge" class="w-full py-2.5 px-4 bg-slate-800 hover:bg-rose-950/50 hover:border-rose-800 border border-slate-700 text-slate-300 hover:text-rose-400 font-medium rounded-xl transition text-sm">
-                        Trigger TTL RAM Purge (3001 Check)
-                    </button>
+            <div class="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-3">
+                <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Security</h2>
+                <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 flex items-center justify-between text-sm">
+                    <span class="font-medium">MOD02 Vault</span>
+                    <span id="vaultStateIndicator" class="text-xs font-mono text-slate-400">LOCKED</span>
+                </div>
+                <button id="wipeVaultBtn" type="button" class="w-full py-2 px-4 bg-slate-100 hover:bg-rose-50 dark:bg-slate-800 dark:hover:bg-rose-950/50 border border-slate-200 dark:border-slate-700 hover:text-rose-600 dark:hover:text-rose-400 font-medium rounded-xl transition text-xs">Wipe vault &amp; clear card</button>
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Egress &amp; vault audit log</h3>
+                    <ul id="auditLog" class="text-[11px] font-mono text-slate-500 dark:text-slate-400 space-y-0.5"></ul>
                 </div>
             </div>
         </section>
 
-        <!-- CENTER & RIGHT: Contact Form & 3D Preview Workspace -->
-        <section class="lg:col-span-2 space-y-6">
-            <div class="bg-slate-900/60 border border-slate-800 rounded-2xl p-5 md:p-6 shadow-xl space-y-6">
-                <div class="flex items-center justify-between border-b border-slate-800 pb-4">
-                    <div>
-                        <h2 class="text-lg font-bold">Contact Schema Workspace</h2>
-                        <p class="text-xs text-slate-400">Live synchronized with secure volatile memory buffers.</p>
-                    </div>
-                    <div class="flex gap-2">
-                        <button id="btnFlipCard" class="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-medium transition">Flip 3D Card</button>
-                        <button id="btnExportShare" class="px-3 py-1.5 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 text-xs font-bold transition">Export (MOD08)</button>
-                    </div>
-                </div>
-
-                <!-- Form Inputs with Null-Safe Bindings -->
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Full Name</label>
-                        <input type="text" id="inputName" placeholder="Jane Doe" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand-500 transition">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Job Title</label>
-                        <input type="text" id="inputTitle" placeholder="Chief Technology Officer" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand-500 transition">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Organization / Company</label>
-                        <input type="text" id="inputCompany" placeholder="Acme Corporation" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand-500 transition">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Phone Number</label>
-                        <input type="text" id="inputPhone" placeholder="+1 (555) 019-2834" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand-500 transition">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Email Address</label>
-                        <input type="email" id="inputEmail" placeholder="jane.doe@acme.com" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand-500 transition">
-                    </div>
-                    <div>
-                        <label class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-1">Website URL</label>
-                        <input type="url" id="inputWeb" placeholder="https://www.acme.com" class="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand-500 transition">
+        <!-- CENTER: Contact form (MOD05/MOD06) -->
+        <section class="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+            <div class="flex items-center justify-between">
+                <h2 class="text-lg font-bold">Contact details</h2>
+                <div class="flex items-center gap-2">
+                    <div id="formAvatarPreview" class="w-14 h-14"></div>
+                    <div class="flex flex-col gap-1">
+                        <label class="cursor-pointer text-[11px] font-semibold px-2 py-1 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition text-center">
+                            Avatar<input id="avatarUpload" type="file" accept="image/png,image/jpeg" class="hidden">
+                        </label>
+                        <button id="removeAvatarBtn" type="button" class="hidden text-[11px] px-2 py-1 rounded-lg hover:text-rose-500 transition">Remove</button>
                     </div>
                 </div>
+            </div>
+            <div>
+                <p class="text-[11px] text-slate-500 dark:text-slate-400 mb-1">Sample presets</p>
+                <div id="presetButtonsContainer" class="flex flex-wrap gap-1.5"></div>
+            </div>
 
-                <!-- 3D Card Preview Box -->
-                <div class="pt-4 border-t border-slate-800 flex flex-col items-center justify-center">
-                    <div class="w-full max-w-sm h-52 perspective-1000 cursor-pointer" id="cardContainer">
-                        <div id="cardInner" class="relative w-full h-full transform-style-3d shadow-2xl rounded-2xl">
-                            <!-- Card Front -->
-                            <div class="absolute inset-0 bg-gradient-to-br from-slate-900 to-slate-800 border border-slate-700/60 rounded-2xl p-6 flex flex-col justify-between backface-hidden">
-                                <div class="flex justify-between items-start">
-                                    <span class="text-xs uppercase tracking-widest text-brand-400 font-mono">vCGE Virtual ID</span>
-                                    <span class="w-2 h-2 rounded-full bg-brand-500"></span>
-                                </div>
-                                <div>
-                                    <h3 id="previewName" class="text-xl font-bold tracking-tight text-white">Jane Doe</h3>
-                                    <p id="previewTitle" class="text-sm text-brand-400 font-medium">Chief Technology Officer</p>
-                                    <p id="previewCompany" class="text-xs text-slate-400 mt-1">Acme Corporation</p>
-                                </div>
-                                <div class="text-xs text-slate-400 font-mono space-y-0.5">
-                                    <p id="previewPhone">+1 (555) 019-2834</p>
-                                    <p id="previewEmail">jane.doe@acme.com</p>
+            <div class="grid grid-cols-2 gap-3 text-sm">
+                <label class="block"><span class="field-label">First name</span><input id="firstName" type="text" autocomplete="off" class="field-input"></label>
+                <label class="block"><span class="field-label">Last name</span><input id="lastName" type="text" autocomplete="off" class="field-input"></label>
+                <label class="block"><span class="field-label">Organization</span><input id="organization" type="text" autocomplete="off" class="field-input"></label>
+                <label class="block"><span class="field-label">Job title</span><input id="jobTitle" type="text" autocomplete="off" class="field-input"></label>
+                <label class="block"><span class="field-label">Work phone</span><input id="phoneWork" type="tel" autocomplete="off" class="field-input"></label>
+                <label class="block"><span class="field-label">Mobile phone</span><input id="phoneMobile" type="tel" autocomplete="off" class="field-input"></label>
+                <label class="block col-span-2"><span class="field-label">Email</span><input id="email" type="email" autocomplete="off" class="field-input"></label>
+                <label class="block col-span-2"><span class="field-label">Website</span><input id="website" type="url" autocomplete="off" class="field-input"></label>
+                <div class="relative col-span-2">
+                    <label class="block"><span class="field-label">Street (local suggestions)</span><input id="street" type="text" autocomplete="off" class="field-input"></label>
+                    <div id="addressAutocompleteList" class="hidden absolute z-30 left-0 right-0 mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden"></div>
+                </div>
+                <label class="block"><span class="field-label">City</span><input id="city" type="text" autocomplete="off" class="field-input"></label>
+                <label class="block"><span class="field-label">State / region</span><input id="state" type="text" autocomplete="off" class="field-input"></label>
+                <label class="block"><span class="field-label">Postal code</span><input id="zip" type="text" autocomplete="off" class="field-input"></label>
+                <label class="block"><span class="field-label">Country</span><input id="country" type="text" autocomplete="off" class="field-input"></label>
+                <label class="block"><span class="field-label">Nickname</span><input id="nickname" type="text" autocomplete="off" class="field-input"></label>
+                <label class="block"><span class="field-label">Birthday</span><input id="birthday" type="date" class="field-input"></label>
+                <label class="block col-span-2"><span class="field-label">Notes</span><textarea id="notes" rows="2" class="field-input"></textarea></label>
+            </div>
+        </section>
+
+        <!-- RIGHT: Card preview (MOD06/MOD07) & outbound actions (MOD08) -->
+        <section class="space-y-4">
+            <div class="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+                <div class="flex flex-wrap items-center gap-2">
+                    <div class="relative">
+                        <button id="paletteDropdownBtn" type="button" class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition">
+                            <span id="paletteSwatch" class="w-3 h-3 rounded-full"></span><span id="currentPaletteLabel">Ocean Blue</span>
+                        </button>
+                        <div id="paletteMenu" class="hidden absolute z-30 mt-1 w-48 p-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl">
+                            <div id="paletteListContainer"></div>
+                        </div>
+                    </div>
+                    <select id="cardFontSelect" class="px-2 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-xs font-semibold" aria-label="Card typography">
+                        <option value="font-sans">Sans</option>
+                        <option value="font-serif">Serif</option>
+                        <option value="font-mono">Mono</option>
+                    </select>
+                    <button id="flipCardBtn" type="button" class="ml-auto px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition">Flip card</button>
+                </div>
+
+                <div class="perspective-1000">
+                    <div id="card3DFlipper" class="relative transform-style-3d cursor-pointer">
+                        <div id="cardFront" class="w-full min-h-64 rounded-3xl p-6 shadow-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-4 relative overflow-hidden backface-hidden font-sans">
+                            <div class="flex items-center gap-4">
+                                <div id="previewAvatar" class="w-16 h-16"></div>
+                                <div class="min-w-0">
+                                    <h3 id="previewFullName" class="text-xl font-bold tracking-tight truncate">New Contact</h3>
+                                    <p id="previewTitle" class="text-sm text-slate-500 dark:text-slate-400 truncate">Job Title</p>
+                                    <p id="previewOrg" class="text-sm font-semibold truncate">Company Name</p>
                                 </div>
                             </div>
-                            <!-- Card Back -->
-                            <div class="absolute inset-0 bg-gradient-to-br from-slate-900 to-slate-800 border border-slate-700/60 rounded-2xl p-6 flex flex-col items-center justify-center backface-hidden rotate-y-180">
-                                <div class="w-28 h-28 bg-white p-2 rounded-xl flex items-center justify-center shadow-inner">
-                                    <!-- QR Code Mock Matrix -->
-                                    <div class="w-full h-full bg-slate-950 rounded-lg flex items-center justify-center text-xs font-mono text-brand-400 text-center p-2">
-                                        [vCard QR Matrix]
-                                    </div>
-                                </div>
-                                <p class="text-xs text-slate-400 mt-3 font-mono">Scan to import contact</p>
+                            <div class="text-xs space-y-1 text-slate-600 dark:text-slate-300">
+                                <p id="previewPhone">No phone number</p>
+                                <p id="previewEmail" class="break-all">No email address</p>
+                                <p id="previewWebsite" class="break-all">No website</p>
+                                <p id="previewAddress">No address provided</p>
                             </div>
+                        </div>
+                        <div id="cardBack" class="absolute inset-0 w-full rounded-3xl p-6 shadow-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col justify-center items-center text-center gap-2 rotate-y-180 backface-hidden font-sans">
+                            <canvas id="qrCanvas" width="160" height="160" class="rounded-lg bg-white"></canvas>
+                            <p id="backCardName" class="text-sm font-bold">New Contact</p>
+                            <p id="qrNotice" class="hidden text-[10px] text-amber-600 dark:text-amber-400">QR placeholder: no QR library bundled yet</p>
                         </div>
                     </div>
                 </div>
             </div>
-        </section>
 
+            <div class="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-2">
+                <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Share &amp; export (MOD08)</h2>
+                <div class="grid grid-cols-3 gap-2 text-xs font-semibold">
+                    <button id="downloadVcfBtn" type="button" class="py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 transition">.vcf</button>
+                    <button id="shareNativeBtn" type="button" class="py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition">Share</button>
+                    <button id="exportQrBtn" type="button" class="py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition">QR PNG</button>
+                    <button id="emailBtn" type="button" class="py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition">Email</button>
+                    <button id="smsBtn" type="button" class="py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition">SMS</button>
+                    <button id="printCardBtn" type="button" class="py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition">Print</button>
+                </div>
+            </div>
+        </section>
     </main>
 
-    <!-- MASTER FOOTER -->
-    <footer class="border-t border-slate-800 bg-slate-900/80 px-4 py-4 text-center text-xs text-slate-500">
-        <p>vCard Generator Engine (vCGE) &bull; Created by raven575 and Gemini</p>
+    <footer class="border-t border-slate-200 dark:border-slate-800 px-4 py-4 text-center text-xs text-slate-500">
+        vCard Generator Engine (vCGE) &bull; Created by raven575, Gemini &amp; Claude &bull; MIT License
     </footer>
 
-    <!-- EXTERNALIZED SCRIPT ASSETS -->
-    <script src="src/modules/mod01-shell/themeManager.js"></script>
-    <script src="src/modules/mod01-shell/shell.js"></script>
+    <!-- OCR review modal (MOD03 -> MOD04) -->
+    <div id="cropReviewModal" class="hidden fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
+        <div class="bg-white dark:bg-slate-900 rounded-2xl p-5 max-w-lg w-full space-y-3 shadow-2xl">
+            <h2 class="text-lg font-bold">Review captured image</h2>
+            <img id="reviewImage" alt="Captured business card" class="w-full max-h-80 object-contain rounded-lg bg-slate-100 dark:bg-slate-800">
+            <p class="text-xs text-slate-500 dark:text-slate-400">Focus point <span id="priorityCoord" class="font-mono">(0.5, 0.5)</span>. The image stays on this device.</p>
+            <div class="flex justify-end gap-2">
+                <button id="cancelReviewBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Cancel</button>
+                <button id="runOcrBtn" type="button" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Extract fields</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Vault unlock / create modal (MOD02) -->
+    <div id="vaultModal" class="hidden fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
+        <form id="vaultForm" class="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-sm w-full space-y-3 shadow-2xl">
+            <h2 id="vaultModalTitle" class="text-lg font-bold">Unlock your vault</h2>
+            <p id="vaultModalHint" class="text-xs text-slate-500 dark:text-slate-400"></p>
+            <label class="block"><span class="field-label">Passphrase</span><input id="vaultPassphrase" type="password" autocomplete="current-password" class="field-input"></label>
+            <label id="vaultConfirmRow" class="block"><span class="field-label">Confirm passphrase</span><input id="vaultPassphraseConfirm" type="password" autocomplete="new-password" class="field-input"></label>
+            <p id="vaultError" class="text-xs text-rose-600 dark:text-rose-400 min-h-4" role="alert"></p>
+            <div class="flex justify-between gap-2">
+                <button id="vaultSkipBtn" type="button" class="px-3 py-2 rounded-lg text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white transition">Continue without saving</button>
+                <button id="vaultUnlockBtn" type="submit" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Unlock</button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Toast -->
+    <div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 translate-y-20 opacity-0 transition-all duration-300 z-50 px-4 py-2.5 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-sm shadow-xl" role="status">
+        <span id="toastMessage"></span>
+    </div>
+
+    <script type="module" src="src/main.js"></script>
 </body>
 </html>

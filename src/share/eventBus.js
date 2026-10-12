@@ -35,4 +35,17 @@ export class EventBus {
     }
 }
 
+// Single application-wide bus. All modules publish and subscribe through these event names.
+export const Events = Object.freeze({
+    CONTACT_UPDATED: 'CONTACT_UPDATED',
+    IMAGE_CAPTURED: 'IMAGE_CAPTURED',
+    OCR_TEXT_EXTRACTED: 'OCR_TEXT_EXTRACTED',
+    VAULT_UNLOCKED: 'VAULT_UNLOCKED',
+    VAULT_LOCKED: 'VAULT_LOCKED',
+    VAULT_SAVED: 'VAULT_SAVED',
+    VAULT_WIPED: 'VAULT_WIPED',
+    EXPORT_DISPATCHED: 'EXPORT_DISPATCHED',
+    EGRESS_BLOCKED: 'EGRESS_BLOCKED'
+});
+
 export const globalEventBus = new EventBus();

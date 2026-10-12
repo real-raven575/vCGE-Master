@@ -5,6 +5,7 @@
   "description": "vCard Generator Engine (vCGE) - offline-first digital business card engine",
   "license": "MIT",
   "scripts": {
+    "start": "node scripts/serve.mjs",
     "build:css": "tailwindcss -c tailwind.config.js -i src/styles/tailwind.input.css -o src/styles/tailwind.css --minify"
   },
   "devDependencies": {

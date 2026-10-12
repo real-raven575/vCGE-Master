@@ -1,3 +1,12 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer components {
+    .field-label {
+        @apply block text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1;
+    }
+    .field-input {
+        @apply w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-brand-500 transition;
+    }
+}

@@ -31,7 +31,7 @@ export class ContactFormMapper {
     /**
      * Parses raw OCR text lines and maps them to structured vCard schema fields.
      * @param {string} rawText - Raw text extracted from OCR.
-     * @returns {Object} Mapped contact fields.
+     * @returns {Object} Mapped contact fields (canonical names from share/cardSchema.js CONTACT_FIELDS).
      */
     parseOCRText(rawText) {
         const rawLines = rawText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
@@ -42,8 +42,8 @@ export class ContactFormMapper {
             phoneMobile: '',
             email: '',
             website: '',
-            org: '',
-            title: '',
+            organization: '',
+            jobTitle: '',
             street: '',
             city: '',
             state: '',
@@ -55,6 +55,8 @@ export class ContactFormMapper {
         const phoneRegex = /(?:(?:\+?1\s*(?:[.-]\s*)?)?(?:\(\s*([2-9]1[02-9]|[2-9][02-8]1|[2-9][02-8][02-9])\s*\)|([2-9]1[02-9]|[2-9][02-8]1|[2-9][02-8][02-9]))\s*(?:[.-]\s*)?)?([2-9]1[02-9]|[2-9][02-9]1|[2-9][02-9]{2})\s*(?:[.-]\s*)?([0-9]{4})(?:\s*(?:#|x\.?|ext\.?)\s*(\d+))?/i;
         const urlRegex = /(https?:\/\/[^\s]+|www\.[^\s]+\.[^\s]+)/i;
         const zipRegex = /\b\d{5}(?:-\d{4})?\b/;
+        const cityStateZipRegex = /^([A-Za-z .'-]+),\s*([A-Z]{2})\s+(\d{5}(?:-\d{4})?)$/;
+        const streetRegex = /^\d+[A-Za-z]?\s+\S+/;
 
         rawLines.forEach(line => {
             if (emailRegex.test(line) && !data.email) {
@@ -62,21 +64,27 @@ export class ContactFormMapper {
                 if (match) data.email = match[0];
             } else if (phoneRegex.test(line) && !data.phoneMobile) {
                 const match = line.match(phoneRegex);
-                if (match) data.phoneMobile = match[0];
+                if (match && !data.phoneWork) data.phoneWork = match[0];
+                else if (match) data.phoneMobile = match[0];
             } else if (urlRegex.test(line) && !data.website) {
                 const match = line.match(urlRegex);
                 if (match) data.website = match[0];
+            } else if (cityStateZipRegex.test(line) && !data.city) {
+                const [, city, state, zip] = line.match(cityStateZipRegex);
+                Object.assign(data, { city: city.trim(), state, zip });
+            } else if (streetRegex.test(line) && !data.street) {
+                data.street = line;
             } else if (zipRegex.test(line) && !data.zip) {
                 const match = line.match(zipRegex);
                 if (match) data.zip = match[0];
-            } else if (/VP|Director|Manager|Engineer|Designer|Chief|Consultant|Founder|CEO|CTO|Partner/i.test(line) && !data.title) {
-                data.title = line;
+            } else if (/VP|Director|Manager|Engineer|Designer|Chief|Consultant|Founder|CEO|CTO|Partner/i.test(line) && !data.jobTitle) {
+                data.jobTitle = line;
             } else if (!data.firstName && line.split(' ').length === 2 && !/[@0-9]/.test(line)) {
                 const parts = line.split(' ');
                 data.firstName = parts[0];
                 data.lastName = parts[1];
-            } else if (!data.org && line.length > 3 && !/[@0-9]/.test(line) && !data.title.includes(line)) {
-                data.org = line;
+            } else if (!data.organization && line.length > 3 && !/[@0-9]/.test(line) && !data.jobTitle.includes(line)) {
+                data.organization = line;
             }
         });
 

@@ -3,6 +3,7 @@
  * Created by raven575 & Gemini
  * Target: camera.js (Modular ES Implementation)
  */
+import { globalEventBus, Events } from '../../share/eventBus.js';
 
 export class VCGEActiveCamera {
     constructor(config = {}) {
@@ -54,7 +55,7 @@ export class VCGEActiveCamera {
                 this.zoomSlider.step = capabilities.zoom.step;
             }
         } catch (err) {
-            this.logEvent(`Camera access unavailable: ${err.message}. Using synthetic RAM fallback stream.`);
+            this.logEvent(`Camera access unavailable: ${err.message}. Use "Upload card image" instead.`);
         }
     }
 
@@ -101,6 +102,14 @@ export class VCGEActiveCamera {
         }
     }
 
+    stopCamera() {
+        if (this.activeStream) {
+            this.activeStream.getTracks().forEach(track => track.stop());
+            this.activeStream = null;
+        }
+        if (this.videoEl) this.videoEl.srcObject = null;
+    }
+
     switchCamera() {
         this.currentFacingMode = this.currentFacingMode === 'environment' ? 'user' : 'environment';
         this.initCamera();
@@ -115,7 +124,7 @@ export class VCGEActiveCamera {
         const reader = new FileReader();
         reader.onload = (event) => {
             this.capturedImageDataUrl = event.target.result;
-            this.dispatchVaultSaveRequest(this.capturedImageDataUrl, 'GALLERY_IMPORT');
+            this.publishCapture(this.capturedImageDataUrl, 'GALLERY_IMPORT');
         };
         reader.readAsDataURL(file);
     }
@@ -128,16 +137,14 @@ export class VCGEActiveCamera {
 
         ctx.drawImage(this.videoEl, 0, 0, this.canvasEl.width, this.canvasEl.height);
         this.capturedImageDataUrl = this.canvasEl.toDataURL('image/png');
-        this.dispatchVaultSaveRequest(this.capturedImageDataUrl, 'HARDWARE_STREAM_SNAP');
+        this.publishCapture(this.capturedImageDataUrl, 'HARDWARE_STREAM_SNAP');
     }
 
-    dispatchVaultSaveRequest(dataUrl, sourceMode) {
-        this.logEvent(`EVENT BUS [VAULT_SAVE_REQUEST]: Transmitting encrypted AES-256 binary payload (${sourceMode})...`);
-        
-        setTimeout(() => {
-            this.logEvent(`SUCCESS: Payload secured in vCGE-MOD02 Vault (120s TTL Ephemeral Stream).`);
-            this.openCropReviewModal(dataUrl);
-        }, 300);
+    // The captured image stays in memory; it is handed to the review modal and announced on the bus for OCR.
+    publishCapture(dataUrl, sourceMode) {
+        this.logEvent(`Image captured (${sourceMode}). Review it, then run OCR.`);
+        globalEventBus.publish(Events.IMAGE_CAPTURED, { dataUrl, sourceMode, focusPoint: this.focusPoint });
+        this.openCropReviewModal(dataUrl);
     }
 
     openCropReviewModal(dataUrl) {

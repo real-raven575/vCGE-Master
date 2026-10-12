@@ -100,6 +100,18 @@ export class SecureStorageVault {
         }
     }
 
+    hasStoredVault() {
+        return localStorage.getItem(this.storageKey) !== null;
+    }
+
+    // Drops the derived key from memory but keeps the encrypted vault on disk.
+    lock() {
+        this.masterKey = null;
+        this.salt = null;
+        this.isUnlocked = false;
+        return { status: 'LOCKED' };
+    }
+
     zeroFillWipe() {
         this.masterKey = null;
         this.salt = null;

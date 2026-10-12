@@ -18,14 +18,29 @@ The **vCard Generator Engine (vCGE)** is a high-security, cross-platform digital
 
 ## 🚧 Current Status
 
-**Prototype — not yet runnable end-to-end.** The architecture is designed and each module exists on its own, but nothing integrates them yet:
+**Working web prototype.** The app runs end-to-end in a browser:
+- Scan or upload a card, then review and edit the contact.
+- Preview the 3D card.
+- Save it encrypted in the on-device vault.
+- Share or export through MOD08.
 
-- `index.html` loads only MOD01, and `src/main.js` (the integration controller) is empty.
-- There are no Vite or Tauri config files yet; `package.json` only builds the CSS.
-- OCR and QR rendering are simulated.
-- There are no runtime network calls: the MOD01 gatekeeper and a Content-Security-Policy block any non-local request. No contact data is saved unencrypted. Contact data isn't kept across reloads yet because vault-backed persistence isn't wired in.
+All of this happens with no network access: the MOD01 gatekeeper and a Content-Security-Policy block every non-local request.
 
-The full verified findings list is in [`docs/spec.md` §3](docs/spec.md#3-current-progress--verification-status).
+**Not done yet:**
+- OCR and the QR code are placeholders until Tesseract.js and QRious are bundled. The app tells you when they are used.
+- The Tauri v2 desktop build and OS keychain integration don't exist yet.
+
+The full verified status is in [`docs/spec.md` §3](docs/spec.md#3-current-progress--verification-status).
+
+## ▶️ Running locally
+
+ES modules don't load from `file://`, so serve the folder over HTTP. This needs Node.js 18 or later and no other dependencies:
+
+```bash
+npm start            # serves http://localhost:8080 (localhost only; PORT=xxxx to change)
+```
+
+On first launch you either create a vault passphrase (8+ characters; it **cannot be recovered**) or choose *Continue without saving*.
 
 ---
 
@@ -35,30 +50,32 @@ The full verified findings list is in [`docs/spec.md` §3](docs/spec.md#3-curren
 vCGE-Master/
 ├── LICENSE.md                     # MIT License
 ├── README.md
-├── package.json                   # npm run build:css (Tailwind 3.4.17, pinned)
+├── package.json                   # npm start (local server), npm run build:css (Tailwind 3.4.17, pinned)
 ├── tailwind.config.js
-├── index.html                     # Master Container Shell (vCGE-MOD01 UI)
+├── index.html                     # App UI (loads src/main.js as an ES module; CSP egress lock)
 ├── docs/
 │   └── spec.md                    # Architecture brief & verification status
+├── scripts/
+│   └── serve.mjs                  # Dependency-free localhost static server
 └── src/
-    ├── main.js                    # Master Integration Controller (empty — not yet written)
+    ├── main.js                    # Master Integration Controller (wires all modules over the event bus)
     ├── styles/                    # tailwind.input.css → tailwind.css (compiled, committed)
     ├── share/                     # Global Shared Libraries (vCGE-SHARE)
     │   ├── index.js               # Export barrel
-    │   ├── cardSchema.js          # Contact schema & validation
+    │   ├── cardSchema.js          # Canonical contact schema (CONTACT_FIELDS) & validation
     │   ├── cryptoUtils.js         # AES-GCM WebCrypto helpers
-    │   ├── eventBus.js            # Pub/Sub event bus
-    │   ├── regexMatchers.js       # OCR text heuristics
-    │   └── vcardFormatter.js      # vCard 3.0 formatter
+    │   ├── eventBus.js            # The single event bus + event names
+    │   ├── regexMatchers.js       # Shared regex constants
+    │   └── vcardFormatter.js      # The single vCard 3.0 builder (RFC 2426 escaping, CRLF)
     └── modules/                   # Isolated Core Functional Modules
-        ├── mod01-shell/           # shell.js (Pub/Sub broker, gatekeeper), themeManager.js
-        ├── mod02-vault/           # vault.js (PBKDF2 + AES-GCM-256), ttlManager.js (120 s TTL)
+        ├── mod01-shell/           # shell.js (network gatekeeper), themeManager.js (light/dark)
+        ├── mod02-vault/           # vault.js (PBKDF2 + AES-GCM-256, lock/wipe), ttlManager.js (120 s TTL, not wired yet)
         ├── mod03-camera/          # camera.js (viewfinder, zoom, capture, crop review)
-        ├── mod04-ocr/             # ocrWorker.js (Tesseract.js WASM pipeline)
-        ├── mod05-form/            # formMapper.js, addressAutocomplete.js (local-only lookup)
-        ├── mod06-gui/             # card3dView.js (card logic, theming, presets), cardStyles.css
-        ├── mod07-qr/              # qrGenerator.js (vCard 3.0 builder, QR canvas, PNG/VCF export)
-        └── mod08-egress/          # egressController.js (Web Share, .vcf, mailto/sms, print), print.css
+        ├── mod04-ocr/             # ocrWorker.js (image pre-processing + Tesseract.js hook; simulated until bundled)
+        ├── mod05-form/            # formMapper.js (OCR text → contact), addressAutocomplete.js (local-only)
+        ├── mod06-gui/             # card3dView.js (CardView: form, preview, palettes, avatar), cardStyles.css
+        ├── mod07-qr/              # qrGenerator.js (vCard via shared builder, QR canvas render)
+        └── mod08-egress/          # egressController.js (share, .vcf, QR PNG, mailto/sms, print + audit), print.css
 ```
 
 **Planned, not yet present:** `vite.config.js`, `src-tauri/` + `tauri.conf.json`.

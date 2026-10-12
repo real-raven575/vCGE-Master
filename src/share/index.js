@@ -4,8 +4,8 @@
  * Attributions: Created by raven575 and Gemini
  */
 
-export { globalEventBus, EventBus } from './eventBus.js';
-export { createEmptyContact, validateContact, ContactSchemaVersion } from './cardSchema.js';
+export { globalEventBus, EventBus, Events } from './eventBus.js';
+export { createEmptyContact, validateContact, ContactSchemaVersion, CONTACT_FIELDS } from './cardSchema.js';
 export { CryptoUtils } from './cryptoUtils.js';
 export { RegexMatchers } from './regexMatchers.js';
 export { formatVCard, escapeVCardText } from './vcardFormatter.js';

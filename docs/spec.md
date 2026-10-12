@@ -18,36 +18,38 @@ The application is structured into a strictly modular ES Architecture consisting
 - **vCGE-MOD08:** Outbound sharing controller functioning as the sole egress gateway for Web Share payloads, .vcf downloads, PNG exports, and physical card printing.
 
 ## 3. Current Progress & Verification Status
-*Verified 2026-10-12 against the files imported from the Google Drive export (`vCGE FILES/vCGE-Master`, 23 files). Every file was read in full, every JavaScript file was syntax-checked with Node 22, the pure-logic modules were run in functional tests, and `index.html` was loaded in headless Chromium. All fixes made since were re-verified the same day.*
+*Verified 2026-10-12. The source was imported from the Google Drive export (`vCGE FILES/vCGE-Master`, 23 files), read in full, fixed and integrated. Every JavaScript file passes a Node 22 syntax check. The logic modules pass a 37-case Node suite, and the integrated app passes a 34-case end-to-end run in headless Chromium.*
 
-**Overall:** the design is complete, but the code is at prototype stage. Each module exists on its own, but nothing wires them together yet. `index.html` loads only MOD01, which now runs.
+**Overall:** the app runs end-to-end in a browser (`npm start`). It is integrated, offline and encrypted at rest. OCR and QR rendering still use placeholders until their libraries are bundled, and the Tauri desktop build does not exist yet (see 3.2).
 
 ### 3.1 What works (verified)
-- **vCGE-SHARE:** `EventBus` (publish, unsubscribe, error isolation), `createEmptyContact` / `validateContact`, `RegexMatchers.parseOCRText` (name, email, URL, phone, ZIP). `CryptoUtils` has no default key: it requires a caller-supplied passphrase, derives the key with PBKDF2-SHA256 (100k iterations) and a fresh random salt per encryption (stored with the ciphertext), and rejects a wrong or missing passphrase.
-- **MOD02:** `SecureStorageVault` encrypts and decrypts (PBKDF2-SHA256, 100k iterations, AES-GCM-256). The vault reopens after a restart with the same passphrase, and a wrong passphrase is rejected; it reuses the stored salt. The `TTLMemoryStreamManager` timer expires and fires its code-3001 callback.
-- **MOD05:** `ContactFormMapper.parseOCRText` and the US/UK phone formatting.
-- **vCard output:** all three builders (`share/vcardFormatter.js`, the MOD06 builder, MOD07 `generateVCard30`) escape text values per RFC 2426 (`\ , ;` and newlines) and use CRLF line endings per RFC 2425. MOD07 also normalises BDAY.
-- **MOD01:** `index.html` loads its scripts from `src/modules/mod01-shell/`. Typing updates the card preview, the 3D flip works, and `window.vCGE.Broker` loads (headless Chromium).
-- **MOD06:** `card3dView.js` holds the card logic and `cardStyles.css` holds the styles (their contents were swapped in the export). Both pass their checks.
-- **No runtime network calls:** Tailwind is compiled locally (`npm run build:css` → `src/styles/tailwind.css`) instead of loaded from a CDN, and address autocomplete is local-only in both MOD05 and MOD06. Headless Chromium shows zero non-local requests, and no `fetch`/XHR/WebSocket calls remain in `src/` (outside the gatekeeper itself).
-- **Egress is enforced:** the MOD01 gatekeeper (`shell.js`) wraps `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource` and `navigator.sendBeacon`. It blocks any non-same-origin request and publishes `EGRESS_BLOCKED` on the broker; same-origin requests (local assets) still work. A Content-Security-Policy in `index.html` (`connect-src 'self'`, `script-src 'self'`, …) enforces the same rule at browser level. Verified in headless Chromium, and normal page load raises no CSP violations.
-- **No plaintext contact data at rest:** the shell and the MOD06 logic keep contact fields and the avatar in memory only, and delete the plaintext keys left by earlier builds on startup. Only non-sensitive UI preferences (theme, palette) persist. Encrypted persistence through the MOD02 vault is not wired in yet (it needs a passphrase UI), so contact data is not kept across reloads.
-- All other JavaScript files pass the syntax check. `camera.js` and `egressController.js` need real browser and hardware APIs, so they were only syntax-checked, not run.
+- **Integration:** `src/main.js` wires every module over one event bus: MOD03 camera or upload → MOD04 OCR → MOD05 mapper → MOD06 card view → MOD07 vCard and QR → MOD02 vault and MOD08 egress. `index.html` is the full app UI, loaded as ES modules (`<script type="module">`).
+- **One schema, one bus, one format:** `share/cardSchema.js` (`CONTACT_FIELDS`) is the only contact schema; form element IDs, the mapper output and the vault payload all use it. `share/eventBus.js` (`globalEventBus`, `Events`) is the only event system. `share/vcardFormatter.js` is the only vCard builder: MOD07 delegates to it, and it escapes text per RFC 2426, uses CRLF per RFC 2425, and sets the PHOTO type from the image. MOD05 `ContactFormMapper` is the only OCR text mapper (name, title, organization, both phones, email, website, street, City/ST/ZIP). Every module is an ES module.
+- **MOD02 vault (encrypted persistence):**
+  - On first run the user creates a passphrase (8+ characters) or chooses "Continue without saving". Edits are then saved with AES-GCM-256 (PBKDF2-SHA256, 100k iterations, stored salt) after a 400 ms debounce.
+  - After a reload, the right passphrase restores the card and a wrong one is rejected.
+  - Lock drops the key but keeps the vault. Wipe deletes it.
+  - Storage never contains plaintext contact data; this was checked in the browser.
+- **vCGE-SHARE `CryptoUtils`** has no default key: it requires a passphrase, derives the key with PBKDF2, and uses a fresh salt for each encryption.
+- **MOD03/MOD04 intake:** image upload (10 MB limit) and the camera viewfinder (zoom, tap-to-focus, switch, capture) open a review modal. "Extract fields" runs OCR, maps the text and merges it into the form. When Tesseract.js isn't loaded, the user is told that sample text was used.
+- **MOD05 local address suggestions** fill in street, city, state, ZIP and country, with no network lookup.
+- **MOD06 card view:** live preview, 3D flip, five palettes, three typography options, avatar (PNG/JPEG, 2 MB limit), three sample presets, toasts, and app-wide light/dark mode. Tested at desktop width and at 390 px wide with no horizontal scroll.
+- **MOD08 egress:** .vcf download, share sheet (clipboard fallback), QR PNG export, email, SMS and print all go through `egressController`. Each action publishes `EXPORT_DISPATCHED`, and the Security panel shows an audit log of egress, blocked requests, vault and OCR events.
+- **No network egress:**
+  - The MOD01 gatekeeper is imported first. It wraps `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource` and `sendBeacon`, blocks every non-same-origin request and publishes `EGRESS_BLOCKED`.
+  - The CSP restricts scripts, styles and connections to `'self'`.
+  - Tailwind is compiled locally (`npm run build:css`).
+  - A full browser session made zero non-local requests, and same-origin requests still work.
 
-### 3.2 Blocking defects (the full app does not run yet)
-1. **No integration layer:** `src/main.js` is empty. MOD02–MOD08 are never loaded. The MOD06 logic targets element IDs (`firstName`, `qrCanvas`, `card3DFlipper`, …) that do not exist in `index.html`.
-2. **No app build tooling:** `package.json` only builds the CSS. There is no Vite config and no Tauri project (`tauri.conf.json`, `src-tauri/`), so the planned Tauri v2 + Vite build cannot run.
-
-### 3.3 Spec violations (security & privacy)
-3. **No OS keychain integration** exists in the codebase.
-4. **TTL zero-fill is best-effort:** it overwrites string properties of a JS object, but JavaScript strings are immutable, so earlier copies can stay in memory. The manager is also not used by any module.
-
-### 3.4 Functional gaps
-5. **OCR is simulated:** nothing loads Tesseract.js. MOD04 falls back to fixed sample text ("Alex Morgan…"). The MOD06 upload handler fills in fixed values ("Jordan Lee") whatever the image contains.
-6. **The QR code is not scannable:** nothing loads QRious. The MOD07 fallback draws the text "QR Matrix Rendered", and `index.html` shows a placeholder.
-7. **Duplicated, incompatible schemas:** vCard building and OCR parsing are each implemented in up to five places, with different field names (`organization`/`org`, `jobTitle`/`title`, `avatarBase64`/`photoBase64`). There are also three unconnected event systems (`EventBus`, the shell `Broker`, and `window` CustomEvents), and the module formats are mixed (ESM, IIFE, CommonJS).
+### 3.2 Remaining gaps
+1. **No desktop build:** there is no Vite config and no Tauri project (`tauri.conf.json`, `src-tauri/`), so the planned Tauri v2 build cannot run. The app currently runs as a local web page.
+2. **No OS keychain integration:** the vault key is derived from the passphrase only. The macOS Keychain, Windows DPAPI and Linux libsecret integration needs the Tauri side.
+3. **TTL zero-fill is best-effort and unused:** `TTLMemoryStreamManager` overwrites string properties, but JavaScript strings are immutable, so earlier copies can stay in memory. No module uses it yet.
+4. **OCR is simulated:** Tesseract.js (with its WASM core and `eng` language data) is not bundled, so MOD04 returns fixed sample text. The app says so whenever it happens.
+5. **The QR code is not scannable:** QRious is not bundled, so MOD07 draws a labelled placeholder ("QR library not bundled"), and the card shows a notice.
+6. **Card fonts are not bundled:** `cardStyles.css` names Inter, Playfair Display and Fira Code, which are not shipped, so the card uses system fallbacks.
 
 ## 4. Key Technical Decisions
-- **RAM TTL Streams:** To eliminate persistent data residue risks, visual renderers and QR generators consume short-lived, read-only memory streams protected by a 120-second TTL auto-purge protocol and startup memory residue checks. *(Status: timer implemented, not yet wired in — see 3.3 #4.)*
+- **RAM TTL Streams:** To eliminate persistent data residue risks, visual renderers and QR generators consume short-lived, read-only memory streams protected by a 120-second TTL auto-purge protocol and startup memory residue checks. *(Status: timer implemented, not yet wired in — see 3.2 #3.)*
 - **Sole Egress Gateway:** Sub-modules are strictly blocked from making direct network calls; all external sharing routes exclusively through MOD08 to enforce total telemetry visibility. *(Status: enforced — the MOD01 gatekeeper blocks non-same-origin network calls and the CSP restricts connections to `'self'`; see 3.1.)*
 - **Dual-Licensing Model:** The public repository utilizes an MIT License for open-source transparency and auditability, while preserving the legal right to distribute pre-compiled binary packages under a proprietary commercial EULA.

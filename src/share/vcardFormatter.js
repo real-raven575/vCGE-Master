@@ -36,8 +36,9 @@ export function formatVCard(contact) {
     if (contact.notes) lines.push(`NOTE:${e(contact.notes)}`);
 
     if (contact.avatarBase64) {
-        const cleanBase64 = contact.avatarBase64.replace(/^data:image\/(png|jpeg|jpg);base64,/, "");
-        lines.push(`PHOTO;TYPE=JPEG;ENCODING=b:${cleanBase64}`);
+        const match = /^data:image\/([a-z]+);base64,/.exec(contact.avatarBase64);
+        const type = match ? (match[1] === 'jpg' ? 'JPEG' : match[1].toUpperCase()) : 'JPEG';
+        lines.push(`PHOTO;TYPE=${type};ENCODING=b:${contact.avatarBase64.replace(/^data:image\/[a-z]+;base64,/, "")}`);
     }
 
     lines.push("END:VCARD");

@@ -6,6 +6,12 @@
 
 export const ContactSchemaVersion = "3.0";
 
+// Canonical contact fields shared by every module (form inputs use these names as element IDs).
+export const CONTACT_FIELDS = Object.freeze([
+    'firstName', 'lastName', 'organization', 'jobTitle', 'phoneWork', 'phoneMobile', 'email', 'website',
+    'street', 'city', 'state', 'zip', 'country', 'nickname', 'birthday', 'notes'
+]);
+
 export function createEmptyContact() {
     return {
         id: crypto.randomUUID ? crypto.randomUUID() : 'vcge-' + Date.now(),
@@ -26,7 +32,7 @@ export function createEmptyContact() {
         birthday: '',
         notes: '',
         avatarBase64: null,
-        themePalette: 'ocean_blue',
+        themePalette: 'ocean',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
     };
