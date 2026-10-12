@@ -56,12 +56,12 @@ npm run tauri build               # release build + installers in src-tauri/targ
 
 ```bash
 npm install
-npm test                          # 74 unit tests (Node)
+npm test                          # 88 unit tests (Node)
 npx playwright install chromium   # once, for the browser tests
-npm run test:e2e                  # 53 browser end-to-end tests (real OCR, blurry-photo retake, OCR failure, QR decode, vault, idle purge, egress lock)
+npm run test:e2e                  # 65 browser end-to-end tests (real OCR, crop & straighten, text review, blurry-photo retake, OCR failure, QR decode, vault, idle purge, egress lock)
 SERVE_DIR=dist npm run test:e2e   # same suite against the Vite build (run `npm run build` first)
 (cd src-tauri && cargo test)      # 5 Rust tests (keychain device key)
-npm run test:tauri                # 20 desktop tests on Linux: real binary via tauri-driver, real Secret Service
+npm run test:tauri                # 23 desktop tests on Linux: real binary via tauri-driver, real Secret Service, crop by real pointer input
 ```
 
 `npm run test:tauri` needs `webkit2gtk-driver gnome-keyring libsecret-tools xvfb dbus-x11`, `cargo install tauri-driver --locked`, and a built app (`npx tauri build --debug --no-bundle`).
@@ -118,7 +118,7 @@ vCGE-Master/
     └── modules/                   # Isolated Core Functional Modules
         ├── mod01-shell/           # shell.js (network gatekeeper), themeManager.js (light/dark)
         ├── mod02-vault/           # vault.js (PBKDF2 [+ keychain HKDF] + AES-GCM-256), keychain.js (Tauri bridge), ttlManager.js (120 s idle purge)
-        ├── mod03-camera/          # camera.js (viewfinder, zoom, capture, crop review)
+        ├── mod03-camera/          # camera.js (viewfinder, zoom, capture), cropEditor.js (corner handles, rotate), perspective.js (straightening maths)
         ├── mod04-ocr/             # ocrWorker.js (image pre-processing + bundled Tesseract.js, on-device)
         ├── mod05-form/            # formMapper.js (OCR text → contact), addressAutocomplete.js (local-only)
         ├── mod06-gui/             # card3dView.js (CardView: form, preview, palettes, avatar), cardStyles.css

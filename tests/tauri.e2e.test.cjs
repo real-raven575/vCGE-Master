@@ -79,9 +79,11 @@ function keyringHasDeviceKey() {
       const input = document.getElementById('imageUpload'); input.files = dt.files; input.dispatchEvent(new Event('change'));`);
     ok('upload opens review modal', await until(() => visible('cropReviewModal'), 5000));
     await click('#runOcrBtn');
-    await until(async () => !(await visible('cropReviewModal')), 90000);
+    ok('real OCR runs in the desktop webview and opens the review step', await until(() => visible('ocrStepText'), 90000), await txt('toastMessage'));
+    await click('#applyOcrBtn');
+    await until(async () => !(await visible('cropReviewModal')), 5000);
     const toast = await txt('toastMessage');
-    ok('real OCR runs in the desktop webview (not simulated)', toast.includes('Fields extracted'), toast);
+    ok('Fill form fills the form from the review', toast.includes('Form filled'), toast);
     ok('OCR fills name, email and phone', (await val('firstName')) === 'Maria' && (await val('email')) === 'maria.gonzalez@northwind.com' && (await val('phoneWork')) === '+1 (312) 555-0147',
       [await val('firstName'), await val('email'), await val('phoneWork')].join(' | '));
 
@@ -90,6 +92,38 @@ function keyringHasDeviceKey() {
     const decoded = jsQR(Uint8ClampedArray.from(qr.d), qr.w, qr.h);
     ok('QR code in the desktop app decodes to the vCard', decoded && decoded.data.includes('FN:Maria Gonzalez'), decoded && decoded.data.slice(0, 60));
     await sleep(900);
+
+    // Crop & straighten in WebKitGTK: a crooked card, corners dragged with real pointer input, then read
+    const corners = await js(`
+      const c = document.createElement('canvas'); c.width = 1600; c.height = 1200;
+      const x = c.getContext('2d'); x.fillStyle = '#6b7280'; x.fillRect(0, 0, c.width, c.height);
+      const m = new DOMMatrix().translate(820, 600).rotate(-24).skewX(-12).translate(-525, -300);
+      x.setTransform(m); x.fillStyle = '#fff'; x.fillRect(0, 0, 1050, 600); x.fillStyle = '#111';
+      const lines = [['bold 56px sans-serif', 'Maria Gonzalez'], ['34px sans-serif', 'Director of Engineering'], ['34px sans-serif', 'Northwind Systems'],
+        ['30px sans-serif', '+1 (312) 555-0147'], ['30px sans-serif', 'maria.gonzalez@northwind.com'], ['30px sans-serif', 'https://northwind.com']];
+      let y = 80; for (const [f, t] of lines) { x.font = f; x.fillText(t, 70, y); y += f.startsWith('bold') ? 80 : 62; }
+      const bin = atob(c.toDataURL('image/png').split(',')[1]); const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const dt = new DataTransfer(); dt.items.add(new File([bytes], 'crooked.png', { type: 'image/png' }));
+      const input = document.getElementById('imageUpload'); input.files = dt.files; input.dispatchEvent(new Event('change'));
+      return [[0, 0], [1050, 0], [1050, 600], [0, 600]].map(([px, py]) => { const p = m.transformPoint({ x: px, y: py }); return [p.x, p.y]; });`);
+    await until(() => js(`const i = document.getElementById('reviewImage'); return i.naturalWidth === 1600 && !document.getElementById('cropReviewModal').classList.contains('hidden');`), 5000);
+    for (let i = 0; i < 4; i++) {
+      const g = await js(`const i = document.getElementById('reviewImage').getBoundingClientRect(), h = document.querySelector('[data-corner="${i}"]').getBoundingClientRect();
+        return { hx: h.left + h.width / 2, hy: h.top + h.height / 2, ix: i.left, iy: i.top, iw: i.width, ih: i.height };`);
+      const tx = Math.round(g.ix + corners[i][0] / 1600 * g.iw), ty = Math.round(g.iy + corners[i][1] / 1200 * g.ih);
+      await wd('POST', S('/actions'), { actions: [{ type: 'pointer', id: 'mouse', parameters: { pointerType: 'mouse' }, actions: [
+        { type: 'pointerMove', duration: 0, x: Math.round(g.hx), y: Math.round(g.hy), origin: 'viewport' }, { type: 'pointerDown', button: 0 },
+        { type: 'pointerMove', duration: 150, x: tx, y: ty, origin: 'viewport' }, { type: 'pointerUp', button: 0 }] }] });
+    }
+    await wd('DELETE', S('/actions')).catch(() => {});
+    const placed = (await js(`return document.getElementById('cropPolygon').getAttribute('points');`)).split(' ').map(p => p.split(',').map(Number));
+    ok('desktop: dragged corners land on the card', placed.length === 4 && placed.every(([px, py], i) => Math.hypot(px - corners[i][0], py - corners[i][1]) < 15), JSON.stringify(placed));
+    await click('#runOcrBtn');
+    await until(() => visible('ocrStepText'), 90000);
+    const cropped = await txt('ocrSummary');
+    ok('desktop: straightened crooked card is read', cropped.includes('maria.gonzalez@northwind.com') && cropped.includes('Maria'), cropped);
+    await click('#ocrCancelBtn');
 
     // Restart the page: unlock needs passphrase + keychain device key
     await wd('POST', S('/refresh'), {});

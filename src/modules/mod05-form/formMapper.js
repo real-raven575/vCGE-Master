@@ -30,89 +30,78 @@ export class ContactFormMapper {
 
     /**
      * Maps raw OCR text from a business card to contact fields (canonical names from share/cardSchema.js CONTACT_FIELDS).
-     * Each line is classified by context clues instead of "first rule that matches wins": line labels (E, T, M, W, Fax...),
-     * email and web-address shapes that survive common OCR slips, street words, City/State/ZIP, job-title vocabulary,
-     * company suffixes, and cross-checks between fields (name vs. email username, company vs. email/web domain).
+     * Same as buildFields(classifyLines(rawText)).fields: the review screen uses those two steps directly.
      * @param {string} rawText - Raw text extracted from OCR.
      * @returns {Object} Mapped contact fields.
      */
     parseOCRText(rawText) {
-        const data = {
-            firstName: '', lastName: '', phoneWork: '', phoneMobile: '', email: '', website: '',
-            organization: '', jobTitle: '', street: '', city: '', state: '', zip: '', country: 'United States'
-        };
+        return this.buildFields(this.classifyLines(rawText)).fields;
+    }
+
+    /**
+     * Step 1: decides what each OCR line is (one of LINE_ROLES) by context clues instead of "first rule that matches
+     * wins": line labels (E, T, M, W, Fax...), email and web-address shapes that survive common OCR slips, street words,
+     * City/State/ZIP, job-title vocabulary, company suffixes, and cross-checks between lines (name vs. email username,
+     * company vs. email/web domain).
+     * @param {string} rawText
+     * @returns {{ text: string, role: string }[]} One entry per non-empty line, in card order.
+     */
+    classifyLines(rawText) {
         const lines = String(rawText || '').split('\n')
             .map(l => l.replace(/[“”]/g, '"').replace(/[‘’]/g, "'").replace(/\s+/g, ' ').trim())
             .filter(l => l.length > 0)
-            .map(text => ({ text, ...splitLabel(text), used: false }));
+            .map(text => ({ text, ...splitLabel(text), role: null }));
+        const free = (line) => line.role === null;
 
-        // 1. Email (labels E/Email, or anything with an @ or an OCR look-alike of it)
+        // Email (labels E/Email, or anything with an @ or an OCR look-alike of it)
+        let email = '';
         for (const line of lines) {
-            const email = findEmail(line.label === 'email' ? line.body : line.text);
-            if (email) { data.email = email; line.used = true; break; }
+            email = findEmail(line.label === 'email' ? line.body : line.text);
+            if (email) { line.role = 'email'; break; }
         }
 
-        // 2. Web address (label W/Web, or a domain with a known ending; www/http not required)
+        // Web address (label W/Web, or a domain with a known ending; www/http not required)
+        let website = '';
         for (const line of lines) {
-            if (line.used) continue;
-            const site = findWebsite(line.body, line.label === 'web');
-            if (site) { data.website = site; line.used = true; break; }
+            if (!free(line)) continue;
+            website = findWebsite(line.body, line.label === 'web');
+            if (website) { line.role = 'website'; break; }
         }
 
-        // 3. Phones: labels decide work / mobile / fax; unlabelled numbers fill work, then mobile
-        const unlabelled = [];
-        for (const line of lines) {
-            if (line.used) continue;
-            const numbers = findPhones(line.body);
-            if (!numbers.length) continue;
-            line.used = true;
-            numbers.forEach(({ number, label }) => {
-                const kind = label || line.label;
-                if (kind === 'fax') return;
-                if (kind === 'mobile' && !data.phoneMobile) data.phoneMobile = number;
-                else if ((kind === 'work') && !data.phoneWork) data.phoneWork = number;
-                else unlabelled.push(number);
-            });
-        }
-        unlabelled.forEach(n => {
-            if (!data.phoneWork) data.phoneWork = n;
-            else if (!data.phoneMobile) data.phoneMobile = n;
-        });
+        // Phones: buildFields sorts work / mobile / fax by label
+        lines.forEach(line => { if (free(line) && findPhones(line.body).length) line.role = 'phone'; });
 
-        // 4. Address: City, ST ZIP (comma optional, state as code or full name, OCR slips repaired); street above it
+        // Address: City, ST ZIP (comma optional, state as code or full name, OCR slips repaired); street above it
         for (let i = 0; i < lines.length; i++) {
-            if (lines[i].used) continue;
+            if (!free(lines[i])) continue;
             const csz = findCityStateZip(lines[i].text);
             if (!csz) continue;
-            Object.assign(data, { city: csz.city, state: csz.state, zip: csz.zip });
-            lines[i].used = true;
-            if (csz.street) data.street = csz.street;
-            else {
-                // street is the nearest unused line above that starts with a number (plus a "Suite ..." line between them)
-                for (let j = i - 1; j >= Math.max(0, i - 2); j--) {
-                    if (lines[j].used) continue;
-                    if (isUnitLine(lines[j].text) && j - 1 >= 0 && !lines[j - 1].used && looksLikeStreet(lines[j - 1].text, true)) {
-                        data.street = `${lines[j - 1].text}, ${lines[j].text}`; lines[j].used = lines[j - 1].used = true; break;
-                    }
-                    if (looksLikeStreet(lines[j].text, true)) { data.street = lines[j].text; lines[j].used = true; break; }
+            if (csz.street) { lines[i].role = 'address'; break; }
+            lines[i].role = 'cityStateZip';
+            // street is the nearest free line above that starts with a number (plus a "Suite ..." line between them)
+            for (let j = i - 1; j >= Math.max(0, i - 2); j--) {
+                if (!free(lines[j])) continue;
+                if (isUnitLine(lines[j].text) && j - 1 >= 0 && free(lines[j - 1]) && looksLikeStreet(lines[j - 1].text, true)) {
+                    lines[j].role = lines[j - 1].role = 'street'; break;
                 }
+                if (looksLikeStreet(lines[j].text, true)) { lines[j].role = 'street'; break; }
             }
             break;
         }
-        if (!data.street) {
-            const street = lines.find(l => !l.used && looksLikeStreet(l.text, false));
-            if (street) { data.street = street.text; street.used = true; }
+        if (!lines.some(l => l.role === 'street' || l.role === 'address')) {
+            const street = lines.find(l => free(l) && looksLikeStreet(l.text, false));
+            if (street) street.role = 'street';
         }
-        if (!data.zip) {
-            const zipLine = lines.find(l => !l.used && /^\d{5}(?:-\d{4})?$/.test(l.text));
-            if (zipLine) { data.zip = zipLine.text; zipLine.used = true; }
+        if (!lines.some(l => l.role === 'cityStateZip' || l.role === 'address')) {
+            const zipLine = lines.find(l => free(l) && /^\d{5}(?:-\d{4})?$/.test(l.text));
+            if (zipLine) zipLine.role = 'cityStateZip';
         }
 
-        // 5. Name: 2-3 capitalised words; strongest clue is a match with the email username
-        const local = (data.email.split('@')[0] || '').toLowerCase().replace(/[^a-z]/g, '');
+        // Name: 2-3 capitalised words; strongest clue is a match with the email username
+        const local = (email.split('@')[0] || '').toLowerCase().replace(/[^a-z]/g, '');
         let best = null;
         lines.forEach((line, index) => {
-            if (line.used || !isNameShaped(line.text)) return;
+            if (!free(line) || !isNameShaped(line.text)) return;
             const words = line.text.split(' ');
             let score = 1 - index * 0.05;
             if (local) {
@@ -123,53 +112,115 @@ export class ContactFormMapper {
             if (TITLE_WORDS.test(line.text) || TAGLINE_START.test(line.text) || COMPANY_SUFFIX.test(line.text)) score -= 3;
             if (!best || score > best.score) best = { line, index, score };
         });
-        if (best && best.score > 0) {
-            const words = best.line.text.split(' ');
-            data.firstName = words[0];
-            data.lastName = words.slice(1).join(' ');
-            best.line.used = true;
-        }
+        if (best && best.score > 0) best.line.role = 'name';
 
-        // 6. Job title: title vocabulary, preferring the line next to the name; taglines ("Your ...") are not titles
+        // Job title: title vocabulary, preferring the line next to the name; taglines ("Your ...") are not titles
         let title = null;
         lines.forEach((line, index) => {
-            if (line.used || !TITLE_WORDS.test(line.text) || /[@\d]/.test(line.text)) return;
+            if (!free(line) || !TITLE_WORDS.test(line.text) || /[@\d]/.test(line.text)) return;
             let score = 2;
-            if (best && Math.abs(index - best.index) === 1) score += 2;
+            if (best && best.score > 0 && Math.abs(index - best.index) === 1) score += 2;
             if (TAGLINE_START.test(line.text)) score -= 3;
             if (!title || score > title.score) title = { line, score };
         });
-        if (title && title.score > 0) { data.jobTitle = title.line.text; title.line.used = true; }
+        if (title && title.score > 0) title.line.role = 'jobTitle';
 
-        // 7. Company: suffixes (Inc, LLC...) or a match with the web/email domain; else derived from the domain
-        const domain = companyDomain(data.website, data.email);
+        // Company: suffixes (Inc, LLC...) or a match with the web/email domain. Without a convincing line, buildFields
+        // derives the company from the domain; a weak line is used only when there is no domain either.
+        const domain = companyDomain(website, email).name;
         let org = null;
         lines.forEach(line => {
-            if (line.used || /[@]/.test(line.text) || !isWordy(line.text)) return;
+            if (!free(line) || /[@]/.test(line.text) || !isWordy(line.text)) return;
             let score = 1;
             if (COMPANY_SUFFIX.test(line.text)) score += 3;
             if (domain && domainMatches(line.text, domain)) score += 4;
             if (TAGLINE_START.test(line.text)) score -= 3;
             if (!org || score > org.score) org = { line, score };
         });
-        if (org && org.score >= 2) data.organization = org.line.text;
-        else if (domain) data.organization = domain;
-        else if (org && org.score > 0) data.organization = org.line.text;
+        if (org && (org.score >= 2 || (!domain && org.score > 0))) org.line.role = 'organization';
 
-        if (!data.firstName && lines.length > 0) {
-            const firstLineParts = lines[0].text.split(' ');
-            data.firstName = firstLineParts[0] || 'Scanned';
-            data.lastName = firstLineParts[1] || 'Contact';
+        return lines.map(({ text, role }) => ({ text, role: role || 'ignore' }));
+    }
+
+    /**
+     * Step 2: builds contact fields from lines and their roles (as chosen by classifyLines or by the user).
+     * @param {{ text: string, role: string }[]} lines
+     * @returns {{ fields: Object, derived: Object }} `derived` names fields that were worked out rather than read,
+     *          e.g. { organization: 'web address' } when the company comes from the domain.
+     */
+    buildFields(lines) {
+        const fields = {
+            firstName: '', lastName: '', phoneWork: '', phoneMobile: '', email: '', website: '',
+            organization: '', jobTitle: '', street: '', city: '', state: '', zip: '', country: 'United States', notes: ''
+        };
+        const derived = {};
+        const streets = [], notes = [], unlabelled = [];
+        const setOnce = (key, value) => { if (value && !fields[key]) fields[key] = value; };
+
+        for (const { text, role } of lines || []) {
+            const t = String(text || '').replace(/\s+/g, ' ').trim();
+            if (!t) continue;
+            const { label, body } = splitLabel(t);
+            switch (role) {
+                case 'name': {
+                    if (fields.firstName) break;
+                    const words = t.split(' ');
+                    fields.firstName = words[0];
+                    fields.lastName = words.slice(1).join(' ');
+                    break;
+                }
+                case 'jobTitle': setOnce('jobTitle', t); break;
+                case 'organization': setOnce('organization', t); break;
+                case 'email': setOnce('email', findEmail(t) || body); break;
+                case 'website': setOnce('website', findWebsite(body, true) || body); break;
+                case 'phone':
+                    findPhones(body).forEach(({ number, label: inline }) => {
+                        const kind = inline || label;
+                        if (kind === 'fax') return;
+                        if (kind === 'mobile' && !fields.phoneMobile) fields.phoneMobile = number;
+                        else if (kind === 'work' && !fields.phoneWork) fields.phoneWork = number;
+                        else unlabelled.push(number);
+                    });
+                    break;
+                case 'phoneWork': setOnce('phoneWork', (findPhones(body)[0] || {}).number || body); break;
+                case 'phoneMobile': setOnce('phoneMobile', (findPhones(body)[0] || {}).number || body); break;
+                case 'street': streets.push(t); break;
+                case 'cityStateZip': {
+                    const csz = findCityStateZip(t);
+                    if (csz) { setOnce('city', csz.city); setOnce('state', csz.state); setOnce('zip', csz.zip); if (csz.street) streets.push(csz.street); }
+                    else if (/^\d{5}(?:-\d{4})?$/.test(t)) setOnce('zip', t);
+                    else setOnce('city', t);
+                    break;
+                }
+                case 'address': {
+                    const csz = findCityStateZip(t);
+                    if (csz) { streets.push(csz.street); setOnce('city', csz.city); setOnce('state', csz.state); setOnce('zip', csz.zip); }
+                    else streets.push(t);
+                    break;
+                }
+                case 'notes': notes.push(t); break;
+                default: break;   // 'ignore'
+            }
+        }
+        unlabelled.forEach(n => {
+            if (!fields.phoneWork) fields.phoneWork = n;
+            else if (!fields.phoneMobile) fields.phoneMobile = n;
+        });
+        fields.street = streets.filter(Boolean).join(', ');
+        fields.notes = notes.join('\n');
+
+        if (!fields.organization) {
+            const domain = companyDomain(fields.website, fields.email);
+            if (domain.name) { fields.organization = domain.name; derived.organization = domain.from; }
         }
 
         // OCR spacing is noisy ("+1(312) 555-0147"); normalise numbers the country's formatter recognises.
-        const fmt = this.countryFormats[data.country];
+        const fmt = this.countryFormats[fields.country];
         if (fmt) {
-            data.phoneWork = data.phoneWork && this.formatPhone(data.phoneWork, fmt);
-            data.phoneMobile = data.phoneMobile && this.formatPhone(data.phoneMobile, fmt);
+            fields.phoneWork = fields.phoneWork && this.formatPhone(fields.phoneWork, fmt);
+            fields.phoneMobile = fields.phoneMobile && this.formatPhone(fields.phoneMobile, fmt);
         }
-
-        return data;
+        return { fields, derived };
     }
 
     /**
@@ -200,6 +251,13 @@ export class ContactFormMapper {
         return rawNumber;
     }
 }
+
+/** Line roles offered in the OCR review screen, in display order: [role, label]. */
+export const LINE_ROLES = Object.freeze([
+    ['name', 'Name'], ['jobTitle', 'Job title'], ['organization', 'Company'], ['phone', 'Phone (auto by label)'],
+    ['phoneWork', 'Work phone'], ['phoneMobile', 'Mobile phone'], ['email', 'Email'], ['website', 'Website'],
+    ['street', 'Street'], ['cityStateZip', 'City / State / ZIP'], ['address', 'Whole address'], ['notes', 'Notes'], ['ignore', 'Ignore']
+]);
 
 // ---- Context clues for parseOCRText ----------------------------------------------------------------------------
 
@@ -343,15 +401,15 @@ function isWordy(text) {
 
 /** Company name from the web address (preferred) or the email domain, unless it is a personal mail provider. */
 function companyDomain(website, email) {
-    const fromSite = website.replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0];
-    const fromMail = (email.split('@')[1] || '');
-    for (const host of [fromSite, fromMail]) {
+    const fromSite = String(website || '').replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0];
+    const fromMail = (String(email || '').split('@')[1] || '');
+    for (const [host, from] of [[fromSite, 'web address'], [fromMail, 'email']]) {
         const labels = host.split('.').filter(Boolean);
         if (labels.length < 2) continue;
         const name = labels[labels.length - 2].length <= 3 && labels.length > 2 ? labels[labels.length - 3] : labels[labels.length - 2];
-        if (name && !FREE_MAIL.test(name)) return name;
+        if (name && !FREE_MAIL.test(name)) return { name, from };
     }
-    return '';
+    return { name: '', from: '' };
 }
 
 /** "Northwind Systems" matches northwind.com; "Apex Innovations" matches apexinnovations.io. */

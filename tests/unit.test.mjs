@@ -197,6 +197,51 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('PO Box accepted as street', fm.parseOCRText('PO Box 1234\nBoise, ID 83701').street === 'PO Box 1234');
 }
 
+// OCR review steps: classifyLines (roles) + buildFields (fields from roles)
+{
+  const { ContactFormMapper, LINE_ROLES } = await import(`${R}/modules/mod05-form/formMapper.js`);
+  const fm = new ContactFormMapper();
+  const text = 'ya O/\nYour Technology Partner\nDana Whitlock\nOwner & General Manager\n4120 Lakeshore Road, Suite 210\nSpringfield, MI 49011\nE dwhitlock@BrightPathIT.com\nT 616.555.0142\nM 616.555.0187\nW BrightPathIT.com/Holland';
+  const lines = fm.classifyLines(text);
+  ok('classifyLines gives one role per line', lines.length === 10 && lines.every(l => LINE_ROLES.some(([r]) => r === l.role)), JSON.stringify(lines));
+  ok('classifyLines roles for a labelled card', JSON.stringify(lines.map(l => l.role)) === JSON.stringify(['ignore', 'ignore', 'name', 'jobTitle', 'street', 'cityStateZip', 'email', 'phone', 'phone', 'website']), lines.map(l => l.role).join());
+  const built = fm.buildFields(lines);
+  ok('buildFields equals parseOCRText', JSON.stringify(built.fields) === JSON.stringify(fm.parseOCRText(text)));
+  ok('company derived from the web address is marked as derived', built.fields.organization === 'BrightPathIT' && built.derived.organization === 'web address', JSON.stringify(built.derived));
+  const asCompany = lines.map(l => l.text === 'Your Technology Partner' ? { ...l, role: 'organization' } : l);
+  const overridden = fm.buildFields(asCompany);
+  ok('choosing a line as Company overrides the derived company', overridden.fields.organization === 'Your Technology Partner' && !overridden.derived.organization);
+  const edited = fm.buildFields(lines.map(l => l.role === 'email' ? { ...l, text: 'E dana@brightpathit.com' } : l));
+  ok('edited line text is used', edited.fields.email === 'dana@brightpathit.com', edited.fields.email);
+  const swapped = fm.buildFields(lines.map(l => l.text.startsWith('M ') ? { ...l, role: 'phoneWork' } : l.text.startsWith('T ') ? { ...l, role: 'phoneMobile' } : l));
+  ok('explicit Work/Mobile phone roles win over labels', swapped.fields.phoneWork === '+1 (616) 555-0187' && swapped.fields.phoneMobile === '+1 (616) 555-0142', JSON.stringify(swapped.fields));
+  const noted = fm.buildFields([{ text: 'Call after 3pm', role: 'notes' }, { text: 'Gate code 42', role: 'notes' }, { text: 'junk', role: 'ignore' }]);
+  ok('notes lines are kept in order; ignored lines are dropped', noted.fields.notes === 'Call after 3pm\nGate code 42' && !Object.values(noted.fields).includes('junk'));
+  const whole = fm.buildFields([{ text: '88 Elm Avenue, Burlington, VT 05401', role: 'address' }]);
+  ok('Whole address role splits street and City/State/ZIP', whole.fields.street === '88 Elm Avenue' && whole.fields.city === 'Burlington' && whole.fields.zip === '05401');
+  ok('no name line means no invented name', fm.parseOCRText('+1 (555) 201-3344').firstName === '');
+}
+
+// Perspective correction (MOD03 crop & straighten)
+{
+  const { computeHomography, applyHomography, warpPerspective, quadOutputSize } = await import(`${R}/modules/mod03-camera/perspective.js`);
+  const quad = [{ x: 30, y: 20 }, { x: 170, y: 40 }, { x: 160, y: 130 }, { x: 20, y: 110 }];
+  const rect = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 50 }, { x: 0, y: 50 }];
+  const h = computeHomography(rect, quad);
+  ok('homography maps each corner exactly', rect.every((p, i) => { const q = applyHomography(h, p.x, p.y); return Math.abs(q.x - quad[i].x) < 1e-6 && Math.abs(q.y - quad[i].y) < 1e-6; }));
+  const W = 200, H = 150, data = new Uint8ClampedArray(W * H * 4).fill(255);
+  const back = computeHomography(quad, rect);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { const p = applyHomography(back, x + 0.5, y + 0.5); if (p.x >= 0 && p.x <= 100 && p.y >= 0 && p.y <= 50) { const o = (y * W + x) * 4; data[o] = data[o + 1] = data[o + 2] = 0; } }
+  const size = quadOutputSize(quad);
+  const flat = warpPerspective({ data, width: W, height: H }, quad, size.width, size.height);
+  let dark = 0; for (let i = 0; i < flat.data.length; i += 4) if (flat.data[i] < 128) dark++;
+  ok('a skewed shape is flattened into a full rectangle', size.width === 141 && size.height === 91 && dark / (size.width * size.height) > 0.99, `${size.width}x${size.height} ${dark}`);
+  const big = quadOutputSize([{ x: 0, y: 0 }, { x: 6000, y: 0 }, { x: 6000, y: 3000 }, { x: 0, y: 3000 }]);
+  ok('flattened output capped at 2400 px', big.width === 2400 && big.height === 1200, JSON.stringify(big));
+  let threw = false; try { computeHomography(rect, [quad[0], quad[0], quad[0], quad[0]]); } catch (e) { threw = true; }
+  ok('collapsed corners are rejected', threw);
+}
+
 // QR engine (ESM, delegates to shared formatter)
 {
   const { VCGEQREngine } = await import(`${R}/modules/mod07-qr/qrGenerator.js`);

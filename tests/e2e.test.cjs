@@ -25,6 +25,36 @@ async function renderCardImage(page, blur = 0) {
   return { name: 'card.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') };
 }
 
+// Renders the same card rotated and sheared on a grey background (a crooked photo) and returns the card's corners.
+async function renderSkewedCard(page) {
+  const { dataUrl, corners } = await page.evaluate(() => {
+    const c = document.createElement('canvas'); c.width = 1600; c.height = 1200;
+    const x = c.getContext('2d'); x.fillStyle = '#6b7280'; x.fillRect(0, 0, c.width, c.height);
+    const m = new DOMMatrix().translate(820, 600).rotate(-24).skewX(-12).translate(-525, -300);
+    x.setTransform(m);
+    x.fillStyle = '#fff'; x.fillRect(0, 0, 1050, 600); x.fillStyle = '#111';
+    const lines = [['bold 56px Arial', 'Maria Gonzalez'], ['34px Arial', 'Director of Engineering'], ['34px Arial', 'Northwind Systems'],
+      ['30px Arial', '+1 (312) 555-0147'], ['30px Arial', 'maria.gonzalez@northwind.com'], ['30px Arial', 'https://northwind.com'],
+      ['30px Arial', '233 South Wacker Drive'], ['30px Arial', 'Chicago, IL 60606']];
+    let y = 80; for (const [f, t] of lines) { x.font = f; x.fillText(t, 70, y); y += f.startsWith('bold') ? 80 : 62; }
+    const corners = [[0, 0], [1050, 0], [1050, 600], [0, 600]].map(([px, py]) => { const p = m.transformPoint({ x: px, y: py }); return { x: p.x, y: p.y }; });
+    return { dataUrl: c.toDataURL('image/png'), corners };
+  });
+  return { file: { name: 'crooked.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') }, corners };
+}
+
+// Drags each crop handle onto a point given in the photo's own pixels.
+async function dragCorners(page, corners) {
+  const box = await page.locator('#reviewImage').boundingBox();
+  const natural = await page.$eval('#reviewImage', i => ({ w: i.naturalWidth, h: i.naturalHeight }));
+  for (let i = 0; i < 4; i++) {
+    const h = await page.locator(`[data-corner="${i}"]`).boundingBox();
+    await page.mouse.move(h.x + h.width / 2, h.y + h.height / 2); await page.mouse.down();
+    await page.mouse.move(box.x + corners[i].x / natural.w * box.width, box.y + corners[i].y / natural.h * box.height, { steps: 5 });
+    await page.mouse.up();
+  }
+}
+
 async function decodeQr(page) {
   const qr = await page.evaluate(() => { const c = document.getElementById('qrCanvas'); return { w: c.width, h: c.height, data: Array.from(c.getContext('2d').getImageData(0, 0, c.width, c.height).data) }; });
   const r = jsQR(Uint8ClampedArray.from(qr.data), qr.w, qr.h);
@@ -92,12 +122,17 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   await page.setInputFiles('#imageUpload', await renderCardImage(page)); await page.waitForTimeout(300);
   ok('upload opens review modal', await visible('cropReviewModal'));
   await page.click('#runOcrBtn');
-  await page.waitForSelector('#cropReviewModal', { state: 'hidden', timeout: 90000 });
+  await page.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
+  ok('review step lists the OCR lines with a field picker each', (await page.$$('#ocrLines select')).length >= 8 && (await page.inputValue('#ocrLineRole0')) === 'name', String((await page.$$('#ocrLines select')).length));
+  ok('nothing reaches the form before Fill form', (await val('email')) === '');
+  ok('"Will fill" summary shows the mapped fields', (await text('ocrSummary')).includes('maria.gonzalez@northwind.com') && (await text('ocrSummary')).includes('Northwind Systems'));
+  await page.click('#applyOcrBtn');
+  await page.waitForSelector('#cropReviewModal', { state: 'hidden' });
   const got = {}; for (const f of ['firstName', 'lastName', 'jobTitle', 'organization', 'phoneWork', 'email', 'website', 'street', 'city', 'state', 'zip']) got[f] = await val(f);
   ok('real OCR extracts name, title, organization', got.firstName === 'Maria' && got.lastName === 'Gonzalez' && got.jobTitle === 'Director of Engineering' && got.organization === 'Northwind Systems', JSON.stringify(got));
   ok('real OCR extracts phone, email, website', got.phoneWork === '+1 (312) 555-0147' && got.email === 'maria.gonzalez@northwind.com' && got.website === 'https://northwind.com', JSON.stringify(got));
   ok('real OCR extracts street, city, state, zip', got.street === '233 South Wacker Drive' && got.city === 'Chicago' && got.state === 'IL' && got.zip === '60606', JSON.stringify(got));
-  ok('user told fields were extracted (not simulated)', (await text('toastMessage')).includes('Fields extracted'));
+  ok('user told the form was filled', (await text('toastMessage')).includes('Form filled'));
   ok('audit log records OCR (not simulated)', (await text('auditLog')).includes('OCR text extracted') && !(await text('auditLog')).includes('simulated'));
   const qrAfter = await decodeQr(page);
   ok('QR follows OCR result', qrAfter && qrAfter.includes('FN:Maria Gonzalez'), qrAfter);
@@ -217,9 +252,57 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p4.setInputFiles('#imageUpload', await renderCardImage(p4)); await p4.waitForTimeout(300);
     ok('new photo resets the dialog (Extract fields back, prompt hidden)', await p4.isVisible('#runOcrBtn') && !(await p4.isVisible('#ocrRetakeNotice')));
     await p4.click('#runOcrBtn');
-    await p4.waitForSelector('#cropReviewModal', { state: 'hidden', timeout: 90000 });
+    await p4.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
+    await p4.click('#applyOcrBtn');
     ok('sharp retake is read normally', (await p4.inputValue('#email')) === 'maria.gonzalez@northwind.com', await p4.inputValue('#email'));
     await ctx4.close();
+  }
+
+  // Crooked photo: drag the corners onto the card, extract, fix a line, change a picker, fill the form
+  {
+    const ctx5 = await browser.newContext();
+    const p5 = await ctx5.newPage();
+    await p5.goto(ORIGIN); await p5.waitForTimeout(300);
+    await p5.click('#vaultSkipBtn');
+    const crooked = await renderSkewedCard(p5);
+    await p5.setInputFiles('#imageUpload', crooked.file); await p5.waitForTimeout(500);
+    ok('crop handles shown on the photo', (await p5.$$('#cropStage [data-corner]')).length === 4 && await p5.isVisible('[data-corner="0"]'));
+    await dragCorners(p5, crooked.corners);
+    const outline = await p5.getAttribute('#cropPolygon', 'points');
+    const placed = outline.split(' ').map(pt => pt.split(',').map(Number));
+    ok('dragged corners land on the card corners', placed.every(([x, y], i) => Math.hypot(x - crooked.corners[i].x, y - crooked.corners[i].y) < 12), outline);
+    await p5.focus('[data-corner="0"]'); await p5.keyboard.press('ArrowRight');
+    const nudged = (await p5.getAttribute('#cropPolygon', 'points')).split(' ')[0].split(',').map(Number);
+    ok('arrow key nudges the focused corner', nudged[0] > placed[0][0]);
+    await p5.keyboard.press('ArrowLeft');
+    await p5.click('#runOcrBtn');
+    await p5.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 }).catch(() => {});
+    const summary = await p5.textContent('#ocrSummary').catch(() => '');
+    ok('straightened crooked card is read (name, email, phone)', summary.includes('Maria') && summary.includes('maria.gonzalez@northwind.com') && summary.includes('555-0147'), summary);
+    const roles = await p5.$$eval('#ocrLines select', s => s.map(x => x.value));
+    const nameRow = roles.indexOf('name'), siteRow = roles.indexOf('website');
+    await p5.fill(`#ocrLineText${nameRow}`, 'Mariah Gonzalez');
+    await p5.selectOption(`#ocrLineRole${siteRow}`, 'notes');
+    const after = await p5.textContent('#ocrSummary');
+    ok('summary follows edits and picker changes live', after.includes('Mariah') && !/Website/.test(after) && /Notes/.test(after), after);
+    await p5.click('#ocrBackBtn');
+    ok('Back to photo returns to step 1', await p5.isVisible('#ocrStepPhoto') && !(await p5.isVisible('#ocrStepText')));
+    await p5.click('#runOcrBtn');
+    await p5.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
+    const roles2 = await p5.$$eval('#ocrLines select', s => s.map(x => x.value));
+    await p5.fill(`#ocrLineText${roles2.indexOf('name')}`, 'Mariah Gonzalez');
+    await p5.selectOption(`#ocrLineRole${roles2.indexOf('website')}`, 'notes');
+    await p5.click('#applyOcrBtn');
+    ok('Fill form applies the edited review', (await p5.inputValue('#firstName')) === 'Mariah' && (await p5.inputValue('#website')) === '' && (await p5.inputValue('#notes')).includes('northwind.com') && (await p5.inputValue('#email')) === 'maria.gonzalez@northwind.com',
+      [await p5.inputValue('#firstName'), await p5.inputValue('#website'), await p5.inputValue('#notes')].join(' | '));
+    ok('review text cleared from the page after Fill form', (await p5.$$('#ocrLines input')).length === 0 && !(await p5.isVisible('#cropReviewModal')));
+    // Rotate: the photo turns 90° and the corners reset
+    await p5.setInputFiles('#imageUpload', crooked.file); await p5.waitForTimeout(500);
+    const before = await p5.$eval('#reviewImage', i => [i.naturalWidth, i.naturalHeight]);
+    await p5.click('#rotatePhotoBtn'); await p5.waitForTimeout(500);
+    const rotated = await p5.$eval('#reviewImage', i => [i.naturalWidth, i.naturalHeight]);
+    ok('Rotate 90° swaps the photo orientation', rotated[0] === before[1] && rotated[1] === before[0], `${before} -> ${rotated}`);
+    await ctx5.close();
   }
 
   // OCR engine cannot start (language model missing, as on a host that refuses .gz): no hang, clear message, form untouched

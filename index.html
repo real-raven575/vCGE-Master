@@ -186,17 +186,45 @@
         vCard Generator Engine (vCGE) &bull; Created by raven575, Gemini &amp; Claude &bull; MIT License
     </footer>
 
-    <!-- OCR review modal (MOD03 -> MOD04) -->
+    <!-- OCR review modal (MOD03 -> MOD04 -> MOD05): step 1 crop & straighten the photo, step 2 check the extracted text -->
     <div id="cropReviewModal" class="hidden fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-        <div class="bg-white dark:bg-slate-900 rounded-2xl p-5 max-w-lg w-full space-y-3 shadow-2xl">
-            <h2 class="text-lg font-bold">Review captured image</h2>
-            <img id="reviewImage" alt="Captured business card" class="w-full max-h-80 object-contain rounded-lg bg-slate-100 dark:bg-slate-800">
-            <p class="text-xs text-slate-500 dark:text-slate-400">Focus point <span id="priorityCoord" class="font-mono">(0.5, 0.5)</span>. The image stays on this device.</p>
-            <p id="ocrRetakeNotice" class="hidden text-sm text-amber-600 dark:text-amber-400" role="alert">This photo is too blurry or unclear to read. Retake it closer, in good light, and hold steady.</p>
-            <div class="flex justify-end gap-2">
-                <button id="retakePhotoBtn" type="button" class="hidden px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Retake photo</button>
-                <button id="cancelReviewBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Cancel</button>
-                <button id="runOcrBtn" type="button" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Extract fields</button>
+        <div class="bg-white dark:bg-slate-900 rounded-2xl p-5 max-w-2xl w-full max-h-[92vh] overflow-y-auto space-y-3 shadow-2xl">
+            <div id="ocrStepPhoto" class="space-y-3">
+                <h2 class="text-lg font-bold">Review captured image</h2>
+                <p class="text-xs text-slate-500 dark:text-slate-400">Drag the four corners onto the card's corners to straighten it, or leave them to read the whole photo. The image stays on this device.</p>
+                <div id="cropStage" class="relative mx-auto w-fit max-w-full select-none">
+                    <img id="reviewImage" alt="Captured business card" class="block max-w-full max-h-80 rounded-lg bg-slate-100 dark:bg-slate-800">
+                    <svg id="cropOverlay" class="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none" aria-hidden="true">
+                        <polygon id="cropPolygon" class="crop-outline" points=""></polygon>
+                    </svg>
+                    <button type="button" class="crop-handle" data-corner="0"></button>
+                    <button type="button" class="crop-handle" data-corner="1"></button>
+                    <button type="button" class="crop-handle" data-corner="2"></button>
+                    <button type="button" class="crop-handle" data-corner="3"></button>
+                </div>
+                <p class="text-xs text-slate-500 dark:text-slate-400">Focus point <span id="priorityCoord" class="font-mono">(0.5, 0.5)</span>.</p>
+                <p id="ocrRetakeNotice" class="hidden text-sm text-amber-600 dark:text-amber-400" role="alert">This photo is too blurry or unclear to read. Retake it closer, in good light, and hold steady.</p>
+                <div class="flex flex-wrap justify-end gap-2">
+                    <button id="rotatePhotoBtn" type="button" class="mr-auto px-3 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Rotate 90°</button>
+                    <button id="retakePhotoBtn" type="button" class="hidden px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Retake photo</button>
+                    <button id="cancelReviewBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Cancel</button>
+                    <button id="runOcrBtn" type="button" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Extract fields</button>
+                </div>
+            </div>
+
+            <div id="ocrStepText" class="hidden space-y-3">
+                <h2 class="text-lg font-bold">Check the extracted text</h2>
+                <p class="text-xs text-slate-500 dark:text-slate-400">Fix any misread text and choose what each line is. Nothing goes into the form until you select Fill form.</p>
+                <div id="ocrLines" class="space-y-1.5"></div>
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Will fill</h3>
+                    <dl id="ocrSummary" class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-0.5 text-sm"></dl>
+                </div>
+                <div class="flex flex-wrap justify-end gap-2">
+                    <button id="ocrBackBtn" type="button" class="mr-auto px-3 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Back to photo</button>
+                    <button id="ocrCancelBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Cancel</button>
+                    <button id="applyOcrBtn" type="button" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Fill form</button>
+                </div>
             </div>
         </div>
     </div>

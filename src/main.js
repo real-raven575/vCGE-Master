@@ -15,8 +15,9 @@ import { TTLMemoryStreamManager } from './modules/mod02-vault/ttlManager.js';
 import { getDeviceSecret, deleteDeviceSecret, isKeychainAvailable } from './modules/mod02-vault/keychain.js';
 import { KDF_KEYCHAIN } from './modules/mod02-vault/vault.js';
 import { VCGEActiveCamera } from './modules/mod03-camera/camera.js';
+import { CropEditor } from './modules/mod03-camera/cropEditor.js';
 import { executeOCRScan } from './modules/mod04-ocr/ocrWorker.js';
-import { ContactFormMapper } from './modules/mod05-form/formMapper.js';
+import { ContactFormMapper, LINE_ROLES } from './modules/mod05-form/formMapper.js';
 import { AddressAutocompleteEngine } from './modules/mod05-form/addressAutocomplete.js';
 import { CardView } from './modules/mod06-gui/card3dView.js';
 import { vcgeQREngine } from './modules/mod07-qr/qrGenerator.js';
@@ -32,6 +33,7 @@ const LEGACY_PLAINTEXT_KEYS = ['vcge_contact_state', 'vcge_state', 'vcge_prefs']
 const formMapper = new ContactFormMapper();
 const cardView = new CardView({ onChange: refresh, addressEngine: new AddressAutocompleteEngine(), formMapper });
 const camera = new VCGEActiveCamera();
+const cropEditor = new CropEditor();
 
 let storageMode = 'locked'; // 'locked' | 'vault' | 'memory'
 let saveTimer = null;
@@ -182,7 +184,7 @@ function clearCapturedImages() {
     camera.capturedImageDataUrl = null;
     $('cameraPanel').classList.add('hidden');
     $('reviewImage').removeAttribute('src');
-    $('cropReviewModal').classList.add('hidden');
+    closeReviewDialog();
     const capture = $('captureCanvas');
     capture.width = 0;
     capture.height = 0;
@@ -243,23 +245,90 @@ function showRetakePrompt(show) {
     $('runOcrBtn').classList.toggle('hidden', show);
 }
 
+// Labels for the "Will fill" summary of the review step.
+const FIELD_LABELS = {
+    firstName: 'First name', lastName: 'Last name', jobTitle: 'Job title', organization: 'Company',
+    phoneWork: 'Work phone', phoneMobile: 'Mobile phone', email: 'Email', website: 'Website',
+    street: 'Street', city: 'City', state: 'State', zip: 'ZIP', notes: 'Notes'
+};
+let ocrReview = null;   // { lines: [{ text, role }], fields } while the review step is open
+
+function showReviewStep(step) {
+    $('ocrStepPhoto').classList.toggle('hidden', step !== 'photo');
+    $('ocrStepText').classList.toggle('hidden', step !== 'text');
+}
+
+// Closes the dialog and drops the extracted text (it is contact data, so it is not kept around).
+function closeReviewDialog() {
+    $('cropReviewModal').classList.add('hidden');
+    showReviewStep('photo');
+    ocrReview = null;
+    $('ocrLines').replaceChildren();
+    $('ocrSummary').replaceChildren();
+}
+
+function renderOcrSummary() {
+    const { fields, derived } = formMapper.buildFields(ocrReview.lines);
+    ocrReview.fields = fields;
+    const items = Object.keys(FIELD_LABELS).filter(k => fields[k]).flatMap(k => {
+        const dt = document.createElement('dt');
+        dt.className = 'text-slate-500 dark:text-slate-400';
+        dt.textContent = FIELD_LABELS[k];
+        const dd = document.createElement('dd');
+        dd.className = 'min-w-0 break-words';
+        dd.textContent = fields[k] + (derived[k] ? ` (from ${derived[k]})` : '');
+        return [dt, dd];
+    });
+    if (!items.length) {
+        const dd = document.createElement('dd');
+        dd.className = 'col-span-2 text-slate-500 dark:text-slate-400';
+        dd.textContent = 'Nothing yet: choose what the lines are.';
+        items.push(dd);
+    }
+    $('ocrSummary').replaceChildren(...items);
+}
+
+// One row per OCR line: editable text + role picker. Built with DOM nodes, never HTML strings (OCR text is untrusted).
+function renderOcrLines() {
+    const rows = ocrReview.lines.map((line, i) => {
+        const row = document.createElement('div');
+        row.className = 'flex gap-2 items-center';
+        const text = document.createElement('input');
+        text.type = 'text';
+        text.id = `ocrLineText${i}`;
+        text.className = 'field-input flex-1 min-w-0';
+        text.value = line.text;
+        text.setAttribute('aria-label', `Line ${i + 1} text`);
+        text.addEventListener('input', () => { line.text = text.value; renderOcrSummary(); });
+        const role = document.createElement('select');
+        role.id = `ocrLineRole${i}`;
+        role.className = 'field-input w-44 shrink-0';
+        role.setAttribute('aria-label', `Line ${i + 1} is`);
+        LINE_ROLES.forEach(([value, label]) => role.add(new Option(label, value, false, value === line.role)));
+        role.addEventListener('change', () => { line.role = role.value; renderOcrSummary(); });
+        row.append(text, role);
+        return row;
+    });
+    $('ocrLines').replaceChildren(...rows);
+    renderOcrSummary();
+}
+
 async function runOcr() {
-    const image = $('reviewImage').src;
-    if (!image) return;
+    if (!$('reviewImage').src) return;
     showRetakePrompt(false);
     $('runOcrBtn').disabled = true;
     $('runOcrBtn').textContent = 'Extracting…';
     try {
-        const { text } = await executeOCRScan(image);
-        cardView.mergeContact(formMapper.parseOCRText(text));
-        $('cropReviewModal').classList.add('hidden');
-        cardView.showToast('Fields extracted. Please review them.');
+        const { text } = await executeOCRScan(cropEditor.getCroppedImage());
+        ocrReview = { lines: formMapper.classifyLines(text), fields: null };
+        renderOcrLines();
+        showReviewStep('text');
     } catch (e) {
         console.error('[vCGE] OCR failed:', e);
         if (e && e.code === 'OCR_UNREADABLE') {
             showRetakePrompt(true);
         } else if (e && e.code === 'OCR_UNAVAILABLE') {
-            $('cropReviewModal').classList.add('hidden');
+            closeReviewDialog();
             cardView.showToast('The OCR engine could not start, so your form was not changed. Type the details in, or try again.');
         } else {
             cardView.showToast('Could not read that image.');
@@ -268,6 +337,13 @@ async function runOcr() {
         $('runOcrBtn').disabled = false;
         $('runOcrBtn').textContent = 'Extract fields';
     }
+}
+
+function applyOcrReview() {
+    if (!ocrReview) return;
+    cardView.mergeContact(ocrReview.fields);
+    closeReviewDialog();
+    cardView.showToast('Form filled. Please check the details.');
 }
 
 function wireIntake() {
@@ -286,15 +362,20 @@ function wireIntake() {
         $('cameraPanel').classList.add('hidden');
     });
     $('runOcrBtn').addEventListener('click', runOcr);
-    $('cancelReviewBtn').addEventListener('click', () => $('cropReviewModal').classList.add('hidden'));
+    $('rotatePhotoBtn').addEventListener('click', () => { showRetakePrompt(false); cropEditor.rotate(); });
+    $('cancelReviewBtn').addEventListener('click', closeReviewDialog);
+    $('ocrCancelBtn').addEventListener('click', closeReviewDialog);
+    $('ocrBackBtn').addEventListener('click', () => showReviewStep('photo'));
+    $('applyOcrBtn').addEventListener('click', applyOcrReview);
     // Retake: with the camera open, close the dialog so the user can capture again; otherwise pick another photo
     // (on phones the picker also offers the camera).
     $('retakePhotoBtn').addEventListener('click', () => {
-        $('cropReviewModal').classList.add('hidden');
+        closeReviewDialog();
         if ($('cameraPanel').classList.contains('hidden')) $('imageUpload').click();
         else cardView.showToast('Hold the card steady and capture again.');
     });
-    globalEventBus.subscribe(Events.IMAGE_CAPTURED, () => showRetakePrompt(false));
+    // A new photo starts over at step 1 and drops any text extracted from the previous one (the camera reopens the dialog).
+    globalEventBus.subscribe(Events.IMAGE_CAPTURED, () => { showRetakePrompt(false); closeReviewDialog(); });
 }
 
 // ---- Egress (MOD08 only) ---------------------------------------------------------------------------------------
