@@ -18,9 +18,9 @@ The application is structured into a strictly modular ES Architecture consisting
 - **vCGE-MOD08:** Outbound sharing controller functioning as the sole egress gateway for Web Share payloads, .vcf downloads, PNG exports, and physical card printing.
 
 ## 3. Current Progress & Verification Status
-*Verified 2026-10-12. The source was imported from the Google Drive export (`vCGE FILES/vCGE-Master`, 23 files), read in full, fixed and integrated. Every JavaScript file passes a Node 22 syntax check. The logic modules pass a 37-case Node suite, and the integrated app passes a 34-case end-to-end run in headless Chromium.*
+*Verified 2026-10-12. The source was imported from the Google Drive export (`vCGE FILES/vCGE-Master`, 23 files), read in full, fixed and integrated. Every JavaScript file passes a Node 22 syntax check. The suites are committed in `tests/`: `npm test` (42 unit cases) and `npm run test:e2e` (37 end-to-end cases in headless Chromium) both pass.*
 
-**Overall:** the app runs end-to-end in a browser (`npm start`). It is integrated, offline and encrypted at rest. OCR and QR rendering still use placeholders until their libraries are bundled, and the Tauri desktop build does not exist yet (see 3.2).
+**Overall:** the app runs end-to-end in a browser (`npm start`). It is integrated, offline and encrypted at rest, with on-device OCR and scannable QR codes. The Tauri desktop build does not exist yet (see 3.2).
 
 ### 3.1 What works (verified)
 - **Integration:** `src/main.js` wires every module over one event bus: MOD03 camera or upload → MOD04 OCR → MOD05 mapper → MOD06 card view → MOD07 vCard and QR → MOD02 vault and MOD08 egress. `index.html` is the full app UI, loaded as ES modules (`<script type="module">`).
@@ -31,7 +31,9 @@ The application is structured into a strictly modular ES Architecture consisting
   - Lock drops the key but keeps the vault. Wipe deletes it.
   - Storage never contains plaintext contact data; this was checked in the browser.
 - **vCGE-SHARE `CryptoUtils`** has no default key: it requires a passphrase, derives the key with PBKDF2, and uses a fresh salt for each encryption.
-- **MOD03/MOD04 intake:** image upload (10 MB limit) and the camera viewfinder (zoom, tap-to-focus, switch, capture) open a review modal. "Extract fields" runs OCR, maps the text and merges it into the form. When Tesseract.js isn't loaded, the user is told that sample text was used.
+- **MOD03/MOD04 intake:** image upload (10 MB limit) and the camera viewfinder (zoom, tap-to-focus, switch, capture) open a review modal. "Extract fields" runs OCR, maps the text and merges it into the form.
+- **On-device OCR:** Tesseract.js 5.1.1 runs from bundled files: the worker, the LSTM WASM core (SIMD and non-SIMD builds) and the English `best_int` model, all in `src/vendor/tesseract/`. The worker loads from a same-origin URL and caching is off, so the language data never goes to IndexedDB. On a rendered test card it correctly read all 11 fields (name, title, organization, phone, email, website, street, city, state, ZIP) in about 1.5 s, with zero external requests. If the engine can't start, MOD04 falls back to sample text and the UI says so.
+- **Scannable QR:** MOD07 renders with the bundled qrcode-generator 1.4.4 (MIT): UTF-8, error-correction level M, whole-pixel modules and a 4-module quiet zone. jsQR decodes it back to the exact vCard, including accented names. Data too large for one QR code shows a labelled fallback. The QR payload leaves out the photo; the .vcf keeps it.
 - **MOD05 local address suggestions** fill in street, city, state, ZIP and country, with no network lookup.
 - **MOD06 card view:** live preview, 3D flip, five palettes, three typography options, avatar (PNG/JPEG, 2 MB limit), three sample presets, toasts, and app-wide light/dark mode. Tested at desktop width and at 390 px wide with no horizontal scroll.
 - **MOD08 egress:** .vcf download, share sheet (clipboard fallback), QR PNG export, email, SMS and print all go through `egressController`. Each action publishes `EXPORT_DISPATCHED`, and the Security panel shows an audit log of egress, blocked requests, vault and OCR events.
@@ -45,11 +47,9 @@ The application is structured into a strictly modular ES Architecture consisting
 1. **No desktop build:** there is no Vite config and no Tauri project (`tauri.conf.json`, `src-tauri/`), so the planned Tauri v2 build cannot run. The app currently runs as a local web page.
 2. **No OS keychain integration:** the vault key is derived from the passphrase only. The macOS Keychain, Windows DPAPI and Linux libsecret integration needs the Tauri side.
 3. **TTL zero-fill is best-effort and unused:** `TTLMemoryStreamManager` overwrites string properties, but JavaScript strings are immutable, so earlier copies can stay in memory. No module uses it yet.
-4. **OCR is simulated:** Tesseract.js (with its WASM core and `eng` language data) is not bundled, so MOD04 returns fixed sample text. The app says so whenever it happens.
-5. **The QR code is not scannable:** QRious is not bundled, so MOD07 draws a labelled placeholder ("QR library not bundled"), and the card shows a notice.
-6. **Card fonts are not bundled:** `cardStyles.css` names Inter, Playfair Display and Fira Code, which are not shipped, so the card uses system fallbacks.
+4. **Card fonts are not bundled:** `cardStyles.css` names Inter, Playfair Display and Fira Code, which are not shipped, so the card uses system fallbacks.
 
 ## 4. Key Technical Decisions
 - **RAM TTL Streams:** To eliminate persistent data residue risks, visual renderers and QR generators consume short-lived, read-only memory streams protected by a 120-second TTL auto-purge protocol and startup memory residue checks. *(Status: timer implemented, not yet wired in — see 3.2 #3.)*
 - **Sole Egress Gateway:** Sub-modules are strictly blocked from making direct network calls; all external sharing routes exclusively through MOD08 to enforce total telemetry visibility. *(Status: enforced — the MOD01 gatekeeper blocks non-same-origin network calls and the CSP restricts connections to `'self'`; see 3.1.)*
-- **Dual-Licensing Model:** The public repository utilizes an MIT License for open-source transparency and auditability, while preserving the legal right to distribute pre-compiled binary packages under a proprietary commercial EULA.
+- **Dual-Licensing Model:** The public repository utilizes an MIT License for open-source transparency and auditability, while preserving the legal right to distribute pre-compiled binary packages under a proprietary commercial EULA. *(Status: every bundled dependency is MIT or Apache-2.0; GPL-3.0 QRious was replaced with MIT qrcode-generator to keep the commercial option open. See `THIRD_PARTY_NOTICES.md`.)*

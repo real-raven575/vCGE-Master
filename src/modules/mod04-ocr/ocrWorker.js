@@ -12,6 +12,9 @@ import { globalEventBus, Events } from '../../share/eventBus.js';
 const MODULE_ID = 'vCGE-MOD04';
 const MODULE_NAME = 'OCR Engine Module';
 
+// Bundled, pinned Tesseract.js assets (src/vendor/tesseract, see scripts/vendor.mjs). Nothing is fetched from a CDN.
+const VENDOR = new URL('../../vendor/tesseract/', import.meta.url);
+
 let tesseractWorker = null;
 let isWorkerInitialized = false;
 
@@ -25,11 +28,17 @@ async function initOCREngine() {
         console.log(`[${MODULE_ID}] Initializing offline Tesseract WASM worker...`);
         
         if (typeof Tesseract === 'undefined') {
-            console.warn(`[${MODULE_ID}] Tesseract library not loaded in global scope. Falling back to heuristic text parser.`);
+            console.warn(`[${MODULE_ID}] Tesseract library not loaded in global scope. Falling back to sample text.`);
             return false;
         }
 
         tesseractWorker = await Tesseract.createWorker('eng', 1, {
+            workerPath: new URL('worker.min.js', VENDOR).href,
+            corePath: new URL('core/', VENDOR).href,
+            langPath: new URL('lang/', VENDOR).href,
+            gzip: true,
+            cacheMethod: 'none',      // keep language data out of IndexedDB
+            workerBlobURL: false,     // same-origin worker script, so the page CSP needs no 'wasm-unsafe-eval'
             logger: m => {
                 if (m && m.status) {
                     console.log(`[${MODULE_ID}] OCR Progress: ${m.status} (${Math.round((m.progress || 0) * 100)}%)`);

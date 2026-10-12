@@ -26,9 +26,9 @@ The **vCard Generator Engine (vCGE)** is a high-security, cross-platform digital
 
 All of this happens with no network access: the MOD01 gatekeeper and a Content-Security-Policy block every non-local request.
 
-**Not done yet:**
-- OCR and the QR code are placeholders until Tesseract.js and QRious are bundled. The app tells you when they are used.
-- The Tauri v2 desktop build and OS keychain integration don't exist yet.
+OCR (Tesseract.js) and QR generation (qrcode-generator) run entirely on-device from bundled files in `src/vendor/`.
+
+**Not done yet:** the Tauri v2 desktop build and OS keychain integration.
 
 The full verified status is in [`docs/spec.md` §3](docs/spec.md#3-current-progress--verification-status).
 
@@ -42,6 +42,15 @@ npm start            # serves http://localhost:8080 (localhost only; PORT=xxxx t
 
 On first launch you either create a vault passphrase (8+ characters; it **cannot be recovered**) or choose *Continue without saving*.
 
+**Tests** (need devDependencies installed):
+
+```bash
+npm install
+npm test                          # 42 unit tests (Node)
+npx playwright install chromium   # once, for the browser tests
+npm run test:e2e                  # 37 end-to-end tests in headless Chromium (real OCR, QR decode, vault, egress lock)
+```
+
 ---
 
 ## 📦 Repository Structure
@@ -50,16 +59,22 @@ On first launch you either create a vault passphrase (8+ characters; it **cannot
 vCGE-Master/
 ├── LICENSE.md                     # MIT License
 ├── README.md
-├── package.json                   # npm start (local server), npm run build:css (Tailwind 3.4.17, pinned)
+├── package.json                   # npm start, test, test:e2e, build:css, vendor (all deps pinned)
 ├── tailwind.config.js
 ├── index.html                     # App UI (loads src/main.js as an ES module; CSP egress lock)
+├── THIRD_PARTY_NOTICES.md         # Bundled libraries & licences (all MIT / Apache-2.0)
 ├── docs/
 │   └── spec.md                    # Architecture brief & verification status
 ├── scripts/
-│   └── serve.mjs                  # Dependency-free localhost static server
+│   ├── serve.mjs                  # Dependency-free localhost static server (npm start)
+│   └── vendor.mjs                 # Copies pinned libraries into src/vendor (npm run vendor)
+├── tests/
+│   ├── unit.test.mjs              # npm test
+│   └── e2e.test.cjs               # npm run test:e2e
 └── src/
     ├── main.js                    # Master Integration Controller (wires all modules over the event bus)
     ├── styles/                    # tailwind.input.css → tailwind.css (compiled, committed)
+    ├── vendor/                    # qrcode-generator, Tesseract.js + WASM core + English model (committed)
     ├── share/                     # Global Shared Libraries (vCGE-SHARE)
     │   ├── index.js               # Export barrel
     │   ├── cardSchema.js          # Canonical contact schema (CONTACT_FIELDS) & validation
@@ -71,10 +86,10 @@ vCGE-Master/
         ├── mod01-shell/           # shell.js (network gatekeeper), themeManager.js (light/dark)
         ├── mod02-vault/           # vault.js (PBKDF2 + AES-GCM-256, lock/wipe), ttlManager.js (120 s TTL, not wired yet)
         ├── mod03-camera/          # camera.js (viewfinder, zoom, capture, crop review)
-        ├── mod04-ocr/             # ocrWorker.js (image pre-processing + Tesseract.js hook; simulated until bundled)
+        ├── mod04-ocr/             # ocrWorker.js (image pre-processing + bundled Tesseract.js, on-device)
         ├── mod05-form/            # formMapper.js (OCR text → contact), addressAutocomplete.js (local-only)
         ├── mod06-gui/             # card3dView.js (CardView: form, preview, palettes, avatar), cardStyles.css
-        ├── mod07-qr/              # qrGenerator.js (vCard via shared builder, QR canvas render)
+        ├── mod07-qr/              # qrGenerator.js (vCard via shared builder, scannable QR via qrcode-generator)
         └── mod08-egress/          # egressController.js (share, .vcf, QR PNG, mailto/sms, print + audit), print.css
 ```
 

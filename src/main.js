@@ -36,7 +36,7 @@ function refresh(contact = cardView.getContact()) {
     const vcard = vcgeQREngine.generateVCard30(contact);
     cardView.render(contact);
     // The QR payload omits the photo: base64 images exceed QR capacity.
-    const qrOk = vcgeQREngine.renderQRCode($('qrCanvas'), vcgeQREngine.generateVCard30({ ...contact, avatarBase64: null }), { size: 160 });
+    const qrOk = vcgeQREngine.renderQRCode($('qrCanvas'), vcgeQREngine.generateVCard30({ ...contact, avatarBase64: null }), { size: 320 });
     $('qrNotice').classList.toggle('hidden', qrOk);
     egressController.setPayload(vcard, contact);
     globalEventBus.publish(Events.CONTACT_UPDATED, { timestamp: Date.now() });
@@ -165,7 +165,7 @@ async function runOcr() {
         cardView.mergeContact(formMapper.parseOCRText(text));
         $('cropReviewModal').classList.add('hidden');
         cardView.showToast(simulated
-            ? 'OCR engine (Tesseract.js) is not bundled yet: sample text was used, not your image.'
+            ? 'OCR engine (Tesseract.js) could not start: sample text was used, not your image.'
             : 'Fields extracted. Please review them.');
     } catch (e) {
         console.error('[vCGE] OCR failed:', e);
