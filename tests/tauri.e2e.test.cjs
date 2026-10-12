@@ -1,0 +1,126 @@
+// vCGE desktop end-to-end test: drives the real Tauri binary through tauri-driver (WebDriver).
+// Linux: run via `npm run test:tauri` (tests/run-tauri-e2e.sh sets up Xvfb, D-Bus and an unlocked keyring).
+// Needs: a built app (`npx tauri build --debug --no-bundle`), tauri-driver, WebKitWebDriver, secret-tool.
+const path = require('path');
+const { spawn, execFileSync } = require('child_process');
+const jsQR = require('jsqr');
+
+const ROOT = path.resolve(__dirname, '..');
+const APP = process.env.VCGE_APP || path.join(ROOT, 'src-tauri/target/debug/vcge');
+const DRIVER = 'http://127.0.0.1:4444';
+const ELEMENT = 'element-6066-11e4-a52e-4f735466cecf';
+const PASS = 'desktop passphrase 42';
+
+let pass = 0, fail = 0;
+const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, console.log('FAIL', n, d)); };
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+async function wd(method, url, body) {
+  const res = await fetch(DRIVER + url, { method, headers: { 'Content-Type': 'application/json' }, body: body && JSON.stringify(body) });
+  const json = await res.json();
+  if (json.value && json.value.error) throw new Error(`${method} ${url}: ${json.value.error} ${json.value.message}`);
+  return json.value;
+}
+
+function keyringHasDeviceKey() {
+  try { return execFileSync('secret-tool', ['search', 'service', 'com.vcge.app'], { stdio: ['ignore', 'pipe', 'pipe'] }).toString().includes('vault-device-key'); }
+  catch (e) { return false; }
+}
+
+(async () => {
+  const driver = spawn('tauri-driver', ['--native-driver', '/usr/bin/WebKitWebDriver'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  for (let i = 0; i < 50; i++) { try { await fetch(DRIVER + '/status'); break; } catch (e) { await sleep(200); } }
+
+  const session = await wd('POST', '/session', { capabilities: { alwaysMatch: { 'tauri:options': { application: APP } } } });
+  const sid = session.sessionId;
+  const S = (p) => `/session/${sid}${p}`;
+  const js = (script, ...args) => wd('POST', S('/execute/sync'), { script, args });
+  const jsAsync = (script, ...args) => wd('POST', S('/execute/async'), { script, args });
+  const el = async (css) => (await wd('POST', S('/element'), { using: 'css selector', value: css }))[ELEMENT];
+  const click = async (css) => wd('POST', S(`/element/${await el(css)}/click`), {});
+  const type = async (css, text) => { const id = await el(css); await wd('POST', S(`/element/${id}/clear`), {}); await wd('POST', S(`/element/${id}/value`), { text }); };
+  const val = (id) => js(`return document.getElementById(arguments[0]).value;`, id);
+  const txt = (id) => js(`return document.getElementById(arguments[0]).textContent.trim();`, id);
+  const visible = (id) => js(`const e = document.getElementById(arguments[0]); return !e.classList.contains('hidden');`, id);
+  const until = async (fn, ms = 20000) => { const end = Date.now() + ms; while (Date.now() < end) { if (await fn()) return true; await sleep(250); } return false; };
+
+  try {
+    await until(() => js(`return document.readyState === 'complete' && !!document.getElementById('vaultModal');`));
+    ok('desktop app loads the bundled UI', await visible('vaultModal') && (await txt('vaultModalTitle')).includes('Create'));
+    ok('Tauri IPC is available (withGlobalTauri)', await js(`return !!(window.__TAURI__ && window.__TAURI__.core);`));
+    ok('page is served from the Tauri asset protocol', /^(tauri:|http:\/\/tauri\.localhost)/.test(await js('return location.href;')), await js('return location.href;'));
+    ok('keyring starts empty', !keyringHasDeviceKey());
+
+    // Create a keychain-bound vault
+    await type('#vaultPassphrase', PASS); await type('#vaultPassphraseConfirm', PASS); await click('#vaultUnlockBtn');
+    ok('vault created with OS keychain binding', await until(async () => (await txt('vaultStateIndicator')).includes('OS keychain')), await txt('vaultStateIndicator'));
+    ok('device key stored in the OS keyring (Secret Service)', keyringHasDeviceKey());
+
+    await type('#firstName', 'Desk'); await type('#lastName', 'Top'); await type('#organization', 'Tauri, Inc');
+    await sleep(900);
+    const blob = JSON.parse(await js(`return localStorage.getItem('vCGE_secure_vault.dat');`));
+    ok('vault blob records keychain KDF', blob && blob.kdf === 'pbkdf2-sha256+hkdf-device-key', blob && blob.kdf);
+    ok('no plaintext contact data in webview storage', !(await js('return JSON.stringify(localStorage);')).includes('Desk'));
+
+    // Egress lock inside the desktop webview
+    const blocked = await jsAsync(`const done = arguments[arguments.length - 1]; fetch('https://example.com/x').then(() => done('ALLOWED'), () => done('blocked'));`);
+    ok('gatekeeper blocks external fetch in the desktop app', blocked === 'blocked');
+
+    // Real OCR inside WebKitGTK (worker + WASM from the tauri:// asset protocol)
+    await js(`
+      const c = document.createElement('canvas'); c.width = 1050; c.height = 600;
+      const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111';
+      const lines = [['bold 56px sans-serif', 'Maria Gonzalez'], ['34px sans-serif', 'Director of Engineering'], ['34px sans-serif', 'Northwind Systems'],
+        ['30px sans-serif', '+1 (312) 555-0147'], ['30px sans-serif', 'maria.gonzalez@northwind.com'], ['30px sans-serif', 'https://northwind.com']];
+      let y = 80; for (const [f, t] of lines) { x.font = f; x.fillText(t, 70, y); y += f.startsWith('bold') ? 80 : 62; }
+      const bin = atob(c.toDataURL('image/png').split(',')[1]); const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const dt = new DataTransfer(); dt.items.add(new File([bytes], 'card.png', { type: 'image/png' }));
+      const input = document.getElementById('imageUpload'); input.files = dt.files; input.dispatchEvent(new Event('change'));`);
+    ok('upload opens review modal', await until(() => visible('cropReviewModal'), 5000));
+    await click('#runOcrBtn');
+    await until(async () => !(await visible('cropReviewModal')), 90000);
+    const toast = await txt('toastMessage');
+    ok('real OCR runs in the desktop webview (not simulated)', toast.includes('Fields extracted'), toast);
+    ok('OCR fills name, email and phone', (await val('firstName')) === 'Maria' && (await val('email')) === 'maria.gonzalez@northwind.com' && (await val('phoneWork')) === '+1 (312) 555-0147',
+      [await val('firstName'), await val('email'), await val('phoneWork')].join(' | '));
+
+    // Scannable QR
+    const qr = await js(`const c = document.getElementById('qrCanvas'); return { w: c.width, h: c.height, d: Array.from(c.getContext('2d').getImageData(0, 0, c.width, c.height).data) };`);
+    const decoded = jsQR(Uint8ClampedArray.from(qr.d), qr.w, qr.h);
+    ok('QR code in the desktop app decodes to the vCard', decoded && decoded.data.includes('FN:Maria Gonzalez'), decoded && decoded.data.slice(0, 60));
+    await sleep(900);
+
+    // Restart the page: unlock needs passphrase + keychain device key
+    await wd('POST', S('/refresh'), {});
+    await until(() => js(`return document.readyState === 'complete' && !!document.getElementById('vaultModal');`));
+    ok('after reload: unlock mode', await until(async () => (await txt('vaultModalTitle')).includes('Unlock'), 5000));
+    await type('#vaultPassphrase', PASS); await click('#vaultUnlockBtn');
+    ok('passphrase + keychain key restore the card', await until(async () => (await val('firstName')) === 'Maria'), await val('firstName'));
+
+    // Without the device key (e.g. vault copied to another machine) the vault cannot be opened
+    await click('#lockVaultBtn');
+    execFileSync('secret-tool', ['clear', 'service', 'com.vcge.app']);
+    await type('#vaultPassphrase', PASS); await click('#vaultUnlockBtn');
+    ok('vault refuses to open when the keychain device key is missing', await until(async () => (await txt('vaultError')).includes('device key is missing')), await txt('vaultError'));
+    ok('unlock attempt did not create a replacement key', !keyringHasDeviceKey());
+
+    // Wipe removes the vault (and the device key)
+    await js('window.confirm = () => true;');
+    await click('#vaultSkipBtn');
+    await click('#wipeVaultBtn');
+    await sleep(500);
+    ok('wipe deletes the vault and re-prompts in create mode', (await js(`return localStorage.getItem('vCGE_secure_vault.dat');`)) === null && (await txt('vaultModalTitle')).includes('Create'));
+    await type('#vaultPassphrase', PASS); await type('#vaultPassphraseConfirm', PASS); await click('#vaultUnlockBtn');
+    await until(async () => (await txt('vaultStateIndicator')).includes('OS keychain'));
+    ok('new vault creates a new device key', keyringHasDeviceKey());
+    await js('window.confirm = () => true;');
+    await click('#wipeVaultBtn');
+    ok('wipe deletes the device key from the keyring', await until(async () => !keyringHasDeviceKey(), 5000));
+  } finally {
+    await wd('DELETE', S('')).catch(() => {});
+    driver.kill();
+  }
+  console.log(`\n${pass} passed, ${fail} failed`);
+  process.exitCode = fail ? 1 : 0;
+})().catch(e => { console.error(e); process.exit(1); });

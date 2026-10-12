@@ -18,9 +18,9 @@ The application is structured into a strictly modular ES Architecture consisting
 - **vCGE-MOD08:** Outbound sharing controller functioning as the sole egress gateway for Web Share payloads, .vcf downloads, PNG exports, and physical card printing.
 
 ## 3. Current Progress & Verification Status
-*Verified 2026-10-12. The source was imported from the Google Drive export (`vCGE FILES/vCGE-Master`, 23 files), read in full, fixed and integrated. Every JavaScript file passes a Node 22 syntax check. The suites are committed in `tests/`: `npm test` (46 unit cases) and `npm run test:e2e` (45 end-to-end cases in headless Chromium) both pass.*
+*Verified 2026-10-12. The source was imported from the Google Drive export (`vCGE FILES/vCGE-Master`, 23 files), read in full, fixed and integrated. Every JavaScript file passes a Node 22 syntax check. The suites are committed in `tests/` and all pass: `npm test` (54 unit cases), `npm run test:e2e` (45 end-to-end cases in headless Chromium, run against both the source and the Vite build), `cargo test` (5 Rust cases) and `npm run test:tauri` (20 cases driving the real Linux desktop binary, debug and release, through tauri-driver).*
 
-**Overall:** the app runs end-to-end in a browser (`npm start`). It is integrated, offline and encrypted at rest, with on-device OCR and scannable QR codes. The Tauri desktop build does not exist yet (see 3.2).
+**Overall:** vCGE runs as a Tauri v2 desktop app (`npm run tauri dev` / `npm run tauri build`) and as a local web page (`npm start`). It is integrated, offline and encrypted at rest; on the desktop the vault is also bound to the OS keychain. OCR and scannable QR codes run on-device. Linux builds are verified; macOS and Windows builds are configured but untested (see 3.2).
 
 ### 3.1 What works (verified)
 - **Integration:** `src/main.js` wires every module over one event bus: MOD03 camera or upload → MOD04 OCR → MOD05 mapper → MOD06 card view → MOD07 vCard and QR → MOD02 vault and MOD08 egress. `index.html` is the full app UI, loaded as ES modules (`<script type="module">`).
@@ -44,6 +44,20 @@ The application is structured into a strictly modular ES Architecture consisting
   - Each purge is logged as `RAM purged (idle)`.
   - On every start, plaintext keys left by older builds are deleted (startup residue check).
 - **MOD08 egress:** .vcf download, share sheet (clipboard fallback), QR PNG export, email, SMS and print all go through `egressController`. Each action publishes `EXPORT_DISPATCHED`, and the Security panel shows an audit log of egress, blocked requests, vault and OCR events.
+- **Tauri v2 desktop app (`src-tauri/`):**
+  - Vite (`vite.config.mjs`) bundles the UI into `dist/`; the vendor files are copied verbatim.
+  - Tauri 2.12.0 (crate family pinned to one release set) embeds it.
+  - The CSP is set in both `tauri.conf.json` and `index.html`; besides `'self'`, it allows only Tauri's local IPC (`ipc:`, `http://ipc.localhost`). The gatekeeper allows the same two.
+  - The two app commands are gated by a capability: only the `main` window may call them, and no other Tauri API is exposed.
+  - Verified on Linux, both debug and release (9.7 MB binary, 7 MB `.deb`): the bundled UI loads, real OCR runs in WebKitGTK, QR decodes, external fetch is blocked, and webview storage holds no plaintext.
+- **OS keychain binding:**
+  - On the desktop, creating a vault stores a random 256-bit device key in the OS credential store. The `keyring` crate covers the macOS Keychain, Windows Credential Manager/DPAPI and the Linux Secret Service.
+  - The AES-GCM-256 key is HKDF-SHA256(PBKDF2-SHA256(passphrase), salt = device key), and the vault records this as `kdf: pbkdf2-sha256+hkdf-device-key`.
+  - A copied vault therefore cannot be opened elsewhere with the passphrase alone. Unlocking never creates a key: a missing key is reported, and the test confirms it isn't silently replaced.
+  - Wipe deletes the device key.
+  - If the keychain is unavailable at creation, the vault falls back to passphrase-only and the user is told.
+  - Browser vaults are unchanged and still open (a backward-compatibility test covers this).
+  - Verified against a real Secret Service (gnome-keyring).
 - **No network egress:**
   - The MOD01 gatekeeper is imported first. It wraps `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource` and `sendBeacon`, blocks every non-same-origin request and publishes `EGRESS_BLOCKED`.
   - The CSP restricts scripts, styles and connections to `'self'`.
@@ -51,9 +65,9 @@ The application is structured into a strictly modular ES Architecture consisting
   - A full browser session made zero non-local requests, and same-origin requests still work.
 
 ### 3.2 Remaining gaps
-1. **No desktop build:** there is no Vite config and no Tauri project (`tauri.conf.json`, `src-tauri/`), so the planned Tauri v2 build cannot run. The app currently runs as a local web page.
-2. **No OS keychain integration:** the vault key is derived from the passphrase only. The macOS Keychain, Windows DPAPI and Linux libsecret integration needs the Tauri side.
-3. **Zero-fill is best-effort by nature:** the purge removes every reference the app holds and overwrites what it can, but JavaScript strings are immutable and garbage-collected, so the engine may keep copies in freed memory until they are reclaimed. Guaranteed wiping would need native memory (the Tauri side).
+1. **macOS and Windows builds are untested:** the configuration (icons, bundle targets, native keychain backends) is in place, but only Linux was built and tested. Builds for those platforms must run on those systems (or in CI). Code signing and notarisation are not set up.
+2. **Zero-fill is best-effort by nature:** the purge removes every reference the app holds and overwrites what it can, but JavaScript strings are immutable and garbage-collected, so the engine may keep copies in freed memory until they are reclaimed. Contact data lives in the webview (JavaScript), so native memory wiping would not cover it either.
+3. **Camera capture in the desktop webview is untested:** the container has no camera. WebKitGTK needs camera permission handling, which may need work on real hardware.
 
 ## 4. Key Technical Decisions
 - **RAM TTL Streams:** To eliminate persistent data residue risks, visual renderers and QR generators consume short-lived, read-only memory streams protected by a 120-second TTL auto-purge protocol and startup memory residue checks. *(Status: wired in — 120 s idle purge plus a startup residue check; see 3.1, with the zero-fill limits in 3.2 #3.)*

@@ -22,8 +22,14 @@ export function enforceGatekeeper(sourceModule, action) {
 // Network interceptor: sub-modules may not reach any non-local host. Same-origin requests (local assets) are allowed;
 // everything else is blocked and reported on the bus. Outbound sharing goes through MOD08 (share sheet,
 // downloads, mailto/sms, print), none of which uses these APIs. The CSP in index.html enforces the same rule.
+// Compares scheme + host rather than `origin`, which is the opaque "null" for custom schemes like tauri://.
+// Tauri's own IPC endpoints (ipc://localhost, http://ipc.localhost on Windows) are local and allowed.
 function isSameOrigin(url) {
-    try { return new URL(url, window.location.href).origin === window.location.origin; } catch (e) { return false; }
+    try {
+        const u = new URL(url, window.location.href);
+        if (u.protocol === 'ipc:' || u.hostname === 'ipc.localhost') return true;
+        return u.protocol === window.location.protocol && u.host === window.location.host;
+    } catch (e) { return false; }
 }
 function blockEgress(api, url) {
     console.warn(`[Gatekeeper BLOCK] ${api} to ${url} blocked: direct network egress is not permitted.`);

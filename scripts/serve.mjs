@@ -5,7 +5,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+// SERVE_DIR=dist serves the Vite build instead of the source tree.
+const ROOT = process.env.SERVE_DIR ? path.resolve(REPO, process.env.SERVE_DIR) : REPO;
 const PORT = Number(process.env.PORT) || 8080;
 const TYPES = {
     '.html': 'text/html; charset=utf-8',

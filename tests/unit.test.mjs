@@ -104,6 +104,33 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('vault lock drops key but keeps data', v2.lock().status === 'LOCKED' && v2.masterKey === null && v2.hasStoredVault());
   v.zeroFillWipe();
   ok('vault zeroFillWipe clears storage', localStorage.getItem('t') === null && v.masterKey === null);
+
+  // Keychain-bound vault (Tauri): passphrase + OS keychain device key via HKDF
+  const { KDF_KEYCHAIN, KDF_PASSPHRASE } = await import(`${R}/modules/mod02-vault/vault.js`);
+  const device = crypto.getRandomValues(new Uint8Array(32));
+  const k1 = new SecureStorageVault('kc');
+  ok('keychain vault initializes with device key', (await k1.initialize('pw-123456', device)).kdf === KDF_KEYCHAIN);
+  await k1.encryptAndStore({ name: 'Bound' });
+  ok('keychain vault records its KDF', JSON.parse(localStorage.getItem('kc')).kdf === KDF_KEYCHAIN && k1.requiresDeviceKey());
+  const k2 = new SecureStorageVault('kc');
+  ok('keychain vault refuses to open without the device key', (await k2.initialize('pw-123456')).error === 'ERR_KEYCHAIN_REQUIRED' && !k2.isUnlocked);
+  const k3 = new SecureStorageVault('kc'); await k3.initialize('pw-123456', crypto.getRandomValues(new Uint8Array(32)));
+  let otherDevice = null; console.error = () => {};
+  try { await k3.retrieveAndDecrypt(); otherDevice = 'OPENED'; } catch (e) { otherDevice = e.message; }
+  console.error = origErr;
+  ok('keychain vault cannot be opened with another device key', otherDevice === 'ERR_VAULT_DECRYPT_FAIL', otherDevice);
+  const k4 = new SecureStorageVault('kc'); await k4.initialize('pw-123456', device);
+  ok('keychain vault opens with passphrase + same device key', (await k4.retrieveAndDecrypt()).name === 'Bound');
+  ok('vault key is not extractable', k4.masterKey.extractable === false);
+
+  // Backward compatibility: a passphrase-only blob written by the previous derivation (deriveKey, no kdf field)
+  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
+  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode('legacy-pass'), { name: 'PBKDF2' }, false, ['deriveKey']);
+  const oldKey = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt']);
+  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, oldKey, new TextEncoder().encode(JSON.stringify({ name: 'Legacy' })));
+  localStorage.setItem('legacy', JSON.stringify({ iv: Array.from(iv), salt: Array.from(salt), ciphertext: Array.from(new Uint8Array(ct)) }));
+  const lv = new SecureStorageVault('legacy');
+  ok('legacy vault (no kdf field) still opens', (await lv.initialize('legacy-pass')).kdf === KDF_PASSPHRASE && (await lv.retrieveAndDecrypt()).name === 'Legacy');
 }
 
 // TTL manager
@@ -139,6 +166,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('mapper fills work then mobile phone', /555-0199/.test(d.phoneWork) && /555-0100/.test(d.phoneMobile), d.phoneWork + ' / ' + d.phoneMobile);
   ok('mapper parses street and City, ST ZIP', d.street === '500 Howard Street' && d.city === 'San Francisco' && d.state === 'CA' && d.zip === '94105', JSON.stringify(d));
   const keys = Object.keys(d).filter(k => k !== 'country');
+  const noisy = fm.parseOCRText('Maria Gonzalez\n+1(312)555-0147\n312.555.0100');
+  ok('mapper normalises OCR-noisy US phone numbers', noisy.phoneWork === '+1 (312) 555-0147' && noisy.phoneMobile === '+1 (312) 555-0100', noisy.phoneWork + ' / ' + noisy.phoneMobile);
   ok('mapper output keys are all CONTACT_FIELDS', keys.every(k => share.CONTACT_FIELDS.includes(k)), keys.join());
 }
 

@@ -12,6 +12,8 @@ import { initTheme } from './modules/mod01-shell/themeManager.js';
 import { globalEventBus, Events } from './share/eventBus.js';
 import { secureVault } from './modules/mod02-vault/vault.js';
 import { TTLMemoryStreamManager } from './modules/mod02-vault/ttlManager.js';
+import { getDeviceSecret, deleteDeviceSecret, isKeychainAvailable } from './modules/mod02-vault/keychain.js';
+import { KDF_KEYCHAIN } from './modules/mod02-vault/vault.js';
 import { VCGEActiveCamera } from './modules/mod03-camera/camera.js';
 import { executeOCRScan } from './modules/mod04-ocr/ocrWorker.js';
 import { ContactFormMapper } from './modules/mod05-form/formMapper.js';
@@ -72,7 +74,7 @@ async function persist(contact) {
 function setVaultIndicator() {
     const el = $('vaultStateIndicator');
     const states = {
-        vault: ['UNLOCKED / AES-256 (saving)', 'text-emerald-500'],
+        vault: [secureVault.kdf === KDF_KEYCHAIN ? 'UNLOCKED / AES-256 + OS keychain' : 'UNLOCKED / AES-256 (saving)', 'text-emerald-500'],
         memory: ['NOT SAVED (memory only)', 'text-amber-500'],
         locked: ['LOCKED', 'text-slate-400']
     };
@@ -108,7 +110,27 @@ async function submitVault(event) {
         if (passphrase !== $('vaultPassphraseConfirm').value) return fail('The passphrases do not match.');
     }
 
-    const result = await secureVault.initialize(passphrase);
+    // Desktop (Tauri): bind the vault to a device key held in the OS keychain.
+    let deviceSecret = null;
+    let keychainError = null;
+    if (isKeychainAvailable() && (creating || secureVault.requiresDeviceKey())) {
+        try {
+            deviceSecret = await getDeviceSecret(creating);
+        } catch (e) {
+            keychainError = String(e);
+            console.error('[vCGE] OS keychain unavailable:', e);
+        }
+    }
+
+    const result = await secureVault.initialize(passphrase, deviceSecret);
+    if (!result.success && result.error === 'ERR_KEYCHAIN_REQUIRED') {
+        if (keychainError && keychainError.includes('DEVICE_KEY_MISSING')) {
+            return fail('This vault\'s device key is missing from the OS keychain (was the vault copied from another device?).');
+        }
+        return fail(keychainError
+            ? `This vault is bound to the OS keychain, which is unavailable: ${keychainError}`
+            : 'This vault was created in the desktop app and is bound to its OS keychain.');
+    }
     if (!result.success) return fail('Could not derive a key from that passphrase.');
 
     try {
@@ -128,7 +150,11 @@ async function submitVault(event) {
     refresh();
     armIdleTtl();
     if (creating) await persist(cardView.getContact());
-    cardView.showToast(creating ? 'Vault created. Changes are saved encrypted.' : 'Vault unlocked.');
+    if (creating && keychainError) {
+        cardView.showToast('OS keychain unavailable: vault protected by passphrase only.');
+    } else {
+        cardView.showToast(creating ? 'Vault created. Changes are saved encrypted.' : 'Vault unlocked.');
+    }
 }
 
 function continueWithoutSaving() {
@@ -199,6 +225,7 @@ function wipeVault() {
     idleTtl.stop();
     clearCapturedImages();
     secureVault.zeroFillWipe();
+    deleteDeviceSecret().catch(e => console.error('[vCGE] Could not delete the keychain device key:', e));
     storageMode = 'locked';
     cardView.clear();
     refresh();

@@ -14,6 +14,8 @@ vCGE bundles the following third-party software in `src/vendor/`. The files are 
 
 "QR Code" is a registered trademark of DENSO WAVE INCORPORATED.
 
-Development-only dependencies (not bundled into the app) are listed in `package.json`: Tailwind CSS (MIT), Playwright (Apache-2.0) and jsQR (Apache-2.0).
+The desktop binary (`src-tauri/`) also compiles in Rust crates, notably [Tauri](https://tauri.app) 2.12.0 (MIT or Apache-2.0) and [keyring](https://github.com/hwchen/keyring-rs) 3.6.3 (MIT or Apache-2.0), plus their dependencies, all pinned in `src-tauri/Cargo.lock`. As of this lockfile, all 498 crates are under permissive licences (MIT, Apache-2.0, BSD, ISC, Zlib, Unicode-3.0, 0BSD, Unlicense/CC0 options), with none GPL-only. The exception is five crates under MPL-2.0 (`cssparser`, `cssparser-macros`, `selectors`, `dtoa-short`, `option-ext`), pulled in by Tauri's build-time HTML tooling. MPL-2.0 is file-level copyleft: it permits proprietary binaries, and only modified MPL files must be shared. To produce the full per-crate notice file for a binary release, run e.g. `cargo about` in `src-tauri/`.
+
+Development-only dependencies (not bundled into the app) are listed in `package.json`: Tailwind CSS (MIT), Vite (MIT), the Tauri CLI (MIT or Apache-2.0), Playwright (Apache-2.0) and jsQR (Apache-2.0).
 
 QRious, which the original code targeted, was deliberately **not** bundled: it is GPL-3.0, which is incompatible with distributing proprietary binaries under the planned commercial EULA (see `docs/spec.md` §4).

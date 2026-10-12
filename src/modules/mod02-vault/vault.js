@@ -7,45 +7,72 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+// Key-derivation schemes recorded in each vault blob.
+export const KDF_PASSPHRASE = 'pbkdf2-sha256';                  // passphrase only (browser)
+export const KDF_KEYCHAIN = 'pbkdf2-sha256+hkdf-device-key';    // passphrase + OS keychain device key (Tauri)
+const PBKDF2_ITERATIONS = 100000;
+const HKDF_INFO = new TextEncoder().encode('vCGE vault key v1');
+
 export class SecureStorageVault {
     constructor(storageKey = 'vCGE_secure_vault.dat') {
         this.storageKey = storageKey;
         this.isUnlocked = false;
         this.masterKey = null;
         this.salt = null;
+        this.kdf = null;
     }
 
-    async initialize(passphrase) {
+    readBlob() {
+        const raw = localStorage.getItem(this.storageKey);
+        return raw ? JSON.parse(raw) : null;
+    }
+
+    // True when the stored vault was created with the OS keychain device key and cannot be opened without it.
+    requiresDeviceKey() {
+        const blob = this.readBlob();
+        return !!blob && blob.kdf === KDF_KEYCHAIN;
+    }
+
+    /**
+     * Derives the vault key. PBKDF2-SHA256 (100k iterations, stored salt) turns the passphrase into 256 bits.
+     * With a device key (Tauri: OS keychain), those bits are mixed with it through HKDF-SHA256, so the vault
+     * is bound to this device. Without one, the PBKDF2 bits are the AES-GCM-256 key (same bytes as before).
+     * @param {string} passphrase
+     * @param {Uint8Array|null} deviceSecret 32-byte device key, or null in a plain browser
+     */
+    async initialize(passphrase, deviceSecret = null) {
         try {
-            const encoder = new TextEncoder();
-            // Reuse the salt of an existing vault so the same passphrase re-derives the same key after a restart.
-            const existing = localStorage.getItem(this.storageKey);
-            const storedSalt = existing ? JSON.parse(existing).salt : null;
-            this.salt = storedSalt ? new Uint8Array(storedSalt) : window.crypto.getRandomValues(new Uint8Array(16));
-            
-            const baseKey = await window.crypto.subtle.importKey(
-                'raw',
-                encoder.encode(passphrase),
-                { name: 'PBKDF2' },
-                false,
-                ['deriveKey']
+            const existing = this.readBlob();
+            // Reuse the salt and scheme of an existing vault so the same inputs re-derive the same key after a restart.
+            const kdf = existing ? (existing.kdf || KDF_PASSPHRASE) : (deviceSecret ? KDF_KEYCHAIN : KDF_PASSPHRASE);
+            if (kdf === KDF_KEYCHAIN && !deviceSecret) {
+                return { success: false, error: 'ERR_KEYCHAIN_REQUIRED' };
+            }
+            this.salt = existing && existing.salt ? new Uint8Array(existing.salt) : window.crypto.getRandomValues(new Uint8Array(16));
+
+            const passKey = await window.crypto.subtle.importKey('raw', new TextEncoder().encode(passphrase), { name: 'PBKDF2' }, false, ['deriveBits']);
+            const bits = await window.crypto.subtle.deriveBits(
+                { name: 'PBKDF2', salt: this.salt, iterations: PBKDF2_ITERATIONS, hash: 'SHA-256' },
+                passKey,
+                256
             );
 
-            this.masterKey = await window.crypto.subtle.deriveKey(
-                {
-                    name: 'PBKDF2',
-                    salt: this.salt,
-                    iterations: 100000,
-                    hash: 'SHA-256'
-                },
-                baseKey,
-                { name: 'AES-GCM', length: 256 },
-                true,
-                ['encrypt', 'decrypt']
-            );
+            if (kdf === KDF_KEYCHAIN) {
+                const hkdfKey = await window.crypto.subtle.importKey('raw', bits, { name: 'HKDF' }, false, ['deriveKey']);
+                this.masterKey = await window.crypto.subtle.deriveKey(
+                    { name: 'HKDF', hash: 'SHA-256', salt: deviceSecret, info: HKDF_INFO },
+                    hkdfKey,
+                    { name: 'AES-GCM', length: 256 },
+                    false,
+                    ['encrypt', 'decrypt']
+                );
+            } else {
+                this.masterKey = await window.crypto.subtle.importKey('raw', bits, { name: 'AES-GCM' }, false, ['encrypt', 'decrypt']);
+            }
 
+            this.kdf = kdf;
             this.isUnlocked = true;
-            return { success: true, message: 'Vault initialized & derived successfully.' };
+            return { success: true, kdf, message: 'Vault initialized & derived successfully.' };
         } catch (error) {
             console.error('[ERR 2001] Vault derivation failed:', error);
             return { success: false, error: 'ERR_VAULT_DECRYPT_FAIL' };
@@ -68,6 +95,7 @@ export class SecureStorageVault {
         );
 
         const packageBlob = {
+            kdf: this.kdf,
             iv: Array.from(iv),
             salt: Array.from(this.salt),
             ciphertext: Array.from(new Uint8Array(ciphertext))
@@ -108,6 +136,7 @@ export class SecureStorageVault {
     lock() {
         this.masterKey = null;
         this.salt = null;
+        this.kdf = null;
         this.isUnlocked = false;
         return { status: 'LOCKED' };
     }
@@ -115,6 +144,7 @@ export class SecureStorageVault {
     zeroFillWipe() {
         this.masterKey = null;
         this.salt = null;
+        this.kdf = null;
         this.isUnlocked = false;
         localStorage.removeItem(this.storageKey);
         return { status: 'WIPED', code: '3001_CLEARED' };

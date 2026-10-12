@@ -13,7 +13,8 @@ const MODULE_ID = 'vCGE-MOD04';
 const MODULE_NAME = 'OCR Engine Module';
 
 // Bundled, pinned Tesseract.js assets (src/vendor/tesseract, see scripts/vendor.mjs). Nothing is fetched from a CDN.
-const VENDOR = new URL('../../vendor/tesseract/', import.meta.url);
+// Resolved from the page URL (not import.meta.url) so the path survives Vite bundling into dist/assets/.
+const vendorUrl = (file) => new URL(`src/vendor/tesseract/${file}`, document.baseURI).href;
 
 let tesseractWorker = null;
 let isWorkerInitialized = false;
@@ -33,9 +34,9 @@ async function initOCREngine() {
         }
 
         tesseractWorker = await Tesseract.createWorker('eng', 1, {
-            workerPath: new URL('worker.min.js', VENDOR).href,
-            corePath: new URL('core/', VENDOR).href,
-            langPath: new URL('lang/', VENDOR).href,
+            workerPath: vendorUrl('worker.min.js'),
+            corePath: vendorUrl('core/'),
+            langPath: vendorUrl('lang/'),
             gzip: true,
             cacheMethod: 'none',      // keep language data out of IndexedDB
             workerBlobURL: false,     // same-origin worker script, so the page CSP needs no 'wasm-unsafe-eval'

@@ -28,7 +28,7 @@ All of this happens with no network access: the MOD01 gatekeeper and a Content-S
 
 OCR (Tesseract.js) and QR generation (qrcode-generator) run entirely on-device from bundled files in `src/vendor/`.
 
-**Not done yet:** the Tauri v2 desktop build and OS keychain integration.
+**Desktop app:** Tauri v2. On the desktop the vault is additionally bound to a device key in the OS keychain (macOS Keychain, Windows Credential Manager, Linux Secret Service). Linux builds are verified; macOS and Windows builds are configured but untested.
 
 The full verified status is in [`docs/spec.md` §3](docs/spec.md#3-current-progress--verification-status).
 
@@ -42,14 +42,29 @@ npm start            # serves http://localhost:8080 (localhost only; PORT=xxxx t
 
 On first launch you either create a vault passphrase (8+ characters; it **cannot be recovered**) or choose *Continue without saving*.
 
-**Tests** (need devDependencies installed):
+### Desktop app (Tauri v2)
+
+Prerequisites: [Rust](https://rustup.rs) and the [Tauri system dependencies](https://tauri.app/start/prerequisites/) for your OS. On Debian/Ubuntu that means `libwebkit2gtk-4.1-dev build-essential libssl-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev`.
 
 ```bash
 npm install
-npm test                          # 42 unit tests (Node)
-npx playwright install chromium   # once, for the browser tests
-npm run test:e2e                  # 37 end-to-end tests in headless Chromium (real OCR, QR decode, vault, egress lock)
+npm run tauri dev                 # desktop window with live reload (Vite dev server on :1420)
+npm run tauri build               # release build + installers in src-tauri/target/release/bundle/
 ```
+
+### Tests
+
+```bash
+npm install
+npm test                          # 54 unit tests (Node)
+npx playwright install chromium   # once, for the browser tests
+npm run test:e2e                  # 45 browser end-to-end tests (real OCR, QR decode, vault, idle purge, egress lock)
+SERVE_DIR=dist npm run test:e2e   # same suite against the Vite build (run `npm run build` first)
+(cd src-tauri && cargo test)      # 5 Rust tests (keychain device key)
+npm run test:tauri                # 20 desktop tests on Linux: real binary via tauri-driver, real Secret Service
+```
+
+`npm run test:tauri` needs `webkit2gtk-driver gnome-keyring libsecret-tools xvfb dbus-x11`, `cargo install tauri-driver --locked`, and a built app (`npx tauri build --debug --no-bundle`).
 
 ---
 
@@ -59,7 +74,8 @@ npm run test:e2e                  # 37 end-to-end tests in headless Chromium (re
 vCGE-Master/
 ├── LICENSE.md                     # MIT License
 ├── README.md
-├── package.json                   # npm start, test, test:e2e, build:css, vendor (all deps pinned)
+├── package.json                   # npm start, dev, build, tauri, test, test:e2e, test:tauri, build:css, vendor (all deps pinned)
+├── vite.config.mjs                # Vite build → dist/ (Tauri frontend)
 ├── tailwind.config.js
 ├── index.html                     # App UI (loads src/main.js as an ES module; CSP egress lock)
 ├── THIRD_PARTY_NOTICES.md         # Bundled libraries & licences (all MIT / Apache-2.0)
@@ -70,7 +86,14 @@ vCGE-Master/
 │   └── vendor.mjs                 # Copies pinned libraries into src/vendor (npm run vendor)
 ├── tests/
 │   ├── unit.test.mjs              # npm test
-│   └── e2e.test.cjs               # npm run test:e2e
+│   ├── e2e.test.cjs               # npm run test:e2e
+│   ├── tauri.e2e.test.cjs         # npm run test:tauri (WebDriver against the desktop binary)
+│   └── run-tauri-e2e.sh           # Xvfb + D-Bus + throwaway keyring wrapper
+├── src-tauri/                     # Tauri v2 desktop shell (Rust)
+│   ├── tauri.conf.json            # window, CSP, bundle targets
+│   ├── capabilities/default.json  # main window may call only the vault keychain commands
+│   ├── src/lib.rs                 # device_secret / delete_device_secret (OS keychain via keyring crate)
+│   └── icons/                     # generated from app-icon.png (`npx tauri icon`)
 └── src/
     ├── main.js                    # Master Integration Controller (wires all modules over the event bus)
     ├── styles/                    # tailwind.input.css → tailwind.css (compiled, committed)
@@ -84,7 +107,7 @@ vCGE-Master/
     │   └── vcardFormatter.js      # The single vCard 3.0 builder (RFC 2426 escaping, CRLF)
     └── modules/                   # Isolated Core Functional Modules
         ├── mod01-shell/           # shell.js (network gatekeeper), themeManager.js (light/dark)
-        ├── mod02-vault/           # vault.js (PBKDF2 + AES-GCM-256, lock/wipe), ttlManager.js (120 s idle purge)
+        ├── mod02-vault/           # vault.js (PBKDF2 [+ keychain HKDF] + AES-GCM-256), keychain.js (Tauri bridge), ttlManager.js (120 s idle purge)
         ├── mod03-camera/          # camera.js (viewfinder, zoom, capture, crop review)
         ├── mod04-ocr/             # ocrWorker.js (image pre-processing + bundled Tesseract.js, on-device)
         ├── mod05-form/            # formMapper.js (OCR text → contact), addressAutocomplete.js (local-only)
@@ -92,8 +115,6 @@ vCGE-Master/
         ├── mod07-qr/              # qrGenerator.js (vCard via shared builder, scannable QR via qrcode-generator)
         └── mod08-egress/          # egressController.js (share, .vcf, QR PNG, mailto/sms, print + audit), print.css
 ```
-
-**Planned, not yet present:** `vite.config.js`, `src-tauri/` + `tauri.conf.json`.
 
 **Rebuilding the CSS:** after changing Tailwind classes in `index.html` or `src/**/*.js`, run `npm install` and then `npm run build:css`, and commit the updated `src/styles/tailwind.css`.
 

@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <!-- Browser-enforced egress lock: only same-origin resources and connections (see MOD01 gatekeeper) -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
+    <!-- Browser-enforced egress lock: only same-origin resources and connections, plus Tauri's local IPC endpoints (keep in sync with src-tauri/tauri.conf.json) -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
     <title>vCard Generator Engine (vCGE)</title>
     <!-- Tailwind CSS, compiled locally (npm run build:css) so the app makes no runtime CDN request -->
     <link rel="stylesheet" href="src/styles/tailwind.css">

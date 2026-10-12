@@ -1,5 +1,6 @@
 // vCGE end-to-end tests in headless Chromium (`npm run test:e2e`).
 // Needs devDependencies (`npm install`) and a Chromium for Playwright (`npx playwright install chromium`).
+// SERVE_DIR=dist runs the same suite against the Vite build (`npm run build` first).
 const path = require('path'), fs = require('fs'), { spawn } = require('child_process');
 const { chromium } = require('playwright');
 const jsQR = require('jsqr');

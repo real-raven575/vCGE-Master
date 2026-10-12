@@ -94,6 +94,13 @@ export class ContactFormMapper {
             data.lastName = firstLineParts[1] || 'Contact';
         }
 
+        // OCR spacing is noisy ("+1(312) 555-0147"); normalise numbers the country's formatter recognises.
+        const fmt = this.countryFormats[data.country];
+        if (fmt) {
+            data.phoneWork = data.phoneWork && this.formatPhone(data.phoneWork, fmt);
+            data.phoneMobile = data.phoneMobile && this.formatPhone(data.phoneMobile, fmt);
+        }
+
         return data;
     }
 
