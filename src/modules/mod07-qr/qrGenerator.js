@@ -95,7 +95,8 @@ class VCGEQREngine {
         }
 
         vcard.push('END:VCARD');
-        return vcard.join('\n');
+        // RFC 2425 §5.8.1: content lines are delimited by CRLF.
+        return vcard.join('\r\n');
     }
 
     /**

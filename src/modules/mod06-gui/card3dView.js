@@ -45,7 +45,7 @@ const testPresets = [
 document.addEventListener('DOMContentLoaded', () => {
     buildPresetButtons();
     buildPaletteMenu();
-    loadFromLocalStorage();
+    loadPreferences();
     attachEventListeners();
     updateVCard();
 });
@@ -121,11 +121,11 @@ function attachEventListeners() {
                 if (id === 'street') handleStreetAddressInput(el.value);
                 if (id === 'country') syncPhoneFormatFromCountry(el.value);
                 updateVCard();
-                saveToLocalStorage();
+                savePreferences();
             });
             el.addEventListener('change', () => {
                 updateVCard();
-                saveToLocalStorage();
+                savePreferences();
             });
         }
     });
@@ -184,7 +184,7 @@ function attachEventListeners() {
         avatarBase64 = null;
         document.getElementById('removeAvatarBtn').classList.add('hidden');
         updateVCard();
-        saveToLocalStorage();
+        savePreferences();
         showToast('Avatar removed.');
     });
 
@@ -223,7 +223,7 @@ function attachEventListeners() {
             document.getElementById('zip').value = '94301';
             document.getElementById('country').value = 'United States';
             updateVCard();
-            saveToLocalStorage();
+            savePreferences();
             showToast('Synthetic OCR successfully parsed contact card!');
         }, 800);
     });
@@ -280,26 +280,12 @@ function handleStreetAddressInput(query) {
         list.classList.add('hidden');
         return;
     }
+    // Local lookup only: typed addresses never leave the device.
     clearTimeout(addressDebounceTimer);
-    const q = query.toLowerCase();
-    const matches = mockAddressDatabase.filter(item => item.street.toLowerCase().includes(q));
-    renderAddressSuggestions(matches);
-
-    addressDebounceTimer = setTimeout(async () => {
-        try {
-            const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=3`);
-            if (resp.ok) {
-                const data = await resp.json();
-                if (data && data.length > 0) {
-                    const apiResults = data.map(p => ({
-                        street: p.display_name.split(',')[0],
-                        city: 'San Francisco', state: 'CA', zip: '94105', country: 'United States'
-                    }));
-                    renderAddressSuggestions([...matches, ...apiResults].slice(0, 3));
-                }
-            }
-        } catch(e) {}
-    }, 300);
+    addressDebounceTimer = setTimeout(() => {
+        const q = query.toLowerCase();
+        renderAddressSuggestions(mockAddressDatabase.filter(item => item.street.toLowerCase().includes(q)).slice(0, 3));
+    }, 150);
 }
 
 function renderAddressSuggestions(items) {
@@ -319,7 +305,7 @@ function renderAddressSuggestions(items) {
             document.getElementById('country').value = item.country;
             list.classList.add('hidden');
             updateVCard();
-            saveToLocalStorage();
+            savePreferences();
             showToast('Address details auto-populated!');
         });
         list.appendChild(btn);
@@ -335,7 +321,7 @@ function handleAvatarUpload(e) {
             avatarBase64 = evt.target.result;
             document.getElementById('removeAvatarBtn').classList.remove('hidden');
             updateVCard();
-            saveToLocalStorage();
+            savePreferences();
             showToast('Avatar attached successfully!');
         };
         reader.readAsDataURL(file);
@@ -350,7 +336,7 @@ function simulateOCRScan(dataUrl) {
         document.getElementById('org').value = 'Apex Innovations';
         document.getElementById('title').value = 'Lead Design Engineer';
         updateVCard();
-        saveToLocalStorage();
+        savePreferences();
         showToast('OCR extracted fields successfully!');
     }, 1200);
 }
@@ -375,23 +361,24 @@ function updateVCard() {
 
     const fullName = [first, last].filter(Boolean).join(" ") || "New Contact";
 
-    let vcard = "BEGIN:VCARD\nVERSION:3.0\n";
-    vcard += `FN:${fullName}\n`;
-    vcard += `N:${last};${first};;;\n`;
-    if (nickname) vcard += `NICKNAME:${nickname}\n`;
-    if (org) vcard += `ORG:${org}\n`;
-    if (title) vcard += `TITLE:${title}\n`;
-    if (phoneW) vcard += `TEL;TYPE=WORK,VOICE:${phoneW}\n`;
-    if (phoneM) vcard += `TEL;TYPE=CELL,VOICE:${phoneM}\n`;
-    if (email) vcard += `EMAIL:${email}\n`;
-    if (web) vcard += `URL:${web}\n`;
-    if (street || city) vcard += `ADR;TYPE=WORK:;;${street};${city};${state};${zip};${country}\n`;
-    if (birthday) vcard += `BDAY:${birthday}\n`;
-    if (notes) vcard += `NOTE:${notes}\n`;
+    // RFC 2426 §4 text escaping; RFC 2425 §5.8.1 CRLF line delimiters.
+    const e = v => String(v).replace(/\\/g, '\\\\').replace(/,/g, '\\,').replace(/;/g, '\\;').replace(/\r?\n/g, '\\n');
+    const lines = ['BEGIN:VCARD', 'VERSION:3.0', `FN:${e(fullName)}`, `N:${e(last)};${e(first)};;;`];
+    if (nickname) lines.push(`NICKNAME:${e(nickname)}`);
+    if (org) lines.push(`ORG:${e(org)}`);
+    if (title) lines.push(`TITLE:${e(title)}`);
+    if (phoneW) lines.push(`TEL;TYPE=WORK,VOICE:${phoneW}`);
+    if (phoneM) lines.push(`TEL;TYPE=CELL,VOICE:${phoneM}`);
+    if (email) lines.push(`EMAIL:${email}`);
+    if (web) lines.push(`URL:${web}`);
+    if (street || city) lines.push(`ADR;TYPE=WORK:;;${e(street)};${e(city)};${e(state)};${e(zip)};${e(country)}`);
+    if (birthday) lines.push(`BDAY:${birthday}`);
+    if (notes) lines.push(`NOTE:${e(notes)}`);
     if (avatarBase64) {
-        vcard += `PHOTO;TYPE=JPEG;ENCODING=b:${avatarBase64.replace(/^data:image\/[a-z]+;base64,/, "")}\n`;
+        lines.push(`PHOTO;TYPE=JPEG;ENCODING=b:${avatarBase64.replace(/^data:image\/[a-z]+;base64,/, "")}`);
     }
-    vcard += "END:VCARD";
+    lines.push('END:VCARD');
+    const vcard = lines.join('\r\n');
     currentVCardString = vcard;
 
     document.getElementById('previewFullName').innerText = fullName;
@@ -427,58 +414,17 @@ function updateVCard() {
     }
 }
 
-function saveToLocalStorage() {
-    const state = {
-        firstName: document.getElementById('firstName').value,
-        lastName: document.getElementById('lastName').value,
-        org: document.getElementById('org').value,
-        title: document.getElementById('title').value,
-        phoneWork: document.getElementById('phoneWork').value,
-        phoneMobile: document.getElementById('phoneMobile').value,
-        email: document.getElementById('email').value,
-        website: document.getElementById('website').value,
-        street: document.getElementById('street').value,
-        city: document.getElementById('city').value,
-        state: document.getElementById('state').value,
-        zip: document.getElementById('zip').value,
-        country: document.getElementById('country').value,
-        nickname: document.getElementById('nickname').value,
-        birthday: document.getElementById('birthday').value,
-        notes: document.getElementById('notes').value,
-        avatarBase64: avatarBase64,
-        themeKey: currentThemeKey
-    };
-    localStorage.setItem('vcge_state', JSON.stringify(state));
+// Contact fields and avatar stay in memory only (no plaintext at rest); only non-sensitive UI preferences persist.
+function savePreferences() {
+    localStorage.setItem('vcge_prefs', JSON.stringify({ themeKey: currentThemeKey }));
 }
 
-function loadFromLocalStorage() {
-    const raw = localStorage.getItem('vcge_state');
-    if (!raw) return;
+function loadPreferences() {
+    // Startup residue check: remove plaintext contact data written by earlier builds.
+    localStorage.removeItem('vcge_state');
     try {
-        const state = JSON.parse(raw);
-        if (state.firstName !== undefined) document.getElementById('firstName').value = state.firstName;
-        if (state.lastName !== undefined) document.getElementById('lastName').value = state.lastName;
-        if (state.org !== undefined) document.getElementById('org').value = state.org;
-        if (state.title !== undefined) document.getElementById('title').value = state.title;
-        if (state.phoneWork !== undefined) document.getElementById('phoneWork').value = state.phoneWork;
-        if (state.phoneMobile !== undefined) document.getElementById('phoneMobile').value = state.phoneMobile;
-        if (state.email !== undefined) document.getElementById('email').value = state.email;
-        if (state.website !== undefined) document.getElementById('website').value = state.website;
-        if (state.street !== undefined) document.getElementById('street').value = state.street;
-        if (state.city !== undefined) document.getElementById('city').value = state.city;
-        if (state.state !== undefined) document.getElementById('state').value = state.state;
-        if (state.zip !== undefined) document.getElementById('zip').value = state.zip;
-        if (state.country !== undefined) document.getElementById('country').value = state.country;
-        if (state.nickname !== undefined) document.getElementById('nickname').value = state.nickname;
-        if (state.birthday !== undefined) document.getElementById('birthday').value = state.birthday;
-        if (state.notes !== undefined) document.getElementById('notes').value = state.notes;
-        if (state.avatarBase64) {
-            avatarBase64 = state.avatarBase64;
-            document.getElementById('removeAvatarBtn').classList.remove('hidden');
-        }
-        if (state.themeKey) {
-            setAppTheme(state.themeKey);
-        }
+        const prefs = JSON.parse(localStorage.getItem('vcge_prefs') || '{}');
+        if (prefs.themeKey) setAppTheme(prefs.themeKey);
     } catch(e) {}
 
     const themeMode = localStorage.getItem('vcard_theme_mode');

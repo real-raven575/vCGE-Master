@@ -9,7 +9,7 @@
 
 /**
  * vCGE-MOD05: Predictive Address Autocomplete Suite
- * Scope: Local offline address database lookup & OpenStreetMap Nominatim API integration.
+ * Scope: Local offline address database lookup. No network calls (offline-first, sole-egress rule).
  */
 
 export class AddressAutocompleteEngine {
@@ -28,7 +28,7 @@ export class AddressAutocompleteEngine {
     }
 
     /**
-     * Searches local mock database and queries OpenStreetMap Nominatim for address suggestions.
+     * Searches the local address database for suggestions.
      * @param {string} query - User input string.
      * @returns {Promise<Array>} Array of matched address objects.
      */
@@ -40,34 +40,6 @@ export class AddressAutocompleteEngine {
             item.street.toLowerCase().includes(qLower) ||
             item.city.toLowerCase().includes(qLower)
         );
-
-        try {
-            const resp = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&addressdetails=1&limit=4`);
-            if (resp.ok) {
-                const data = await resp.json();
-                if (data && data.length > 0) {
-                    const apiResults = data.map(place => {
-                        const addr = place.address || {};
-                        const streetNum = addr.house_number || '';
-                        const road = addr.road || addr.pedestrian || place.display_name.split(',')[0];
-                        const fullStreet = [streetNum, road].filter(Boolean).join(' ') || place.display_name;
-
-                        return {
-                            street: fullStreet,
-                            city: addr.city || addr.town || addr.village || '',
-                            state: addr.state || '',
-                            zip: addr.postcode || '',
-                            country: addr.country || 'United States'
-                        };
-                    });
-
-                    const merged = [...localMatches, ...apiResults];
-                    return Array.from(new Set(merged.map(a => a.street))).map(str => merged.find(a => a.street === str)).slice(0, 5);
-                }
-            }
-        } catch (e) {
-            // Fallback to local matches if network fetch fails
-        }
 
         return localMatches.slice(0, 5);
     }

@@ -8,4 +8,4 @@ export { globalEventBus, EventBus } from './eventBus.js';
 export { createEmptyContact, validateContact, ContactSchemaVersion } from './cardSchema.js';
 export { CryptoUtils } from './cryptoUtils.js';
 export { RegexMatchers } from './regexMatchers.js';
-export { formatVCard } from './vcardFormatter.js';
+export { formatVCard, escapeVCardText } from './vcardFormatter.js';

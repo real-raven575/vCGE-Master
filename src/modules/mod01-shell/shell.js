@@ -62,14 +62,8 @@
             email: document.getElementById('previewEmail')
         };
 
-        // Load initial state from localStorage
-        const savedState = JSON.parse(localStorage.getItem('vcge_contact_state') || '{}');
-        Object.keys(fields).forEach(key => {
-            if (fields[key] && savedState[key]) {
-                fields[key].value = savedState[key];
-                if (previews[key]) previews[key].textContent = savedState[key];
-            }
-        });
+        // Contact data is held in memory only; purge plaintext left by earlier builds (startup residue check).
+        localStorage.removeItem('vcge_contact_state');
 
         // Real-time synchronization and broker publishing
         Object.keys(fields).forEach(key => {
@@ -78,10 +72,6 @@
                 elem.addEventListener('input', (e) => {
                     const val = e.target.value;
                     if (previews[key]) previews[key].textContent = val || `[${key}]`;
-                    
-                    // Save to local storage
-                    savedState[key] = val;
-                    localStorage.setItem('vcge_contact_state', JSON.stringify(savedState));
 
                     // Broadcast through broker
                     broker.publish('EVENT_CONTACT_UPDATED', { field: key, value: val });

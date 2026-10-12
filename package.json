@@ -1,0 +1,13 @@
+{
+  "name": "vcge-master",
+  "version": "0.1.0",
+  "private": true,
+  "description": "vCard Generator Engine (vCGE) - offline-first digital business card engine",
+  "license": "MIT",
+  "scripts": {
+    "build:css": "tailwindcss -c tailwind.config.js -i src/styles/tailwind.input.css -o src/styles/tailwind.css --minify"
+  },
+  "devDependencies": {
+    "tailwindcss": "3.4.17"
+  }
+}

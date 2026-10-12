@@ -21,9 +21,9 @@ The **vCard Generator Engine (vCGE)** is a high-security, cross-platform digital
 **Prototype — not yet runnable end-to-end.** The architecture is designed and each module exists on its own, but nothing integrates them yet:
 
 - `index.html` loads only MOD01, and `src/main.js` (the integration controller) is empty.
-- There are no `package.json`, Vite or Tauri config files yet.
+- There are no Vite or Tauri config files yet; `package.json` only builds the CSS.
 - OCR and QR rendering are simulated.
-- Several privacy guarantees above aren't enforced yet: there are direct network calls outside MOD08 and plaintext `localStorage` writes.
+- There are no runtime network calls, and no contact data is saved unencrypted. Contact data isn't kept across reloads yet because vault-backed persistence isn't wired in.
 
 The full verified findings list is in [`docs/spec.md` §3](docs/spec.md#3-current-progress--verification-status).
 
@@ -35,11 +35,14 @@ The full verified findings list is in [`docs/spec.md` §3](docs/spec.md#3-curren
 vCGE-Master/
 ├── LICENSE.md                     # MIT License
 ├── README.md
+├── package.json                   # npm run build:css (Tailwind 3.4.17, pinned)
+├── tailwind.config.js
 ├── index.html                     # Master Container Shell (vCGE-MOD01 UI)
 ├── docs/
 │   └── spec.md                    # Architecture brief & verification status
 └── src/
     ├── main.js                    # Master Integration Controller (empty — not yet written)
+    ├── styles/                    # tailwind.input.css → tailwind.css (compiled, committed)
     ├── share/                     # Global Shared Libraries (vCGE-SHARE)
     │   ├── index.js               # Export barrel
     │   ├── cardSchema.js          # Contact schema & validation
@@ -52,13 +55,15 @@ vCGE-Master/
         ├── mod02-vault/           # vault.js (PBKDF2 + AES-GCM-256), ttlManager.js (120 s TTL)
         ├── mod03-camera/          # camera.js (viewfinder, zoom, capture, crop review)
         ├── mod04-ocr/             # ocrWorker.js (Tesseract.js WASM pipeline)
-        ├── mod05-form/            # formMapper.js, addressAutocomplete.js
+        ├── mod05-form/            # formMapper.js, addressAutocomplete.js (local-only lookup)
         ├── mod06-gui/             # card3dView.js (card logic, theming, presets), cardStyles.css
         ├── mod07-qr/              # qrGenerator.js (vCard 3.0 builder, QR canvas, PNG/VCF export)
         └── mod08-egress/          # egressController.js (Web Share, .vcf, mailto/sms, print), print.css
 ```
 
-**Planned, not yet present:** `package.json`, `vite.config.js`, `src-tauri/` + `tauri.conf.json`, `src/styles/main.css`.
+**Planned, not yet present:** `vite.config.js`, `src-tauri/` + `tauri.conf.json`.
+
+**Rebuilding the CSS:** after changing Tailwind classes in `index.html` or `src/**/*.js`, run `npm install` and then `npm run build:css`, and commit the updated `src/styles/tailwind.css`.
 
 ---
 
