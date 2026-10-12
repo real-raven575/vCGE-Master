@@ -1,7 +1,7 @@
 /**
  * vCGE (vCard Generator Engine) - Universal RegEx Heuristics (`regexMatchers.js`)
  * Project Overseer Authorized Production Build
- * Attributions: Created by raven575 and Gemini
+ * Attributions: Created by raven575, Gemini & Claude
  *
  * Shared regex constants. OCR text-to-contact mapping lives in MOD05 (ContactFormMapper).
  */

@@ -1,7 +1,7 @@
 /**
  * vCGE (vCard Generator Engine) - vCard 3.0 / 4.0 Formatter (`vcardFormatter.js`)
  * Project Overseer Authorized Production Build
- * Attributions: Created by raven575 and Gemini
+ * Attributions: Created by raven575, Gemini & Claude
  */
 
 // RFC 2426 §4: escape backslash, comma, semicolon and newlines in text values.

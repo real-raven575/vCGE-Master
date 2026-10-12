@@ -1,7 +1,7 @@
 /**
  * vCGE (vCard Generator Engine) - AES-256 / WebCrypto Encryption Helpers (`cryptoUtils.js`)
  * Project Overseer Authorized Production Build
- * Attributions: Created by raven575 and Gemini
+ * Attributions: Created by raven575, Gemini & Claude
  */
 
 const PBKDF2_ITERATIONS = 100000;

@@ -1,7 +1,7 @@
 /**
  * vCGE (vCard Generator Engine) - Contact Schema & Validation (`cardSchema.js`)
  * Project Overseer Authorized Production Build
- * Attributions: Created by raven575 and Gemini
+ * Attributions: Created by raven575, Gemini & Claude
  */
 
 export const ContactSchemaVersion = "3.0";

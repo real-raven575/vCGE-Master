@@ -1,6 +1,6 @@
 /**
  * vCGE Theme Manager & Persistence Module
- * Created by raven575 and Gemini
+ * Created by raven575, Gemini & Claude
  */
 const THEME_KEY = 'vcge_theme_preference';
 

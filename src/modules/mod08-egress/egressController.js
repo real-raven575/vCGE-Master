@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD08: Outbound Sharing & Export Controller (egressController.js)
- * Created by raven575 and Gemini
+ * Created by raven575, Gemini & Claude
  * 
  * Manages secure outbound communications including Web Share API triggers,
  * native vCard downloads, SMS/Email mailto links, and physical card printing.

@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD03: Active Camera & Acquisition Subsystem
- * Created by raven575 & Gemini
+ * Created by raven575, Gemini & Claude
  * Target: camera.js (Modular ES Implementation)
  */
 import { globalEventBus, Events } from '../../share/eventBus.js';

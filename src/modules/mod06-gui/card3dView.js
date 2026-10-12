@@ -1,6 +1,6 @@
 /**
  * vCard Generator Engine (vCGE) - vCGE-MOD06 Virtual Business Card GUI
- * Created by raven575 & Gemini
+ * Created by raven575, Gemini & Claude
  *
  * Owns the contact form, card preview (3D flip, palettes, typography, avatar) and toasts.
  * Holds contact data in memory only; persistence is the vault's job (wired in src/main.js).

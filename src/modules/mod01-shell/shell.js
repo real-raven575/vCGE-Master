@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD01: Container Shell & Security Gatekeeper
- * Created by raven575 and Gemini
+ * Created by raven575, Gemini & Claude
  *
  * Imported first by src/main.js so the network interceptor is installed before any other module runs.
  */

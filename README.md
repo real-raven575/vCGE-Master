@@ -90,6 +90,7 @@ vCGE-Master/
 ├── THIRD_PARTY_NOTICES.md         # Bundled libraries & licences (all MIT / Apache-2.0)
 ├── docs/
 │   └── spec.md                    # Architecture brief & verification status
+├── archive/v0-gemini-import/      # Original imported files (*.v0.*), kept verbatim for history; not built or run
 ├── scripts/
 │   ├── serve.mjs                  # Dependency-free localhost static server (npm start)
 │   └── vendor.mjs                 # Copies pinned libraries into src/vendor (npm run vendor)
