@@ -65,7 +65,7 @@ The application is structured into a strictly modular ES Architecture consisting
   - A full browser session made zero non-local requests, and same-origin requests still work.
 
 ### 3.2 Remaining gaps
-1. **macOS and Windows builds are untested:** the configuration (icons, bundle targets, native keychain backends) is in place, but only Linux was built and tested. Builds for those platforms must run on those systems (or in CI). Code signing and notarisation are not set up.
+1. **macOS and Windows are built but not run:** builds and Rust tests pass in CI on both (installers produced), but the apps have not been launched or tested end to end there, so the native keychain, window and OCR are unverified on those systems. Code signing and notarisation are not set up.
 2. **Zero-fill is best-effort by nature:** the purge removes every reference the app holds and overwrites what it can, but JavaScript strings are immutable and garbage-collected, so the engine may keep copies in freed memory until they are reclaimed. Contact data lives in the webview (JavaScript), so native memory wiping would not cover it either.
 3. **Camera capture in the desktop webview is untested:** the container has no camera. WebKitGTK needs camera permission handling, which may need work on real hardware.
 
