@@ -43,6 +43,66 @@
         return true;
     }
 
+    // Network interceptor: sub-modules may not reach any non-local host. Same-origin requests (local assets) are allowed;
+    // everything else is blocked and reported on the broker. Outbound sharing goes through MOD08 (share sheet,
+    // downloads, mailto/sms, print), none of which uses these APIs. The CSP in index.html enforces the same rule.
+    function isSameOrigin(url) {
+        try { return new URL(url, window.location.href).origin === window.location.origin; } catch (e) { return false; }
+    }
+    function blockEgress(api, url) {
+        console.warn(`[Gatekeeper BLOCK] ${api} to ${url} blocked: direct network egress is not permitted.`);
+        broker.publish('EGRESS_BLOCKED', { api, url: String(url), timestamp: Date.now() });
+    }
+
+    const nativeFetch = window.fetch;
+    if (nativeFetch) {
+        window.fetch = function (input, init) {
+            const url = input instanceof Request ? input.url : String(input);
+            if (!isSameOrigin(url)) {
+                blockEgress('fetch', url);
+                return Promise.reject(new TypeError('vCGE Gatekeeper: network egress blocked'));
+            }
+            return nativeFetch.call(this, input, init);
+        };
+    }
+
+    if (window.XMLHttpRequest) {
+        const nativeOpen = XMLHttpRequest.prototype.open;
+        XMLHttpRequest.prototype.open = function (method, url, ...rest) {
+            if (!isSameOrigin(url)) {
+                blockEgress('XMLHttpRequest', url);
+                throw new Error('vCGE Gatekeeper: network egress blocked');
+            }
+            return nativeOpen.call(this, method, url, ...rest);
+        };
+    }
+
+    if (navigator.sendBeacon) {
+        const nativeBeacon = navigator.sendBeacon.bind(navigator);
+        navigator.sendBeacon = function (url, data) {
+            if (!isSameOrigin(url)) { blockEgress('sendBeacon', url); return false; }
+            return nativeBeacon(url, data);
+        };
+    }
+
+    if (window.WebSocket) {
+        window.WebSocket = function (url) {
+            blockEgress('WebSocket', url);
+            throw new Error('vCGE Gatekeeper: network egress blocked');
+        };
+    }
+
+    if (window.EventSource) {
+        const NativeEventSource = window.EventSource;
+        window.EventSource = function (url, config) {
+            if (!isSameOrigin(url)) {
+                blockEgress('EventSource', url);
+                throw new Error('vCGE Gatekeeper: network egress blocked');
+            }
+            return new NativeEventSource(url, config);
+        };
+    }
+
     // Null-Safe DOM Bindings & State Sync
     document.addEventListener('DOMContentLoaded', () => {
         const fields = {

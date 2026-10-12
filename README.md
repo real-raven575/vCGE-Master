@@ -23,7 +23,7 @@ The **vCard Generator Engine (vCGE)** is a high-security, cross-platform digital
 - `index.html` loads only MOD01, and `src/main.js` (the integration controller) is empty.
 - There are no Vite or Tauri config files yet; `package.json` only builds the CSS.
 - OCR and QR rendering are simulated.
-- There are no runtime network calls, and no contact data is saved unencrypted. Contact data isn't kept across reloads yet because vault-backed persistence isn't wired in.
+- There are no runtime network calls: the MOD01 gatekeeper and a Content-Security-Policy block any non-local request. No contact data is saved unencrypted. Contact data isn't kept across reloads yet because vault-backed persistence isn't wired in.
 
 The full verified findings list is in [`docs/spec.md` §3](docs/spec.md#3-current-progress--verification-status).
 

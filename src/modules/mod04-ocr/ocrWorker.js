@@ -166,7 +166,7 @@
             website: '',
             street: '',
             city: '',
-            state: 'CA',
+            state: '',
             zip: '',
             country: 'United States',
             notes: 'Extracted via vCGE-MOD04 OCR Engine'

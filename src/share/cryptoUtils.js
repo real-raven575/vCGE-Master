@@ -4,51 +4,57 @@
  * Attributions: Created by raven575 and Gemini
  */
 
-export const CryptoUtils = {
-    async encryptVault(payload, secretKey = 'vCGE-Secure-Vault-Master') {
-        const encoder = new TextEncoder();
-        const data = encoder.encode(JSON.stringify(payload));
+const PBKDF2_ITERATIONS = 100000;
 
+// Derives an AES-GCM-256 key from a caller-supplied passphrase (PBKDF2-HMAC-SHA256). There is no default key.
+async function deriveKey(passphrase, salt, usages) {
+    if (typeof passphrase !== 'string' || passphrase.length === 0) {
+        throw new Error('[vCGE-Crypto] A non-empty passphrase is required.');
+    }
+    const baseKey = await window.crypto.subtle.importKey(
+        "raw",
+        new TextEncoder().encode(passphrase),
+        { name: "PBKDF2" },
+        false,
+        ["deriveKey"]
+    );
+    return window.crypto.subtle.deriveKey(
+        { name: "PBKDF2", salt, iterations: PBKDF2_ITERATIONS, hash: "SHA-256" },
+        baseKey,
+        { name: "AES-GCM", length: 256 },
+        false,
+        usages
+    );
+}
+
+export const CryptoUtils = {
+    async encryptVault(payload, passphrase) {
+        const salt = window.crypto.getRandomValues(new Uint8Array(16));
         const iv = window.crypto.getRandomValues(new Uint8Array(12));
-        const keyMaterial = await window.crypto.subtle.importKey(
-            "raw",
-            encoder.encode(secretKey.padEnd(32, '0').slice(0, 32)),
-            { name: "AES-GCM" },
-            false,
-            ["encrypt"]
-        );
+        const key = await deriveKey(passphrase, salt, ["encrypt"]);
 
         const encrypted = await window.crypto.subtle.encrypt(
             { name: "AES-GCM", iv },
-            keyMaterial,
-            data
+            key,
+            new TextEncoder().encode(JSON.stringify(payload))
         );
 
         return {
             cipher: Array.from(new Uint8Array(encrypted)),
-            iv: Array.from(iv)
+            iv: Array.from(iv),
+            salt: Array.from(salt)
         };
     },
 
-    async decryptVault(encryptedObj, secretKey = 'vCGE-Secure-Vault-Master') {
+    async decryptVault(encryptedObj, passphrase) {
         try {
-            const encoder = new TextEncoder();
-            const keyMaterial = await window.crypto.subtle.importKey(
-                "raw",
-                encoder.encode(secretKey.padEnd(32, '0').slice(0, 32)),
-                { name: "AES-GCM" },
-                false,
-                ["decrypt"]
-            );
-
+            const key = await deriveKey(passphrase, new Uint8Array(encryptedObj.salt), ["decrypt"]);
             const decrypted = await window.crypto.subtle.decrypt(
                 { name: "AES-GCM", iv: new Uint8Array(encryptedObj.iv) },
-                keyMaterial,
+                key,
                 new Uint8Array(encryptedObj.cipher)
             );
-
-            const decoder = new TextDecoder();
-            return JSON.parse(decoder.decode(decrypted));
+            return JSON.parse(new TextDecoder().decode(decrypted));
         } catch (e) {
             console.error("[vCGE-Crypto] Decryption failed:", e);
             return null;
