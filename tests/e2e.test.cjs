@@ -275,6 +275,39 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await ctx2.close();
   }
 
+  // Icons instead of labels: unlabelled numbers typed by their icons, a bare handle next to a social logo
+  {
+    const ctx7 = await browser.newContext();
+    const p7 = await ctx7.newPage();
+    await p7.goto(ORIGIN); await p7.waitForTimeout(300);
+    await p7.click('#vaultSkipBtn');
+    const icon = (f) => fs.readFileSync(path.join(ROOT, 'node_modules/@tabler/icons/icons/outline', f), 'utf8').replace(/currentColor/g, '#111');
+    const dataUrl = await p7.evaluate(async (rows) => {
+      const c = document.createElement('canvas'); c.width = 1050; c.height = 620; const x = c.getContext('2d');
+      x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111';
+      x.font = 'bold 52px Arial'; x.fillText('Kai Takahashi', 60, 80); x.font = '32px Arial'; x.fillText('Lead Design Architect', 60, 130);
+      let y = 210;
+      for (const [svg, text] of rows) {
+        const img = new Image(); img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg); await img.decode();
+        x.drawImage(img, 60, y - 29, 34, 34); x.font = '30px Arial'; x.fillText(text, 115, y); y += 72;
+      }
+      return c.toDataURL('image/png');
+    }, [[icon('device-mobile.svg'), '206.555.9876'], [icon('phone.svg'), '206.555.3400'], [icon('mail.svg'), 'kai@studiocraft.design'],
+        [icon('brand-instagram.svg'), '@studiocraft'], [icon('map-pin.svg'), '1201 3rd Avenue, Seattle, WA 98101']]);
+    await p7.setInputFiles('#imageUpload', { name: 'icons.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') }); await p7.waitForTimeout(300);
+    await p7.click('#runOcrBtn');
+    await p7.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
+    const chips = await p7.$$eval('#ocrLines [id^="ocrLineIcon"]', c => c.map(x => x.textContent));
+    ok('review shows the icons seen in front of lines', chips.includes('Mobile icon') && chips.includes('Instagram logo'), chips.join(', '));
+    const summary = await p7.textContent('#ocrSummary');
+    ok('icons type unlabelled numbers (Mobile vs Work) in the summary', summary.includes('Phone (Mobile)+1 (206) 555-9876') && summary.includes('Phone (Work)+1 (206) 555-3400'), summary);
+    await p7.click('#applyOcrBtn');
+    ok('social logo + handle fills the Instagram profile link', (await rowValue(p7, 'website', 'instagram')) === 'https://instagram.com/studiocraft', JSON.stringify(await rows(p7, 'website')));
+    ok('typed phone rows reach the form', (await rowValue(p7, 'phone', 'mobile')) === '+1 (206) 555-9876' && (await rowValue(p7, 'phone', 'work')) === '+1 (206) 555-3400', JSON.stringify(await rows(p7, 'phone')));
+    ok('audit log notes recognised icons', /icons? recognised/.test(await p7.textContent('#auditLog')), await p7.textContent('#auditLog'));
+    await ctx7.close();
+  }
+
   // A card saved in the old layout (schema 3.0) is converted when the vault is unlocked
   if (!process.env.SERVE_DIR) {
     const ctx6 = await browser.newContext();

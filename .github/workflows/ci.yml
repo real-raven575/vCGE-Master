@@ -48,6 +48,9 @@ jobs:
           npm run build
           SERVE_DIR=dist npm run test:e2e
 
+      - name: Icon detection accuracy (held-out icon sets)
+        run: npm run test:icons
+
   desktop:
     name: Desktop (${{ matrix.os }})
     runs-on: ${{ matrix.os }}

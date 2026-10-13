@@ -34,6 +34,24 @@ const FILES = [
     ['@fontsource/fira-code/LICENSE', 'fonts/LICENSE-fira-code.txt']
 ];
 
+// Contact-icon templates for the OCR icon detector (mod04-ocr/iconDetector.js): generic shapes from Lucide (ISC),
+// brand logos from Simple Icons (CC0). LinkedIn's logo is not in either set; the detector draws its own "in" template.
+const ICON_TEMPLATES = {
+    phone: ['lucide-static/icons/phone.svg', 'lucide-static/icons/phone-call.svg'],
+    mobile: ['lucide-static/icons/smartphone.svg'],
+    email: ['lucide-static/icons/mail.svg'],
+    web: ['lucide-static/icons/globe.svg', 'lucide-static/icons/link.svg'],
+    address: ['lucide-static/icons/map-pin.svg', 'lucide-static/icons/building-2.svg', 'lucide-static/icons/building.svg'],
+    home: ['lucide-static/icons/house.svg'],
+    fax: ['lucide-static/icons/printer.svg'],
+    x: ['simple-icons/icons/x.svg'],
+    facebook: ['simple-icons/icons/facebook.svg'],
+    instagram: ['simple-icons/icons/instagram.svg'],
+    github: ['simple-icons/icons/github.svg'],
+    youtube: ['simple-icons/icons/youtube.svg'],
+    tiktok: ['simple-icons/icons/tiktok.svg']
+};
+
 fs.rmSync(OUT, { recursive: true, force: true });
 for (const [from, to] of FILES) {
     const src = path.join(NM, from);
@@ -42,3 +60,15 @@ for (const [from, to] of FILES) {
     fs.copyFileSync(src, dest);
     console.log(`${(fs.statSync(dest).size / 1024).toFixed(0).padStart(6)} KB  src/vendor/${to}`);
 }
+
+// One JSON file of icon SVGs (license comments stripped; the licences are copied next to it).
+const templates = {};
+for (const [cls, files] of Object.entries(ICON_TEMPLATES)) {
+    templates[cls] = files.map(f => fs.readFileSync(path.join(NM, f), 'utf8').replace(/<!--[\s\S]*?-->/g, '').replace(/\s+/g, ' ').trim());
+}
+const iconsOut = path.join(OUT, 'icons');
+fs.mkdirSync(iconsOut, { recursive: true });
+fs.writeFileSync(path.join(iconsOut, 'templates.json'), JSON.stringify(templates) + '\n');
+fs.copyFileSync(path.join(NM, 'lucide-static/LICENSE'), path.join(iconsOut, 'LICENSE-lucide.txt'));
+fs.copyFileSync(path.join(NM, 'simple-icons/LICENSE.md'), path.join(iconsOut, 'LICENSE-simple-icons.md'));
+console.log(`${(fs.statSync(path.join(iconsOut, 'templates.json')).size / 1024).toFixed(0).padStart(6)} KB  src/vendor/icons/templates.json`);

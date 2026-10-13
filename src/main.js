@@ -254,6 +254,12 @@ const FIELD_LABELS = {
     country: 'Country', notes: 'Notes'
 };
 const TYPE_LABELS = { phones: PHONE_TYPES, emails: EMAIL_TYPES, websites: WEBSITE_TYPES };
+// Names of the icons MOD04 can recognise in front of a line (shown in the review step).
+const ICON_NAMES = {
+    phone: 'Phone icon', mobile: 'Mobile icon', email: 'Email icon', web: 'Web icon', address: 'Address icon', home: 'Home icon',
+    fax: 'Fax icon', linkedin: 'LinkedIn logo', x: 'X logo', facebook: 'Facebook logo', instagram: 'Instagram logo',
+    github: 'GitHub logo', youtube: 'YouTube logo', tiktok: 'TikTok logo'
+};
 let ocrReview = null;   // { lines: [{ text, role }], fields } while the review step is open
 
 function showReviewStep(step) {
@@ -320,6 +326,14 @@ function renderOcrLines() {
         role.setAttribute('aria-label', `Line ${i + 1} is`);
         LINE_ROLES.forEach(([value, label]) => role.add(new Option(label, value, false, value === line.role)));
         role.addEventListener('change', () => { line.role = role.value; renderOcrSummary(); });
+        if (line.icon && ICON_NAMES[line.icon]) {
+            const chip = document.createElement('span');
+            chip.id = `ocrLineIcon${i}`;
+            chip.className = 'shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400';
+            chip.textContent = ICON_NAMES[line.icon];
+            chip.title = 'Icon seen in front of this line';
+            row.append(chip);
+        }
         row.append(text, role);
         return row;
     });
@@ -333,8 +347,8 @@ async function runOcr() {
     $('runOcrBtn').disabled = true;
     $('runOcrBtn').textContent = 'Extracting…';
     try {
-        const { text } = await executeOCRScan(cropEditor.getCroppedImage());
-        ocrReview = { lines: formMapper.classifyLines(text), fields: null };
+        const { text, lines } = await executeOCRScan(cropEditor.getCroppedImage());
+        ocrReview = { lines: formMapper.classifyLines(lines && lines.length ? lines : text), fields: null };
         renderOcrLines();
         showReviewStep('text');
     } catch (e) {
@@ -417,7 +431,7 @@ function wireAuditLog() {
         [Events.VAULT_UNLOCKED]: (d) => (d.created ? 'Vault created' : 'Vault unlocked'),
         [Events.VAULT_LOCKED]: () => 'Vault locked',
         [Events.VAULT_WIPED]: () => 'Vault wiped',
-        [Events.OCR_TEXT_EXTRACTED]: () => 'OCR text extracted',
+        [Events.OCR_TEXT_EXTRACTED]: (d) => `OCR text extracted${d.icons ? ` (${d.icons} icon${d.icons === 1 ? '' : 's'} recognised)` : ''}`,
         [Events.MEMORY_PURGED]: (d) => `RAM purged (${d.reason})`
     };
     Object.entries(describe).forEach(([event, fmt]) => {

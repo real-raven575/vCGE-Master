@@ -8,6 +8,7 @@
  */
 
 import { globalEventBus, Events } from '../../share/eventBus.js';
+import { loadIconTemplates, grayFromDataUrl, detectLineIcons } from './iconDetector.js';
 
 const MODULE_ID = 'vCGE-MOD04';
 const MODULE_NAME = 'OCR Engine Module';
@@ -28,7 +29,8 @@ export const OCR_PAGE_SEG_MODE = '11';
 // the high 60s or more; 1 px of blur already drops a test card to 46 and turns its text to garbage), or when fewer
 // than OCR_MIN_READABLE_WORDS words are read with confidence of at least 60.
 export const OCR_MIN_CONFIDENCE = 55;
-export const OCR_MIN_READABLE_WORDS = 5;
+// Kept low on purpose: a sharp minimal card (name, phone, email) has only 3-4 words; blur shows in the confidence.
+export const OCR_MIN_READABLE_WORDS = 3;
 
 /** Thrown when the photo is too blurry or unclear to read; the caller should ask for a new photo. */
 export class OcrUnreadableError extends Error {
@@ -160,7 +162,25 @@ export function preProcessImageBuffer(imageSrc) {
 }
 
 /**
- * Runs OCR on an image (data URL) and returns { text, confidence }; mapping text to contact fields is MOD05's job.
+ * Icons in front of each OCR line (phone handset, envelope, social logo...). Best effort: any failure means no icons,
+ * never a failed scan. Returns [{ text, icon }] in card order (lines that were only an icon are dropped).
+ */
+async function linesWithIcons(processedImage, data) {
+    const lines = data.lines || [];
+    if (!lines.length) return String(data.text || '').split('\n').map(text => ({ text: text.trim(), icon: null })).filter(l => l.text);
+    try {
+        const [templates, image] = await Promise.all([loadIconTemplates(), grayFromDataUrl(processedImage)]);
+        return detectLineIcons(image.gray, image.width, image.height, lines, templates)
+            .filter(l => l.text).map(({ text, icon }) => ({ text, icon }));
+    } catch (e) {
+        console.warn(`[${MODULE_ID}] Icon detection skipped:`, e);
+        return lines.map(l => ({ text: (l.text || '').trim(), icon: null })).filter(l => l.text);
+    }
+}
+
+/**
+ * Runs OCR on an image (data URL) and returns { text, confidence, lines }; `lines` is [{ text, icon }] with the icon
+ * found in front of each line (or null). Mapping lines to contact fields is MOD05's job.
  * Rejects with OcrUnavailableError when the engine cannot start, and with OcrUnreadableError when the photo is too
  * blurry or unclear, so neither made-up nor garbage text ever reaches the form.
  */
@@ -177,8 +197,9 @@ export async function executeOCRScan(imageSrc, { initTimeoutMs = OCR_INIT_TIMEOU
     if (confidence < OCR_MIN_CONFIDENCE || readableWords < OCR_MIN_READABLE_WORDS) {
         throw new OcrUnreadableError(confidence, readableWords);
     }
-    globalEventBus.publish(Events.OCR_TEXT_EXTRACTED, { sourceModule: MODULE_ID, text, confidence });
-    return { text, confidence };
+    const lines = await linesWithIcons(processedImage, result.data);
+    globalEventBus.publish(Events.OCR_TEXT_EXTRACTED, { sourceModule: MODULE_ID, text, confidence, icons: lines.filter(l => l.icon).length });
+    return { text, confidence, lines };
 }
 
 export const getModuleName = () => MODULE_NAME;

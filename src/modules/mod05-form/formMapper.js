@@ -12,7 +12,7 @@
  * Scope: Regex heuristics, OCR text parsing, field mapping, and international phone formatting.
  */
 
-import { NAME_PREFIXES, NAME_SUFFIXES, REGIONS, DEFAULT_COUNTRY, splitStreetUnit, websiteTypeFor } from '../../share/contactOptions.js';
+import { NAME_PREFIXES, NAME_SUFFIXES, REGIONS, DEFAULT_COUNTRY, SOCIAL_HOSTS, splitStreetUnit, websiteTypeFor, socialProfileUrl } from '../../share/contactOptions.js';
 
 export class ContactFormMapper {
     constructor() {
@@ -45,14 +45,21 @@ export class ContactFormMapper {
      * wins": line labels (E, T, M, W, Fax...), email and web-address shapes that survive common OCR slips, street words,
      * City/State/ZIP, job-title vocabulary, company suffixes, and cross-checks between lines (name vs. email username,
      * company vs. email/web domain).
-     * @param {string} rawText
-     * @returns {{ text: string, role: string }[]} One entry per non-empty line, in card order.
+     * An icon found in front of a line (MOD04 iconDetector) is one more clue: a phone, mobile, fax or home icon acts as
+     * that label, an envelope or globe marks the email or web line, a pin or building the address, a social logo the
+     * profile (even a bare "@handle"). A label written in the text wins over the icon, and so does the text's own shape.
+     * @param {string|{ text: string, icon?: string }[]} input - Raw OCR text, or OCR lines with their icons.
+     * @returns {{ text: string, role: string, icon: string|null }[]} One entry per non-empty line, in card order.
      */
-    classifyLines(rawText) {
-        const lines = String(rawText || '').split('\n')
-            .map(l => l.replace(/[“”]/g, '"').replace(/[‘’]/g, "'").replace(/\s+/g, ' ').trim())
-            .filter(l => l.length > 0)
-            .map(text => ({ text, ...splitLabel(text), role: null }));
+    classifyLines(input) {
+        const raw = Array.isArray(input) ? input : String(input || '').split('\n').map(text => ({ text, icon: null }));
+        const lines = raw
+            .map(l => ({ text: String(l.text || '').replace(/[“”]/g, '"').replace(/[‘’]/g, "'").replace(/\s+/g, ' ').trim(), icon: l.icon || null }))
+            .filter(l => l.text.length > 0)
+            .map(({ text, icon }) => {
+                const parsed = splitLabel(text);
+                return { text, icon, ...parsed, label: parsed.label || ICON_LABEL[icon] || null, role: null };
+            });
         const free = (line) => line.role === null;
 
         // Emails (labels E/Email, or anything with an @ or an OCR look-alike of it); the first one feeds the name check
@@ -67,8 +74,10 @@ export class ContactFormMapper {
         let website = '';
         for (const line of lines) {
             if (!free(line)) continue;
-            const found = findWebsite(line.body, line.label === 'web');
+            const found = findWebsite(line.body, line.label === 'web' || SOCIAL_HOSTS[line.icon] !== undefined);
             if (found) { line.role = 'website'; if (!website && !websiteTypeFor(found)) website = found; }
+            // A bare handle next to a social logo ("@studiocraft", "in/janedoe") is that profile.
+            else if (SOCIAL_HOSTS[line.icon] && socialProfileUrl(line.icon, line.body)) line.role = 'website';
         }
 
         // Phones: buildFields sorts work / mobile / fax by label
@@ -92,7 +101,7 @@ export class ContactFormMapper {
             break;
         }
         if (!lines.some(l => l.role === 'street' || l.role === 'address')) {
-            const street = lines.find(l => free(l) && looksLikeStreet(l.text, false));
+            const street = lines.find(l => free(l) && looksLikeStreet(l.text, l.icon === 'address'));
             if (street) street.role = 'street';
         }
         if (!lines.some(l => l.role === 'cityStateZip' || l.role === 'address')) {
@@ -143,7 +152,7 @@ export class ContactFormMapper {
         });
         if (org && (org.score >= 2 || (!domain && org.score > 0))) org.line.role = 'organization';
 
-        return lines.map(({ text, role }) => ({ text, role: role || 'ignore' }));
+        return lines.map(({ text, role, icon }) => ({ text, role: role || 'ignore', icon }));
     }
 
     /**
@@ -171,10 +180,11 @@ export class ContactFormMapper {
             if (a.street) streets.push(a.street);
         };
 
-        for (const { text, role } of lines || []) {
+        for (const { text, role, icon } of lines || []) {
             const t = String(text || '').replace(/\s+/g, ' ').trim();
             if (!t) continue;
-            const { label, body } = splitLabel(t);
+            const parsed = splitLabel(t);
+            const body = parsed.body, label = parsed.label || ICON_LABEL[icon] || null;
             switch (role) {
                 case 'name':
                     if (!fields.firstName) Object.assign(fields, parseName(t));
@@ -183,8 +193,9 @@ export class ContactFormMapper {
                 case 'organization': setOnce('organization', t); break;
                 case 'email': emailValues.push(findEmail(t) || body); break;
                 case 'website': {
-                    const site = findWebsite(body, true) || body;
-                    if (!fields.websites.some(w => w.value === site)) fields.websites.push({ type: websiteTypeFor(site) || 'work', value: site });
+                    const social = SOCIAL_HOSTS[icon] ? icon : null;
+                    const site = findWebsite(body, true) || (social && socialProfileUrl(social, body)) || body;
+                    if (!fields.websites.some(w => w.value === site)) fields.websites.push({ type: websiteTypeFor(site) || social || 'work', value: site });
                     break;
                 }
                 case 'phone':
@@ -319,6 +330,9 @@ const PROVINCE_NAMES_RE = Object.values(CA_PROVINCES).sort((a, b) => b.length - 
 // Personal mail providers: their domain says nothing about the company.
 const FREE_MAIL = /^(?:gmail|googlemail|yahoo|ymail|outlook|hotmail|live|msn|aol|icloud|me|mac|protonmail|proton|gmx|mail|comcast|att|sbcglobal|verizon|charter|cox|zoho|yandex)$/i;
 
+// What an icon in front of a line means when the text carries no label of its own (MOD04 iconDetector classes).
+const ICON_LABEL = { phone: 'work', mobile: 'mobile', fax: 'fax', home: 'home', email: 'email', web: 'web' };
+
 // Line labels printed in front of contact details ("E jdoe@...", "Tel: ...", "M 555...", "W example.com").
 const LABELS = [
     ['email', /^(?:e-?mail|email|e)\s*[:.\-]?\s+(?=\S*[@©®])/i],
@@ -427,7 +441,8 @@ function isUnitLine(text) {
 /** A street starts with a house number and has a street word (Road, Ave, Suite...), or is a PO Box. */
 function looksLikeStreet(text, nextToCityLine) {
     if (PO_BOX.test(text)) return true;
-    if (!/^\d{1,6}[A-Za-z]?\s+[A-Za-z]/.test(text) || /@/.test(text)) return false;
+    // House number, then the street name (which may itself be numbered: "1201 3rd Avenue").
+    if (!/^\d{1,6}[A-Za-z]?\s+(?:\d{1,3}(?:st|nd|rd|th)\s+)?[A-Za-z]/i.test(text) || /@/.test(text)) return false;
     return STREET_WORDS.test(text) || (nextToCityLine && text.split(' ').length >= 2 && !/\d{3}[\s.\-]\d{3}/.test(text));
 }
 

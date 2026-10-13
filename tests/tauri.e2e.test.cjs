@@ -128,6 +128,28 @@ function keyringHasDeviceKey() {
     ok('desktop: straightened crooked card is read', cropped.includes('maria.gonzalez@northwind.com') && cropped.includes('Maria'), cropped);
     await click('#ocrCancelBtn');
 
+    // Icon detection in WebKitGTK: a mobile icon instead of a label types the number
+    const mobileIcon = require('fs').readFileSync(path.join(ROOT, 'node_modules/@tabler/icons/icons/outline/device-mobile.svg'), 'utf8').replace(/currentColor/g, '#111');
+    await jsAsync(`const done = arguments[arguments.length - 1]; (async () => {
+      const c = document.createElement('canvas'); c.width = 1050; c.height = 420; const x = c.getContext('2d');
+      x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111';
+      x.font = 'bold 52px sans-serif'; x.fillText('Kai Takahashi', 60, 90);
+      const img = new Image(); img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(arguments[0]); await img.decode();
+      x.drawImage(img, 60, 191, 34, 34); x.font = '30px sans-serif'; x.fillText('206.555.9876', 115, 220);
+      x.fillText('kai@studiocraft.design', 115, 300);
+      const bin = atob(c.toDataURL('image/png').split(',')[1]); const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const dt = new DataTransfer(); dt.items.add(new File([bytes], 'icons.png', { type: 'image/png' }));
+      const input = document.getElementById('imageUpload'); input.files = dt.files; input.dispatchEvent(new Event('change'));
+      done(true); })();`, mobileIcon);
+    await until(() => visible('cropReviewModal'), 5000);
+    await click('#runOcrBtn');
+    await until(async () => (await visible('ocrStepText')) || (await visible('ocrRetakeNotice')), 90000);
+    const iconSummary = (await visible('ocrStepText')) ? await txt('ocrSummary') : `review step not shown (retake prompt: ${await visible('ocrRetakeNotice')})`;
+    ok('desktop: icon recognised and the unlabelled number typed Mobile', iconSummary.includes('Phone (Mobile)+1 (206) 555-9876')
+      && (await js(`return Array.from(document.querySelectorAll('#ocrLines [id^="ocrLineIcon"]')).map(e => e.textContent).join(',');`)).includes('Mobile icon'), iconSummary);
+    await click((await visible('ocrStepText')) ? '#ocrCancelBtn' : '#cancelReviewBtn');
+
     // Restart the page: unlock needs passphrase + keychain device key
     await wd('POST', S('/refresh'), {});
     await until(() => js(`return document.readyState === 'complete' && !!document.getElementById('vaultModal');`));

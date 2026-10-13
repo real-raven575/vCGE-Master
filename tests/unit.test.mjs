@@ -272,6 +272,46 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('no name line means no invented name', fm.parseOCRText('+1 (555) 201-3344').firstName === '');
 }
 
+// Icon matching (MOD04 iconMatcher: pure shape maths) and icon clues in the mapper
+{
+  const IM = await import(`${R}/modules/mod04-ocr/iconMatcher.js`);
+  // Draw shapes into a greyscale buffer (0 = ink, 255 = paper).
+  const canvas = (w, h, paint) => { const g = new Uint8Array(w * h).fill(255); paint((x, y) => { if (x >= 0 && y >= 0 && x < w && y < h) g[y * w + x] = 0; }); return g; };
+  const ring = (cx, cy, r, t) => (set) => { for (let y = cy - r - t; y <= cy + r + t; y++) for (let x = cx - r - t; x <= cx + r + t; x++) { const d = Math.hypot(x - cx, y - cy); if (d >= r - t / 2 && d <= r + t / 2) set(x, y); } };
+  const square = (x0, y0, s, t) => (set) => { for (let y = y0; y < y0 + s; y++) for (let x = x0; x < x0 + s; x++) if (x - x0 < t || y - y0 < t || x0 + s - 1 - x < t || y0 + s - 1 - y < t) set(x, y); };
+  const describe = (g, w, h) => { const ink = IM.inkMask(g, w, { x0: 0, y0: 0, x1: w, y1: h }); return IM.describeShape(ink, IM.unionBox(IM.connectedComponents(ink))); };
+  const W = 80;
+  const thinRing = describe(canvas(W, W, ring(40, 40, 28, 3)), W, W), thickRing = describe(canvas(W, W, ring(40, 40, 28, 8)), W, W);
+  const smallRing = describe(canvas(W, W, ring(40, 40, 12, 2)), W, W), box = describe(canvas(W, W, square(12, 12, 56, 4)), W, W);
+  const two = IM.connectedComponents(IM.inkMask(canvas(40, 20, (set) => { for (let x = 2; x < 8; x++) set(x, 5); for (let x = 20; x < 30; x++) set(x, 12); }), 40, { x0: 0, y0: 0, x1: 40, y1: 20 }));
+  ok('connected components found with their boxes', two.length === 2 && two[0].x0 === 2 && two[0].x1 === 8 && two[1].area === 10, JSON.stringify(two));
+  ok('a shape matches itself exactly', Math.abs(IM.similarity(thinRing, thinRing) - 1) < 1e-6);
+  ok('stroke weight matters less than shape (thin ring ~ thick ring > ring ~ square)', IM.similarity(thinRing, thickRing) > IM.similarity(thinRing, box) + 0.15, `${IM.similarity(thinRing, thickRing).toFixed(2)} vs ${IM.similarity(thinRing, box).toFixed(2)}`);
+  ok('size does not matter (shapes are normalised)', IM.similarity(thinRing, smallRing) > 0.85, IM.similarity(thinRing, smallRing).toFixed(2));
+  const templates = [{ cls: 'web', descriptor: thickRing }, { cls: 'email', descriptor: box }];
+  ok('classifyShape picks the closest class', IM.classifyShape(thinRing, templates, { minScore: 0.5, minMargin: 0.05 }).cls === 'web');
+  ok('classifyShape reports nothing below the score bar', IM.classifyShape(thinRing, templates, { minScore: 0.999, minMargin: 0 }).cls === null);
+  ok('classifyShape reports nothing without a clear lead', IM.classifyShape(thinRing, [{ cls: 'a', descriptor: thickRing }, { cls: 'b', descriptor: thickRing }], { minScore: 0, minMargin: 0.01 }).cls === null);
+
+  const { ContactFormMapper } = await import(`${R}/modules/mod05-form/formMapper.js`);
+  const fm = new ContactFormMapper();
+  const card = fm.buildFields(fm.classifyLines([
+    { text: 'Kai Takahashi', icon: null }, { text: '206.555.9876', icon: 'mobile' }, { text: '206.555.3400', icon: 'phone' },
+    { text: '206.555.3401', icon: 'fax' }, { text: '1201 Westlake', icon: 'address' },
+    { text: '@studiocraft', icon: 'instagram' }, { text: 'in/kaitakahashi', icon: 'linkedin' }, { text: 'kai@studiocraft.design', icon: 'email' }
+  ])).fields;
+  const t = (list, type) => (card[list].find(e => e.type === type) || {}).value;
+  ok('icons label unlabelled phones: mobile, work, fax', t('phones', 'mobile') === '+1 (206) 555-9876' && t('phones', 'work') === '+1 (206) 555-3400' && t('phones', 'workFax') === '+1 (206) 555-3401', JSON.stringify(card.phones));
+  ok('address icon marks a street with no street word and no City/State/ZIP line', card.street === '1201 Westlake', card.street);
+  ok('...which without the icon is not taken as a street', fm.parseOCRText('Kai Takahashi\n1201 Westlake').street === '');
+  ok('numbered street names are streets ("1201 3rd Avenue")', fm.parseOCRText('Kai Takahashi\n1201 3rd Avenue\nSeattle, WA 98101').street === '1201 3rd Avenue');
+  ok('social logo + bare handle becomes the profile link', t('websites', 'instagram') === 'https://instagram.com/studiocraft' && t('websites', 'linkedin') === 'https://www.linkedin.com/in/kaitakahashi', JSON.stringify(card.websites));
+  const textWins = fm.buildFields(fm.classifyLines([{ text: 'T 206.555.1111', icon: 'mobile' }, { text: '206.555.2222', icon: 'email' }])).fields;
+  ok('a written label beats the icon; an envelope next to a number is still a phone', textWins.phones[0].type === 'work' && textWins.phones.length === 2 && !textWins.emails.length, JSON.stringify(textWins));
+  ok('classifyLines keeps each line\'s icon for the review screen', fm.classifyLines([{ text: '206.555.9876', icon: 'mobile' }])[0].icon === 'mobile');
+  ok('socialProfileUrl builds links only from plausible handles', share.socialProfileUrl('tiktok', '@kai') === 'https://tiktok.com/@kai' && share.socialProfileUrl('youtube', 'studio craft') === '' && share.socialProfileUrl('unknown', 'kai') === '');
+}
+
 // Perspective correction (MOD03 crop & straighten)
 {
   const { computeHomography, applyHomography, warpPerspective, quadOutputSize } = await import(`${R}/modules/mod03-camera/perspective.js`);
@@ -366,9 +406,12 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   result = { text: 'py A Year op WW es', confidence: 46, words: words(12, 70) };
   const blurry = await failure(ocr.executeOCRScan('data:image/png;base64,x'));
   ok('low-confidence photo rejected as unreadable (retake)', blurry && blurry.code === 'OCR_UNREADABLE' && blurry.confidence === 46 && evt === null, blurry && blurry.message);
-  result = { text: 'Jo', confidence: 80, words: words(3, 90) };
+  result = { text: 'Kai Takahashi 206.555.9876 kai@studiocraft.design', confidence: 84, words: words(4, 90) };
+  const minimal = await ocr.executeOCRScan('data:image/png;base64,x');
+  ok('a sharp minimal card (4 words) is accepted, not sent back for a retake', minimal.confidence === 84, JSON.stringify(minimal));
+  result = { text: 'Jo', confidence: 80, words: words(2, 90) };
   const sparse = await failure(ocr.executeOCRScan('data:image/png;base64,x'));
-  ok('photo with too few readable words rejected as unreadable', sparse && sparse.code === 'OCR_UNREADABLE' && sparse.readableWords === 3, sparse && sparse.message);
+  ok('photo with too few readable words rejected as unreadable', sparse && sparse.code === 'OCR_UNREADABLE' && sparse.readableWords === 2, sparse && sparse.message);
   ok('OCR worker is started once and reused after a failure', created === 1, String(created));
   ok('OCR no longer exposes a duplicate parser', !('parseExtractedTextToSchema' in ocr));
   console.log = origLog; console.error = origErr; delete globalThis.Tesseract;

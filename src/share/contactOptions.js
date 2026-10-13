@@ -146,3 +146,14 @@ export function websiteTypeFor(url) {
     }
     return '';
 }
+
+const SOCIAL_URL = {
+    linkedin: 'https://www.linkedin.com/in/', x: 'https://x.com/', facebook: 'https://facebook.com/', instagram: 'https://instagram.com/',
+    github: 'https://github.com/', youtube: 'https://youtube.com/@', tiktok: 'https://tiktok.com/@'
+};
+
+/** Profile link from a bare handle next to a social logo: ('instagram', '@studiocraft') -> 'https://instagram.com/studiocraft'. */
+export function socialProfileUrl(type, handle) {
+    const h = String(handle || '').trim().replace(/^@/, '').replace(/^(?:in|company)\//i, '').replace(/^\//, '');
+    return SOCIAL_URL[type] && /^[A-Za-z0-9._-]{2,}$/.test(h) ? SOCIAL_URL[type] + h : '';
+}
