@@ -18,6 +18,7 @@ import { VCGEActiveCamera } from './modules/mod03-camera/camera.js';
 import { CropEditor } from './modules/mod03-camera/cropEditor.js';
 import { executeOCRScan } from './modules/mod04-ocr/ocrWorker.js';
 import { ContactFormMapper, LINE_ROLES } from './modules/mod05-form/formMapper.js';
+import { PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES } from './share/contactOptions.js';
 import { AddressAutocompleteEngine } from './modules/mod05-form/addressAutocomplete.js';
 import { CardView } from './modules/mod06-gui/card3dView.js';
 import { vcgeQREngine } from './modules/mod07-qr/qrGenerator.js';
@@ -247,10 +248,12 @@ function showRetakePrompt(show) {
 
 // Labels for the "Will fill" summary of the review step.
 const FIELD_LABELS = {
-    firstName: 'First name', lastName: 'Last name', jobTitle: 'Job title', organization: 'Company',
-    phoneWork: 'Work phone', phoneMobile: 'Mobile phone', email: 'Email', website: 'Website',
-    street: 'Street', city: 'City', state: 'State', zip: 'ZIP', notes: 'Notes'
+    namePrefix: 'Prefix', firstName: 'First name', middleName: 'Middle name', lastName: 'Last name', nameSuffix: 'Suffix',
+    jobTitle: 'Job title', organization: 'Company', phones: 'Phone', emails: 'Email', websites: 'Website',
+    street: 'Street', unitType: 'Unit type', unitNumber: 'Unit number', city: 'City', state: 'State / region', zip: 'Postal code',
+    country: 'Country', notes: 'Notes'
 };
+const TYPE_LABELS = { phones: PHONE_TYPES, emails: EMAIL_TYPES, websites: WEBSITE_TYPES };
 let ocrReview = null;   // { lines: [{ text, role }], fields } while the review step is open
 
 function showReviewStep(step) {
@@ -270,14 +273,25 @@ function closeReviewDialog() {
 function renderOcrSummary() {
     const { fields, derived } = formMapper.buildFields(ocrReview.lines);
     ocrReview.fields = fields;
-    const items = Object.keys(FIELD_LABELS).filter(k => fields[k]).flatMap(k => {
+    const entry = (label, value) => {
         const dt = document.createElement('dt');
         dt.className = 'text-slate-500 dark:text-slate-400';
-        dt.textContent = FIELD_LABELS[k];
+        dt.textContent = label;
         const dd = document.createElement('dd');
         dd.className = 'min-w-0 break-words';
-        dd.textContent = fields[k] + (derived[k] ? ` (from ${derived[k]})` : '');
+        dd.textContent = value;
         return [dt, dd];
+    };
+    // Country is only shown when the card says something other than the default.
+    const items = Object.keys(FIELD_LABELS).flatMap(k => {
+        if (TYPE_LABELS[k]) {
+            return fields[k].flatMap(({ type, value }) => {
+                const typeLabel = (TYPE_LABELS[k].find(([v]) => v === type) || [, type])[1];
+                return entry(`${FIELD_LABELS[k]} (${typeLabel})`, value);
+            });
+        }
+        if (!fields[k] || (k === 'country' && fields.country === 'United States')) return [];
+        return entry(FIELD_LABELS[k], fields[k] + (derived[k] ? ` (from ${derived[k]})` : ''));
     });
     if (!items.length) {
         const dd = document.createElement('dd');

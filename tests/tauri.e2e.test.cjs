@@ -84,8 +84,11 @@ function keyringHasDeviceKey() {
     await until(async () => !(await visible('cropReviewModal')), 5000);
     const toast = await txt('toastMessage');
     ok('Fill form fills the form from the review', toast.includes('Form filled'), toast);
-    ok('OCR fills name, email and phone', (await val('firstName')) === 'Maria' && (await val('email')) === 'maria.gonzalez@northwind.com' && (await val('phoneWork')) === '+1 (312) 555-0147',
-      [await val('firstName'), await val('email'), await val('phoneWork')].join(' | '));
+    const typedRow = (list, type) => js(`const l = document.getElementById(arguments[0] + 'List');
+      for (let i = 0; i < l.children.length; i++) if (document.getElementById(arguments[0] + 'Type' + i).value === arguments[1]) return document.getElementById(arguments[0] + 'Value' + i).value;
+      return null;`, list, type);
+    ok('OCR fills name, email and phone', (await val('firstName')) === 'Maria' && (await typedRow('email', 'work')) === 'maria.gonzalez@northwind.com' && (await typedRow('phone', 'work')) === '+1 (312) 555-0147',
+      [await val('firstName'), await typedRow('email', 'work'), await typedRow('phone', 'work')].join(' | '));
 
     // Scannable QR
     const qr = await js(`const c = document.getElementById('qrCanvas'); return { w: c.width, h: c.height, d: Array.from(c.getContext('2d').getImageData(0, 0, c.width, c.height).data) };`);

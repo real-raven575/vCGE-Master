@@ -127,7 +127,7 @@ export class EgressController {
      */
     triggerSmsShare() {
         const name = `${this.contactData.firstName || ''} ${this.contactData.lastName || ''}`.trim() || 'Contact';
-        const body = encodeURIComponent(`Digital vCard for ${name}: ${this.contactData.website || 'Contact Attached'}`);
+        const body = encodeURIComponent(`Digital vCard for ${name}: ${((this.contactData.websites || [])[0] || {}).value || 'Contact Attached'}`);
         window.location.href = `sms:?body=${body}`;
         audit('sms');
         return true;

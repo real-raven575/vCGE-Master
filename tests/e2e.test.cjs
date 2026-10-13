@@ -55,6 +55,11 @@ async function dragCorners(page, corners) {
   }
 }
 
+// Typed rows of a list ('phone' | 'email' | 'website') as [{ type, value }].
+const rows = (page, id) => page.evaluate((id) => Array.from(document.getElementById(`${id}List`).children)
+  .map((_, i) => ({ type: document.getElementById(`${id}Type${i}`).value, value: document.getElementById(`${id}Value${i}`).value })), id);
+const rowValue = async (page, id, type) => ((await rows(page, id)).find(r => r.type === type) || {}).value;
+
 async function decodeQr(page) {
   const qr = await page.evaluate(() => { const c = document.getElementById('qrCanvas'); return { w: c.width, h: c.height, data: Array.from(c.getContext('2d').getImageData(0, 0, c.width, c.height).data) }; });
   const r = jsQR(Uint8ClampedArray.from(qr.data), qr.w, qr.h);
@@ -110,6 +115,40 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   const vcf = fs.readFileSync(await dl.path(), 'utf8');
   ok('.vcf downloaded with escaped ORG and CRLF', vcf.includes('ORG:Smith\\, Jones') && vcf.includes('\r\nFN:Jane Doe\r\n'), JSON.stringify(vcf.slice(0, 120)));
   ok('download filename', dl.suggestedFilename() === 'Jane_Doe.vcf', dl.suggestedFilename());
+
+  // Richer contact fields: name parts, typed rows, unit, country-driven region picker -> preview, vCard, QR
+  ok('prefix/suffix/unit suggestion lists filled', (await page.$$eval('#namePrefixOptions option', o => o.map(x => x.value))).includes('Dr.') && (await page.$$eval('#nameSuffixOptions option', o => o.length)) === 10 && (await page.$$eval('#unitTypeOptions option', o => o.map(x => x.value))).includes('Suite'));
+  ok('US state picker shown with 56 states and territories', await visible('stateSelect') && !(await visible('stateText')) && (await page.$$eval('#stateSelect option', o => o.length)) === 57 && (await text('stateLabel')) === 'State');
+  await page.fill('#namePrefix', 'Dr.'); await page.fill('#middleName', 'Q.'); await page.fill('#nameSuffix', 'PhD');
+  await page.selectOption('#phoneType0', 'mobile'); await page.fill('#phoneValue0', '4155550101'); await page.press('#phoneValue0', 'Tab');
+  ok('phone number formatted on leaving the box', (await val('phoneValue0')) === '+1 (415) 555-0101', await val('phoneValue0'));
+  await page.click('#addPhoneBtn');
+  ok('+ Add phone adds a row with the next unused type', (await page.$$('#phoneList > div')).length === 2 && (await val('phoneType1')) === 'work', await val('phoneType1'));
+  await page.selectOption('#phoneType1', 'workFax'); await page.fill('#phoneValue1', '4155550109');
+  await page.click('#addPhoneBtn'); await page.fill('#phoneValue2', '4155550199');
+  await page.click('#phoneRemove2');
+  ok('remove deletes just that row', (await rows(page, 'phone')).length === 2 && (await rows(page, 'phone'))[1].type === 'workFax');
+  await page.fill('#emailValue0', 'jane@smithjones.co'); await page.click('#addEmailBtn'); await page.selectOption('#emailType1', 'personal'); await page.fill('#emailValue1', 'jane.doe@gmail.com');
+  await page.fill('#websiteValue0', 'https://smithjones.co'); await page.click('#addWebsiteBtn'); await page.fill('#websiteValue1', 'https://www.linkedin.com/in/janedoe'); await page.press('#websiteValue1', 'Tab');
+  ok('social link recognised: website type switches to LinkedIn', (await val('websiteType1')) === 'linkedin', await val('websiteType1'));
+  await page.fill('#street', '233 South Wacker Drive'); await page.fill('#unitType', 'Suite'); await page.fill('#unitNumber', '4100'); await page.fill('#city', 'Chicago');
+  await page.selectOption('#stateSelect', 'IL'); await page.fill('#zip', '60606'); await page.selectOption('#addressType', 'work');
+  ok('state picker sets the stored state', (await val('state')) === 'IL');
+  await page.waitForTimeout(700);
+  ok('preview shows full name with prefix/suffix and the unit', (await text('previewFullName')) === 'Dr. Jane Q. Doe, PhD' && (await text('previewAddress')).includes('Suite 4100'), (await text('previewFullName')) + ' | ' + (await text('previewAddress')));
+  const [dl2] = await Promise.all([page.waitForEvent('download'), page.click('#downloadVcfBtn')]);
+  const vcf2 = fs.readFileSync(await dl2.path(), 'utf8').split('\r\n');
+  ok('.vcf has name parts, typed phones and emails', vcf2.includes('N:Doe;Jane;Q.;Dr.;PhD') && vcf2.includes('TEL;TYPE=CELL,VOICE:+1 (415) 555-0101') && vcf2.includes('TEL;TYPE=WORK,FAX:+1 (415) 555-0109')
+    && vcf2.includes('EMAIL;TYPE=INTERNET,WORK:jane@smithjones.co') && vcf2.includes('EMAIL;TYPE=INTERNET,HOME:jane.doe@gmail.com'), vcf2.join(' | '));
+  ok('.vcf has social profile and unit address', vcf2.includes('X-SOCIALPROFILE;TYPE=linkedin:https://www.linkedin.com/in/janedoe') && vcf2.includes('ADR;TYPE=WORK:;;233 South Wacker Drive\\, Suite 4100;Chicago;IL;60606;United States'), vcf2.filter(l => /^(X-SOCIAL|ADR)/.test(l)).join(' | '));
+  const qrRich = await decodeQr(page);
+  ok('QR carries the richer vCard', qrRich && qrRich.includes('N:Doe;Jane;Q.;Dr.;PhD') && qrRich.includes('X-SOCIALPROFILE;TYPE=linkedin'), qrRich && qrRich.slice(0, 120));
+  await page.selectOption('#country', 'Canada');
+  ok('Canada: province picker and postal-code label; US state cleared', (await text('stateLabel')) === 'Province / territory' && (await text('zipLabel')) === 'Postal code' && (await page.$$eval('#stateSelect option', o => o.length)) === 14 && (await val('state')) === '');
+  await page.selectOption('#country', 'Germany'); await page.fill('#stateText', 'Berlin');
+  ok('other countries: free-text region box', await visible('stateText') && !(await visible('stateSelect')) && (await text('stateLabel')) === 'Region' && (await val('state')) === 'Berlin');
+  await page.selectOption('#country', 'United States'); await page.selectOption('#stateSelect', 'IL');
+  await page.waitForTimeout(700);
   ok('audit log records MOD08 egress', (await text('auditLog')).includes('MOD08 egress: download_vcf'));
 
   // Local address suggestions
@@ -124,18 +163,20 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   await page.click('#runOcrBtn');
   await page.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
   ok('review step lists the OCR lines with a field picker each', (await page.$$('#ocrLines select')).length >= 8 && (await page.inputValue('#ocrLineRole0')) === 'name', String((await page.$$('#ocrLines select')).length));
-  ok('nothing reaches the form before Fill form', (await val('email')) === '');
+  ok('nothing reaches the form before Fill form', !(await rows(page, 'email')).some(r => r.value.includes('northwind')));
   ok('"Will fill" summary shows the mapped fields', (await text('ocrSummary')).includes('maria.gonzalez@northwind.com') && (await text('ocrSummary')).includes('Northwind Systems'));
   await page.click('#applyOcrBtn');
   await page.waitForSelector('#cropReviewModal', { state: 'hidden' });
-  const got = {}; for (const f of ['firstName', 'lastName', 'jobTitle', 'organization', 'phoneWork', 'email', 'website', 'street', 'city', 'state', 'zip']) got[f] = await val(f);
+  const got = {}; for (const f of ['firstName', 'lastName', 'jobTitle', 'organization', 'street', 'city', 'state', 'zip']) got[f] = await val(f);
+  got.phoneWork = await rowValue(page, 'phone', 'work'); got.email = await rowValue(page, 'email', 'work'); got.website = await rowValue(page, 'website', 'work');
   ok('real OCR extracts name, title, organization', got.firstName === 'Maria' && got.lastName === 'Gonzalez' && got.jobTitle === 'Director of Engineering' && got.organization === 'Northwind Systems', JSON.stringify(got));
   ok('real OCR extracts phone, email, website', got.phoneWork === '+1 (312) 555-0147' && got.email === 'maria.gonzalez@northwind.com' && got.website === 'https://northwind.com', JSON.stringify(got));
   ok('real OCR extracts street, city, state, zip', got.street === '233 South Wacker Drive' && got.city === 'Chicago' && got.state === 'IL' && got.zip === '60606', JSON.stringify(got));
   ok('user told the form was filled', (await text('toastMessage')).includes('Form filled'));
   ok('audit log records OCR (not simulated)', (await text('auditLog')).includes('OCR text extracted') && !(await text('auditLog')).includes('simulated'));
   const qrAfter = await decodeQr(page);
-  ok('QR follows OCR result', qrAfter && qrAfter.includes('FN:Maria Gonzalez'), qrAfter);
+  ok('QR follows OCR result', qrAfter && qrAfter.includes('FN:Maria Gonzalez\r\n') && qrAfter.includes('N:Gonzalez;Maria;;;\r\n'), qrAfter);
+  ok('scanned name and address replace the previous ones whole (no leftover prefix, suite)', (await val('namePrefix')) === '' && (await val('nameSuffix')) === '' && (await val('middleName')) === '' && (await val('unitNumber')) === '', [await val('namePrefix'), await val('unitNumber')].join('|'));
 
   // Gatekeeper
   const blocked = await page.evaluate(() => fetch('https://example.com/x').then(() => 'ALLOWED', () => 'blocked'));
@@ -234,6 +275,26 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await ctx2.close();
   }
 
+  // A card saved in the old layout (schema 3.0) is converted when the vault is unlocked
+  if (!process.env.SERVE_DIR) {
+    const ctx6 = await browser.newContext();
+    const p6 = await ctx6.newPage();
+    await p6.goto(ORIGIN); await p6.waitForTimeout(300);
+    await p6.fill('#vaultPassphrase', 'migration passphrase'); await p6.fill('#vaultPassphraseConfirm', 'migration passphrase'); await p6.click('#vaultUnlockBtn');
+    await p6.waitForSelector('#vaultModal', { state: 'hidden' });
+    await p6.evaluate(async () => {
+      const { secureVault } = await import('/src/modules/mod02-vault/vault.js');
+      await secureVault.encryptAndStore({ firstName: 'Old', lastName: 'Layout', phoneWork: '+1 (555) 201-0001', phoneMobile: '+1 (555) 201-0002', email: 'old@layout.co', website: 'layout.co', street: '1 Main St', city: 'Boise', state: 'ID', zip: '83701', country: 'United States', themePalette: 'ocean' });
+    });
+    await p6.reload(); await p6.waitForTimeout(300);
+    await p6.fill('#vaultPassphrase', 'migration passphrase'); await p6.click('#vaultUnlockBtn');
+    await p6.waitForSelector('#vaultModal', { state: 'hidden' });
+    ok('old-layout saved card opens with typed rows', (await p6.inputValue('#firstName')) === 'Old' && (await rowValue(p6, 'phone', 'work')) === '+1 (555) 201-0001' && (await rowValue(p6, 'phone', 'mobile')) === '+1 (555) 201-0002'
+      && (await rowValue(p6, 'email', 'work')) === 'old@layout.co' && (await rowValue(p6, 'website', 'work')) === 'layout.co' && (await p6.inputValue('#stateSelect')) === 'ID',
+      JSON.stringify([await rows(p6, 'phone'), await rows(p6, 'email'), await rows(p6, 'website')]));
+    await ctx6.close();
+  }
+
   // Blurry photo: OCR runs but the result is unreadable -> retake prompt, form untouched
   {
     const ctx4 = await browser.newContext();
@@ -245,7 +306,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p4.click('#runOcrBtn');
     await p4.waitForSelector('#ocrRetakeNotice', { state: 'visible', timeout: 90000 }).catch(() => {});
     ok('blurry photo: retake prompt shown in the review dialog', await p4.isVisible('#ocrRetakeNotice') && await p4.isVisible('#retakePhotoBtn') && !(await p4.isVisible('#runOcrBtn')));
-    ok('blurry photo: form left unchanged', (await p4.inputValue('#firstName')) === 'Typed' && (await p4.inputValue('#email')) === '');
+    ok('blurry photo: form left unchanged', (await p4.inputValue('#firstName')) === 'Typed' && (await p4.inputValue('#emailValue0')) === '');
     const chooser = p4.waitForEvent('filechooser', { timeout: 5000 }).then(() => true, () => false);
     await p4.click('#retakePhotoBtn');
     ok('Retake photo opens the photo picker', await chooser && !(await p4.isVisible('#cropReviewModal')));
@@ -254,7 +315,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p4.click('#runOcrBtn');
     await p4.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
     await p4.click('#applyOcrBtn');
-    ok('sharp retake is read normally', (await p4.inputValue('#email')) === 'maria.gonzalez@northwind.com', await p4.inputValue('#email'));
+    ok('sharp retake is read normally', (await rowValue(p4, 'email', 'work')) === 'maria.gonzalez@northwind.com', JSON.stringify(await rows(p4, 'email')));
     await ctx4.close();
   }
 
@@ -293,8 +354,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p5.fill(`#ocrLineText${roles2.indexOf('name')}`, 'Mariah Gonzalez');
     await p5.selectOption(`#ocrLineRole${roles2.indexOf('website')}`, 'notes');
     await p5.click('#applyOcrBtn');
-    ok('Fill form applies the edited review', (await p5.inputValue('#firstName')) === 'Mariah' && (await p5.inputValue('#website')) === '' && (await p5.inputValue('#notes')).includes('northwind.com') && (await p5.inputValue('#email')) === 'maria.gonzalez@northwind.com',
-      [await p5.inputValue('#firstName'), await p5.inputValue('#website'), await p5.inputValue('#notes')].join(' | '));
+    ok('Fill form applies the edited review', (await p5.inputValue('#firstName')) === 'Mariah' && (await rows(p5, 'website')).every(r => !r.value) && (await p5.inputValue('#notes')).includes('northwind.com') && (await rowValue(p5, 'email', 'work')) === 'maria.gonzalez@northwind.com',
+      [await p5.inputValue('#firstName'), JSON.stringify(await rows(p5, 'website')), await p5.inputValue('#notes')].join(' | '));
     ok('review text cleared from the page after Fill form', (await p5.$$('#ocrLines input')).length === 0 && !(await p5.isVisible('#cropReviewModal')));
     // Rotate: the photo turns 90° and the corners reset
     await p5.setInputFiles('#imageUpload', crooked.file); await p5.waitForTimeout(500);
@@ -312,13 +373,13 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     const p3 = await ctx3.newPage();
     await p3.goto(ORIGIN); await p3.waitForTimeout(300);
     await p3.click('#vaultSkipBtn');
-    await p3.fill('#firstName', 'Typed'); await p3.fill('#email', 'typed@example.com');
+    await p3.fill('#firstName', 'Typed'); await p3.fill('#emailValue0', 'typed@example.com');
     await p3.setInputFiles('#imageUpload', await renderCardImage(p3)); await p3.waitForTimeout(300);
     await p3.click('#runOcrBtn');
     const settled = await p3.waitForSelector('#cropReviewModal', { state: 'hidden', timeout: 30000 }).then(() => true, () => false);
     ok('missing OCR model: extraction ends instead of hanging', settled && (await p3.textContent('#runOcrBtn')).trim() === 'Extract fields');
     ok('missing OCR model: user told the engine could not start', (await p3.textContent('#toastMessage')).includes('OCR engine could not start'), await p3.textContent('#toastMessage'));
-    ok('missing OCR model: form left unchanged (no sample text)', (await p3.inputValue('#firstName')) === 'Typed' && (await p3.inputValue('#email')) === 'typed@example.com' && (await p3.inputValue('#lastName')) === '');
+    ok('missing OCR model: form left unchanged (no sample text)', (await p3.inputValue('#firstName')) === 'Typed' && (await p3.inputValue('#emailValue0')) === 'typed@example.com' && (await p3.inputValue('#lastName')) === '');
     await ctx3.close();
   }
 

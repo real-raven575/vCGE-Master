@@ -5,7 +5,11 @@
  * Owns the contact form, card preview (3D flip, palettes, typography, avatar) and toasts.
  * Holds contact data in memory only; persistence is the vault's job (wired in src/main.js).
  */
-import { CONTACT_FIELDS, createEmptyContact } from '../../share/cardSchema.js';
+import { CONTACT_FIELDS, createEmptyContact, normalizeContact } from '../../share/cardSchema.js';
+import {
+    NAME_PREFIXES, NAME_SUFFIXES, UNIT_TYPES, ADDRESS_TYPES, PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES, COUNTRIES, REGIONS,
+    regionLabels, splitStreetUnit, websiteTypeFor
+} from '../../share/contactOptions.js';
 
 export const THEMES = {
     ocean: { label: 'Ocean Blue', bg: 'from-indigo-500 to-blue-600', hex: '#6366f1' },
@@ -16,10 +20,28 @@ export const THEMES = {
 };
 
 const PRESETS = [
-    { label: '🤖 AI Research Lead', firstName: 'Elena', lastName: 'Rostova', organization: 'NeuralShift AI', jobTitle: 'Principal Research Scientist', phoneWork: '+1 (415) 888-0199', phoneMobile: '+1 (415) 888-0122', email: 'e.rostova@neuralshift.ai', website: 'https://neuralshift.ai', street: '100 Innovation Way, Suite 800', city: 'Palo Alto', state: 'CA', zip: '94301', country: 'United States', themePalette: 'violet' },
-    { label: '⚖️ Managing Attorney', firstName: 'Marcus', lastName: 'Vance', organization: 'Vance & Partners LLP', jobTitle: 'Senior Managing Partner', phoneWork: '+1 (212) 555-9000', phoneMobile: '+1 (917) 555-4321', email: 'marcus.vance@vancelaw.com', website: 'https://vancelaw.com', street: '745 Fifth Avenue, 28th Floor', city: 'New York', state: 'NY', zip: '10151', country: 'United States', themePalette: 'slate' },
-    { label: '🎨 UX Architect', firstName: 'Kai', lastName: 'Takahashi', organization: 'Studio Craft', jobTitle: 'Lead Design Architect', phoneWork: '+1 (206) 555-3400', phoneMobile: '+1 (206) 555-9876', email: 'kai@studiocraft.design', website: 'https://studiocraft.design', street: '1201 3rd Ave, Studio 12', city: 'Seattle', state: 'WA', zip: '98101', country: 'United States', themePalette: 'ocean' }
+    { label: '🤖 AI Research Lead', namePrefix: 'Dr.', firstName: 'Elena', lastName: 'Rostova', nameSuffix: 'PhD', organization: 'NeuralShift AI', jobTitle: 'Principal Research Scientist',
+      phones: [{ type: 'work', value: '+1 (415) 888-0199' }, { type: 'mobile', value: '+1 (415) 888-0122' }], emails: [{ type: 'work', value: 'e.rostova@neuralshift.ai' }],
+      websites: [{ type: 'work', value: 'https://neuralshift.ai' }, { type: 'linkedin', value: 'https://www.linkedin.com/in/elena-rostova' }],
+      addressType: 'work', street: '100 Innovation Way', unitType: 'Suite', unitNumber: '800', city: 'Palo Alto', state: 'CA', zip: '94301', country: 'United States', themePalette: 'violet' },
+    { label: '⚖️ Managing Attorney', firstName: 'Marcus', middleName: 'J.', lastName: 'Vance', nameSuffix: 'Esq.', organization: 'Vance & Partners LLP', jobTitle: 'Senior Managing Partner',
+      phones: [{ type: 'main', value: '+1 (212) 555-9000' }, { type: 'mobile', value: '+1 (917) 555-4321' }, { type: 'workFax', value: '+1 (212) 555-9001' }],
+      emails: [{ type: 'work', value: 'marcus.vance@vancelaw.com' }], websites: [{ type: 'work', value: 'https://vancelaw.com' }],
+      addressType: 'work', street: '745 Fifth Avenue', unitType: 'Floor', unitNumber: '28', city: 'New York', state: 'NY', zip: '10151', country: 'United States', themePalette: 'slate' },
+    { label: '🎨 UX Architect', firstName: 'Kai', lastName: 'Takahashi', organization: 'Studio Craft', jobTitle: 'Lead Design Architect',
+      phones: [{ type: 'mobile', value: '+1 (206) 555-9876' }, { type: 'work', value: '+1 (206) 555-3400' }],
+      emails: [{ type: 'work', value: 'kai@studiocraft.design' }, { type: 'personal', value: 'kai.takahashi@gmail.com' }],
+      websites: [{ type: 'portfolio', value: 'https://studiocraft.design' }, { type: 'instagram', value: 'https://instagram.com/studiocraft' }],
+      addressType: 'work', street: '1201 3rd Ave', unitType: 'Studio', unitNumber: '12', city: 'Seattle', state: 'WA', zip: '98101', country: 'United States', themePalette: 'ocean' }
 ];
+
+// Typed list editors (phones, emails, websites): container, row id prefix, type choices, input type and the add button.
+const LISTS = {
+    phones: { container: 'phoneList', id: 'phone', noun: 'phone', types: PHONE_TYPES, input: 'tel', placeholder: 'Phone number', add: 'addPhoneBtn' },
+    emails: { container: 'emailList', id: 'email', noun: 'email', types: EMAIL_TYPES, input: 'email', placeholder: 'name@example.com', add: 'addEmailBtn' },
+    websites: { container: 'websiteList', id: 'website', noun: 'website', types: WEBSITE_TYPES, input: 'url', placeholder: 'example.com or a profile link', add: 'addWebsiteBtn' }
+};
+const digitsOrLower = (v) => (/\d{7}/.test(v.replace(/\D/g, '')) ? v.replace(/\D/g, '') : v.trim().toLowerCase());
 
 const FONT_CLASSES = ['font-sans', 'font-serif', 'font-mono'];
 const $ = (id) => document.getElementById(id);
@@ -42,6 +64,7 @@ export class CardView {
     }
 
     init() {
+        this.buildOptionLists();
         this.buildPresetButtons();
         this.buildPaletteMenu();
         this.attachListeners();
@@ -56,27 +79,174 @@ export class CardView {
             const el = $(field);
             if (el) contact[field] = el.value.trim();
         });
+        Object.keys(LISTS).forEach(key => { contact[key] = this.readList(key).filter(e => e.value); });
         contact.avatarBase64 = this.avatarBase64;
         contact.themePalette = this.themeKey;
         return contact;
     }
 
     setContact(contact = {}) {
+        const c = normalizeContact(contact);
         CONTACT_FIELDS.forEach(field => {
             const el = $(field);
-            if (el) el.value = contact[field] || '';
+            if (el) el.value = c[field] || '';
         });
-        this.setAvatar(contact.avatarBase64 || null);
-        this.applyTheme(contact.themePalette in THEMES ? contact.themePalette : 'ocean');
+        this.ensureCountryOption(c.country);
+        $('country').value = c.country;
+        this.syncRegion();
+        Object.keys(LISTS).forEach(key => this.renderList(key, c[key]));
+        this.setAvatar(c.avatarBase64 || null);
+        this.applyTheme(c.themePalette in THEMES ? c.themePalette : 'ocean');
     }
 
-    // Fills only the fields that have a value (used for OCR results).
+    /**
+     * Fills the fields that have a value (used for OCR results); a name or address in the result replaces the whole
+     * name or address. For each list entry: a row with the same value is left alone, a row of the same type gets the
+     * new value, else an empty row is used, else a row is added.
+     */
     mergeContact(partial = {}) {
+        const p = normalizeContact(partial);
+        // A name or an address is replaced as a whole, so no part of the previous one (a prefix, a suite) is left behind.
+        const groups = [
+            ['namePrefix', 'firstName', 'middleName', 'lastName', 'nameSuffix'],
+            ['street', 'unitType', 'unitNumber', 'city', 'state', 'zip', 'country']
+        ];
+        const replaceAll = new Set(groups.filter(g => g.some(f => partial[f] && f !== 'country')).flat());
         CONTACT_FIELDS.forEach(field => {
             const el = $(field);
-            if (el && partial[field]) el.value = partial[field];
+            if (el && (partial[field] || replaceAll.has(field))) el.value = p[field] || '';
+        });
+        if (partial.country || replaceAll.has('country')) { this.ensureCountryOption(p.country); $('country').value = p.country; }
+        this.syncRegion();
+        Object.keys(LISTS).forEach(key => {
+            const rows = this.readList(key), written = new Set();
+            p[key].forEach(entry => {
+                if (rows.some(r => r.value && digitsOrLower(r.value) === digitsOrLower(entry.value))) return;
+                let i = rows.findIndex((r, n) => r.type === entry.type && !written.has(n));
+                if (i < 0) i = rows.findIndex((r, n) => !r.value && !written.has(n));
+                if (i < 0) { rows.push({ ...entry }); i = rows.length - 1; } else rows[i] = { ...entry };
+                written.add(i);
+            });
+            this.renderList(key, rows);
         });
         this.changed();
+    }
+
+    // ---- Typed lists (phones, emails, websites) ---------------------------------------------------------------
+
+    readList(key) {
+        const { container, id } = LISTS[key];
+        return Array.from($(container).children).map((row, i) => ({
+            type: $(`${id}Type${i}`).value,
+            value: $(`${id}Value${i}`).value.trim()
+        }));
+    }
+
+    renderList(key, entries = []) {
+        const cfg = LISTS[key];
+        const rows = entries.length ? entries : [{ type: cfg.types[0][0], value: '' }];
+        $(cfg.container).replaceChildren(...rows.map((entry, i) => {
+            const row = document.createElement('div');
+            row.className = 'flex gap-2 items-center';
+            const type = document.createElement('select');
+            type.id = `${cfg.id}Type${i}`;
+            type.className = 'field-input w-36 shrink-0';
+            type.setAttribute('aria-label', `${cfg.noun} ${i + 1} type`);
+            cfg.types.forEach(([value, label]) => type.add(new Option(label, value, false, value === entry.type)));
+            if (!cfg.types.some(([v]) => v === entry.type)) type.value = cfg.types.some(([v]) => v === 'other') ? 'other' : cfg.types[0][0];
+            const value = document.createElement('input');
+            value.id = `${cfg.id}Value${i}`;
+            value.type = cfg.input;
+            value.autocomplete = 'off';
+            value.className = 'field-input flex-1 min-w-0';
+            value.placeholder = cfg.placeholder;
+            value.value = entry.value || '';
+            value.setAttribute('aria-label', `${cfg.noun} ${i + 1}`);
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.id = `${cfg.id}Remove${i}`;
+            remove.className = 'px-2 py-1 rounded-lg text-slate-400 hover:text-rose-500 transition';
+            remove.textContent = '×';
+            remove.setAttribute('aria-label', `Remove ${cfg.noun} ${i + 1}`);
+            type.addEventListener('change', () => this.changed());
+            value.addEventListener('input', () => this.changed());
+            value.addEventListener('blur', () => this.tidyListValue(key, i));
+            remove.addEventListener('click', () => {
+                const list = this.readList(key);
+                list.splice(i, 1);
+                this.renderList(key, list);
+                this.changed();
+            });
+            row.append(type, value, remove);
+            return row;
+        }));
+    }
+
+    addListRow(key) {
+        const cfg = LISTS[key];
+        const list = this.readList(key);
+        const used = new Set(list.map(e => e.type));
+        const type = (cfg.types.find(([v]) => !used.has(v)) || cfg.types[0])[0];
+        list.push({ type, value: '' });
+        this.renderList(key, list);
+        $(`${cfg.id}Value${list.length - 1}`).focus();
+    }
+
+    // On leaving a value: format phone numbers for the country; recognise social-profile links.
+    tidyListValue(key, i) {
+        const input = $(`${LISTS[key].id}Value${i}`);
+        if (!input || !input.value.trim()) return;
+        if (key === 'phones' && this.formMapper) {
+            const fmt = this.formMapper.countryFormats[$('country').value.trim()];
+            const formatted = fmt ? this.formMapper.formatPhone(input.value, fmt) : input.value;
+            if (formatted !== input.value) { input.value = formatted; this.changed(); }
+        }
+        if (key === 'websites') {
+            const social = websiteTypeFor(input.value), type = $(`websiteType${i}`);
+            // Only a generic type is replaced, never one the user picked deliberately (Blog, Portfolio, another network).
+            if (social && ['work', 'personal', 'other'].includes(type.value)) { type.value = social; this.changed(); }
+        }
+    }
+
+    // ---- Country, region and option lists -------------------------------------------------------------------
+
+    buildOptionLists() {
+        const fill = (id, values) => $(id).replaceChildren(...values.map(v => new Option(v, v)));
+        fill('namePrefixOptions', NAME_PREFIXES);
+        fill('nameSuffixOptions', NAME_SUFFIXES);
+        fill('unitTypeOptions', UNIT_TYPES);
+        $('addressType').replaceChildren(...ADDRESS_TYPES.map(([v, label]) => new Option(label, v)));
+        $('country').replaceChildren(...COUNTRIES.map(c => new Option(c, c)));
+        Object.keys(LISTS).forEach(key => this.renderList(key, []));
+        this.setContact(createEmptyContact());
+    }
+
+    ensureCountryOption(country) {
+        if (country && !Array.from($('country').options).some(o => o.value === country)) $('country').add(new Option(country, country));
+    }
+
+    /** Shows a region picker (countries with a region list) or a text box, with the country's labels. */
+    syncRegion() {
+        const country = $('country').value;
+        const labels = regionLabels(country);
+        $('stateLabel').textContent = labels.label;
+        $('zipLabel').textContent = labels.postalLabel;
+        const regions = REGIONS[country] && REGIONS[country].regions;
+        $('stateSelect').classList.toggle('hidden', !regions);
+        $('stateText').classList.toggle('hidden', !!regions);
+        if (regions) {
+            if (this.regionCountry !== country) {
+                $('stateSelect').replaceChildren(new Option(`Choose ${labels.label.toLowerCase()}`, ''), ...regions.map(([code, name]) => new Option(name, code)));
+                this.regionCountry = country;
+            }
+            const state = $('state').value.trim();
+            const match = regions.find(([code, name]) => code.toLowerCase() === state.toLowerCase() || name.toLowerCase() === state.toLowerCase());
+            $('state').value = match ? match[0] : '';
+            $('stateSelect').value = $('state').value;
+        } else {
+            this.regionCountry = null;
+            $('stateText').value = $('state').value;
+        }
     }
 
     clear() {
@@ -90,14 +260,17 @@ export class CardView {
     // ---- Rendering -----------------------------------------------------------------------------------------
 
     render(contact) {
-        const fullName = [contact.firstName, contact.lastName].filter(Boolean).join(' ') || 'New Contact';
+        const fullName = [contact.namePrefix, contact.firstName, contact.middleName, contact.lastName].filter(Boolean).join(' ')
+            + (contact.nameSuffix ? `, ${contact.nameSuffix}` : '') || 'New Contact';
+        const first = (key) => ((contact[key] || [])[0] || {}).value || '';
+        const unit = contact.unitType ? [contact.unitType, contact.unitNumber].filter(Boolean).join(' ') : '';
         $('previewFullName').textContent = fullName;
         $('previewOrg').textContent = contact.organization || 'Company Name';
         $('previewTitle').textContent = contact.jobTitle || 'Job Title';
-        $('previewPhone').textContent = contact.phoneWork || contact.phoneMobile || 'No phone number';
-        $('previewEmail').textContent = contact.email || 'No email address';
-        $('previewAddress').textContent = [contact.street, contact.city, contact.state].filter(Boolean).join(', ') || 'No address provided';
-        $('previewWebsite').textContent = contact.website || 'No website';
+        $('previewPhone').textContent = first('phones') || 'No phone number';
+        $('previewEmail').textContent = first('emails') || 'No email address';
+        $('previewAddress').textContent = [contact.street, unit, contact.city, contact.state].filter(Boolean).join(', ') || 'No address provided';
+        $('previewWebsite').textContent = first('websites') || 'No website';
         $('backCardName').textContent = fullName;
 
         const initials = (contact.firstName && contact.lastName)
@@ -159,7 +332,7 @@ export class CardView {
             btn.className = 'px-2.5 py-1 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg font-semibold text-[11px] transition';
             btn.textContent = preset.label;
             btn.addEventListener('click', () => {
-                this.setContact({ ...preset, avatarBase64: this.avatarBase64 });
+                this.setContact({ ...createEmptyContact(), ...preset, avatarBase64: this.avatarBase64 });
                 this.changed();
                 this.showToast(`Loaded preset: ${preset.firstName} ${preset.lastName}`);
             });
@@ -199,15 +372,10 @@ export class CardView {
             });
         });
 
-        ['phoneWork', 'phoneMobile'].forEach(id => {
-            $(id).addEventListener('blur', () => {
-                if (!this.formMapper || !$(id).value.trim()) return;
-                const fmt = this.formMapper.countryFormats[$('country').value.trim()];
-                if (!fmt) return;
-                const formatted = this.formMapper.formatPhone($(id).value, fmt);
-                if (formatted !== $(id).value) { $(id).value = formatted; this.changed(); }
-            });
-        });
+        Object.entries(LISTS).forEach(([key, cfg]) => $(cfg.add).addEventListener('click', () => { this.addListRow(key); this.changed(); }));
+        $('country').addEventListener('change', () => { this.syncRegion(); this.changed(); });
+        $('stateSelect').addEventListener('change', () => { $('state').value = $('stateSelect').value; this.changed(); });
+        $('stateText').addEventListener('input', () => { $('state').value = $('stateText').value; this.changed(); });
 
         $('cardFontSelect').addEventListener('change', (e) => {
             ['cardFront', 'cardBack'].forEach(id => {
@@ -265,7 +433,12 @@ export class CardView {
             line2.textContent = `${item.city}, ${item.country}`;
             btn.append(line1, line2);
             btn.addEventListener('click', () => {
-                ['street', 'city', 'state', 'zip', 'country'].forEach(f => { $(f).value = item[f]; });
+                const { street, unitType, unitNumber } = splitStreetUnit(item.street);
+                Object.assign(item, { street, unitType, unitNumber });
+                ['street', 'unitType', 'unitNumber', 'city', 'state', 'zip'].forEach(f => { $(f).value = item[f]; });
+                this.ensureCountryOption(item.country);
+                $('country').value = item.country;
+                this.syncRegion();
                 list.classList.add('hidden');
                 this.changed();
                 this.showToast('Address filled in.');

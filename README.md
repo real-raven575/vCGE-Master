@@ -56,9 +56,9 @@ npm run tauri build               # release build + installers in src-tauri/targ
 
 ```bash
 npm install
-npm test                          # 88 unit tests (Node)
+npm test                          # 110 unit tests (Node)
 npx playwright install chromium   # once, for the browser tests
-npm run test:e2e                  # 65 browser end-to-end tests (real OCR, crop & straighten, text review, blurry-photo retake, OCR failure, QR decode, vault, idle purge, egress lock)
+npm run test:e2e                  # 80 browser end-to-end tests (real OCR, crop & straighten, text review, typed fields & regions, old-card conversion, blurry-photo retake, OCR failure, QR decode, vault, idle purge, egress lock)
 SERVE_DIR=dist npm run test:e2e   # same suite against the Vite build (run `npm run build` first)
 (cd src-tauri && cargo test)      # 5 Rust tests (keychain device key)
 npm run test:tauri                # 23 desktop tests on Linux: real binary via tauri-driver, real Secret Service, crop by real pointer input
@@ -110,7 +110,8 @@ vCGE-Master/
     ├── vendor/                    # qrcode-generator, Tesseract.js + WASM core + English model, card fonts (committed)
     ├── share/                     # Global Shared Libraries (vCGE-SHARE)
     │   ├── index.js               # Export barrel
-    │   ├── cardSchema.js          # Canonical contact schema (CONTACT_FIELDS) & validation
+    │   ├── cardSchema.js          # Canonical contact schema (CONTACT_FIELDS + typed lists), old-card conversion, validation
+    │   ├── contactOptions.js      # Form choices: prefixes, suffixes, unit/phone/email/website types, countries, regions
     │   ├── cryptoUtils.js         # AES-GCM WebCrypto helpers
     │   ├── eventBus.js            # The single event bus + event names
     │   ├── regexMatchers.js       # Shared regex constants

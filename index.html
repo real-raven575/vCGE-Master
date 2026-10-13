@@ -98,24 +98,58 @@
                 <div id="presetButtonsContainer" class="flex flex-wrap gap-1.5"></div>
             </div>
 
+            <!-- Option lists (prefixes, suffixes, unit types, countries, regions) are filled from share/contactOptions.js -->
+            <datalist id="namePrefixOptions"></datalist>
+            <datalist id="nameSuffixOptions"></datalist>
+            <datalist id="unitTypeOptions"></datalist>
+
             <div class="grid grid-cols-2 gap-3 text-sm">
+                <label class="block"><span class="field-label">Prefix</span><input id="namePrefix" type="text" list="namePrefixOptions" autocomplete="off" class="field-input" placeholder="Mr., Dr., ..."></label>
                 <label class="block"><span class="field-label">First name</span><input id="firstName" type="text" autocomplete="off" class="field-input"></label>
+                <label class="block"><span class="field-label">Middle name</span><input id="middleName" type="text" autocomplete="off" class="field-input"></label>
                 <label class="block"><span class="field-label">Last name</span><input id="lastName" type="text" autocomplete="off" class="field-input"></label>
+                <label class="block"><span class="field-label">Suffix</span><input id="nameSuffix" type="text" list="nameSuffixOptions" autocomplete="off" class="field-input" placeholder="Jr., PhD, ..."></label>
+                <label class="block"><span class="field-label">Nickname</span><input id="nickname" type="text" autocomplete="off" class="field-input"></label>
                 <label class="block"><span class="field-label">Organization</span><input id="organization" type="text" autocomplete="off" class="field-input"></label>
                 <label class="block"><span class="field-label">Job title</span><input id="jobTitle" type="text" autocomplete="off" class="field-input"></label>
-                <label class="block"><span class="field-label">Work phone</span><input id="phoneWork" type="tel" autocomplete="off" class="field-input"></label>
-                <label class="block"><span class="field-label">Mobile phone</span><input id="phoneMobile" type="tel" autocomplete="off" class="field-input"></label>
-                <label class="block col-span-2"><span class="field-label">Email</span><input id="email" type="email" autocomplete="off" class="field-input"></label>
-                <label class="block col-span-2"><span class="field-label">Website</span><input id="website" type="url" autocomplete="off" class="field-input"></label>
-                <div class="relative col-span-2">
-                    <label class="block"><span class="field-label">Street (local suggestions)</span><input id="street" type="text" autocomplete="off" class="field-input"></label>
-                    <div id="addressAutocompleteList" class="hidden absolute z-30 left-0 right-0 mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden"></div>
-                </div>
-                <label class="block"><span class="field-label">City</span><input id="city" type="text" autocomplete="off" class="field-input"></label>
-                <label class="block"><span class="field-label">State / region</span><input id="state" type="text" autocomplete="off" class="field-input"></label>
-                <label class="block"><span class="field-label">Postal code</span><input id="zip" type="text" autocomplete="off" class="field-input"></label>
-                <label class="block"><span class="field-label">Country</span><input id="country" type="text" autocomplete="off" class="field-input"></label>
-                <label class="block"><span class="field-label">Nickname</span><input id="nickname" type="text" autocomplete="off" class="field-input"></label>
+
+                <!-- Typed lists (MOD06 builds the rows): each row is a type picker, a value and a remove button -->
+                <fieldset class="col-span-2 space-y-1.5">
+                    <legend class="field-label">Phones</legend>
+                    <div id="phoneList" class="space-y-1.5"></div>
+                    <button id="addPhoneBtn" type="button" class="text-xs font-semibold text-brand-700 dark:text-brand-400 hover:underline">+ Add phone</button>
+                </fieldset>
+                <fieldset class="col-span-2 space-y-1.5">
+                    <legend class="field-label">Emails</legend>
+                    <div id="emailList" class="space-y-1.5"></div>
+                    <button id="addEmailBtn" type="button" class="text-xs font-semibold text-brand-700 dark:text-brand-400 hover:underline">+ Add email</button>
+                </fieldset>
+                <fieldset class="col-span-2 space-y-1.5">
+                    <legend class="field-label">Websites &amp; social profiles</legend>
+                    <div id="websiteList" class="space-y-1.5"></div>
+                    <button id="addWebsiteBtn" type="button" class="text-xs font-semibold text-brand-700 dark:text-brand-400 hover:underline">+ Add website</button>
+                </fieldset>
+
+                <fieldset class="col-span-2 grid grid-cols-2 gap-3">
+                    <legend class="field-label col-span-2">Address</legend>
+                    <label class="block"><span class="field-label">Type</span><select id="addressType" class="field-input"></select></label>
+                    <label class="block"><span class="field-label">Country</span><select id="country" class="field-input"></select></label>
+                    <div class="relative col-span-2">
+                        <label class="block"><span class="field-label">Street (local suggestions)</span><input id="street" type="text" autocomplete="off" class="field-input"></label>
+                        <div id="addressAutocompleteList" class="hidden absolute z-30 left-0 right-0 mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden"></div>
+                    </div>
+                    <label class="block"><span class="field-label">Unit type</span><input id="unitType" type="text" list="unitTypeOptions" autocomplete="off" class="field-input" placeholder="Apt, Suite, ..."></label>
+                    <label class="block"><span class="field-label">Unit number</span><input id="unitNumber" type="text" autocomplete="off" class="field-input"></label>
+                    <label class="block col-span-2"><span class="field-label">City</span><input id="city" type="text" autocomplete="off" class="field-input"></label>
+                    <!-- #state holds the value; the visible control is a picker for countries with a region list, else a text box -->
+                    <input id="state" type="hidden">
+                    <label class="block"><span id="stateLabel" class="field-label">State</span>
+                        <select id="stateSelect" class="field-input"></select>
+                        <input id="stateText" type="text" autocomplete="off" class="field-input hidden">
+                    </label>
+                    <label class="block"><span id="zipLabel" class="field-label">ZIP</span><input id="zip" type="text" autocomplete="off" class="field-input"></label>
+                </fieldset>
+
                 <label class="block"><span class="field-label">Birthday</span><input id="birthday" type="date" class="field-input"></label>
                 <label class="block col-span-2"><span class="field-label">Notes</span><textarea id="notes" rows="2" class="field-input"></textarea></label>
             </div>

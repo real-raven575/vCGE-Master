@@ -12,6 +12,8 @@
  * Scope: Regex heuristics, OCR text parsing, field mapping, and international phone formatting.
  */
 
+import { NAME_PREFIXES, NAME_SUFFIXES, REGIONS, DEFAULT_COUNTRY, splitStreetUnit, websiteTypeFor } from '../../share/contactOptions.js';
+
 export class ContactFormMapper {
     constructor() {
         this.countryFormats = {
@@ -53,19 +55,20 @@ export class ContactFormMapper {
             .map(text => ({ text, ...splitLabel(text), role: null }));
         const free = (line) => line.role === null;
 
-        // Email (labels E/Email, or anything with an @ or an OCR look-alike of it)
+        // Emails (labels E/Email, or anything with an @ or an OCR look-alike of it); the first one feeds the name check
         let email = '';
         for (const line of lines) {
-            email = findEmail(line.label === 'email' ? line.body : line.text);
-            if (email) { line.role = 'email'; break; }
+            const found = findEmail(line.label === 'email' ? line.body : line.text);
+            if (found) { line.role = 'email'; email = email || found; }
         }
 
-        // Web address (label W/Web, or a domain with a known ending; www/http not required)
+        // Web addresses (label W/Web, or a domain with a known ending; www/http not required); the first non-social one
+        // feeds the company check
         let website = '';
         for (const line of lines) {
             if (!free(line)) continue;
-            website = findWebsite(line.body, line.label === 'web');
-            if (website) { line.role = 'website'; break; }
+            const found = findWebsite(line.body, line.label === 'web');
+            if (found) { line.role = 'website'; if (!website && !websiteTypeFor(found)) website = found; }
         }
 
         // Phones: buildFields sorts work / mobile / fax by label
@@ -74,7 +77,7 @@ export class ContactFormMapper {
         // Address: City, ST ZIP (comma optional, state as code or full name, OCR slips repaired); street above it
         for (let i = 0; i < lines.length; i++) {
             if (!free(lines[i])) continue;
-            const csz = findCityStateZip(lines[i].text);
+            const csz = findAddressLine(lines[i].text);
             if (!csz) continue;
             if (csz.street) { lines[i].role = 'address'; break; }
             lines[i].role = 'cityStateZip';
@@ -82,7 +85,7 @@ export class ContactFormMapper {
             for (let j = i - 1; j >= Math.max(0, i - 2); j--) {
                 if (!free(lines[j])) continue;
                 if (isUnitLine(lines[j].text) && j - 1 >= 0 && free(lines[j - 1]) && looksLikeStreet(lines[j - 1].text, true)) {
-                    lines[j].role = lines[j - 1].role = 'street'; break;
+                    lines[j].role = 'unit'; lines[j - 1].role = 'street'; break;
                 }
                 if (looksLikeStreet(lines[j].text, true)) { lines[j].role = 'street'; break; }
             }
@@ -102,14 +105,15 @@ export class ContactFormMapper {
         let best = null;
         lines.forEach((line, index) => {
             if (!free(line) || !isNameShaped(line.text)) return;
-            const words = line.text.split(' ');
+            const core = splitNameAffixes(line.text).core;
+            const words = core.split(' ');
             let score = 1 - index * 0.05;
             if (local) {
                 const first = words[0].toLowerCase().replace(/[^a-z]/g, ''), last = words[words.length - 1].toLowerCase().replace(/[^a-z]/g, '');
                 if ((last.length > 1 && local.includes(last)) || (first.length > 2 && local.includes(first))) score += 3;
                 else if (local === (first[0] || '') + last || local === first + (last[0] || '')) score += 3;
             }
-            if (TITLE_WORDS.test(line.text) || TAGLINE_START.test(line.text) || COMPANY_SUFFIX.test(line.text)) score -= 3;
+            if (TITLE_WORDS.test(core) || TAGLINE_START.test(core) || COMPANY_SUFFIX.test(core)) score -= 3;
             if (!best || score > best.score) best = { line, index, score };
         });
         if (best && best.score > 0) best.line.role = 'name';
@@ -150,76 +154,98 @@ export class ContactFormMapper {
      */
     buildFields(lines) {
         const fields = {
-            firstName: '', lastName: '', phoneWork: '', phoneMobile: '', email: '', website: '',
-            organization: '', jobTitle: '', street: '', city: '', state: '', zip: '', country: 'United States', notes: ''
+            namePrefix: '', firstName: '', middleName: '', lastName: '', nameSuffix: '', organization: '', jobTitle: '',
+            phones: [], emails: [], websites: [],
+            addressType: 'work', street: '', unitType: '', unitNumber: '', city: '', state: '', zip: '', country: DEFAULT_COUNTRY, notes: ''
         };
         const derived = {};
-        const streets = [], notes = [], unlabelled = [];
+        const streets = [], units = [], notes = [], unlabelled = [], emailValues = [];
         const setOnce = (key, value) => { if (value && !fields[key]) fields[key] = value; };
+        const addPhone = (type, number) => { if (number && !fields.phones.some(p => p.value === number)) fields.phones.push({ type, value: number }); };
+        let addressFound = false;
+        const setAddress = (a) => {
+            // The first City/State/ZIP line found also decides the country (US or Canada).
+            if (!addressFound && a.country) fields.country = a.country;
+            addressFound = true;
+            setOnce('city', a.city); setOnce('state', a.state); setOnce('zip', a.zip);
+            if (a.street) streets.push(a.street);
+        };
 
         for (const { text, role } of lines || []) {
             const t = String(text || '').replace(/\s+/g, ' ').trim();
             if (!t) continue;
             const { label, body } = splitLabel(t);
             switch (role) {
-                case 'name': {
-                    if (fields.firstName) break;
-                    const words = t.split(' ');
-                    fields.firstName = words[0];
-                    fields.lastName = words.slice(1).join(' ');
+                case 'name':
+                    if (!fields.firstName) Object.assign(fields, parseName(t));
                     break;
-                }
                 case 'jobTitle': setOnce('jobTitle', t); break;
                 case 'organization': setOnce('organization', t); break;
-                case 'email': setOnce('email', findEmail(t) || body); break;
-                case 'website': setOnce('website', findWebsite(body, true) || body); break;
+                case 'email': emailValues.push(findEmail(t) || body); break;
+                case 'website': {
+                    const site = findWebsite(body, true) || body;
+                    if (!fields.websites.some(w => w.value === site)) fields.websites.push({ type: websiteTypeFor(site) || 'work', value: site });
+                    break;
+                }
                 case 'phone':
                     findPhones(body).forEach(({ number, label: inline }) => {
                         const kind = inline || label;
-                        if (kind === 'fax') return;
-                        if (kind === 'mobile' && !fields.phoneMobile) fields.phoneMobile = number;
-                        else if (kind === 'work' && !fields.phoneWork) fields.phoneWork = number;
+                        if (kind === 'fax') addPhone('workFax', number);
+                        else if (kind === 'mobile' || kind === 'home' || kind === 'work') addPhone(kind, number);
                         else unlabelled.push(number);
                     });
                     break;
-                case 'phoneWork': setOnce('phoneWork', (findPhones(body)[0] || {}).number || body); break;
-                case 'phoneMobile': setOnce('phoneMobile', (findPhones(body)[0] || {}).number || body); break;
+                case 'phoneWork': addPhone('work', (findPhones(body)[0] || {}).number || body); break;
+                case 'phoneMobile': addPhone('mobile', (findPhones(body)[0] || {}).number || body); break;
+                case 'phoneHome': addPhone('home', (findPhones(body)[0] || {}).number || body); break;
+                case 'phoneFax': addPhone('workFax', (findPhones(body)[0] || {}).number || body); break;
                 case 'street': streets.push(t); break;
+                case 'unit': units.push(t); break;
                 case 'cityStateZip': {
-                    const csz = findCityStateZip(t);
-                    if (csz) { setOnce('city', csz.city); setOnce('state', csz.state); setOnce('zip', csz.zip); if (csz.street) streets.push(csz.street); }
+                    const a = findAddressLine(t);
+                    if (a) setAddress(a);
                     else if (/^\d{5}(?:-\d{4})?$/.test(t)) setOnce('zip', t);
                     else setOnce('city', t);
                     break;
                 }
                 case 'address': {
-                    const csz = findCityStateZip(t);
-                    if (csz) { streets.push(csz.street); setOnce('city', csz.city); setOnce('state', csz.state); setOnce('zip', csz.zip); }
-                    else streets.push(t);
+                    const a = findAddressLine(t);
+                    if (a) setAddress(a); else streets.push(t);
                     break;
                 }
                 case 'notes': notes.push(t); break;
                 default: break;   // 'ignore'
             }
         }
+        // Unlabelled numbers: work first, then mobile, then other.
         unlabelled.forEach(n => {
-            if (!fields.phoneWork) fields.phoneWork = n;
-            else if (!fields.phoneMobile) fields.phoneMobile = n;
+            const has = (type) => fields.phones.some(p => p.type === type);
+            addPhone(!has('work') ? 'work' : !has('mobile') ? 'mobile' : 'other', n);
         });
-        fields.street = streets.filter(Boolean).join(', ');
+
+        // Street and unit: "4120 Lakeshore Road, Suite 405" or a separate "Suite 405" line.
+        const split = splitStreetUnit(streets.filter(Boolean).join(', '));
+        fields.street = split.street;
+        const unit = units.length ? splitStreetUnit(units.join(' ')) : split;
+        fields.unitType = unit.unitType;
+        fields.unitNumber = unit.unitNumber;
         fields.notes = notes.join('\n');
 
         if (!fields.organization) {
-            const domain = companyDomain(fields.website, fields.email);
+            const domain = companyDomain((fields.websites.find(w => !websiteTypeFor(w.value)) || {}).value, emailValues[0]);
             if (domain.name) { fields.organization = domain.name; derived.organization = domain.from; }
         }
+        // Emails: personal mail providers are Personal, everything else Work.
+        emailValues.filter(Boolean).forEach(value => {
+            if (fields.emails.some(e => e.value === value)) return;
+            const host = (value.split('@')[1] || '').split('.');
+            const name = host.length > 2 && host[host.length - 2].length <= 3 ? host[host.length - 3] : host[host.length - 2];
+            fields.emails.push({ type: FREE_MAIL.test(name || '') ? 'personal' : 'work', value });
+        });
 
         // OCR spacing is noisy ("+1(312) 555-0147"); normalise numbers the country's formatter recognises.
         const fmt = this.countryFormats[fields.country];
-        if (fmt) {
-            fields.phoneWork = fields.phoneWork && this.formatPhone(fields.phoneWork, fmt);
-            fields.phoneMobile = fields.phoneMobile && this.formatPhone(fields.phoneMobile, fmt);
-        }
+        if (fmt) fields.phones.forEach(p => { p.value = this.formatPhone(p.value, fmt); });
         return { fields, derived };
     }
 
@@ -255,8 +281,9 @@ export class ContactFormMapper {
 /** Line roles offered in the OCR review screen, in display order: [role, label]. */
 export const LINE_ROLES = Object.freeze([
     ['name', 'Name'], ['jobTitle', 'Job title'], ['organization', 'Company'], ['phone', 'Phone (auto by label)'],
-    ['phoneWork', 'Work phone'], ['phoneMobile', 'Mobile phone'], ['email', 'Email'], ['website', 'Website'],
-    ['street', 'Street'], ['cityStateZip', 'City / State / ZIP'], ['address', 'Whole address'], ['notes', 'Notes'], ['ignore', 'Ignore']
+    ['phoneWork', 'Work phone'], ['phoneMobile', 'Mobile phone'], ['phoneHome', 'Home phone'], ['phoneFax', 'Fax'],
+    ['email', 'Email'], ['website', 'Website / social'], ['street', 'Street'], ['unit', 'Apt / suite / unit'],
+    ['cityStateZip', 'City / State / ZIP'], ['address', 'Whole address'], ['notes', 'Notes'], ['ignore', 'Ignore']
 ]);
 
 // ---- Context clues for parseOCRText ----------------------------------------------------------------------------
@@ -282,17 +309,13 @@ const TAGLINE_START = /^(?:your|our|the|we|where|making|helping|serving|for all|
 const STREET_WORDS = /\b(?:st|street|ave|avenue|rd|road|blvd|boulevard|dr|drive|ln|lane|ct|court|way|pl|place|pkwy|parkway|hwy|highway|cir|circle|ter|terrace|trl|trail|sq|square|pike|row|loop|plaza|ste|suite|unit|floor|fl|bldg|building)\b\.?/i;
 const PO_BOX = /^(?:p\.?\s?o\.?\s?box|post office box)\s*\d+/i;
 
-const US_STATES = {
-    AL: 'alabama', AK: 'alaska', AZ: 'arizona', AR: 'arkansas', CA: 'california', CO: 'colorado', CT: 'connecticut', DE: 'delaware',
-    DC: 'district of columbia', FL: 'florida', GA: 'georgia', HI: 'hawaii', ID: 'idaho', IL: 'illinois', IN: 'indiana', IA: 'iowa',
-    KS: 'kansas', KY: 'kentucky', LA: 'louisiana', ME: 'maine', MD: 'maryland', MA: 'massachusetts', MI: 'michigan', MN: 'minnesota',
-    MS: 'mississippi', MO: 'missouri', MT: 'montana', NE: 'nebraska', NV: 'nevada', NH: 'new hampshire', NJ: 'new jersey',
-    NM: 'new mexico', NY: 'new york', NC: 'north carolina', ND: 'north dakota', OH: 'ohio', OK: 'oklahoma', OR: 'oregon',
-    PA: 'pennsylvania', RI: 'rhode island', SC: 'south carolina', SD: 'south dakota', TN: 'tennessee', TX: 'texas', UT: 'utah',
-    VT: 'vermont', VA: 'virginia', WA: 'washington', WV: 'west virginia', WI: 'wisconsin', WY: 'wyoming', PR: 'puerto rico'
-};
+// US states and Canadian provinces come from the shared region lists (share/contactOptions.js).
+const US_STATES = Object.fromEntries(REGIONS['United States'].regions.map(([code, name]) => [code, name.toLowerCase()]));
 const STATE_BY_NAME = Object.fromEntries(Object.entries(US_STATES).map(([code, name]) => [name, code]));
-const STATE_NAMES_RE = Object.values(US_STATES).sort((a, b) => b.length - a.length).join('|');
+const STATE_NAMES_RE = Object.values(US_STATES).sort((a, b) => b.length - a.length).map(n => n.replace(/\./g, '\\.')).join('|');
+const CA_PROVINCES = Object.fromEntries(REGIONS['Canada'].regions.map(([code, name]) => [code, name.toLowerCase()]));
+const PROVINCE_BY_NAME = Object.fromEntries(Object.entries(CA_PROVINCES).map(([code, name]) => [name, code]));
+const PROVINCE_NAMES_RE = Object.values(CA_PROVINCES).sort((a, b) => b.length - a.length).join('|');
 // Personal mail providers: their domain says nothing about the company.
 const FREE_MAIL = /^(?:gmail|googlemail|yahoo|ymail|outlook|hotmail|live|msn|aol|icloud|me|mac|protonmail|proton|gmx|mail|comcast|att|sbcglobal|verizon|charter|cox|zoho|yandex)$/i;
 
@@ -302,6 +325,7 @@ const LABELS = [
     ['web', /^(?:web(?:site)?|url|w|www)\s*[:.\-]?\s+(?=\S+\.\S)/i],
     ['mobile', /^(?:mobile|mob|cell(?:ular)?|m|c)\s*[:.\-]?\s*(?=[+(\d])/i],
     ['fax', /^(?:fax|f)\s*[:.\-]?\s*(?=[+(\d])/i],
+    ['home', /^(?:home|res(?:idence)?|h)\s*[:.\-]?\s*(?=[+(\d])/i],
     ['work', /^(?:tel(?:ephone)?|phone|ph|office|off|direct|main|work|t|p|o|d)\s*[:.\-]?\s*(?=[+(\d])/i]
 ];
 
@@ -337,13 +361,14 @@ function findWebsite(text, labelled) {
 /** All US-style phone numbers in a line, each with a label written just before it ("T 269...  M 269..."). */
 function findPhones(text) {
     const out = [];
-    const re = /(?:\b(tel|phone|ph|office|direct|main|work|mobile|mob|cell|fax|t|p|o|d|m|c|f)\s*[:.\-]?\s*)?(\+?1[\s.\-]*)?(\(?\d{3}\)?[\s.\-]*\d{3}[\s.\-]*\d{4})(\s*(?:x|ext\.?|#)\s*\d{1,6})?/gi;
+    const re = /(?:\b(tel|phone|ph|office|direct|main|work|mobile|mob|cell|fax|home|t|p|o|d|m|c|f|h)\s*[:.\-]?\s*)?(\+?1[\s.\-]*)?(\(?\d{3}\)?[\s.\-]*\d{3}[\s.\-]*\d{4})(\s*(?:x|ext\.?|#)\s*\d{1,6})?/gi;
     let m;
     while ((m = re.exec(text))) {
         const digits = (m[2] || '').replace(/\D/g, '') + m[3].replace(/\D/g, '');
         if (digits.length !== 10 && !(digits.length === 11 && digits[0] === '1')) continue;
         const word = (m[1] || '').toLowerCase();
-        const label = /^(?:mobile|mob|cell|m|c)$/.test(word) ? 'mobile' : /^(?:fax|f)$/.test(word) ? 'fax' : word ? 'work' : null;
+        const label = /^(?:mobile|mob|cell|m|c)$/.test(word) ? 'mobile' : /^(?:fax|f)$/.test(word) ? 'fax'
+            : /^(?:home|h)$/.test(word) ? 'home' : word ? 'work' : null;
         out.push({ number: ((m[2] || '') + m[3] + (m[4] || '')).trim(), label });
     }
     return out;
@@ -374,6 +399,27 @@ function findCityStateZip(text) {
     return { city, state, zip: m[3], street };
 }
 
+/** "Toronto, ON M5H 2N2", "Toronto Ontario M5H2N2", or a whole Canadian address on one line. */
+function findCanadianCityProvince(text) {
+    const re = new RegExp(`^(.*?)[,\\s]+(${PROVINCE_NAMES_RE}|[A-Za-z]{2}\\.?)[,\\s]+([A-Za-z]\\d[A-Za-z])\\s?(\\d[A-Za-z]\\d)\\b`, 'i');
+    const m = text.match(re);
+    if (!m) return null;
+    const token = m[2].replace(/\.$/, '');
+    const state = token.length > 2 ? PROVINCE_BY_NAME[token.toLowerCase()] : (CA_PROVINCES[token.toUpperCase()] ? token.toUpperCase() : '');
+    if (!state) return null;
+    const parts = m[1].split(',').map(p => p.trim()).filter(Boolean);
+    const city = (parts.pop() || '').replace(/^[^A-Za-z]+/, '');
+    if (!/^[A-Za-z][A-Za-z .'-]*$/.test(city)) return null;
+    const street = parts.length && /^\d/.test(parts[0]) ? parts.join(', ') : '';
+    return { city, state, zip: `${m[3]} ${m[4]}`.toUpperCase(), street, country: 'Canada' };
+}
+
+/** US first, then Canada. */
+function findAddressLine(text) {
+    const us = findCityStateZip(text);
+    return us ? { ...us, country: DEFAULT_COUNTRY } : findCanadianCityProvince(text);
+}
+
 function isUnitLine(text) {
     return /^(?:suite|ste|unit|floor|fl|bldg|building|room|rm|#)\b\.?\s*\S+$/i.test(text);
 }
@@ -385,9 +431,34 @@ function looksLikeStreet(text, nextToCityLine) {
     return STREET_WORDS.test(text) || (nextToCityLine && text.split(' ').length >= 2 && !/\d{3}[\s.\-]\d{3}/.test(text));
 }
 
-/** 2-3 words, each capitalised letters (allowing . ' -), as names are printed. */
+const affix = (list) => new RegExp(`^(?:${list.map(a => a.replace(/\./g, '')).join('|')})\\.?$`, 'i');
+const PREFIX_RE = affix(NAME_PREFIXES), SUFFIX_RE = affix(NAME_SUFFIXES);
+
+/** "Dr. Jane Q. Roe, PhD" -> { prefix: 'Dr.', core: 'Jane Q. Roe', suffix: 'PhD' } (prefix/suffix written as listed). */
+function splitNameAffixes(text) {
+    let words = text.replace(/,/g, ' , ').split(' ').filter(Boolean);
+    let prefix = '', suffix = '';
+    const canonical = (word, list) => list.find(a => a.replace(/\./g, '').toLowerCase() === word.replace(/\./g, '').toLowerCase()) || word;
+    if (words.length > 2 && PREFIX_RE.test(words[0])) prefix = canonical(words.shift(), NAME_PREFIXES);
+    while (words.length && words[words.length - 1] === ',') words.pop();
+    if (words.length > 2 && SUFFIX_RE.test(words[words.length - 1])) suffix = canonical(words.pop(), NAME_SUFFIXES);
+    words = words.filter(w => w !== ',');
+    return { prefix, core: words.join(' '), suffix };
+}
+
+/** Name parts from a name line: 3 words are first, middle, last; 2 words first and last. */
+function parseName(text) {
+    const { prefix, core, suffix } = splitNameAffixes(text);
+    const words = core.split(' ').filter(Boolean);
+    return {
+        namePrefix: prefix, firstName: words[0] || '', middleName: words.length > 2 ? words.slice(1, -1).join(' ') : '',
+        lastName: words.length > 1 ? words[words.length - 1] : '', nameSuffix: suffix
+    };
+}
+
+/** 2-3 words, each capitalised letters (allowing . ' -), as names are printed (prefix and suffix aside). */
 function isNameShaped(text) {
-    const words = text.split(' ');
+    const words = splitNameAffixes(text).core.split(' ');
     if (words.length < 2 || words.length > 3) return false;
     return words.every(w => /^[A-Z][a-zA-Z.'\-]*$/.test(w) && /[a-z]/.test(w) || /^[A-Z]\.?$/.test(w));
 }

@@ -22,7 +22,7 @@ export class AddressAutocompleteEngine {
             { street: '1201 3rd Ave, Studio 12', city: 'Seattle', state: 'WA', zip: '98101', country: 'United States' },
             { street: '100 Queen Street West', city: 'Toronto', state: 'ON', zip: 'M5H 2N2', country: 'Canada' },
             { street: '221B Baker Street', city: 'London', state: 'ENG', zip: 'NW1 6XE', country: 'United Kingdom' },
-            { street: 'Friedrichstraße 44', city: 'Berlin', state: 'BY', zip: '10117', country: 'Germany' },
+            { street: 'Friedrichstraße 44', city: 'Berlin', state: 'BE', zip: '10117', country: 'Germany' },
             { street: '75 Avenue des Champs-Élysées', city: 'Paris', state: 'IDF', zip: '75008', country: 'France' }
         ];
     }

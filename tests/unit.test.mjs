@@ -18,7 +18,7 @@ const ok = (name, cond, detail = '') => {
 };
 
 const share = await import(`${R}/share/index.js`);
-ok('share barrel exports its public API', ['globalEventBus','EventBus','Events','CONTACT_FIELDS','escapeVCardText','createEmptyContact','validateContact','ContactSchemaVersion','CryptoUtils','RegexMatchers','formatVCard'].every(k => k in share));
+ok('share barrel exports its public API', ['globalEventBus','EventBus','Events','CONTACT_FIELDS','CONTACT_LIST_FIELDS','escapeVCardText','createEmptyContact','normalizeContact','validateContact','ContactSchemaVersion','CryptoUtils','RegexMatchers','formatVCard','PHONE_TYPES','REGIONS','COUNTRIES','splitStreetUnit','websiteTypeFor'].every(k => k in share));
 
 // EventBus
 {
@@ -38,13 +38,13 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const c = share.createEmptyContact();
   ok('createEmptyContact has uuid id', typeof c.id === 'string' && c.id.length > 10);
   ok('validateContact rejects empty names', !share.validateContact(c).isValid);
-  ok('validateContact accepts valid', share.validateContact({ ...c, firstName: 'A', lastName: 'B', email: 'a@b.co' }).isValid);
-  ok('validateContact flags bad email', share.validateContact({ ...c, firstName: 'A', lastName: 'B', email: 'nope' }).errors.length === 1);
+  ok('validateContact accepts valid', share.validateContact({ ...c, firstName: 'A', lastName: 'B', emails: [{ type: 'work', value: 'a@b.co' }] }).isValid);
+  ok('validateContact flags bad email', share.validateContact({ ...c, firstName: 'A', lastName: 'B', emails: [{ type: 'work', value: 'nope' }] }).errors.length === 1);
 }
 
 // vCard formatter (share)
 {
-  const v = share.formatVCard({ firstName: 'Jane', lastName: 'Doe', organization: 'Acme', email: 'j@a.com' });
+  const v = share.formatVCard({ firstName: 'Jane', lastName: 'Doe', organization: 'Acme', emails: [{ type: 'work', value: 'j@a.com' }] });
   ok('formatVCard BEGIN/END/VERSION', v.startsWith('BEGIN:VCARD\r\nVERSION:3.0') && v.endsWith('END:VCARD'));
   ok('formatVCard N field', v.includes('N:Doe;Jane;;;'));
   const esc = share.formatVCard({ firstName: 'A', lastName: 'B', organization: 'Smith, Jones; Co' });
@@ -59,6 +59,43 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const c = share.createEmptyContact();
   ok('schema has every CONTACT_FIELD', share.CONTACT_FIELDS.every(f => f in c));
   ok('formatVCard PHOTO type follows data URL', share.formatVCard({ firstName: 'A', lastName: 'B', avatarBase64: 'data:image/png;base64,AAAA' }).includes('PHOTO;TYPE=PNG;ENCODING=b:AAAA'));
+}
+
+// Richer contact fields: typed lists, name parts, units, regions (schema 3.1)
+{
+  const c = share.createEmptyContact();
+  ok('empty contact has typed lists, work address, default country', share.CONTACT_LIST_FIELDS.every(f => Array.isArray(c[f]) && !c[f].length) && c.addressType === 'work' && c.country === 'United States');
+  const old = { firstName: 'Ann', lastName: 'Lee', phoneWork: '+1 (555) 201-0001', phoneMobile: '+1 (555) 201-0002', email: 'ann@lee.co', website: 'lee.co', street: '1 Main St', country: 'United States' };
+  const n = share.normalizeContact(old);
+  ok('schema 3.0 card converted: single fields become typed rows', JSON.stringify(n.phones) === JSON.stringify([{ type: 'work', value: '+1 (555) 201-0001' }, { type: 'mobile', value: '+1 (555) 201-0002' }])
+    && JSON.stringify(n.emails) === JSON.stringify([{ type: 'work', value: 'ann@lee.co' }]) && JSON.stringify(n.websites) === JSON.stringify([{ type: 'work', value: 'lee.co' }]), JSON.stringify(n));
+  ok('converted card drops the old keys and keeps the rest', !('phoneWork' in n) && !('email' in n) && !('website' in n) && n.street === '1 Main St' && n.firstName === 'Ann' && n.middleName === '' && n.addressType === 'work');
+  ok('normalize is idempotent and drops empty rows', JSON.stringify(share.normalizeContact(n)) === JSON.stringify(n) && share.normalizeContact({ phones: [{ type: 'work', value: ' ' }] }).phones.length === 0);
+
+  const v = share.formatVCard({ namePrefix: 'Dr.', firstName: 'Jane', middleName: 'Q.', lastName: 'Roe', nameSuffix: 'PhD',
+    phones: [{ type: 'mobile', value: '+1 555 0101' }, { type: 'work', value: '+1 555 0102' }, { type: 'workFax', value: '+1 555 0103' }, { type: 'home', value: '+1 555 0104' }, { type: 'main', value: '+1 555 0105' }, { type: 'pager', value: '+1 555 0106' }],
+    emails: [{ type: 'work', value: 'jane@roe.co' }, { type: 'personal', value: 'jane@gmail.com' }],
+    websites: [{ type: 'work', value: 'https://roe.co' }, { type: 'personal', value: 'https://jane.me' }, { type: 'linkedin', value: 'https://linkedin.com/in/jane' }, { type: 'x', value: 'https://x.com/jane' }, { type: 'blog', value: 'https://blog.roe.co' }],
+    addressType: 'home', street: '100 Queen Street West', unitType: 'Suite', unitNumber: '300', city: 'Toronto', state: 'ON', zip: 'M5H 2N2', country: 'Canada' }).split('\r\n');
+  ok('vCard N and FN carry prefix, middle name and suffix', v.includes('N:Roe;Jane;Q.;Dr.;PhD') && v.includes('FN:Dr. Jane Q. Roe\\, PhD'), v.slice(2, 4).join(' | '));
+  ok('vCard phone types', ['TEL;TYPE=CELL,VOICE:+1 555 0101', 'TEL;TYPE=WORK,VOICE:+1 555 0102', 'TEL;TYPE=WORK,FAX:+1 555 0103', 'TEL;TYPE=HOME,VOICE:+1 555 0104', 'TEL;TYPE=MAIN:+1 555 0105', 'TEL;TYPE=PAGER:+1 555 0106'].every(l => v.includes(l)), v.filter(l => l.startsWith('TEL')).join(' | '));
+  ok('vCard email types', v.includes('EMAIL;TYPE=INTERNET,WORK:jane@roe.co') && v.includes('EMAIL;TYPE=INTERNET,HOME:jane@gmail.com'));
+  ok('vCard websites: work/home URL types, plain URL otherwise', v.includes('URL;TYPE=WORK:https://roe.co') && v.includes('URL;TYPE=HOME:https://jane.me') && v.includes('URL:https://blog.roe.co'));
+  ok('vCard social profiles: X-SOCIALPROFILE plus URL', v.includes('X-SOCIALPROFILE;TYPE=linkedin:https://linkedin.com/in/jane') && v.includes('URL:https://linkedin.com/in/jane') && v.includes('X-SOCIALPROFILE;TYPE=twitter:https://x.com/jane'));
+  ok('vCard address: type, unit joined to the street, region and country', v.includes('ADR;TYPE=HOME:;;100 Queen Street West\\, Suite 300;Toronto;ON;M5H 2N2;Canada'), v.find(l => l.startsWith('ADR')));
+  const box = share.formatVCard({ firstName: 'A', lastName: 'B', addressType: 'other', unitType: 'PO Box', unitNumber: '77', city: 'Boise', state: 'ID', zip: '83701', country: 'United States' });
+  ok('vCard PO Box in its own ADR slot; Other address has no type', box.includes('ADR:PO Box 77;;;Boise;ID;83701;United States'), box.split('\r\n').find(l => l.startsWith('ADR')));
+  ok('vCard has no ADR when only the default country is set', !share.formatVCard({ firstName: 'A', lastName: 'B', country: 'United States' }).includes('ADR'));
+
+  ok('splitStreetUnit: suite, ordinal floor, #, PO Box, not a street named Unit',
+    JSON.stringify(share.splitStreetUnit('500 Howard Street, Ste. 400')) === JSON.stringify({ street: '500 Howard Street', unitType: 'Suite', unitNumber: '400' })
+    && share.splitStreetUnit('745 Fifth Avenue, 28th Floor').unitNumber === '28' && share.splitStreetUnit('100 Main St #5B').unitType === 'Unit'
+    && share.splitStreetUnit('PO Box 1234').unitType === 'PO Box' && share.splitStreetUnit('100 Unit Road').street === '100 Unit Road');
+  ok('websiteTypeFor recognises social hosts only', share.websiteTypeFor('https://www.linkedin.com/in/x') === 'linkedin' && share.websiteTypeFor('twitter.com/x') === 'x' && share.websiteTypeFor('mylinkedin.com') === '' && share.websiteTypeFor('northwind.com') === '');
+  ok('region lists: 56 US entries (50 states, DC, 5 territories), 13 Canadian, 32 Mexican, 8 Australian; labels per country',
+    share.REGIONS['United States'].regions.length === 56 && share.REGIONS['Canada'].regions.length === 13 && share.REGIONS['Mexico'].regions.length === 32 && share.REGIONS['Australia'].regions.length === 8
+    && share.regionLabels('Canada').postalLabel === 'Postal code' && share.regionLabels('United Kingdom').label === 'County (optional)' && share.regionLabels('Germany').label === 'Region');
+  ok('every region-list country is in the country list', Object.keys(share.REGIONS).every(c => share.COUNTRIES.includes(c)) && new Set(share.COUNTRIES).size === share.COUNTRIES.length);
 }
 
 // CryptoUtils round-trip
@@ -159,42 +196,54 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 {
   const { ContactFormMapper } = await import(`${R}/modules/mod05-form/formMapper.js`);
   const fm = new ContactFormMapper();
+  // Value of the first list entry of a type, e.g. typed(d, 'phones', 'work').
+  const typed = (d, list, type) => ((d[list] || []).find(e => e.type === type) || {}).value;
   ok('formatPhone US 10-digit', fm.formatPhone('4155550199') === '+1 (415) 555-0199');
   ok('formatPhone UK', fm.formatPhone('442071234567', 'UK') === '+44 20 7123 4567', fm.formatPhone('442071234567', 'UK'));
   const d = fm.parseOCRText('Alex Morgan\nVP of Product Design\nApex Innovations\n+1 (415) 555-0199\n(415) 555-0100\nalex.m@apexinnovations.io\nhttps://apexinnovations.io\n500 Howard Street\nSan Francisco, CA 94105');
   ok('mapper uses canonical names', d.jobTitle === 'VP of Product Design' && d.organization === 'Apex Innovations' && d.firstName === 'Alex' && !('org' in d) && !('title' in d), JSON.stringify(d));
-  ok('mapper fills work then mobile phone', /555-0199/.test(d.phoneWork) && /555-0100/.test(d.phoneMobile), d.phoneWork + ' / ' + d.phoneMobile);
+  ok('mapper fills work then mobile phone', /555-0199/.test(typed(d, 'phones', 'work')) && /555-0100/.test(typed(d, 'phones', 'mobile')), JSON.stringify(d.phones));
   ok('mapper parses street and City, ST ZIP', d.street === '500 Howard Street' && d.city === 'San Francisco' && d.state === 'CA' && d.zip === '94105', JSON.stringify(d));
-  const keys = Object.keys(d).filter(k => k !== 'country');
+  const keys = Object.keys(d);
   const noisy = fm.parseOCRText('Maria Gonzalez\n+1(312)555-0147\n312.555.0100');
-  ok('mapper normalises OCR-noisy US phone numbers', noisy.phoneWork === '+1 (312) 555-0147' && noisy.phoneMobile === '+1 (312) 555-0100', noisy.phoneWork + ' / ' + noisy.phoneMobile);
-  ok('mapper output keys are all CONTACT_FIELDS', keys.every(k => share.CONTACT_FIELDS.includes(k)), keys.join());
+  ok('mapper normalises OCR-noisy US phone numbers', typed(noisy, 'phones', 'work') === '+1 (312) 555-0147' && typed(noisy, 'phones', 'mobile') === '+1 (312) 555-0100', JSON.stringify(noisy.phones));
+  ok('mapper output keys are all contact fields or typed lists', keys.every(k => share.CONTACT_FIELDS.includes(k) || share.CONTACT_LIST_FIELDS.includes(k)), keys.join());
 
   // Context clues. Fictional names and numbers; layout and OCR mistakes copied from real phone-photo scans.
   const eq = (got, want) => Object.entries(want).every(([k, v]) => got[k] === v);
   const labelled = fm.parseOCRText('ya O/\n\nYour Technology Partner\nDana Whitlock\nOwner & General Manager\n4120 Lakeshore Road, Suite 21%\nSpringfield, M\\ 49011\nE dwhitlock@BrightPathlT com\nT 616.555.0142\nM 616.555.0187\n\nw BrightPathlT.com/Holland\\');
   ok('labelled card (E/T/M/W): every field mapped despite OCR slips', eq(labelled, {
-    firstName: 'Dana', lastName: 'Whitlock', jobTitle: 'Owner & General Manager', email: 'dwhitlock@BrightPathlT.com',
-    phoneWork: '+1 (616) 555-0142', phoneMobile: '+1 (616) 555-0187', website: 'BrightPathlT.com/Holland',
-    street: '4120 Lakeshore Road, Suite 21%', city: 'Springfield', state: 'MI', zip: '49011' }), JSON.stringify(labelled));
+    firstName: 'Dana', lastName: 'Whitlock', jobTitle: 'Owner & General Manager',
+    street: '4120 Lakeshore Road', unitType: 'Suite', unitNumber: '21%', city: 'Springfield', state: 'MI', zip: '49011' })
+    && typed(labelled, 'emails', 'work') === 'dwhitlock@BrightPathlT.com' && typed(labelled, 'websites', 'work') === 'BrightPathlT.com/Holland'
+    && typed(labelled, 'phones', 'work') === '+1 (616) 555-0142' && typed(labelled, 'phones', 'mobile') === '+1 (616) 555-0187', JSON.stringify(labelled));
   ok('logo debris and tagline are not the company; domain is used instead', labelled.organization === 'BrightPathlT', labelled.organization);
 
   const office = fm.parseOCRText('Harbor Point Realty\nSam Ortiz\nLicensed Realtor\nTel: (555) 201-3344  Fax: (555) 201-3345\nCell 555.201.9988\nsortiz © harborpointrealty . com\nharborpointrealty.com\n100 Main St\nSuite 300\nAustin Texas 78701');
   ok('name chosen by email match, not first line', office.firstName === 'Sam' && office.lastName === 'Ortiz', JSON.stringify(office));
   ok('company matched to web domain; title from vocabulary', office.organization === 'Harbor Point Realty' && office.jobTitle === 'Licensed Realtor', JSON.stringify(office));
-  ok('Tel/Fax on one line: fax ignored; Cell is mobile', office.phoneWork === '+1 (555) 201-3344' && office.phoneMobile === '+1 (555) 201-9988', office.phoneWork + ' / ' + office.phoneMobile);
-  ok('email repaired from "©" and spaces; website without www', office.email === 'sortiz@harborpointrealty.com' && office.website === 'harborpointrealty.com', office.email + ' ' + office.website);
-  ok('two-line street with Suite, full state name without comma', office.street === '100 Main St, Suite 300' && office.city === 'Austin' && office.state === 'TX' && office.zip === '78701', JSON.stringify(office));
+  ok('Tel/Fax on one line: fax kept as Work fax; Cell is mobile', typed(office, 'phones', 'work') === '+1 (555) 201-3344' && typed(office, 'phones', 'workFax') === '+1 (555) 201-3345' && typed(office, 'phones', 'mobile') === '+1 (555) 201-9988', JSON.stringify(office.phones));
+  ok('email repaired from "©" and spaces; website without www', typed(office, 'emails', 'work') === 'sortiz@harborpointrealty.com' && typed(office, 'websites', 'work') === 'harborpointrealty.com', JSON.stringify([office.emails, office.websites]));
+  ok('two-line street with Suite, full state name without comma', office.street === '100 Main St' && office.unitType === 'Suite' && office.unitNumber === '300' && office.city === 'Austin' && office.state === 'TX' && office.zip === '78701', JSON.stringify(office));
 
   const oneLine = fm.parseOCRText('Jane Q. Roe\nAttorney at Law\nRoe & Partners LLC\n88 Elm Avenue, Burlington, VT 05401\njaneroe@gmail.com\n(802) 555-0110');
   ok('whole address on one line', oneLine.street === '88 Elm Avenue' && oneLine.city === 'Burlington' && oneLine.state === 'VT' && oneLine.zip === '05401', JSON.stringify(oneLine));
   ok('company by suffix (LLC); personal mail domain not used as company', oneLine.organization === 'Roe & Partners LLC' && oneLine.jobTitle === 'Attorney at Law', JSON.stringify(oneLine));
-  ok('middle initial kept with the last name', oneLine.firstName === 'Jane' && oneLine.lastName === 'Q. Roe', oneLine.lastName);
+  ok('three-word name: first, middle, last', oneLine.firstName === 'Jane' && oneLine.middleName === 'Q.' && oneLine.lastName === 'Roe', JSON.stringify(oneLine));
+  ok('personal mail provider email typed Personal', typed(oneLine, 'emails', 'personal') === 'janeroe@gmail.com', JSON.stringify(oneLine.emails));
 
   const noStreetWord = fm.parseOCRText('20\nAlex Kim\n2 rearmiogere\nakim@kimdesign.co');
   ok('a stray number is not taken as a street', noStreetWord.street === '' && noStreetWord.organization === 'kimdesign', JSON.stringify(noStreetWord));
   ok('IL keeps its L; OCR "Ml" repaired to MI', fm.parseOCRText('Chicago, IL 60606').state === 'IL' && fm.parseOCRText('Lansing Ml 48933').state === 'MI');
-  ok('PO Box accepted as street', fm.parseOCRText('PO Box 1234\nBoise, ID 83701').street === 'PO Box 1234');
+  const box = fm.parseOCRText('PO Box 1234\nBoise, ID 83701');
+  ok('PO Box goes to the unit fields', box.unitType === 'PO Box' && box.unitNumber === '1234' && box.street === '', JSON.stringify(box));
+
+  const intl = fm.parseOCRText('Dr. Jane Q. Roe, PhD\nChief Scientist\nRoe Labs Inc.\n100 Queen Street West\nSuite 300\nToronto, ON M5H 2N2\nTel: (416) 555-0101  Fax: (416) 555-0102\nHome 416-555-0199\njane@roelabs.ca\njane.roe@gmail.com\nlinkedin.com/in/janeroe\nroelabs.ca');
+  ok('prefix, middle name and suffix recognised', eq(intl, { namePrefix: 'Dr.', firstName: 'Jane', middleName: 'Q.', lastName: 'Roe', nameSuffix: 'PhD', jobTitle: 'Chief Scientist' }), JSON.stringify(intl));
+  ok('Canadian address: province, postal code, country', eq(intl, { street: '100 Queen Street West', unitType: 'Suite', unitNumber: '300', city: 'Toronto', state: 'ON', zip: 'M5H 2N2', country: 'Canada' }), JSON.stringify(intl));
+  ok('Home label gives a Home phone', typed(intl, 'phones', 'home') === '+1 (416) 555-0199' && intl.phones.length === 3, JSON.stringify(intl.phones));
+  ok('every email kept, typed Work / Personal', typed(intl, 'emails', 'work') === 'jane@roelabs.ca' && typed(intl, 'emails', 'personal') === 'jane.roe@gmail.com');
+  ok('social profile typed and not used as the company', typed(intl, 'websites', 'linkedin') === 'linkedin.com/in/janeroe' && typed(intl, 'websites', 'work') === 'roelabs.ca' && intl.organization === 'Roe Labs Inc.', JSON.stringify(intl.websites));
 }
 
 // OCR review steps: classifyLines (roles) + buildFields (fields from roles)
@@ -212,9 +261,10 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const overridden = fm.buildFields(asCompany);
   ok('choosing a line as Company overrides the derived company', overridden.fields.organization === 'Your Technology Partner' && !overridden.derived.organization);
   const edited = fm.buildFields(lines.map(l => l.role === 'email' ? { ...l, text: 'E dana@brightpathit.com' } : l));
-  ok('edited line text is used', edited.fields.email === 'dana@brightpathit.com', edited.fields.email);
+  ok('edited line text is used', edited.fields.emails[0].value === 'dana@brightpathit.com', JSON.stringify(edited.fields.emails));
   const swapped = fm.buildFields(lines.map(l => l.text.startsWith('M ') ? { ...l, role: 'phoneWork' } : l.text.startsWith('T ') ? { ...l, role: 'phoneMobile' } : l));
-  ok('explicit Work/Mobile phone roles win over labels', swapped.fields.phoneWork === '+1 (616) 555-0187' && swapped.fields.phoneMobile === '+1 (616) 555-0142', JSON.stringify(swapped.fields));
+  const ph = (type) => (swapped.fields.phones.find(p => p.type === type) || {}).value;
+  ok('explicit Work/Mobile phone roles win over labels', ph('work') === '+1 (616) 555-0187' && ph('mobile') === '+1 (616) 555-0142', JSON.stringify(swapped.fields.phones));
   const noted = fm.buildFields([{ text: 'Call after 3pm', role: 'notes' }, { text: 'Gate code 42', role: 'notes' }, { text: 'junk', role: 'ignore' }]);
   ok('notes lines are kept in order; ignored lines are dropped', noted.fields.notes === 'Call after 3pm\nGate code 42' && !Object.values(noted.fields).includes('junk'));
   const whole = fm.buildFields([{ text: '88 Elm Avenue, Burlington, VT 05401', role: 'address' }]);
