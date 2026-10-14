@@ -16,6 +16,7 @@ import { getDeviceSecret, deleteDeviceSecret, isKeychainAvailable } from './modu
 import { KDF_KEYCHAIN } from './modules/mod02-vault/vault.js';
 import { isPasskeySupported, createPasskey, getPasskeySecret } from './modules/mod02-vault/passkey.js';
 import { SessionPin, QUICK_UNLOCK_SECONDS, MIN_PIN_LENGTH, MAX_PIN_ATTEMPTS } from './modules/mod02-vault/sessionPin.js';
+import { maskSecretInputs } from './modules/mod02-vault/secretInputs.js';
 import { VCGEActiveCamera } from './modules/mod03-camera/camera.js';
 import { CropEditor } from './modules/mod03-camera/cropEditor.js';
 import { executeOCRScan } from './modules/mod04-ocr/ocrWorker.js';
@@ -95,8 +96,19 @@ function setVaultIndicator() {
     const [text, color] = states[storageMode];
     el.textContent = text;
     el.className = `text-xs font-mono ${color}`;
+    setVaultBadge();
     $('lockVaultBtn').classList.toggle('hidden', storageMode !== 'vault');
     renderQuickUnlockPanel();
+}
+
+// Header badge: UNLOCKED only while the vault key is in use; a quick lock or memory-only mode reads as LOCKED.
+function setVaultBadge() {
+    const unlocked = storageMode === 'vault';
+    $('vaultBadgeText').textContent = unlocked ? 'Vault: UNLOCKED' : 'Vault: LOCKED';
+    $('vaultBadge').className = `flex text-xs px-2.5 py-1 rounded-full items-center gap-1.5 border ${unlocked
+        ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-800/50'
+        : 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'}`;
+    $('vaultBadgeDot').className = `w-1.5 h-1.5 rounded-full ${unlocked ? 'bg-emerald-500' : 'bg-slate-400'}`;
 }
 
 // Security panel: session PIN state and the enrolled passkeys (vault mode only).
@@ -267,7 +279,9 @@ async function finishUnlock(method, { keychainFallback = false } = {}) {
     } else {
         cardView.showToast(creating ? 'Vault created. Changes are saved encrypted.' : `Vault unlocked (${method}).`);
     }
-    if (method !== 'session PIN' && !sessionPin.isSet() && !quickSetupDismissed) openQuickSetup();
+    // With a passkey enrolled the PIN offer is not shown on its own (the passkey is already the quick way back in);
+    // Security → Quick unlock still sets one.
+    if (method !== 'session PIN' && !sessionPin.isSet() && !quickSetupDismissed && secureVault.passkeySlots().length === 0) openQuickSetup();
 }
 
 function continueWithoutSaving() {
@@ -710,6 +724,7 @@ function wireAuditLog() {
 
 function boot() {
     purgeStartupResidue();
+    maskSecretInputs();
     initTheme($('themeToggle'));
     cardView.init();
     wireAuditLog();
