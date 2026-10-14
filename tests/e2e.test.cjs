@@ -96,6 +96,12 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   await page.goto(base); await page.waitForTimeout(500);
   ok('loads with no 404s', notFound.length === 0, notFound.join(', '));
   ok('vault modal shown on first run (create mode)', await visible('vaultModal') && (await text('vaultModalTitle')).includes('Create'));
+  ok('header badge reads "Vault: LOCKED" before unlocking', (await text('vaultBadge')) === 'Vault: LOCKED');
+  const secretBoxes = await page.$$eval('#vaultPassphrase, #vaultPassphraseConfirm, #vaultPin, #sessionPinInput, #passkeyPassphrase',
+    els => els.map(el => ({ type: el.type, masked: getComputedStyle(el).webkitTextSecurity, ac: el.getAttribute('autocomplete'), caps: el.getAttribute('autocapitalize') })));
+  ok('vault secret boxes are masked text fields, not password fields (no save-password prompt)', secretBoxes.length === 5 && secretBoxes.every(b => b.type === 'text' && b.masked === 'disc'), JSON.stringify(secretBoxes));
+  ok('vault secret boxes opt out of autofill and keyboard capitalisation', secretBoxes.every(b => b.ac === 'off' && b.caps === 'none'));
+  ok('no password field anywhere on the page', (await page.$$('input[type=password]')).length === 0);
 
   // Create vault
   await page.fill('#vaultPassphrase', 'short'); await page.fill('#vaultPassphraseConfirm', 'short'); await page.click('#vaultUnlockBtn');
@@ -106,6 +112,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   ok('session PIN offered after unlocking', await visible('quickSetupModal'));
   await skipQuickSetup(page);
   ok('indicator shows unlocked', (await text('vaultStateIndicator')).startsWith('UNLOCKED'));
+  ok('header badge reads "Vault: UNLOCKED" after unlocking', (await text('vaultBadge')) === 'Vault: UNLOCKED');
 
   // Edit contact -> preview + encrypted save
   await page.fill('#firstName', 'Jane'); await page.fill('#lastName', 'Doe'); await page.fill('#organization', 'Smith, Jones');
@@ -225,6 +232,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   await page.click('#lockVaultBtn'); await page.waitForTimeout(200);
   ok('lock clears form and re-prompts', (await val('firstName')) === '' && await visible('vaultModal'));
   ok('lock keeps encrypted vault', (await storage()).includes('vCGE_secure_vault.dat'));
+  ok('header badge back to "Vault: LOCKED" after Lock', (await text('vaultBadge')) === 'Vault: LOCKED');
   await page.click('#vaultSkipBtn'); await page.waitForTimeout(100);
   ok('continue without saving -> memory mode', (await text('vaultStateIndicator')).startsWith('NOT SAVED'));
   await page.click('#wipeVaultBtn'); await page.waitForTimeout(200);
@@ -369,6 +377,10 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p8.click('#vaultPasskeyBtn');
     await p8.waitForSelector('#vaultModal', { state: 'hidden' });
     ok('passkey unlock after reload restores the card', (await p8.inputValue('#firstName')) === 'Quick');
+    await p8.waitForTimeout(300);
+    ok('with a passkey enrolled, the session PIN is not offered on its own after a reload', !(await p8.isVisible('#quickSetupModal')));
+    await p8.click('#setSessionPinBtn');
+    await p8.waitForSelector('#quickSetupModal', { state: 'visible' });
     await p8.fill('#sessionPinInput', '8642'); await p8.click('#quickSetupSaveBtn'); await p8.waitForSelector('#quickSetupModal', { state: 'hidden' });
     await idle();
     ok('quick lock offers PIN and passkey', await p8.isVisible('#vaultPin') && await p8.isVisible('#vaultPasskeyBtn'));
