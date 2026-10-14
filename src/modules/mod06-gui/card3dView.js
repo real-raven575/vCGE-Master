@@ -61,6 +61,7 @@ export class CardView {
         this.themeKey = 'ocean';
         this.isFlipped = false;
         this.toastTimer = null;
+        this.undoSnapshot = null;   // the card before the last preset / scan fill / clear (memory only)
     }
 
     init() {
@@ -312,13 +313,50 @@ export class CardView {
         $('card3DFlipper').style.transform = this.isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)';
     }
 
-    showToast(msg) {
+    /** @param {{ label: string, onClick: Function }} [action] a button in the toast (shown for 8 s instead of 3 s) */
+    showToast(msg, action = null) {
         const t = $('toast');
         if (!t) return;
         $('toastMessage').textContent = msg;
-        t.classList.remove('translate-y-20', 'opacity-0');
+        const button = $('toastAction');
+        button.classList.toggle('hidden', !action);
+        button.onclick = action ? () => { this.hideToast(); action.onClick(); } : null;
+        if (action) button.textContent = action.label;
+        t.classList.remove('translate-y-20', 'opacity-0', 'pointer-events-none');
         clearTimeout(this.toastTimer);
-        this.toastTimer = setTimeout(() => t.classList.add('translate-y-20', 'opacity-0'), 3000);
+        this.toastTimer = setTimeout(() => this.hideToast(), action ? 8000 : 3000);
+    }
+
+    hideToast() {
+        clearTimeout(this.toastTimer);
+        $('toast').classList.add('translate-y-20', 'opacity-0', 'pointer-events-none');
+        $('toastAction').onclick = null;
+    }
+
+    /**
+     * Runs a change that replaces form contents (preset, scan fill, clear) and offers Undo in the toast.
+     * The previous card is kept in memory only until the next such change, Undo, or forgetUndo().
+     */
+    changeWithUndo(message, apply) {
+        this.undoSnapshot = this.getContact();
+        apply();
+        this.changed();
+        this.showToast(message, {
+            label: 'Undo',
+            onClick: () => {
+                if (!this.undoSnapshot) return;
+                this.setContact(this.undoSnapshot);
+                this.undoSnapshot = null;
+                this.changed();
+                this.showToast('Undone.');
+            }
+        });
+    }
+
+    /** Drops the Undo copy (on lock, idle purge and wipe). */
+    forgetUndo() {
+        this.undoSnapshot = null;
+        this.hideToast();
     }
 
     // ---- UI construction & listeners -----------------------------------------------------------------------
@@ -332,9 +370,8 @@ export class CardView {
             btn.className = 'px-2.5 py-1 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg font-semibold text-[11px] transition';
             btn.textContent = preset.label;
             btn.addEventListener('click', () => {
-                this.setContact({ ...createEmptyContact(), ...preset, avatarBase64: this.avatarBase64 });
-                this.changed();
-                this.showToast(`Loaded preset: ${preset.firstName} ${preset.lastName}`);
+                this.changeWithUndo(`Loaded sample: ${preset.firstName} ${preset.lastName}`,
+                    () => this.setContact({ ...createEmptyContact(), ...preset, avatarBase64: this.avatarBase64 }));
             });
             container.appendChild(btn);
         });

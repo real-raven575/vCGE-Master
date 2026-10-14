@@ -7,6 +7,9 @@
  */
 
 import { globalEventBus, Events } from '../../share/eventBus.js';
+import { PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES } from '../../share/contactOptions.js';
+
+const typeLabel = (types, type) => (types.find(([value]) => value === type) || [, type || 'Other'])[1];
 
 // Every outbound action is announced on the bus so the shell can show a complete egress audit trail.
 function audit(method, detail = {}) {
@@ -110,36 +113,107 @@ export class EgressController {
         return true;
     }
 
-    /**
-     * Triggers email client with pre-filled vCard attachment body.
-     */
-    triggerEmailShare() {
-        const name = `${this.contactData.firstName || ''} ${this.contactData.lastName || ''}`.trim() || 'Contact';
-        const subject = encodeURIComponent(`Digital vCard: ${name}`);
-        const body = encodeURIComponent(`Here is the digital vCard contact information for ${name}:\n\n${this.currentVCard}`);
-        window.location.href = `mailto:?subject=${subject}&body=${body}`;
-        audit('email');
-        return true;
+    displayName() {
+        const c = this.contactData;
+        const name = [c.namePrefix, c.firstName, c.middleName, c.lastName].filter(Boolean).join(' ');
+        return (name + (c.nameSuffix ? `, ${c.nameSuffix}` : '')) || 'Contact';
+    }
+
+    /** The contact as readable lines (for SMS and the email body): name, title and company, typed details, address. */
+    contactSummary() {
+        const c = this.contactData;
+        const street = [c.street, [c.unitType, c.unitNumber].filter(Boolean).join(' ')].filter(Boolean).join(', ');
+        const address = [street, c.city, [c.state, c.zip].filter(Boolean).join(' '), c.country].filter(Boolean).join(', ');
+        return [
+            this.displayName(),
+            [c.jobTitle, c.organization].filter(Boolean).join(', '),
+            ...(c.phones || []).filter(p => p.value).map(p => `${typeLabel(PHONE_TYPES, p.type)}: ${p.value}`),
+            ...(c.emails || []).filter(e => e.value).map(e => `${typeLabel(EMAIL_TYPES, e.type)} email: ${e.value}`),
+            ...(c.websites || []).filter(w => w.value).map(w => `${typeLabel(WEBSITE_TYPES, w.type)}: ${w.value}`),
+            address
+        ].filter(Boolean).join('\n');
+    }
+
+    vcfFile() {
+        const filename = `${(this.contactData.firstName || 'Contact')}_${(this.contactData.lastName || 'Card')}.vcf`.replace(/[^\w.-]+/g, '_');
+        return new File([this.currentVCard], filename, { type: 'text/vcard' });
+    }
+
+    mailtoUrl() {
+        const subject = encodeURIComponent(`Contact: ${this.displayName()}`);
+        const body = encodeURIComponent(`${this.contactSummary()}\n\nTo add this contact, save the text below as a .vcf file (or use the .vcf button in vCGE):\n\n${this.currentVCard}`);
+        return `mailto:?subject=${subject}&body=${body}`;
+    }
+
+    smsUrl() {
+        return `sms:?body=${encodeURIComponent(this.contactSummary())}`;
+    }
+
+    navigate(url) {
+        window.location.href = url;
     }
 
     /**
-     * Triggers SMS client with vCard summary.
+     * Email. Where the device can share files (iPhone, iPad, Mac Safari), the share sheet sends the .vcf as an attachment
+     * the recipient can tap to import; otherwise (Android Chrome and desktop browsers do not share .vcf files) the mail app
+     * opens with a readable summary and the vCard text. A mailto: link cannot carry attachments.
      */
+    async triggerEmailShare() {
+        if (!this.currentVCard) return false;
+        const file = this.vcfFile();
+        if (navigator.canShare && navigator.share && navigator.canShare({ files: [file] })) {
+            try {
+                await navigator.share({ title: `Contact: ${this.displayName()}`, text: this.contactSummary(), files: [file] });
+                audit('email_attachment');
+                return { success: true, method: 'attachment' };
+            } catch (error) {
+                if (error.name === 'AbortError') return { success: false, reason: 'cancelled' };
+            }
+        }
+        this.navigate(this.mailtoUrl());
+        audit('email');
+        return { success: true, method: 'mailto' };
+    }
+
+    /** SMS with the readable summary (every phone, email, website and the address). */
     triggerSmsShare() {
-        const name = `${this.contactData.firstName || ''} ${this.contactData.lastName || ''}`.trim() || 'Contact';
-        const body = encodeURIComponent(`Digital vCard for ${name}: ${((this.contactData.websites || [])[0] || {}).value || 'Contact Attached'}`);
-        window.location.href = `sms:?body=${body}`;
+        this.navigate(this.smsUrl());
         audit('sms');
         return true;
     }
 
     /**
-     * Invokes the browser print pipeline for physical 3.5" x 2" cards.
+     * Prints (or saves as PDF) one page with the card front and back (QR code) at 3.5" x 2".
+     * The copies are rebuilt on each print and kept in the hidden #printSheet until the next print, idle purge or lock:
+     * clearing them on 'afterprint' is unsafe, as some browsers (Android) fire it before the PDF is rendered.
      */
-    triggerPhysicalPrint() {
+    triggerPhysicalPrint(qrCanvas) {
+        const sheet = document.getElementById('printSheet'), front = document.getElementById('cardFront');
+        if (sheet && front) {
+            const frontCopy = front.cloneNode(true);
+            [frontCopy, ...frontCopy.querySelectorAll('[id]')].forEach(el => el.removeAttribute('id'));
+            frontCopy.classList.add('print-card');
+            const back = document.createElement('div');
+            back.className = 'print-card print-back';
+            if (qrCanvas) {
+                const qr = document.createElement('img');
+                qr.src = qrCanvas.toDataURL('image/png');
+                qr.alt = 'vCard QR code';
+                back.append(qr);
+            }
+            const name = document.createElement('p');
+            name.textContent = this.displayName();
+            back.append(name);
+            sheet.replaceChildren(frontCopy, back);
+        }
         audit('print');
         window.print();
         return true;
+    }
+
+    clearPrintSheet() {
+        const sheet = document.getElementById('printSheet');
+        if (sheet) sheet.replaceChildren();
     }
 }
 

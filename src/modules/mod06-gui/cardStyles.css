@@ -46,14 +46,4 @@ body { font-family: 'Inter', sans-serif; }
 ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
 .dark ::-webkit-scrollbar-thumb { background: #334155; }
 
-/* Print styles for physical business card printing */
-@media print {
-    body * { visibility: hidden; }
-    #cardFront, #cardFront * { visibility: visible; }
-    #cardFront {
-        position: absolute; left: 0; top: 0;
-        width: 3.5in !important; height: 2.0in !important;
-        box-shadow: none !important; border: 1px solid #000 !important;
-        page-break-after: always;
-    }
-}
+/* Printing is styled only in mod08-egress/print.css. */

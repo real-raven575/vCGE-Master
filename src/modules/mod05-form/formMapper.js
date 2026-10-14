@@ -74,14 +74,21 @@ export class ContactFormMapper {
         let website = '';
         for (const line of lines) {
             if (!free(line)) continue;
-            const found = findWebsite(line.body, line.label === 'web' || SOCIAL_HOSTS[line.icon] !== undefined);
+            const found = findWebsite(line.body, line.label === 'web' || SOCIAL_HOSTS[line.icon] !== undefined, line.label === 'web');
             if (found) { line.role = 'website'; if (!website && !websiteTypeFor(found)) website = found; }
             // A bare handle next to a social logo ("@studiocraft", "in/janedoe") is that profile.
             else if (SOCIAL_HOSTS[line.icon] && socialProfileUrl(line.icon, line.body)) line.role = 'website';
         }
 
-        // Phones: buildFields sorts work / mobile / fax by label
-        lines.forEach(line => { if (free(line) && findPhones(line.body).length) line.role = 'phone'; });
+        // Phones: one labelled number gets its type as the role (shown in the review picker); unlabelled numbers and
+        // lines with several numbers stay 'phone' and buildFields sorts them (work first, then mobile).
+        lines.forEach(line => {
+            if (!free(line)) return;
+            const phones = findPhones(line.body);
+            if (!phones.length) return;
+            const kind = phones.length === 1 ? phones[0].label || line.label : null;
+            line.role = PHONE_ROLE[kind] || 'phone';
+        });
 
         // Address: City, ST ZIP (comma optional, state as code or full name, OCR slips repaired); street above it
         for (let i = 0; i < lines.length; i++) {
@@ -144,6 +151,8 @@ export class ContactFormMapper {
         let org = null;
         lines.forEach(line => {
             if (!free(line) || /[@]/.test(line.text) || !isWordy(line.text)) return;
+            // A slogan ("Your Technology Advisor") is not the company, whatever words it contains.
+            if (SLOGAN_START.test(line.text) && !(domain && domainMatches(line.text, domain))) return;
             let score = 1;
             if (COMPANY_SUFFIX.test(line.text)) score += 3;
             if (domain && domainMatches(line.text, domain)) score += 4;
@@ -152,7 +161,8 @@ export class ContactFormMapper {
         });
         if (org && (org.score >= 2 || (!domain && org.score > 0))) org.line.role = 'organization';
 
-        return lines.map(({ text, role, icon }) => ({ text, role: role || 'ignore', icon }));
+        // Email and web lines are shown with their OCR slips repaired, so the review box matches what will be filled.
+        return lines.map(({ text, role, icon }) => ({ text: role === 'email' || role === 'website' ? repairAddressText(text) : text, role: role || 'ignore', icon }));
     }
 
     /**
@@ -194,7 +204,7 @@ export class ContactFormMapper {
                 case 'email': emailValues.push(findEmail(t) || body); break;
                 case 'website': {
                     const social = SOCIAL_HOSTS[icon] ? icon : null;
-                    const site = findWebsite(body, true) || (social && socialProfileUrl(social, body)) || body;
+                    const site = findWebsite(body, true, label === 'web') || (social && socialProfileUrl(social, body)) || body;
                     if (!fields.websites.some(w => w.value === site)) fields.websites.push({ type: websiteTypeFor(site) || social || 'work', value: site });
                     break;
                 }
@@ -291,7 +301,7 @@ export class ContactFormMapper {
 
 /** Line roles offered in the OCR review screen, in display order: [role, label]. */
 export const LINE_ROLES = Object.freeze([
-    ['name', 'Name'], ['jobTitle', 'Job title'], ['organization', 'Company'], ['phone', 'Phone (auto by label)'],
+    ['name', 'Name'], ['jobTitle', 'Job title'], ['organization', 'Company'], ['phone', 'Phone (type from label)'],
     ['phoneWork', 'Work phone'], ['phoneMobile', 'Mobile phone'], ['phoneHome', 'Home phone'], ['phoneFax', 'Fax'],
     ['email', 'Email'], ['website', 'Website / social'], ['street', 'Street'], ['unit', 'Apt / suite / unit'],
     ['cityStateZip', 'City / State / ZIP'], ['address', 'Whole address'], ['notes', 'Notes'], ['ignore', 'Ignore']
@@ -317,6 +327,7 @@ const TITLE_WORDS = new RegExp('\\b(?:' + [
 ].join('|') + ')\\b', 'i');
 const COMPANY_SUFFIX = /\b(?:inc|incorporated|llc|l\.l\.c|llp|ltd|limited|corp|corporation|co|company|plc|gmbh|pllc|pc|group|holdings|associates|partners|enterprises|industries|solutions|systems|technologies|technology|consulting|services|agency|studio|labs?|bank|university|college|institute|clinic|hospital)\b\.?/i;
 const TAGLINE_START = /^(?:your|our|the|we|where|making|helping|serving|for all|since)\b/i;
+const SLOGAN_START = /^(?:your|our|we|where|making|helping|serving|for all|since)\b/i;   // "The ..." can be a company name
 const STREET_WORDS = /\b(?:st|street|ave|avenue|rd|road|blvd|boulevard|dr|drive|ln|lane|ct|court|way|pl|place|pkwy|parkway|hwy|highway|cir|circle|ter|terrace|trl|trail|sq|square|pike|row|loop|plaza|ste|suite|unit|floor|fl|bldg|building)\b\.?/i;
 const PO_BOX = /^(?:p\.?\s?o\.?\s?box|post office box)\s*\d+/i;
 
@@ -332,6 +343,13 @@ const FREE_MAIL = /^(?:gmail|googlemail|yahoo|ymail|outlook|hotmail|live|msn|aol
 
 // What an icon in front of a line means when the text carries no label of its own (MOD04 iconDetector classes).
 const ICON_LABEL = { phone: 'work', mobile: 'mobile', fax: 'fax', home: 'home', email: 'email', web: 'web' };
+// Review-picker role for a phone line whose type is known.
+const PHONE_ROLE = { work: 'phoneWork', mobile: 'phoneMobile', home: 'phoneHome', fax: 'phoneFax' };
+
+/** OCR reads the I (or l) inside an address as "\" or "|": "BrightPath\T.com" -> "BrightPathIT.com". Only between letters or digits. */
+function repairAddressText(text) {
+    return text.replace(/(?<=[A-Za-z0-9])[\\|](?=[A-Za-z0-9])/g, 'I');
+}
 
 // Line labels printed in front of contact details ("E jdoe@...", "Tel: ...", "M 555...", "W example.com").
 const LABELS = [
@@ -353,7 +371,7 @@ function splitLabel(text) {
 
 /** Finds an email, repairing common OCR slips: "©"/"®" for "@", spaces around "@" or ".", a space where the dot was. */
 function findEmail(text) {
-    const t = text.replace(/[©®]/g, '@').replace(/\s*\(\s*at\s*\)\s*|\s*\[\s*at\s*\]\s*/gi, '@');
+    const t = repairAddressText(text).replace(/[©®]/g, '@').replace(/\s*\(\s*at\s*\)\s*|\s*\[\s*at\s*\]\s*/gi, '@');
     const m = t.match(/([A-Za-z0-9._%+-]+)\s*@\s*([A-Za-z0-9-]+(?:\s*[.,]\s*[A-Za-z0-9-]+|\s+[A-Za-z]{2,6}\b)*)/);
     if (!m) return '';
     const domain = m[2].replace(/\s*[.,]\s*/g, '.').replace(/\s+/g, '.').replace(/\.+$/, '');
@@ -361,13 +379,19 @@ function findEmail(text) {
     return `${m[1]}@${domain}`;
 }
 
-/** Finds a web address in a line: with or without www/http, as long as it ends in a known web ending (+ optional path). */
-function findWebsite(text, labelled) {
-    for (const raw of text.split(' ')) {
-        const token = raw.replace(/^[^A-Za-z0-9]+/, '').replace(/[\\|,;)\]]+$/, '').replace(/\.$/, '');
+/**
+ * Finds a web address in a line: with or without www/http, as long as it ends in a known web ending (+ optional path).
+ * On a labelled web line, one word after a bare domain is its path: OCR reads "example.com/Chicago" as "example.com Chicago".
+ */
+function findWebsite(text, labelled, joinPath = labelled) {
+    const tokens = repairAddressText(text).split(' ');
+    for (let i = 0; i < tokens.length; i++) {
+        const token = tokens[i].replace(/^[^A-Za-z0-9]+/, '').replace(/[\\|,;)\]]+$/, '').replace(/\.$/, '');
         if (token.includes('@') || token.length < 4) continue;
-        if (WEB_RE.test(token)) return token;
-        if (labelled && /^[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\/\S*)?$/i.test(token)) return token;
+        if (!WEB_RE.test(token) && !(labelled && /^[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\/\S*)?$/i.test(token))) continue;
+        const next = tokens.slice(i + 1);
+        if (joinPath && next.length === 1 && /^[A-Za-z0-9-]{2,}$/.test(next[0]) && !token.includes('/')) return `${token}/${next[0]}`;
+        return token;
     }
     return '';
 }
@@ -501,6 +525,7 @@ function companyDomain(website, email) {
 /** "Northwind Systems" matches northwind.com; "Apex Innovations" matches apexinnovations.io. */
 function domainMatches(text, domain) {
     const squash = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '').replace(/[il1|]/g, 'l');
+    text = text.replace(/^the\s+/i, '');   // "The Home Depot" matches homedepot.com
     const line = squash(text), dom = squash(domain);
     if (!line || !dom) return false;
     const first = squash(text.split(' ')[0]);

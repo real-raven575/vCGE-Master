@@ -5,50 +5,73 @@
  * Formats physical 3.5" x 2" business cards for direct printing or PDF export.
  */
 
-/* STREAMING_CHUNK:Configuring print media isolation... */
+/* The print sheet holds copies of the card front and back (QR), made when Print is pressed; hidden on screen. */
+#printSheet {
+    display: none;
+}
+
 @media print {
-    /* Hide all application chrome, navigation, intake forms, and buttons */
-    body * {
-        visibility: hidden !important;
+    @page {
+        size: letter portrait;
+        margin: 0.5in;
     }
 
-    /* Isolate card front container and its descendants */
-    #cardFront, #cardFront * {
-        visibility: visible !important;
+    /* Only the print sheet is printed: everything else is removed from the layout (no blank pages). */
+    body > *:not(#printSheet) {
+        display: none !important;
     }
 
-    /* Enforce exact physical dimensions for standard business cards (3.5 in x 2.0 in) */
-    #cardFront {
-        position: absolute !important;
-        left: 0 !important;
-        top: 0 !important;
+    body {
+        background: #ffffff !important;
+        min-height: 0 !important;
+        display: block !important;
+    }
+
+    #printSheet {
+        display: flex !important;
+        flex-direction: column;
+        gap: 0.25in;
+    }
+
+    /* Standard business card: 3.5 in x 2.0 in, white with dark text for ink economy */
+    .print-card {
+        position: relative !important;
         width: 3.5in !important;
         height: 2.0in !important;
-        max-width: 3.5in !important;
-        max-height: 2.0in !important;
-        box-shadow: none !important;
+        min-height: 0 !important;
+        box-sizing: border-box !important;
+        padding: 0.2in !important;
         border: 1px solid #cbd5e1 !important;
+        border-radius: 0.12in !important;
         background: #ffffff !important;
         color: #0f172a !important;
-        margin: 0 !important;
-        padding: 0.25in !important;
-        page-break-after: always;
+        box-shadow: none !important;
+        transform: none !important;
         overflow: hidden !important;
-        box-sizing: border-box !important;
+        break-inside: avoid;
     }
 
-    /* Reset background colors and shadows for print ink economy */
-    #cardFront .bg-slate-50,
-    #cardFront .dark\:bg-slate-950 {
-        background-color: transparent !important;
-        border: none !important;
-    }
-
-    /* Ensure typography is crisp and dark */
-    #cardFront h3, 
-    #cardFront p, 
-    #cardFront span {
+    .print-card * {
         color: #0f172a !important;
         text-shadow: none !important;
+    }
+
+    .print-back {
+        display: flex !important;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.06in;
+    }
+
+    .print-back img {
+        width: 1.45in;
+        height: 1.45in;
+    }
+
+    .print-back p {
+        margin: 0;
+        font-size: 9pt;
+        font-weight: 700;
     }
 }

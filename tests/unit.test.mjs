@@ -323,7 +323,19 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const text = 'ya O/\nYour Technology Partner\nDana Whitlock\nOwner & General Manager\n4120 Lakeshore Road, Suite 210\nSpringfield, MI 49011\nE dwhitlock@BrightPathIT.com\nT 616.555.0142\nM 616.555.0187\nW BrightPathIT.com/Holland';
   const lines = fm.classifyLines(text);
   ok('classifyLines gives one role per line', lines.length === 10 && lines.every(l => LINE_ROLES.some(([r]) => r === l.role)), JSON.stringify(lines));
-  ok('classifyLines roles for a labelled card', JSON.stringify(lines.map(l => l.role)) === JSON.stringify(['ignore', 'ignore', 'name', 'jobTitle', 'street', 'cityStateZip', 'email', 'phone', 'phone', 'website']), lines.map(l => l.role).join());
+  ok('classifyLines roles for a labelled card', JSON.stringify(lines.map(l => l.role)) === JSON.stringify(['ignore', 'ignore', 'name', 'jobTitle', 'street', 'cityStateZip', 'email', 'phoneWork', 'phoneMobile', 'website']), lines.map(l => l.role).join());
+  // A real phone photo's misreads (fictional details): "I" read as "\" in the domain, the "/" of the web path read as a
+  // space, lowercase "w" label, slogan with a company word ("Technology") and no readable company name (logo only).
+  const slips = fm.classifyLines('2OO brightpathlogo\nYour Technology Partner\nDana Whitlock\nOwner & General Manager\n4120 Lakeshore Road, Suite 210\nSpringfield, MI 49011\nE dwhitlock@BrightPath\\T.com\nT 616.555.0142\nM 616.555.0187\nw BrightPath\\T.com Holland');
+  ok('misread card: roles (slogan ignored, email and website found, phone types in the picker)', JSON.stringify(slips.map(l => l.role)) === JSON.stringify(['ignore', 'ignore', 'name', 'jobTitle', 'street', 'cityStateZip', 'email', 'phoneWork', 'phoneMobile', 'website']), slips.map(l => l.role).join());
+  ok('misread card: review shows the repaired email and web text', slips[6].text === 'E dwhitlock@BrightPathIT.com' && slips[9].text === 'w BrightPathIT.com Holland', slips[6].text + ' | ' + slips[9].text);
+  const slipFields = fm.buildFields(slips);
+  ok('misread card: email, website path and company (case from the domain) repaired', slipFields.fields.emails[0].value === 'dwhitlock@BrightPathIT.com' && slipFields.fields.websites[0].value === 'BrightPathIT.com/Holland' && slipFields.fields.organization === 'BrightPathIT' && slipFields.derived.organization === 'web address', JSON.stringify([slipFields.fields.emails, slipFields.fields.websites, slipFields.fields.organization]));
+  const typedPhone = (type) => (slipFields.fields.phones.find(e => e.type === type) || {}).value;
+  ok('misread card: T is Work, M is Mobile', typedPhone('work') === '+1 (616) 555-0142' && typedPhone('mobile') === '+1 (616) 555-0187');
+  const unlabelledWeb = fm.classifyLines('Dana Whitlock\nbrightpathit.com Holland');
+  ok('a word after a domain is only joined as a path on a labelled web line', fm.buildFields(unlabelledWeb).fields.websites[0].value === 'brightpathit.com', JSON.stringify(fm.buildFields(unlabelledWeb).fields.websites));
+  ok('a "The ..." company name is still allowed', fm.buildFields(fm.classifyLines('The Home Depot\nDana Whitlock\nStore Manager\ndana@homedepot.com')).fields.organization === 'The Home Depot');
   const built = fm.buildFields(lines);
   ok('buildFields equals parseOCRText', JSON.stringify(built.fields) === JSON.stringify(fm.parseOCRText(text)));
   ok('company derived from the web address is marked as derived', built.fields.organization === 'BrightPathIT' && built.derived.organization === 'web address', JSON.stringify(built.derived));

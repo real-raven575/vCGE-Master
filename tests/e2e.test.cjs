@@ -353,7 +353,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p8.click('#addPasskeyBtn');
     ok('add passkey asks for the passphrase, with a device name', await p8.isVisible('#passkeyModal') && (await p8.inputValue('#passkeyLabel')).endsWith('passkey'));
     await p8.fill('#passkeyPassphrase', 'not it'); await p8.click('#passkeySaveBtn'); await p8.waitForTimeout(300);
-    ok('add passkey: wrong passphrase refused', (await t8('passkeyError')) === 'Wrong passphrase.');
+    ok('add passkey: wrong passphrase refused, and the message says it is not the session PIN', (await t8('passkeyError')).includes('not the vault passphrase') && (await t8('passkeyError')).includes('session PIN'));
     await p8.fill('#passkeyLabel', 'Test fingerprint'); await p8.fill('#passkeyPassphrase', 'quick passphrase 1'); await p8.click('#passkeySaveBtn');
     await p8.waitForSelector('#passkeyModal', { state: 'hidden' });
     ok('passkey enrolled and listed', (await t8('passkeyList')).includes('Test fingerprint') && (await t8('auditLog')).includes('Passkey added (Test fingerprint)'));
@@ -408,6 +408,72 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     const unexpected8 = errors8.filter(e => !e.includes('[ERR 2001]'));
     ok('quick unlock: no page errors', unexpected8.length === 0, unexpected8.join(' | '));
     await ctx8.close();
+  }
+
+  // Tester feedback round 1: Undo after a sample / clear / scan fill, reopen the last scan, readable SMS and email, one-page print
+  {
+    const ctx9 = await browser.newContext();
+    const p9 = await ctx9.newPage();
+    const errors9 = [];
+    p9.on('pageerror', e => errors9.push(e.message));
+    p9.on('console', m => { if (m.type() === 'error') errors9.push('console: ' + m.text()); });
+    await p9.goto(ORIGIN); await p9.waitForTimeout(300);
+    await p9.click('#vaultSkipBtn');
+    await p9.fill('#firstName', 'Typed'); await p9.fill('#emailValue0', 'typed@example.com');
+    await p9.click('#presetButtonsContainer button');
+    ok('sample preset replaces the form and offers Undo', (await p9.inputValue('#firstName')) !== 'Typed' && await p9.isVisible('#toastAction') && (await p9.textContent('#toastAction')).trim() === 'Undo');
+    await p9.click('#toastAction');
+    ok('Undo brings the typed card back', (await p9.inputValue('#firstName')) === 'Typed' && (await p9.inputValue('#emailValue0')) === 'typed@example.com' && (await p9.textContent('#toastMessage')).includes('Undone'));
+    await p9.click('#clearFormBtn');
+    ok('Clear form empties the form, with Undo', (await p9.inputValue('#firstName')) === '' && await p9.isVisible('#toastAction'));
+    await p9.click('#toastAction');
+    ok('Undo after Clear form restores it', (await p9.inputValue('#firstName')) === 'Typed');
+
+    // Scan, fill, then reopen the last scan without new OCR
+    ok('no "Reopen last scan" before a scan', !(await p9.isVisible('#reopenScanBtn')));
+    await p9.setInputFiles('#imageUpload', await renderCardImage(p9)); await p9.waitForTimeout(300);
+    await p9.click('#runOcrBtn');
+    await p9.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
+    await p9.click('#applyOcrBtn');
+    ok('Fill form offers Undo and "Reopen last scan"', (await p9.inputValue('#firstName')) === 'Maria' && await p9.isVisible('#toastAction') && await p9.isVisible('#reopenScanBtn'));
+    await p9.click('#toastAction');
+    ok('Undo after Fill form restores the card from before the scan', (await p9.inputValue('#firstName')) === 'Typed');
+    await p9.click('#reopenScanBtn');
+    ok('Reopen last scan shows the review step again (no OCR run)', await p9.isVisible('#ocrStepText') && (await p9.$$('#ocrLines select')).length >= 8 && (await p9.textContent('#ocrSummary')).includes('maria.gonzalez@northwind.com'));
+    await p9.click('#applyOcrBtn');
+    ok('reopened scan fills the form again', (await p9.inputValue('#firstName')) === 'Maria' && (await rowValue(p9, 'email', 'work')) === 'maria.gonzalez@northwind.com');
+
+    // SMS and email carry a readable summary (source tree only: the module instance is imported directly)
+    if (!process.env.SERVE_DIR) {
+      const urls = await p9.evaluate(async () => {
+        const { egressController } = await import('/src/modules/mod08-egress/egressController.js');
+        const sent = [];
+        egressController.navigate = (url) => sent.push(url);
+        egressController.triggerSmsShare();
+        await egressController.triggerEmailShare();
+        return sent.map(u => decodeURIComponent(u));
+      });
+      const sms = urls[0] || '', mail = urls[1] || '';
+      ok('SMS carries every detail as readable lines', sms.startsWith('sms:?body=Maria Gonzalez\nDirector of Engineering, Northwind Systems\nWork: +1 (312) 555-0147\nWork email: maria.gonzalez@northwind.com\nWork: https://northwind.com\n233 South Wacker Drive, Chicago, IL 60606, United States'), JSON.stringify(sms));
+      ok('email: readable summary plus the vCard text', mail.startsWith('mailto:?subject=Contact: Maria Gonzalez&body=Maria Gonzalez\n') && mail.includes('save the text below as a .vcf file') && mail.includes('BEGIN:VCARD'), JSON.stringify(mail.slice(0, 160)));
+    }
+
+    // Print / Save as PDF: one page, front and back at business-card size
+    await p9.evaluate(() => { window.print = () => {}; });
+    await p9.click('#printCardBtn');
+    const sheet = await p9.evaluate(() => ({ cards: document.querySelectorAll('#printSheet .print-card').length, qr: !!document.querySelector('#printSheet .print-back img'), ids: document.querySelectorAll('#printSheet [id]').length, text: document.getElementById('printSheet').textContent }));
+    ok('print sheet holds the front and the QR back (no duplicate ids)', sheet.cards === 2 && sheet.qr && sheet.ids === 0 && sheet.text.includes('Maria Gonzalez'), JSON.stringify(sheet));
+    await p9.emulateMedia({ media: 'print' });
+    const size = await p9.evaluate(() => { const r = document.querySelector('#printSheet .print-card').getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; });
+    ok('printed card is 3.5 x 2 inches', size[0] === 336 && size[1] === 192, JSON.stringify(size));
+    await p9.emulateMedia({ media: null });
+    const pdf = (await p9.pdf({ format: 'Letter', preferCSSPageSize: true, printBackground: true })).toString('latin1');
+    const pages = (pdf.match(/\/Type\s*\/Page[^s]/g) || []).length;
+    ok('print is one page (no blank pages) and the card is still on the sheet', pages === 1 && (await p9.evaluate(() => document.getElementById('printSheet').children.length)) === 2, `${pages} pages`);
+    await p9.evaluate(() => window.dispatchEvent(new Event('afterprint')));
+    ok('print copies stay until the next print (afterprint can fire before the PDF is drawn)', (await p9.evaluate(() => document.getElementById('printSheet').children.length)) === 2);
+    ok('tester round 1: no page errors', errors9.length === 0, errors9.join(' | '));
+    await ctx9.close();
   }
 
   // Icons instead of labels: unlabelled numbers typed by their icons, a bare handle next to a social logo

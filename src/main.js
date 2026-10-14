@@ -356,7 +356,7 @@ async function addPasskey(event) {
     const { deviceSecret, keychainError } = await deviceSecretFor(false);
     if (secureVault.requiresDeviceKey() && !deviceSecret) return fail(keychainMessage(keychainError));
     const exported = await secureVault.exportDataKey($('passkeyPassphrase').value, deviceSecret);
-    if (!exported.success) return fail('Wrong passphrase.');
+    if (!exported.success) return fail('That is not the vault passphrase. Use the passphrase you created the vault with, not the session PIN.');
     $('passkeySaveBtn').disabled = true;
     try {
         const passkey = await createPasskey(label);
@@ -389,7 +389,11 @@ function armIdleTtl() {
     idleTtl.startStream(cardView.getContact());
 }
 
+// Drops the photo and everything taken from it or kept for convenience (review text, last scan, Undo copy).
 function clearCapturedImages() {
+    forgetLastScan();
+    cardView.forgetUndo();
+    egressController.clearPrintSheet();
     camera.stopCamera();
     camera.capturedImageDataUrl = null;
     $('cameraPanel').classList.add('hidden');
@@ -498,6 +502,7 @@ const ICON_NAMES = {
     github: 'GitHub logo', youtube: 'YouTube logo', tiktok: 'TikTok logo'
 };
 let ocrReview = null;   // { lines: [{ text, role }], fields } while the review step is open
+let lastScan = null;    // the reviewed lines of the last filled scan, for "Reopen last scan" (memory only)
 
 function showReviewStep(step) {
     $('ocrStepPhoto').classList.toggle('hidden', step !== 'photo');
@@ -606,9 +611,26 @@ async function runOcr() {
 
 function applyOcrReview() {
     if (!ocrReview) return;
-    cardView.mergeContact(ocrReview.fields);
+    const { fields, lines } = ocrReview;
+    lastScan = lines.map(line => ({ ...line }));
+    $('reopenScanBtn').classList.remove('hidden');
     closeReviewDialog();
-    cardView.showToast('Form filled. Please check the details.');
+    cardView.changeWithUndo('Form filled. Please check the details.', () => cardView.mergeContact(fields));
+}
+
+// Opens the review step again with the last scan's lines (as last edited), without running OCR again.
+function reopenLastScan() {
+    if (!lastScan) return;
+    ocrReview = { lines: lastScan.map(line => ({ ...line })), fields: null };
+    renderOcrLines();
+    $('ocrBackBtn').classList.toggle('hidden', !$('reviewImage').getAttribute('src'));
+    showReviewStep('text');
+    $('cropReviewModal').classList.remove('hidden');
+}
+
+function forgetLastScan() {
+    lastScan = null;
+    $('reopenScanBtn').classList.add('hidden');
 }
 
 function wireIntake() {
@@ -632,6 +654,7 @@ function wireIntake() {
     $('ocrCancelBtn').addEventListener('click', closeReviewDialog);
     $('ocrBackBtn').addEventListener('click', () => showReviewStep('photo'));
     $('applyOcrBtn').addEventListener('click', applyOcrReview);
+    $('reopenScanBtn').addEventListener('click', reopenLastScan);
     // Retake: with the camera open, close the dialog so the user can capture again; otherwise pick another photo
     // (on phones the picker also offers the camera).
     $('retakePhotoBtn').addEventListener('click', () => {
@@ -640,7 +663,7 @@ function wireIntake() {
         else cardView.showToast('Hold the card steady and capture again.');
     });
     // A new photo starts over at step 1 and drops any text extracted from the previous one (the camera reopens the dialog).
-    globalEventBus.subscribe(Events.IMAGE_CAPTURED, () => { showRetakePrompt(false); closeReviewDialog(); });
+    globalEventBus.subscribe(Events.IMAGE_CAPTURED, () => { showRetakePrompt(false); closeReviewDialog(); forgetLastScan(); $('ocrBackBtn').classList.remove('hidden'); });
 }
 
 // ---- Egress (MOD08 only) ---------------------------------------------------------------------------------------
@@ -650,7 +673,7 @@ function wireEgress() {
     $('exportQrBtn').addEventListener('click', () => egressController.exportQRPNG($('qrCanvas')));
     $('emailBtn').addEventListener('click', () => egressController.triggerEmailShare());
     $('smsBtn').addEventListener('click', () => egressController.triggerSmsShare());
-    $('printCardBtn').addEventListener('click', () => egressController.triggerPhysicalPrint());
+    $('printCardBtn').addEventListener('click', () => egressController.triggerPhysicalPrint($('qrCanvas')));
     $('shareNativeBtn').addEventListener('click', async () => {
         const result = await egressController.triggerQuickShare();
         if (result && result.method === 'clipboard_fallback') cardView.showToast('vCard copied to the clipboard.');
@@ -705,6 +728,7 @@ function boot() {
     $('passkeyForm').addEventListener('submit', addPasskey);
     $('passkeyCancelBtn').addEventListener('click', closePasskeyModal);
     $('wipeVaultBtn').addEventListener('click', wipeVault);
+    $('clearFormBtn').addEventListener('click', () => cardView.changeWithUndo('Form cleared.', () => cardView.clear()));
     ['pointerdown', 'keydown', 'input'].forEach(type => document.addEventListener(type, armIdleTtl, true));
     setInterval(updatePurgeCountdown, 1000);
     refresh();
