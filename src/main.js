@@ -44,6 +44,8 @@ let storageMode = 'locked'; // 'locked' | 'quick' | 'vault' | 'memory'
 let vaultModalMode = 'passphrase'; // 'create' | 'passphrase' | 'pin'
 let saveTimer = null;
 let quickSetupDismissed = false;
+// During a quick lock: the open scan (photo, review step, last scan), sealed with the vault's data key, in memory only.
+let heldScan = null;   // Promise<{ iv, ciphertext } | null>
 
 // 120-second TTL on everything held in RAM: any user activity restarts it; on expiry the volatile state is purged.
 const idleTtl = new TTLMemoryStreamManager(IDLE_PURGE_SECONDS, () => purgeVolatileState('idle'));
@@ -255,6 +257,8 @@ async function unlockWithPasskey() {
 // Shared by every unlock method: load the saved card, start saving, re-arm the idle timer.
 async function finishUnlock(method, { keychainFallback = false } = {}) {
     const creating = method === 'created';
+    const held = storageMode === 'quick' ? heldScan : null;
+    heldScan = null;
     try {
         const saved = await secureVault.retrieveAndDecrypt();
         if (saved) cardView.setContact(saved);
@@ -273,6 +277,7 @@ async function finishUnlock(method, { keychainFallback = false } = {}) {
     globalEventBus.publish(Events.VAULT_UNLOCKED, { created: creating, method, timestamp: Date.now() });
     refresh();
     armIdleTtl();
+    await restoreScan(held);
     if (creating) await persist(cardView.getContact());
     if (keychainFallback) {
         cardView.showToast('OS keychain unavailable: vault protected by passphrase only.');
@@ -288,6 +293,7 @@ function continueWithoutSaving() {
     // From a quick lock, drop the retained key first: memory-only mode never holds a vault key.
     quickUnlockTtl.stop();
     sessionPin.clear();
+    heldScan = null;
     secureVault.lock();
     storageMode = 'memory';
     $('vaultModal').classList.add('hidden');
@@ -420,10 +426,11 @@ function clearCapturedImages() {
 
 function purgeVolatileState(reason) {
     idleTtl.stop();
+    const scan = storageMode === 'vault' && sessionPin.isSet() ? scanSnapshot() : null;
     clearCapturedImages();
     globalEventBus.publish(Events.MEMORY_PURGED, { reason, timestamp: Date.now() });
     if (storageMode === 'vault' && sessionPin.isSet()) {
-        quickLock();
+        quickLock(scan);
     } else if (storageMode === 'vault') {
         lockVault(reason);
     } else {
@@ -444,16 +451,18 @@ function updatePurgeCountdown() {
 }
 
 // Idle lock with a session PIN: the card is cleared from the page, the vault key stays in memory for 5 minutes.
-function quickLock() {
+// An open scan is kept sealed with that key and comes back with the unlock.
+function quickLock(scan = null) {
     clearTimeout(saveTimer);
     idleTtl.stop();
     closeQuickUnlockDialogs();
+    heldScan = scan ? secureVault.seal(scan).catch(e => { console.error('[vCGE] Could not keep the scan:', e); return null; }) : null;
     storageMode = 'quick';
     quickUnlockTtl.startStream(null);
     cardView.clear();
     refresh();
     setVaultIndicator();
-    globalEventBus.publish(Events.VAULT_QUICK_LOCKED, { seconds: QUICK_UNLOCK_SECONDS, timestamp: Date.now() });
+    globalEventBus.publish(Events.VAULT_QUICK_LOCKED, { seconds: QUICK_UNLOCK_SECONDS, scanKept: !!scan, timestamp: Date.now() });
     openVaultModal();
 }
 
@@ -463,6 +472,7 @@ function lockVault(reason = 'manual') {
     idleTtl.stop();
     quickUnlockTtl.stop();
     sessionPin.clear();
+    heldScan = null;
     closeQuickUnlockDialogs();
     clearCapturedImages();
     secureVault.lock();
@@ -480,6 +490,7 @@ function wipeVault() {
     idleTtl.stop();
     quickUnlockTtl.stop();
     sessionPin.clear();
+    heldScan = null;
     closeQuickUnlockDialogs();
     clearCapturedImages();
     secureVault.zeroFillWipe();
@@ -647,6 +658,46 @@ function forgetLastScan() {
     $('reopenScanBtn').classList.add('hidden');
 }
 
+// What a quick lock keeps of the scan in progress: the photo, the open review step and the last scan.
+function scanSnapshot() {
+    const photo = $('reviewImage').getAttribute('src') || null;
+    const open = !$('cropReviewModal').classList.contains('hidden');
+    const review = open ? { lines: ocrReview && !$('ocrStepText').classList.contains('hidden') ? ocrReview.lines.map(line => ({ ...line })) : null } : null;
+    if (!review && !lastScan) return null;
+    return { photo, review, lastScan };
+}
+
+// Puts a scan kept by quickLock back: the review dialog at the step it was on, and "Reopen last scan".
+async function restoreScan(held) {
+    const sealed = held && await held;
+    if (!sealed) return;
+    let scan;
+    try {
+        scan = await secureVault.unseal(sealed);
+    } catch (e) {
+        console.error('[vCGE] Kept scan unreadable:', e);
+        return;
+    }
+    if (scan.photo) {
+        camera.capturedImageDataUrl = scan.photo;
+        $('reviewImage').src = scan.photo;
+    }
+    if (scan.lastScan) {
+        lastScan = scan.lastScan;
+        $('reopenScanBtn').classList.remove('hidden');
+    }
+    if (!scan.review) return;
+    if (scan.review.lines) {
+        ocrReview = { lines: scan.review.lines, fields: null };
+        renderOcrLines();
+        showReviewStep('text');
+    } else {
+        showReviewStep('photo');
+    }
+    $('ocrBackBtn').classList.toggle('hidden', !scan.photo);
+    $('cropReviewModal').classList.remove('hidden');
+}
+
 function wireIntake() {
     $('imageUpload').addEventListener('change', (e) => {
         camera.handleGalleryUpload(e.target.files[0]);
@@ -704,7 +755,7 @@ function wireAuditLog() {
         [Events.EGRESS_BLOCKED]: (d) => `Blocked ${d.api} → ${d.url}`,
         [Events.VAULT_UNLOCKED]: (d) => (d.created ? 'Vault created' : `Vault unlocked (${d.method})`),
         [Events.VAULT_LOCKED]: (d) => `Vault locked${d.reason && d.reason !== 'manual' ? ` (${d.reason})` : ''}`,
-        [Events.VAULT_QUICK_LOCKED]: (d) => `Card hidden; session PIN unlocks for ${d.seconds / 60} min`,
+        [Events.VAULT_QUICK_LOCKED]: (d) => `Card${d.scanKept ? ' and scan' : ''} hidden; session PIN unlocks for ${d.seconds / 60} min`,
         [Events.VAULT_UNLOCK_METHOD_CHANGED]: (d) => d.change,
         [Events.VAULT_WIPED]: () => 'Vault wiped',
         [Events.OCR_TEXT_EXTRACTED]: (d) => `OCR text extracted${d.icons ? ` (${d.icons} icon${d.icons === 1 ? '' : 's'} recognised)` : ''}`,

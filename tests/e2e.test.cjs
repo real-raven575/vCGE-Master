@@ -422,6 +422,53 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await ctx8.close();
   }
 
+  // Quick lock keeps the scan in progress: the open review comes back with the session PIN, sealed while locked
+  {
+    const ctx10 = await browser.newContext();
+    const p10 = await ctx10.newPage();
+    const errors10 = [];
+    p10.on('pageerror', e => errors10.push(e.message));
+    p10.on('console', m => { if (m.type() === 'error') errors10.push('console: ' + m.text()); });
+    await p10.clock.install();
+    const t10 = id => p10.textContent('#' + id).then(t => t.trim());
+    const idle = async () => { await p10.clock.fastForward(1000); await p10.clock.fastForward(125000); };
+    const unlockPin = async () => { await p10.fill('#vaultPin', '2468'); await p10.click('#vaultUnlockBtn'); await p10.waitForSelector('#vaultModal', { state: 'hidden' }); await p10.waitForTimeout(300); };
+    await p10.goto(ORIGIN); await p10.waitForTimeout(300);
+    await p10.fill('#vaultPassphrase', 'scan passphrase 1'); await p10.fill('#vaultPassphraseConfirm', 'scan passphrase 1'); await p10.click('#vaultUnlockBtn');
+    await p10.waitForSelector('#quickSetupModal', { state: 'visible' });
+    await p10.fill('#sessionPinInput', '2468'); await p10.click('#quickSetupSaveBtn');
+    await p10.waitForSelector('#quickSetupModal', { state: 'hidden' });
+
+    await p10.setInputFiles('#imageUpload', await renderCardImage(p10)); await p10.waitForTimeout(300);
+    await p10.click('#runOcrBtn');
+    await p10.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
+    const roles10 = await p10.$$eval('#ocrLines select', s => s.map(x => x.value));
+    await p10.fill(`#ocrLineText${roles10.indexOf('name')}`, 'Mariah Gonzalez');
+    await idle();
+    ok('quick lock hides the open review and photo', !(await p10.isVisible('#cropReviewModal')) && (await p10.$$('#ocrLines input')).length === 0 && !(await p10.getAttribute('#reviewImage', 'src')) && (await t10('auditLog')).includes('Card and scan hidden'));
+    ok('quick lock: kept scan is not in storage or the page', !(await p10.evaluate(() => JSON.stringify(localStorage) + document.body.innerText)).includes('Mariah'));
+    await unlockPin();
+    ok('session PIN brings the review back as edited', await p10.isVisible('#cropReviewModal') && await p10.isVisible('#ocrStepText') && (await p10.inputValue(`#ocrLineText${roles10.indexOf('name')}`)) === 'Mariah Gonzalez' && (await p10.textContent('#ocrSummary')).includes('maria.gonzalez@northwind.com'));
+    ok('restored review keeps the photo (Back to photo offered)', await p10.isVisible('#ocrBackBtn') && (await p10.getAttribute('#reviewImage', 'src') || '').startsWith('data:image/'));
+    await p10.click('#applyOcrBtn');
+    ok('restored review fills the form', (await p10.inputValue('#firstName')) === 'Mariah' && await p10.isVisible('#reopenScanBtn'));
+
+    await idle();
+    await unlockPin();
+    ok('after Fill form, the PIN brings back "Reopen last scan" (dialog stays closed)', await p10.isVisible('#reopenScanBtn') && !(await p10.isVisible('#cropReviewModal')) && (await p10.inputValue('#firstName')) === 'Mariah');
+    await p10.click('#reopenScanBtn');
+    ok('reopened scan after a PIN unlock shows the edited lines', (await p10.inputValue(`#ocrLineText${roles10.indexOf('name')}`)) === 'Mariah Gonzalez');
+    await p10.click('#ocrCancelBtn');
+
+    await idle();
+    await p10.clock.fastForward(301000);
+    await p10.fill('#vaultPassphrase', 'scan passphrase 1'); await p10.click('#vaultUnlockBtn');
+    await p10.waitForSelector('#vaultModal', { state: 'hidden' }); await p10.waitForTimeout(300);
+    ok('when the PIN window ends the kept scan is dropped (card stays in the vault)', !(await p10.isVisible('#reopenScanBtn')) && !(await p10.isVisible('#cropReviewModal')) && (await p10.inputValue('#firstName')) === 'Mariah');
+    ok('kept scan: no page errors', errors10.length === 0, errors10.join(' | '));
+    await ctx10.close();
+  }
+
   // Tester feedback round 1: Undo after a sample / clear / scan fill, reopen the last scan, readable SMS and email, one-page print
   {
     const ctx9 = await browser.newContext();

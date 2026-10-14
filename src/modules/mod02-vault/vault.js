@@ -246,6 +246,21 @@ export class SecureStorageVault {
         }
     }
 
+    /** Encrypts a payload with the data key for keeping in memory only (nothing is written to storage). */
+    async seal(payload) {
+        if (!this.isUnlocked || !this.masterKey) throw new Error('[ERR 1001] Keychain locked. Cannot seal.');
+        const iv = random(12);
+        const ciphertext = await subtle().encrypt({ name: 'AES-GCM', iv }, this.masterKey, new TextEncoder().encode(JSON.stringify(payload)));
+        return { iv, ciphertext };
+    }
+
+    /** Opens a payload from seal() with the data key (the same key after any unlock of this vault). */
+    async unseal(sealed) {
+        if (!this.isUnlocked || !this.masterKey) throw new Error('[ERR 1001] Keychain locked. Cannot unseal.');
+        const plain = await subtle().decrypt({ name: 'AES-GCM', iv: sealed.iv }, this.masterKey, sealed.ciphertext);
+        return JSON.parse(new TextDecoder().decode(plain));
+    }
+
     // Drops the data key from memory but keeps the encrypted vault on disk.
     lock() {
         this.masterKey = null;

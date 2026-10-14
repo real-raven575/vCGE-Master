@@ -42,7 +42,7 @@ npm start            # serves http://localhost:8080 (localhost only; PORT=xxxx t
 
 On first launch you either create a vault passphrase (8+ characters; it **cannot be recovered**) or choose *Continue without saving*.
 
-To avoid retyping the passphrase, set a **session PIN** when offered: after 2 idle minutes the card is hidden, and the PIN brings it back for up to 5 minutes (then the passphrase is needed again). Or add a **passkey** under Security → Quick unlock to unlock with Face ID, Touch ID, Windows Hello, an Android fingerprint or a security key, even after a restart. Passkeys need the page on https or localhost.
+To avoid retyping the passphrase, set a **session PIN** when offered: after 2 idle minutes the card (and any scan you were reviewing) is hidden, and the PIN brings it back for up to 5 minutes (then the passphrase is needed again). Or add a **passkey** under Security → Quick unlock to unlock with Face ID, Touch ID, Windows Hello, an Android fingerprint or a security key, even after a restart. Passkeys need the page on https or localhost.
 
 ### Desktop app (Tauri v2)
 
@@ -58,9 +58,9 @@ npm run tauri build               # release build + installers in src-tauri/targ
 
 ```bash
 npm install
-npm test                          # 157 unit tests (Node)
+npm test                          # 160 unit tests (Node)
 npx playwright install chromium   # once, for the browser tests
-npm run test:e2e                  # 144 browser end-to-end tests (real OCR, icons, crop & straighten, text review, reopen last scan, undo, typed fields & regions, old-card conversion, blurry-photo retake, OCR failure, QR decode, vault, session PIN, passkeys via a virtual authenticator, SMS and email summary, one-page print, idle purge, egress lock)
+npm run test:e2e                  # 153 browser end-to-end tests (real OCR, icons, crop & straighten, text review, reopen last scan, scan kept across a PIN lock, undo, typed fields & regions, old-card conversion, blurry-photo retake, OCR failure, QR decode, vault, session PIN, passkeys via a virtual authenticator, SMS and email summary, one-page print, idle purge, egress lock)
 SERVE_DIR=dist npm run test:e2e   # same suite against the Vite build (run `npm run build` first)
 npm run test:icons                # icon-detection accuracy on three icon sets the detector does not use as templates
 (cd src-tauri && cargo test)      # 5 Rust tests (keychain device key)
