@@ -161,8 +161,9 @@ export class ContactFormMapper {
         });
         if (org && (org.score >= 2 || (!domain && org.score > 0))) org.line.role = 'organization';
 
-        // Email and web lines are shown with their OCR slips repaired, so the review box matches what will be filled.
-        return lines.map(({ text, role, icon }) => ({ text: role === 'email' || role === 'website' ? repairAddressText(text) : text, role: role || 'ignore', icon }));
+        // The review box shows the value that will be filled: no line label ("E", "T", "w"...), the label having set the
+        // role, and email and web addresses with their OCR slips repaired. Lines with several numbers keep their labels.
+        return lines.map(line => ({ text: reviewText(line), role: line.role || 'ignore', icon: line.icon }));
     }
 
     /**
@@ -350,6 +351,15 @@ const PHONE_ROLE = { work: 'phoneWork', mobile: 'phoneMobile', home: 'phoneHome'
 function repairAddressText(text) {
     return text.replace(/(?<=[A-Za-z0-9])[\\|](?=[A-Za-z0-9])/g, 'I');
 }
+
+/** What the review box shows for a classified line (see the end of classifyLines). */
+function reviewText({ text, body, label, role, icon }) {
+    if (role === 'email') return findEmail(body) || findEmail(text) || repairAddressText(body);
+    if (role === 'website') return findWebsite(body, label === 'web' || SOCIAL_HOSTS[icon] !== undefined, label === 'web') || repairAddressText(body);
+    if (PHONE_ROLES.has(role)) return body;
+    return text;
+}
+const PHONE_ROLES = new Set(Object.values(PHONE_ROLE));
 
 // Line labels printed in front of contact details ("E jdoe@...", "Tel: ...", "M 555...", "W example.com").
 const LABELS = [

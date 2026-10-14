@@ -328,7 +328,10 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   // space, lowercase "w" label, slogan with a company word ("Technology") and no readable company name (logo only).
   const slips = fm.classifyLines('2OO brightpathlogo\nYour Technology Partner\nDana Whitlock\nOwner & General Manager\n4120 Lakeshore Road, Suite 210\nSpringfield, MI 49011\nE dwhitlock@BrightPath\\T.com\nT 616.555.0142\nM 616.555.0187\nw BrightPath\\T.com Holland');
   ok('misread card: roles (slogan ignored, email and website found, phone types in the picker)', JSON.stringify(slips.map(l => l.role)) === JSON.stringify(['ignore', 'ignore', 'name', 'jobTitle', 'street', 'cityStateZip', 'email', 'phoneWork', 'phoneMobile', 'website']), slips.map(l => l.role).join());
-  ok('misread card: review shows the repaired email and web text', slips[6].text === 'E dwhitlock@BrightPathIT.com' && slips[9].text === 'w BrightPathIT.com Holland', slips[6].text + ' | ' + slips[9].text);
+  ok('misread card: review shows the repaired email and web address, without labels', slips[6].text === 'dwhitlock@BrightPathIT.com' && slips[9].text === 'BrightPathIT.com/Holland', slips[6].text + ' | ' + slips[9].text);
+  ok('misread card: review shows phone numbers without their T / M labels', slips[7].text === '616.555.0142' && slips[8].text === '616.555.0187', slips[7].text + ' | ' + slips[8].text);
+  ok('review keeps the labels of a line with several numbers', fm.classifyLines('T 312.555.1111  M 312.555.2222')[0].text === 'T 312.555.1111 M 312.555.2222');
+  ok('review text, read again as plain lines, fills the same fields', JSON.stringify(fm.buildFields(slips).fields) === JSON.stringify(fm.parseOCRText(slips.map(l => l.text).join('\n'))));
   const slipFields = fm.buildFields(slips);
   ok('misread card: email, website path and company (case from the domain) repaired', slipFields.fields.emails[0].value === 'dwhitlock@BrightPathIT.com' && slipFields.fields.websites[0].value === 'BrightPathIT.com/Holland' && slipFields.fields.organization === 'BrightPathIT' && slipFields.derived.organization === 'web address', JSON.stringify([slipFields.fields.emails, slipFields.fields.websites, slipFields.fields.organization]));
   const typedPhone = (type) => (slipFields.fields.phones.find(e => e.type === type) || {}).value;
@@ -344,7 +347,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('choosing a line as Company overrides the derived company', overridden.fields.organization === 'Your Technology Partner' && !overridden.derived.organization);
   const edited = fm.buildFields(lines.map(l => l.role === 'email' ? { ...l, text: 'E dana@brightpathit.com' } : l));
   ok('edited line text is used', edited.fields.emails[0].value === 'dana@brightpathit.com', JSON.stringify(edited.fields.emails));
-  const swapped = fm.buildFields(lines.map(l => l.text.startsWith('M ') ? { ...l, role: 'phoneWork' } : l.text.startsWith('T ') ? { ...l, role: 'phoneMobile' } : l));
+  const swapped = fm.buildFields(lines.map(l => l.role === 'phoneMobile' ? { ...l, role: 'phoneWork' } : l.role === 'phoneWork' ? { ...l, role: 'phoneMobile' } : l));
   const ph = (type) => (swapped.fields.phones.find(p => p.type === type) || {}).value;
   ok('explicit Work/Mobile phone roles win over labels', ph('work') === '+1 (616) 555-0187' && ph('mobile') === '+1 (616) 555-0142', JSON.stringify(swapped.fields.phones));
   const noted = fm.buildFields([{ text: 'Call after 3pm', role: 'notes' }, { text: 'Gate code 42', role: 'notes' }, { text: 'junk', role: 'ignore' }]);
