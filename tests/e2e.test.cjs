@@ -66,6 +66,12 @@ async function decodeQr(page) {
   return r && r.data;
 }
 
+// After a full unlock the app offers a session PIN; most tests decline it.
+async function skipQuickSetup(page) {
+  await page.waitForSelector('#quickSetupModal', { state: 'visible', timeout: 5000 });
+  await page.click('#quickSetupSkipBtn');
+}
+
 let pass = 0, fail = 0;
 const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, console.log('FAIL', n, d)); };
 
@@ -97,6 +103,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   await page.fill('#vaultPassphrase', 'correct horse 42'); await page.fill('#vaultPassphraseConfirm', 'correct horse 42'); await page.click('#vaultUnlockBtn');
   await page.waitForTimeout(300);
   ok('vault created and modal closed', !(await visible('vaultModal')));
+  ok('session PIN offered after unlocking', await visible('quickSetupModal'));
+  await skipQuickSetup(page);
   ok('indicator shows unlocked', (await text('vaultStateIndicator')).startsWith('UNLOCKED'));
 
   // Edit contact -> preview + encrypted save
@@ -211,6 +219,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   ok('wrong passphrase rejected', (await text('vaultError')) === 'Wrong passphrase.' && await visible('vaultModal'));
   await page.fill('#vaultPassphrase', 'correct horse 42'); await page.click('#vaultUnlockBtn'); await page.waitForTimeout(300);
   ok('right passphrase restores saved card', (await val('firstName')) === 'Maria' && (await val('city')) === 'Chicago');
+  await skipQuickSetup(page);
 
   // Lock, then wipe
   await page.click('#lockVaultBtn'); await page.waitForTimeout(200);
@@ -266,13 +275,139 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p2.click('#wipeVaultBtn'); await p2.waitForTimeout(100);
     await p2.fill('#vaultPassphrase', 'idle passphrase'); await p2.fill('#vaultPassphraseConfirm', 'idle passphrase'); await p2.click('#vaultUnlockBtn');
     await p2.waitForSelector('#vaultModal', { state: 'hidden' });
+    await skipQuickSetup(p2);
     await p2.fill('#firstName', 'Kept'); await p2.clock.fastForward(1000);
+    await p2.click('#setSessionPinBtn');
     await p2.clock.fastForward(125000);
-    ok('idle purge locks vault and re-prompts', await p2.isVisible('#vaultModal') && (await p2.inputValue('#firstName')) === '');
+    ok('idle lock closes an open PIN dialog', !(await p2.isVisible('#quickSetupModal')));
+    ok('idle purge without a session PIN locks the vault fully (passphrase prompt)', await p2.isVisible('#vaultModal') && (await p2.inputValue('#firstName')) === '' && await p2.isVisible('#vaultPassphrase') && !(await p2.isVisible('#vaultPin')));
     await p2.fill('#vaultPassphrase', 'idle passphrase'); await p2.click('#vaultUnlockBtn');
     await p2.waitForSelector('#vaultModal', { state: 'hidden' });
     ok('encrypted card survives idle purge', (await p2.inputValue('#firstName')) === 'Kept');
     await ctx2.close();
+  }
+
+  // Quick unlock: session PIN after an idle lock (5-minute window) and passkeys (virtual authenticator with PRF)
+  {
+    const ctx8 = await browser.newContext();
+    const p8 = await ctx8.newPage();
+    const errors8 = [];
+    p8.on('pageerror', e => errors8.push(e.message));
+    p8.on('console', m => { if (m.type() === 'error') errors8.push('console: ' + m.text()); });
+    p8.on('dialog', d => d.accept());
+    await p8.clock.install();
+    const cdp = await ctx8.newCDPSession(p8);
+    await cdp.send('WebAuthn.enable');
+    const authOptions = { protocol: 'ctap2', ctap2Version: 'ctap2_1', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true };
+    let { authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { ...authOptions, hasPrf: true } });
+    const t8 = id => p8.textContent('#' + id).then(t => t.trim());
+    const idle = async () => { await p8.clock.fastForward(1000); await p8.clock.fastForward(IDLE_MS); };
+    const IDLE_MS = 125000;
+    await p8.goto(ORIGIN); await p8.waitForTimeout(300);
+
+    await p8.fill('#vaultPassphrase', 'quick passphrase 1'); await p8.fill('#vaultPassphraseConfirm', 'quick passphrase 1'); await p8.click('#vaultUnlockBtn');
+    await p8.waitForSelector('#quickSetupModal', { state: 'visible' });
+    await p8.fill('#sessionPinInput', '12'); await p8.click('#quickSetupSaveBtn');
+    ok('session PIN: too-short PIN refused', (await t8('quickSetupError')).includes('4'));
+    await p8.fill('#sessionPinInput', '2468'); await p8.click('#quickSetupSaveBtn');
+    await p8.waitForSelector('#quickSetupModal', { state: 'hidden' });
+    ok('session PIN set: Security panel shows it', (await t8('sessionPinStatus')) === 'Session PIN: set' && await p8.isVisible('#quickUnlockPanel'));
+    await p8.fill('#firstName', 'Quick'); await p8.fill('#lastName', 'Unlock');
+    await idle();
+    ok('idle with a session PIN: card hidden, PIN prompt (no passphrase box)', await p8.isVisible('#vaultModal') && (await t8('vaultModalTitle')) === 'Locked' && await p8.isVisible('#vaultPin') && !(await p8.isVisible('#vaultPassphrase')) && (await p8.inputValue('#firstName')) === '');
+    ok('quick lock: indicator and countdown show the 5-minute window', /^LOCKED \(PIN for [45]:/.test(await t8('vaultStateIndicator')) && (await t8('quickUnlockCountdown')).includes('PIN unlock available for'), await t8('vaultStateIndicator'));
+    ok('quick lock: no plaintext in storage', !(await p8.evaluate(() => JSON.stringify(localStorage))).includes('Quick'));
+    await p8.fill('#vaultPin', '1111'); await p8.click('#vaultUnlockBtn'); await p8.waitForTimeout(300);
+    ok('wrong session PIN rejected with tries left', (await t8('vaultError')) === 'Wrong PIN. 4 tries left.', await t8('vaultError'));
+    await p8.fill('#vaultPin', '2468'); await p8.click('#vaultUnlockBtn');
+    await p8.waitForSelector('#vaultModal', { state: 'hidden' });
+    ok('right session PIN restores the card', (await p8.inputValue('#firstName')) === 'Quick' && (await t8('auditLog')).includes('Vault unlocked (session PIN)'));
+    ok('no PIN offer after a PIN unlock', !(await p8.isVisible('#quickSetupModal')));
+    await idle();
+    await p8.clock.fastForward(301000);
+    ok('after 5 minutes the PIN expires: full lock, passphrase needed', (await t8('vaultModalTitle')) === 'Unlock your vault' && await p8.isVisible('#vaultPassphrase') && !(await p8.isVisible('#vaultPin')) && (await t8('auditLog')).includes('quick unlock expired'));
+    await p8.fill('#vaultPassphrase', 'quick passphrase 1'); await p8.click('#vaultUnlockBtn');
+    await p8.waitForSelector('#quickSetupModal', { state: 'visible' });
+    ok('PIN was forgotten with the full lock (offered again)', (await p8.inputValue('#firstName')) === 'Quick');
+    await p8.fill('#sessionPinInput', '1357'); await p8.click('#quickSetupSaveBtn'); await p8.waitForSelector('#quickSetupModal', { state: 'hidden' });
+    await idle();
+    for (let i = 0; i < 5; i++) { await p8.fill('#vaultPin', '0000'); await p8.click('#vaultUnlockBtn'); await p8.waitForTimeout(250); }
+    ok('5 wrong PINs: full lock, passphrase needed', (await t8('vaultError')).startsWith('5 wrong PINs') && await p8.isVisible('#vaultPassphrase') && !(await p8.isVisible('#vaultPin')), await t8('vaultError'));
+    await p8.fill('#vaultPassphrase', 'quick passphrase 1'); await p8.click('#vaultUnlockBtn');
+    await skipQuickSetup(p8);
+    await p8.click('#lockVaultBtn');
+    ok('Lock button locks fully (passphrase prompt)', await p8.isVisible('#vaultPassphrase') && !(await p8.isVisible('#vaultPasskeyBtn')));
+    await p8.fill('#vaultPassphrase', 'quick passphrase 1'); await p8.click('#vaultUnlockBtn');
+    await p8.waitForSelector('#vaultModal', { state: 'hidden' });
+    ok('declined PIN offer is not repeated in the same session', !(await p8.isVisible('#quickSetupModal')));
+    await p8.click('#setSessionPinBtn');
+    ok('Security panel: Set PIN opens the PIN dialog', await p8.isVisible('#quickSetupModal'));
+    await p8.fill('#sessionPinInput', '4321'); await p8.click('#quickSetupSaveBtn');
+    await p8.waitForSelector('#quickSetupModal', { state: 'hidden' });
+    ok('Security panel: PIN set, Change and Remove offered', (await t8('sessionPinStatus')) === 'Session PIN: set' && (await t8('setSessionPinBtn')) === 'Change' && await p8.isVisible('#clearSessionPinBtn'));
+    await p8.click('#clearSessionPinBtn');
+    ok('Security panel: Remove forgets the PIN', (await t8('sessionPinStatus')) === 'Session PIN: not set' && (await t8('auditLog')).includes('Session PIN removed'));
+
+    // Passkeys
+    ok('passkeys offered in the Security panel', await p8.isVisible('#addPasskeyBtn') && !(await p8.isVisible('#passkeyUnsupported')));
+    await p8.click('#addPasskeyBtn');
+    ok('add passkey asks for the passphrase, with a device name', await p8.isVisible('#passkeyModal') && (await p8.inputValue('#passkeyLabel')).endsWith('passkey'));
+    await p8.fill('#passkeyPassphrase', 'not it'); await p8.click('#passkeySaveBtn'); await p8.waitForTimeout(300);
+    ok('add passkey: wrong passphrase refused', (await t8('passkeyError')) === 'Wrong passphrase.');
+    await p8.fill('#passkeyLabel', 'Test fingerprint'); await p8.fill('#passkeyPassphrase', 'quick passphrase 1'); await p8.click('#passkeySaveBtn');
+    await p8.waitForSelector('#passkeyModal', { state: 'hidden' });
+    ok('passkey enrolled and listed', (await t8('passkeyList')).includes('Test fingerprint') && (await t8('auditLog')).includes('Passkey added (Test fingerprint)'));
+    const blob8 = JSON.parse(await p8.evaluate(() => localStorage.getItem('vCGE_secure_vault.dat')));
+    ok('vault stores a passkey slot (wrapped key only)', blob8.v === 2 && blob8.passkeys.length === 1 && blob8.passkeys[0].wrapped.length > 0 && !JSON.stringify(blob8).includes('Quick'));
+    await p8.click('#lockVaultBtn');
+    ok('unlock screen offers the passkey', await p8.isVisible('#vaultPasskeyBtn') && (await t8('vaultModalHint')).includes('passkey'));
+    await p8.click('#vaultPasskeyBtn');
+    await p8.waitForSelector('#vaultModal', { state: 'hidden' });
+    ok('passkey unlocks the vault (no passphrase typed)', (await p8.inputValue('#firstName')) === 'Quick' && (await t8('auditLog')).includes('Vault unlocked (passkey)'));
+    await p8.reload(); await p8.waitForTimeout(300);
+    ok('after reload the passkey still unlocks', await p8.isVisible('#vaultPasskeyBtn'));
+    await p8.click('#vaultPasskeyBtn');
+    await p8.waitForSelector('#vaultModal', { state: 'hidden' });
+    ok('passkey unlock after reload restores the card', (await p8.inputValue('#firstName')) === 'Quick');
+    await p8.fill('#sessionPinInput', '8642'); await p8.click('#quickSetupSaveBtn'); await p8.waitForSelector('#quickSetupModal', { state: 'hidden' });
+    await idle();
+    ok('quick lock offers PIN and passkey', await p8.isVisible('#vaultPin') && await p8.isVisible('#vaultPasskeyBtn'));
+    await p8.click('#vaultPasskeyBtn');
+    await p8.waitForSelector('#vaultModal', { state: 'hidden' });
+    ok('passkey resumes from a quick lock', (await p8.inputValue('#firstName')) === 'Quick');
+    await idle();
+    await p8.click('#vaultUsePassphraseBtn');
+    ok('"Use the passphrase instead" switches the prompt', await p8.isVisible('#vaultPassphrase') && !(await p8.isVisible('#vaultPin')));
+    await p8.fill('#vaultPassphrase', 'quick passphrase 1'); await p8.click('#vaultUnlockBtn');
+    await p8.waitForSelector('#vaultModal', { state: 'hidden' });
+    ok('passphrase works from a quick lock', (await p8.inputValue('#firstName')) === 'Quick');
+
+    // A passkey provider without PRF cannot unlock an encrypted vault: refused, nothing stored
+    await cdp.send('WebAuthn.removeVirtualAuthenticator', { authenticatorId });
+    ({ authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', { options: { ...authOptions, hasPrf: false } }));
+    await p8.click('#addPasskeyBtn');
+    await p8.fill('#passkeyPassphrase', 'quick passphrase 1'); await p8.click('#passkeySaveBtn');
+    await p8.waitForFunction(() => document.getElementById('passkeyError').textContent.length > 0, null, { timeout: 10000 }).catch(() => {});
+    ok('passkey without PRF refused with an explanation', (await t8('passkeyError')).includes('PRF') && JSON.parse(await p8.evaluate(() => localStorage.getItem('vCGE_secure_vault.dat'))).passkeys.length === 1, await t8('passkeyError'));
+    await p8.click('#passkeyCancelBtn');
+    await p8.click('#passkeyRemove0');
+    ok('passkey removed', (await p8.$$('#passkeyList li')).length === 0 && (await t8('auditLog')).includes('Passkey removed'));
+    await p8.click('#lockVaultBtn');
+    ok('removed passkey no longer offered', !(await p8.isVisible('#vaultPasskeyBtn')));
+    await p8.fill('#vaultPassphrase', 'quick passphrase 1'); await p8.click('#vaultUnlockBtn');
+    await p8.waitForSelector('#vaultModal', { state: 'hidden' });
+
+    // Continue without saving from a quick lock drops the retained vault key
+    await p8.waitForSelector('#quickSetupModal', { state: 'visible' });
+    await p8.fill('#sessionPinInput', '9753'); await p8.click('#quickSetupSaveBtn');
+    await p8.waitForSelector('#quickSetupModal', { state: 'hidden' });
+    await idle();
+    await p8.click('#vaultSkipBtn');
+    const keyDropped = process.env.SERVE_DIR ? true : await p8.evaluate(async () => !(await import('/src/modules/mod02-vault/vault.js')).secureVault.isUnlocked);
+    ok('continue without saving from a quick lock drops the vault key', (await t8('vaultStateIndicator')).startsWith('NOT SAVED') && keyDropped && (await p8.inputValue('#firstName')) === '');
+    const unexpected8 = errors8.filter(e => !e.includes('[ERR 2001]'));
+    ok('quick unlock: no page errors', unexpected8.length === 0, unexpected8.join(' | '));
+    await ctx8.close();
   }
 
   // Icons instead of labels: unlabelled numbers typed by their icons, a bare handle next to a social logo
@@ -315,6 +450,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p6.goto(ORIGIN); await p6.waitForTimeout(300);
     await p6.fill('#vaultPassphrase', 'migration passphrase'); await p6.fill('#vaultPassphraseConfirm', 'migration passphrase'); await p6.click('#vaultUnlockBtn');
     await p6.waitForSelector('#vaultModal', { state: 'hidden' });
+    await skipQuickSetup(p6);
     await p6.evaluate(async () => {
       const { secureVault } = await import('/src/modules/mod02-vault/vault.js');
       await secureVault.encryptAndStore({ firstName: 'Old', lastName: 'Layout', phoneWork: '+1 (555) 201-0001', phoneMobile: '+1 (555) 201-0002', email: 'old@layout.co', website: 'layout.co', street: '1 Main St', city: 'Boise', state: 'ID', zip: '83701', country: 'United States', themePalette: 'ocean' });

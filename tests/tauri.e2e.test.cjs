@@ -55,6 +55,11 @@ function keyringHasDeviceKey() {
     await type('#vaultPassphrase', PASS); await type('#vaultPassphraseConfirm', PASS); await click('#vaultUnlockBtn');
     ok('vault created with OS keychain binding', await until(async () => (await txt('vaultStateIndicator')).includes('OS keychain')), await txt('vaultStateIndicator'));
     ok('device key stored in the OS keyring (Secret Service)', keyringHasDeviceKey());
+    ok('session PIN offered after creating the vault', await until(() => visible('quickSetupModal'), 5000));
+    await type('#sessionPinInput', '2468'); await click('#quickSetupSaveBtn');
+    ok('session PIN set in the desktop app', await until(async () => !(await visible('quickSetupModal')) && (await txt('sessionPinStatus')) === 'Session PIN: set', 10000));
+    const passkeys = await js('return !!(window.isSecureContext && window.PublicKeyCredential && navigator.credentials && navigator.credentials.create);');
+    ok(`passkey option matches this webview (WebAuthn ${passkeys ? 'available' : 'not available'})`, (await visible('addPasskeyBtn')) === passkeys && (await visible('passkeyUnsupported')) === !passkeys);
 
     await type('#firstName', 'Desk'); await type('#lastName', 'Top'); await type('#organization', 'Tauri, Inc');
     await sleep(900);
@@ -150,12 +155,21 @@ function keyringHasDeviceKey() {
       && (await js(`return Array.from(document.querySelectorAll('#ocrLines [id^="ocrLineIcon"]')).map(e => e.textContent).join(',');`)).includes('Mobile icon'), iconSummary);
     await click((await visible('ocrStepText')) ? '#ocrCancelBtn' : '#cancelReviewBtn');
 
+    // Idle 2 minutes with a session PIN: the card is hidden and the PIN brings it back (real time, no fake clock here)
+    await click('#firstName');
+    await sleep(124000);
+    ok('desktop: idle lock with a session PIN shows the PIN prompt', await until(async () => (await visible('vaultModal')) && (await visible('vaultPinRow')) && (await val('firstName')) === '', 10000));
+    await type('#vaultPin', '2468'); await click('#vaultUnlockBtn');
+    ok('desktop: session PIN restores the card (keychain-bound vault)', await until(async () => !(await visible('vaultModal')) && (await val('firstName')) === 'Maria', 10000), await val('firstName'));
+
     // Restart the page: unlock needs passphrase + keychain device key
     await wd('POST', S('/refresh'), {});
     await until(() => js(`return document.readyState === 'complete' && !!document.getElementById('vaultModal');`));
     ok('after reload: unlock mode', await until(async () => (await txt('vaultModalTitle')).includes('Unlock'), 5000));
     await type('#vaultPassphrase', PASS); await click('#vaultUnlockBtn');
     ok('passphrase + keychain key restore the card', await until(async () => (await val('firstName')) === 'Maria'), await val('firstName'));
+    await until(() => visible('quickSetupModal'), 5000);
+    await click('#quickSetupSkipBtn');
 
     // Without the device key (e.g. vault copied to another machine) the vault cannot be opened
     await click('#lockVaultBtn');

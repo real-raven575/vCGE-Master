@@ -42,6 +42,8 @@ npm start            # serves http://localhost:8080 (localhost only; PORT=xxxx t
 
 On first launch you either create a vault passphrase (8+ characters; it **cannot be recovered**) or choose *Continue without saving*.
 
+To avoid retyping the passphrase, set a **session PIN** when offered: after 2 idle minutes the card is hidden, and the PIN brings it back for up to 5 minutes (then the passphrase is needed again). Or add a **passkey** under Security → Quick unlock to unlock with Face ID, Touch ID, Windows Hello, an Android fingerprint or a security key, even after a restart. Passkeys need the page on https or localhost.
+
 ### Desktop app (Tauri v2)
 
 Prerequisites: [Rust](https://rustup.rs) and the [Tauri system dependencies](https://tauri.app/start/prerequisites/) for your OS. On Debian/Ubuntu that means `libwebkit2gtk-4.1-dev build-essential libssl-dev libxdo-dev libayatana-appindicator3-dev librsvg2-dev`.
@@ -56,13 +58,13 @@ npm run tauri build               # release build + installers in src-tauri/targ
 
 ```bash
 npm install
-npm test                          # 126 unit tests (Node)
+npm test                          # 151 unit tests (Node)
 npx playwright install chromium   # once, for the browser tests
-npm run test:e2e                  # 85 browser end-to-end tests (real OCR, icons, crop & straighten, text review, typed fields & regions, old-card conversion, blurry-photo retake, OCR failure, QR decode, vault, idle purge, egress lock)
+npm run test:e2e                  # 121 browser end-to-end tests (real OCR, icons, crop & straighten, text review, typed fields & regions, old-card conversion, blurry-photo retake, OCR failure, QR decode, vault, session PIN, passkeys via a virtual authenticator, idle purge, egress lock)
 SERVE_DIR=dist npm run test:e2e   # same suite against the Vite build (run `npm run build` first)
 npm run test:icons                # icon-detection accuracy on three icon sets the detector does not use as templates
 (cd src-tauri && cargo test)      # 5 Rust tests (keychain device key)
-npm run test:tauri                # 24 desktop tests on Linux: real binary via tauri-driver, real Secret Service, crop by real pointer input, icon detection
+npm run test:tauri                # 29 desktop tests on Linux: real binary via tauri-driver, real Secret Service, session PIN after a real idle lock, crop by real pointer input, icon detection
 ```
 
 `npm run test:tauri` needs `webkit2gtk-driver gnome-keyring libsecret-tools xvfb dbus-x11`, `cargo install tauri-driver --locked`, and a built app (`npx tauri build --debug --no-bundle`).
@@ -120,7 +122,7 @@ vCGE-Master/
     │   └── vcardFormatter.js      # The single vCard 3.0 builder (RFC 2426 escaping, CRLF)
     └── modules/                   # Isolated Core Functional Modules
         ├── mod01-shell/           # shell.js (network gatekeeper), themeManager.js (light/dark)
-        ├── mod02-vault/           # vault.js (PBKDF2 [+ keychain HKDF] + AES-GCM-256), keychain.js (Tauri bridge), ttlManager.js (120 s idle purge)
+        ├── mod02-vault/           # vault.js (data key + passphrase/passkey slots, PBKDF2 [+ keychain HKDF], AES-GCM-256), passkey.js (WebAuthn PRF), sessionPin.js, keychain.js (Tauri bridge), ttlManager.js (120 s idle purge)
         ├── mod03-camera/          # camera.js (viewfinder, zoom, capture), cropEditor.js (corner handles, rotate), perspective.js (straightening maths)
         ├── mod04-ocr/             # ocrWorker.js (image pre-processing + bundled Tesseract.js, on-device), iconDetector.js + iconMatcher.js (icons in front of lines)
         ├── mod05-form/            # formMapper.js (OCR text → contact), addressAutocomplete.js (local-only)
