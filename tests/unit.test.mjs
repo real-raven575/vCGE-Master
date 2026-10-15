@@ -59,6 +59,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const c = share.createEmptyContact();
   ok('schema has every CONTACT_FIELD', share.CONTACT_FIELDS.every(f => f in c));
   ok('formatVCard PHOTO type follows data URL', share.formatVCard({ firstName: 'A', lastName: 'B', avatarBase64: 'data:image/png;base64,AAAA' }).includes('PHOTO;TYPE=PNG;ENCODING=b:AAAA'));
+  ok('formatVCard leaves out a photo contact apps cannot read (SVG)', !share.formatVCard({ firstName: 'A', lastName: 'B', avatarBase64: 'data:image/svg+xml;base64,PHN2Zz4=' }).includes('PHOTO'));
+  ok('formatVCard writes a JPEG photo', share.formatVCard({ firstName: 'A', lastName: 'B', avatarBase64: 'data:image/jpeg;base64,/9j/' }).includes('PHOTO;TYPE=JPEG;ENCODING=b:/9j/'));
 }
 
 // Richer contact fields: typed lists, name parts, units, regions (schema 3.1)
@@ -260,6 +262,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('misread card: review shows the repaired email and web address, without labels', slips[6].text === 'dwhitlock@BrightPathIT.com' && slips[9].text === 'BrightPathIT.com/Holland', slips[6].text + ' | ' + slips[9].text);
   ok('misread card: review shows phone numbers without their T / M labels', slips[7].text === '616.555.0142' && slips[8].text === '616.555.0187', slips[7].text + ' | ' + slips[8].text);
   ok('review keeps the labels of a line with several numbers', fm.classifyLines('T 312.555.1111  M 312.555.2222')[0].text === 'T 312.555.1111 M 312.555.2222');
+  // The tester's card: the email domain misread by one letter, the web address read correctly.
+  const zafer = fm.classifyLines('Nick Zafer\nOwner & General Manager\nE nzafer@TeamlLogiciT.com\nT 269.492.7400\nw TeamLogicIT.com/KalamazooMI');
+  ok('email domain one OCR slip from the web address takes its spelling (review and fields)', zafer[2].text === 'nzafer@TeamLogicIT.com' && fm.buildFields(zafer).fields.emails[0].value === 'nzafer@TeamLogicIT.com', zafer[2].text);
+  ok('a different email domain is left alone', fm.parseOCRText('Jo Smith\njo@acme.co\nacme.com').emails[0].value === 'jo@acme.co' && fm.parseOCRText('Jo Smith\njo@brightpath.com\nnorthwind.com').emails[0].value === 'jo@brightpath.com' && fm.parseOCRText('Jo Smith\njo@gmail.com\ngmail.co').emails[0].value === 'jo@gmail.com');
+  ok('a short domain is not matched (too easy to confuse)', fm.parseOCRText('Jo Smith\njo@abd.com\nabc.com').emails[0].value === 'jo@abd.com');
   ok('review text, read again as plain lines, fills the same fields', JSON.stringify(fm.buildFields(slips).fields) === JSON.stringify(fm.parseOCRText(slips.map(l => l.text).join('\n'))));
   const slipFields = fm.buildFields(slips);
   ok('misread card: email, website path and company (case from the domain) repaired', slipFields.fields.emails[0].value === 'dwhitlock@BrightPathIT.com' && slipFields.fields.websites[0].value === 'BrightPathIT.com/Holland' && slipFields.fields.organization === 'BrightPathIT' && slipFields.derived.organization === 'web address', JSON.stringify([slipFields.fields.emails, slipFields.fields.websites, slipFields.fields.organization]));

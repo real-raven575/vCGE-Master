@@ -289,7 +289,7 @@ export class CardView {
             const img = document.createElement('img');
             img.src = this.avatarBase64;
             img.alt = '';
-            img.className = 'w-full h-full object-cover';
+            img.className = 'w-full h-full object-contain';
             box.appendChild(img);
         } else {
             box.textContent = initials;
@@ -439,8 +439,16 @@ export class CardView {
             if (!file) return;
             if (file.size > 2 * 1024 * 1024) { this.showToast('Avatar must be 2 MB or smaller.'); return; }
             const reader = new FileReader();
-            reader.onload = (evt) => {
-                this.setAvatar(evt.target.result);
+            reader.onload = async (evt) => {
+                let logo;
+                try {
+                    logo = await squareLogo(evt.target.result);
+                } catch (err) {
+                    console.warn('[vCGE] Avatar not readable:', err);
+                    this.showToast('That file could not be read as an image.');
+                    return;
+                }
+                this.setAvatar(logo);
                 this.changed();
                 this.showToast('Avatar attached.');
             };
@@ -484,4 +492,68 @@ export class CardView {
         });
         list.classList.remove('hidden');
     }
+}
+
+const LOGO_SIZE = 256;
+
+/**
+ * Any image the browser can draw (PNG, JPEG, GIF, WebP, SVG) as a square JPEG for the card, print and vCard PHOTO:
+ * the whole image fitted with a margin (never cropped), on an opaque background. An opaque image is extended with
+ * the colour of its own edges; a transparent one gets white, or dark slate when the image itself is mostly light.
+ * @param {string} dataUrl
+ * @returns {Promise<string>} data:image/jpeg
+ */
+export async function squareLogo(dataUrl) {
+    const img = new Image();
+    img.src = dataUrl;
+    await img.decode();
+    // An SVG without width/height has no natural size in some browsers: draw it as a square.
+    const w = img.naturalWidth || LOGO_SIZE, h = img.naturalHeight || LOGO_SIZE;
+    const margin = Math.round(LOGO_SIZE * 0.08), fit = Math.min((LOGO_SIZE - 2 * margin) / w, (LOGO_SIZE - 2 * margin) / h);
+    const dw = Math.round(w * fit), dh = Math.round(h * fit), dx = Math.round((LOGO_SIZE - dw) / 2), dy = Math.round((LOGO_SIZE - dh) / 2);
+
+    const probe = document.createElement('canvas');
+    probe.width = dw; probe.height = dh;
+    const pctx = probe.getContext('2d', { willReadFrequently: true });
+    pctx.drawImage(img, 0, 0, dw, dh);
+    const background = logoBackground(pixelsOf(pctx, dw, dh), dw, dh);
+    probe.width = probe.height = 0;
+
+    const out = document.createElement('canvas');
+    out.width = out.height = LOGO_SIZE;
+    const ctx = out.getContext('2d');
+    ctx.fillStyle = background;
+    ctx.fillRect(0, 0, LOGO_SIZE, LOGO_SIZE);
+    ctx.drawImage(img, dx, dy, dw, dh);
+    return out.toDataURL('image/jpeg', 0.9);
+}
+
+// Pixels for picking the background; empty if the browser will not let the page read them (then: white).
+function pixelsOf(ctx, w, h) {
+    try {
+        return ctx.getImageData(0, 0, w, h).data;
+    } catch (e) {
+        return new Uint8ClampedArray(0);
+    }
+}
+
+/** Transparent image: white, or dark slate if it is mostly light. Opaque image: the average colour of its edges. */
+function logoBackground(px, w, h) {
+    if (!px.length) return '#ffffff';
+    let transparent = 0, solid = 0, light = 0;
+    for (let i = 0; i < px.length; i += 4) {
+        if (px[i + 3] < 250) transparent++;
+        if (px[i + 3] > 128) { solid++; if (0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2] > 160) light++; }
+    }
+    if (transparent > (w * h) / 100) return solid && light / solid > 0.6 ? '#1e293b' : '#ffffff';
+    const sum = [0, 0, 0];
+    let n = 0;
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            if (y !== 0 && y !== h - 1 && x !== 0 && x !== w - 1) continue;
+            const k = (y * w + x) * 4;
+            sum[0] += px[k]; sum[1] += px[k + 1]; sum[2] += px[k + 2]; n++;
+        }
+    }
+    return `rgb(${sum.map(v => Math.round(v / n)).join(',')})`;
 }

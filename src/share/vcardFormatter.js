@@ -58,10 +58,10 @@ export function formatVCard(contact) {
 
     if (contact.notes) lines.push(`NOTE:${e(contact.notes)}`);
 
-    if (contact.avatarBase64) {
-        const match = /^data:image\/([a-z]+);base64,/.exec(contact.avatarBase64);
-        const type = match ? (match[1] === 'jpg' ? 'JPEG' : match[1].toUpperCase()) : 'JPEG';
-        lines.push(`PHOTO;TYPE=${type};ENCODING=b:${contact.avatarBase64.replace(/^data:image\/[a-z]+;base64,/, "")}`);
+    // Contact apps read JPEG, PNG and GIF photos; anything else (an SVG saved by an older build) is left out.
+    const photo = /^data:image\/(jpeg|jpg|png|gif);base64,(.+)$/.exec(contact.avatarBase64 || '');
+    if (photo) {
+        lines.push(`PHOTO;TYPE=${photo[1] === 'jpg' ? 'JPEG' : photo[1].toUpperCase()};ENCODING=b:${photo[2]}`);
     }
 
     lines.push("END:VCARD");

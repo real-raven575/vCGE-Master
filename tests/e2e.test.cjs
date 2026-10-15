@@ -412,6 +412,56 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await ctx10.close();
   }
 
+  // Tester feedback round 3: logos fitted square on an opaque background, and a JPEG vCard photo
+  {
+    const ctx11 = await browser.newContext();
+    const p11 = await ctx11.newPage();
+    const errors11 = [];
+    p11.on('pageerror', e => errors11.push(e.message));
+    p11.on('console', m => { if (m.type() === 'error') errors11.push('console: ' + m.text()); });
+    await p11.goto(ORIGIN); await p11.waitForTimeout(300);
+    await p11.fill('#firstName', 'Logo'); await p11.fill('#lastName', 'Tester');
+    // A wide logo: dark text on a transparent background, a light one, an opaque red banner, and an SVG.
+    const logo = (kind) => p11.evaluate((kind) => {
+      if (kind === 'svg') return 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="100"><text x="10" y="70" font-size="60" fill="#0a6">TeamLogic</text></svg>');
+      const c = document.createElement('canvas'); c.width = 400; c.height = 100;
+      const x = c.getContext('2d');
+      if (kind === 'opaque') { x.fillStyle = '#c00'; x.fillRect(0, 0, 400, 100); }
+      x.fillStyle = kind === 'light' ? '#f5f5f5' : kind === 'opaque' ? '#fff' : '#123';
+      x.font = 'bold 60px Arial'; x.fillText('TeamLogic', 10, 70);
+      return c.toDataURL('image/png');
+    }, kind);
+    const upload = async (kind, name) => {
+      const url = await logo(kind);
+      await p11.setInputFiles('#avatarUpload', { name, mimeType: url.slice(5, url.indexOf(';')), buffer: Buffer.from(url.split(',')[1], 'base64') });
+      await p11.waitForFunction(() => { const i = document.querySelector('#previewAvatar img'); return i && i.src.startsWith('data:image/jpeg') && i.complete; });
+      await p11.waitForTimeout(100);
+      return p11.evaluate(() => {
+        const i = document.querySelector('#previewAvatar img');
+        const c = document.createElement('canvas'); c.width = i.naturalWidth; c.height = i.naturalHeight;
+        const x = c.getContext('2d'); x.drawImage(i, 0, 0);
+        const at = (px, py) => Array.from(x.getImageData(px, py, 1, 1).data.slice(0, 3));
+        // Fitted, not cropped: the logo is 4:1, so the top and bottom bands stay background and the edges stay clear.
+        return { w: i.naturalWidth, h: i.naturalHeight, corner: at(2, 2), band: at(128, 40), fit: getComputedStyle(i).objectFit };
+      });
+    };
+    const near = (rgb, target, tol = 40) => rgb.every((v, k) => Math.abs(v - target[k]) <= tol);
+    const dark = await upload('dark', 'logo.png');
+    ok('logo becomes a 256 px square JPEG, fitted (not cropped)', dark.w === 256 && dark.h === 256 && dark.fit === 'contain' && near(dark.band, [255, 255, 255]), JSON.stringify(dark));
+    ok('transparent dark logo gets a white background', near(dark.corner, [255, 255, 255]), JSON.stringify(dark.corner));
+    const light = await upload('light', 'light.png');
+    ok('transparent light logo gets a dark background', light.corner.every(v => v < 80), JSON.stringify(light.corner));
+    const opaque = await upload('opaque', 'banner.png');
+    ok('opaque logo is extended with its own edge colour', near(opaque.corner, [204, 0, 0], 50), JSON.stringify(opaque.corner));
+    const svg = await upload('svg', 'logo.svg');
+    ok('SVG logo is accepted and converted', svg.w === 256 && near(svg.corner, [255, 255, 255]), JSON.stringify(svg));
+    const [dl11] = await Promise.all([p11.waitForEvent('download'), p11.click('#downloadVcfBtn')]);
+    const vcf11 = fs.readFileSync(await dl11.path(), 'utf8');
+    ok('.vcf carries the logo as a JPEG photo', /\r\nPHOTO;TYPE=JPEG;ENCODING=b:\/9j\//.test(vcf11) && !vcf11.includes('svg'), vcf11.slice(vcf11.indexOf('PHOTO'), vcf11.indexOf('PHOTO') + 40));
+    ok('round 3: no page errors', errors11.length === 0, errors11.join(' | '));
+    await ctx11.close();
+  }
+
   // Tester feedback round 1: Undo after a sample / clear / scan fill, reopen the last scan, readable SMS and email, one-page print
   {
     const ctx9 = await browser.newContext();

@@ -163,7 +163,9 @@ export class ContactFormMapper {
 
         // The review box shows the value that will be filled: no line label ("E", "T", "w"...), the label having set the
         // role, and email and web addresses with their OCR slips repaired. Lines with several numbers keep their labels.
-        return lines.map(line => ({ text: reviewText(line), role: line.role || 'ignore', icon: line.icon }));
+        // An email domain one or two OCR slips away from the web address takes the web address's spelling.
+        const site = (lines.map(l => l.role === 'website' && reviewText(l)).find(w => w && !websiteTypeFor(w))) || '';
+        return lines.map(line => ({ text: line.role === 'email' ? matchEmailToWebsite(reviewText(line), site) : reviewText(line), role: line.role || 'ignore', icon: line.icon }));
     }
 
     /**
@@ -258,7 +260,8 @@ export class ContactFormMapper {
             if (domain.name) { fields.organization = domain.name; derived.organization = domain.from; }
         }
         // Emails: personal mail providers are Personal, everything else Work.
-        emailValues.filter(Boolean).forEach(value => {
+        const site = (fields.websites.find(w => !websiteTypeFor(w.value)) || {}).value;
+        emailValues.filter(Boolean).map(value => matchEmailToWebsite(value, site)).forEach(value => {
             if (fields.emails.some(e => e.value === value)) return;
             const host = (value.split('@')[1] || '').split('.');
             const name = host.length > 2 && host[host.length - 2].length <= 3 ? host[host.length - 3] : host[host.length - 2];
@@ -360,6 +363,33 @@ function reviewText({ text, body, label, role, icon }) {
     return text;
 }
 const PHONE_ROLES = new Set(Object.values(PHONE_ROLE));
+
+/**
+ * OCR slips in an email domain ("TeamlLogiciT.com") are fixed from the web address on the same card
+ * ("TeamLogicIT.com"): same ending, a name of 6+ letters, at most 2 letters different. Anything further apart is
+ * taken to be a different domain and left alone.
+ */
+function matchEmailToWebsite(email, website) {
+    const at = String(email || '').lastIndexOf('@');
+    const siteHost = String(website || '').replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0];
+    if (at < 1 || !siteHost) return email;
+    const mailHost = email.slice(at + 1);
+    if (mailHost.toLowerCase() === siteHost.toLowerCase()) return email;
+    const split = (host) => { const i = host.lastIndexOf('.'); return [host.slice(0, i).toLowerCase(), host.slice(i + 1).toLowerCase()]; };
+    const [mailName, mailEnd] = split(mailHost), [siteName, siteEnd] = split(siteHost);
+    if (mailEnd !== siteEnd || siteName.length < 6 || editDistance(mailName, siteName) > 2) return email;
+    return email.slice(0, at + 1) + siteHost;
+}
+
+function editDistance(a, b) {
+    let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+    for (let i = 1; i <= a.length; i++) {
+        const row = [i];
+        for (let j = 1; j <= b.length; j++) row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+        prev = row;
+    }
+    return prev[b.length];
+}
 
 // Line labels printed in front of contact details ("E jdoe@...", "Tel: ...", "M 555...", "W example.com").
 const LABELS = [
