@@ -179,8 +179,11 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   });
   await page.setInputFiles('#imageUpload', await renderCardImage(page)); await page.waitForTimeout(300);
   ok('upload opens review modal', await visible('cropReviewModal'));
+  await page.evaluate(() => { window.__ocrButtonTexts = []; new MutationObserver(() => window.__ocrButtonTexts.push(document.getElementById('runOcrBtn').textContent)).observe(document.getElementById('runOcrBtn'), { childList: true, characterData: true, subtree: true }); });
   await page.click('#runOcrBtn');
   await page.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
+  const buttonTexts = await page.evaluate(() => window.__ocrButtonTexts);
+  ok('first scan says the reader is being prepared, then extracting', buttonTexts.indexOf('Preparing the reader…') >= 0 && buttonTexts.indexOf('Extracting…', buttonTexts.indexOf('Preparing the reader…')) > 0, buttonTexts.join(' | '));
   ok('review step lists the OCR lines with a field picker each', (await page.$$('#ocrLines select')).length >= 8 && (await page.inputValue('#ocrLineRole0')) === 'name', String((await page.$$('#ocrLines select')).length));
   ok('nothing reaches the form before Fill form', !(await rows(page, 'email')).some(r => r.value.includes('northwind')));
   ok('"Will fill" summary shows the mapped fields', (await text('ocrSummary')).includes('maria.gonzalez@northwind.com') && (await text('ocrSummary')).includes('Northwind Systems'));

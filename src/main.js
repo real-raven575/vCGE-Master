@@ -565,11 +565,14 @@ async function runOcr() {
     $('runOcrBtn').disabled = true;
     $('runOcrBtn').textContent = 'Extracting…';
     try {
-        const { text, lines } = await executeOCRScan(cropEditor.getCroppedImage());
+        // The first scan (and the first after a wipe) starts the reader from ~7 MB of bundled files: say so.
+        const onStatus = (status) => { $('runOcrBtn').textContent = status === 'starting' ? 'Preparing the reader…' : 'Extracting…'; };
+        const { text, lines } = await executeOCRScan(cropEditor.getCroppedImage(), { onStatus });
         ocrReview = { lines: formMapper.classifyLines(lines && lines.length ? lines : text), fields: null };
         renderOcrLines();
         showReviewStep('text');
     } catch (e) {
+        if (e && e.code === 'OCR_CANCELLED') return;   // a wipe stopped it; the wipe already cleared the dialog
         console.error('[vCGE] OCR failed:', e);
         if (e && e.code === 'OCR_UNREADABLE') {
             showRetakePrompt(true);

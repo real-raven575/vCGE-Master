@@ -9,6 +9,7 @@
 
 import { globalEventBus, Events } from '../../share/eventBus.js';
 import { loadIconTemplates, grayFromDataUrl, detectLineIcons } from './iconDetector.js';
+import { refineLines, altsForText } from './glyphChoices.js';
 
 const MODULE_ID = 'vCGE-MOD04';
 const MODULE_NAME = 'OCR Engine Module';
@@ -20,6 +21,9 @@ const vendorUrl = (file) => new URL(`src/vendor/tesseract/${file}`, document.bas
 const guardedWorkerUrl = () => `${new URL('src/modules/mod01-shell/workerGuard.js', document.baseURI).href}#${encodeURIComponent(vendorUrl('worker.min.js'))}`;
 
 let tesseractWorker = null;
+// Bumped by every shutdown, so a scan or start-up that was running at the time ends instead of finishing.
+let generation = 0;
+let cancelRunning = null;
 
 // How long the engine may take to start (core + English model, ~7 MB from local files) before we give up.
 export const OCR_INIT_TIMEOUT_MS = 60000;
@@ -45,6 +49,15 @@ export class OcrUnreadableError extends Error {
     }
 }
 
+/** Thrown when a wipe shut the engine down while a scan was running; the caller should stay quiet. */
+export class OcrCancelledError extends Error {
+    constructor() {
+        super('OCR stopped by a wipe');
+        this.name = 'OcrCancelledError';
+        this.code = 'OCR_CANCELLED';
+    }
+}
+
 /** Thrown when the OCR engine cannot start; the caller should tell the user and leave the form untouched. */
 export class OcrUnavailableError extends Error {
     constructor(reason) {
@@ -62,6 +75,7 @@ export class OcrUnavailableError extends Error {
  */
 async function initOCREngine(timeoutMs) {
     if (tesseractWorker) return tesseractWorker;
+    const started = generation;
     if (typeof Tesseract === 'undefined') throw new OcrUnavailableError('Tesseract.js is not loaded');
 
     console.log(`[${MODULE_ID}] Initializing offline Tesseract WASM worker...`);
@@ -85,7 +99,9 @@ async function initOCREngine(timeoutMs) {
 
     try {
         const worker = await Promise.race([created, failed]);
-        await worker.setParameters({ tessedit_pageseg_mode: OCR_PAGE_SEG_MODE });
+        // lstm_choice_mode 2: each letter comes with the engine's other guesses (see glyphChoices.js).
+        await worker.setParameters({ tessedit_pageseg_mode: OCR_PAGE_SEG_MODE, lstm_choice_mode: '2' });
+        if (generation !== started) throw new OcrCancelledError();
         tesseractWorker = worker;
         console.log(`[${MODULE_ID}] OCR Worker successfully initialized and locked for offline execution.`);
         return tesseractWorker;
@@ -93,11 +109,25 @@ async function initOCREngine(timeoutMs) {
         // A worker that still finishes starting after a failure is not kept.
         created.then(w => w.terminate(), () => {});
         console.error(`[${MODULE_ID}] Failed to initialize OCR worker:`, error);
-        throw error instanceof OcrUnavailableError ? error : new OcrUnavailableError(error && error.message || String(error));
+        throw error instanceof OcrUnavailableError || error instanceof OcrCancelledError ? error : new OcrUnavailableError(error && error.message || String(error));
     } finally {
         clearTimeout(timer);
     }
 }
+
+/**
+ * Stops the engine and drops it with whatever it last read; a scan still running ends with OcrCancelledError. The next
+ * scan starts a fresh engine. Runs on every wipe and idle purge, so nothing from a photo outlives them.
+ */
+export function shutdownOCREngine() {
+    generation++;
+    if (cancelRunning) cancelRunning(new OcrCancelledError());
+    const worker = tesseractWorker;
+    tesseractWorker = null;
+    if (worker) Promise.resolve().then(() => worker.terminate()).catch(() => {});
+}
+globalEventBus.subscribe(Events.VAULT_WIPED, shutdownOCREngine);
+globalEventBus.subscribe(Events.MEMORY_PURGED, shutdownOCREngine);
 
 /**
  * Prepares a photo for OCR: greyscale, resized so the longer side is about 1800 px (small photos are enlarged up to 3x,
@@ -165,32 +195,52 @@ export function preProcessImageBuffer(imageSrc) {
 
 /**
  * Icons in front of each OCR line (phone handset, envelope, social logo...). Best effort: any failure means no icons,
- * never a failed scan. Returns [{ text, icon }] in card order (lines that were only an icon are dropped).
+ * never a failed scan. Returns [{ text, icon, alts }] in card order (lines that were only an icon are dropped); `alts`
+ * are the engine's close second guesses for letters of `text` ([{ at, chars }], see glyphChoices.js).
  */
 async function linesWithIcons(processedImage, data) {
-    const lines = data.lines || [];
-    if (!lines.length) return String(data.text || '').split('\n').map(text => ({ text: text.trim(), icon: null })).filter(l => l.text);
+    const lines = refineLines(data.lines || []);
+    if (!lines.length) return String(data.text || '').split('\n').map(text => ({ text: text.trim(), icon: null, alts: [] })).filter(l => l.text);
+    const withAlts = (found) => found.map((l, i) => ({ text: l.text, icon: l.icon, alts: altsForText(l.text, lines[i].words) })).filter(l => l.text);
     try {
         const [templates, image] = await Promise.all([loadIconTemplates(), grayFromDataUrl(processedImage)]);
-        return detectLineIcons(image.gray, image.width, image.height, lines, templates)
-            .filter(l => l.text).map(({ text, icon }) => ({ text, icon }));
+        return withAlts(detectLineIcons(image.gray, image.width, image.height, lines, templates));
     } catch (e) {
         console.warn(`[${MODULE_ID}] Icon detection skipped:`, e);
-        return lines.map(l => ({ text: (l.text || '').trim(), icon: null })).filter(l => l.text);
+        return withAlts(lines.map(l => ({ text: (l.text || '').trim(), icon: null })));
     }
 }
 
 /**
- * Runs OCR on an image (data URL) and returns { text, confidence, lines }; `lines` is [{ text, icon }] with the icon
- * found in front of each line (or null). Mapping lines to contact fields is MOD05's job.
- * Rejects with OcrUnavailableError when the engine cannot start, and with OcrUnreadableError when the photo is too
- * blurry or unclear, so neither made-up nor garbage text ever reaches the form.
+ * Runs OCR on an image (data URL) and returns { text, confidence, lines }; `lines` is [{ text, icon, alts }] with the
+ * icon found in front of each line (or null) and the engine's close second guesses. Mapping lines to contact fields is
+ * MOD05's job. `onStatus('starting')` is called when the engine has to start first (the first scan, or after a wipe:
+ * about 7 MB of bundled files to load), then `onStatus('reading')`.
+ * Rejects with OcrUnavailableError when the engine cannot start, with OcrUnreadableError when the photo is too
+ * blurry or unclear, so neither made-up nor garbage text ever reaches the form, and with OcrCancelledError when a
+ * wipe stopped it.
  */
-export async function executeOCRScan(imageSrc, { initTimeoutMs = OCR_INIT_TIMEOUT_MS } = {}) {
+export async function executeOCRScan(imageSrc, { initTimeoutMs = OCR_INIT_TIMEOUT_MS, onStatus = () => {} } = {}) {
     console.log(`[${MODULE_ID}] Starting OCR extraction pipeline...`);
+    const started = generation;
+    let cancel;
+    const cancelled = new Promise((_, reject) => { cancel = reject; });
+    cancelled.catch(() => {});
+    cancelRunning = cancel;
+    try {
+        return await Promise.race([scan(imageSrc, initTimeoutMs, onStatus, started), cancelled]);
+    } finally {
+        if (cancelRunning === cancel) cancelRunning = null;
+    }
+}
+
+async function scan(imageSrc, initTimeoutMs, onStatus, started) {
     const processedImage = await preProcessImageBuffer(imageSrc);
+    if (!tesseractWorker) onStatus('starting');
     const worker = await initOCREngine(initTimeoutMs);
+    onStatus('reading');
     const result = await worker.recognize(processedImage);
+    if (generation !== started) throw new OcrCancelledError();
     const text = result.data.text || '';
     const confidence = Math.round(result.data.confidence || 0);
     const readableWords = (result.data.words || []).filter(w => w.confidence >= 60 && /[A-Za-z0-9]{2,}/.test(w.text)).length;
@@ -200,6 +250,7 @@ export async function executeOCRScan(imageSrc, { initTimeoutMs = OCR_INIT_TIMEOU
         throw new OcrUnreadableError(confidence, readableWords);
     }
     const lines = await linesWithIcons(processedImage, result.data);
+    if (generation !== started) throw new OcrCancelledError();
     // A signal only: the text itself is contact data and goes back to the caller, never onto the bus.
     globalEventBus.publish(Events.OCR_TEXT_EXTRACTED, { sourceModule: MODULE_ID, confidence, icons: lines.filter(l => l.icon).length, timestamp: Date.now() });
     return { text, confidence, lines };

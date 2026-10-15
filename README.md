@@ -58,7 +58,7 @@ npm run tauri build               # release build + installers in src-tauri/targ
 
 ```bash
 npm install
-npm test                          # 202 unit tests (Node)
+npm test                          # 219 unit tests (Node)
 npx playwright install chromium   # once, for the browser tests
 npm run test:e2e                  # 157 browser end-to-end tests (real OCR, icons, crop & straighten, text review, logo fitting, reopen last scan, scan kept across a PIN lock, undo, typed fields & regions, blurry-photo retake, OCR failure, QR decode, nothing stored, wipe on reload / 30 s out of view / idle, lock on screen off with a PIN, 7-minute reset, Back guard, session PIN, biometric unlock, SMS and email summary, one-page print, egress lock)
 SERVE_DIR=dist npm run test:e2e   # same suite against the Vite build (run `npm run build` first)
@@ -124,7 +124,7 @@ vCGE-Master/
         ├── mod01-shell/           # netLock.js + workerGuard.js (network lock: page, OCR worker), shell.js (audit bridge), themeManager.js (light/dark)
         ├── mod02-vault/           # vault.js (temporary vault, memory only: AES-GCM-256 hold/release, old-vault clean-up), sessionPin.js (4-digit PIN), biometric.js (Face ID / fingerprint via WebAuthn, on-device), secretInputs.js (no save-password prompts), keychain.js (deletes the old desktop device key), ttlManager.js (120 s idle purge), vaultStore.js + wipePolicy.js (hub store with per-module handles and the wipe rules; built and tested, not yet wired into main.js)
         ├── mod03-camera/          # camera.js (viewfinder, zoom, capture), cropEditor.js (corner handles, rotate), perspective.js (straightening maths)
-        ├── mod04-ocr/             # ocrWorker.js (image pre-processing + bundled Tesseract.js, on-device), iconDetector.js + iconMatcher.js (icons in front of lines)
+        ├── mod04-ocr/             # ocrWorker.js (image pre-processing + bundled Tesseract.js, on-device), iconDetector.js + iconMatcher.js (icons in front of lines), glyphChoices.js (second guesses for each letter)
         ├── mod05-form/            # formMapper.js (OCR text → contact), addressAutocomplete.js (local-only)
         ├── mod06-gui/             # card3dView.js (CardView: form, preview, palettes, avatar), cardStyles.css
         ├── mod07-qr/              # qrGenerator.js (vCard via shared builder, scannable QR via qrcode-generator)

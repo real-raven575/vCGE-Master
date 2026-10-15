@@ -48,13 +48,16 @@ export class ContactFormMapper {
      * An icon found in front of a line (MOD04 iconDetector) is one more clue: a phone, mobile, fax or home icon acts as
      * that label, an envelope or globe marks the email or web line, a pin or building the address, a social logo the
      * profile (even a bare "@handle"). A label written in the text wins over the icon, and so does the text's own shape.
-     * @param {string|{ text: string, icon?: string }[]} input - Raw OCR text, or OCR lines with their icons.
+     * The OCR's close second guesses for a letter (MOD04 `alts`) settle what the photo alone can't, such as a capital I
+     * and a lowercase l drawn as the same bar (see applySecondGuesses).
+     * @param {string|{ text: string, icon?: string, alts?: { at: number, chars: string[] }[] }[]} input - Raw OCR text,
+     *        or OCR lines with their icons and second guesses.
      * @returns {{ text: string, role: string, icon: string|null }[]} One entry per non-empty line, in card order.
      */
     classifyLines(input) {
         const raw = Array.isArray(input) ? input : String(input || '').split('\n').map(text => ({ text, icon: null }));
         const lines = raw
-            .map(l => ({ text: String(l.text || '').replace(/[“”]/g, '"').replace(/[‘’]/g, "'").replace(/\s+/g, ' ').trim(), icon: l.icon || null }))
+            .map(l => ({ text: applySecondGuesses(String(l.text || ''), l.alts).replace(/[“”]/g, '"').replace(/[‘’]/g, "'").replace(/\s+/g, ' ').trim(), icon: l.icon || null }))
             .filter(l => l.text.length > 0)
             .map(({ text, icon }) => {
                 const parsed = splitLabel(text);
@@ -160,6 +163,11 @@ export class ContactFormMapper {
             if (!org || score > org.score) org = { line, score };
         });
         if (org && (org.score >= 2 || (!domain && org.score > 0))) org.line.role = 'organization';
+
+        // A web path ending in the card's own state code, its I read as a bar ("Kalamazoom\" on a Michigan card), ends
+        // in that code ("KalamazooMI").
+        const state = (lines.map(l => (l.role === 'cityStateZip' || l.role === 'address') && findAddressLine(l.text)).find(Boolean) || {}).state;
+        if (state) lines.forEach(l => { if (l.role === 'website') l.body = endWithStateCode(l.body, state); });
 
         // The review box shows the value that will be filled: no line label ("E", "T", "w"...), the label having set the
         // role, and email and web addresses with their OCR slips repaired. Lines with several numbers keep their labels.
@@ -353,6 +361,29 @@ const PHONE_ROLE = { work: 'phoneWork', mobile: 'phoneMobile', home: 'phoneHome'
 /** OCR reads the I (or l) inside an address as "\" or "|": "BrightPath\T.com" -> "BrightPathIT.com". Only between letters or digits. */
 function repairAddressText(text) {
     return text.replace(/(?<=[A-Za-z0-9])[\\|](?=[A-Za-z0-9])/g, 'I');
+}
+
+/**
+ * Many card fonts draw a capital I and a lowercase l or i as the same bar. Inside a web or email address, a letter the
+ * OCR also read as "I" (MOD04 second guesses: [{ at, chars }]) becomes "I" when it follows a letter and comes before a
+ * capital: "TeamLogiciT.com" -> "TeamLogicIT.com". Everywhere else the OCR's pick stands.
+ */
+function applySecondGuesses(text, alts) {
+    if (!Array.isArray(alts) || !alts.length) return text;
+    const out = text.split('');
+    for (const { at, chars } of alts) {
+        if (!Array.isArray(chars) || out[at] !== chars[0] || chars[0] === 'I' || !chars.includes('I')) continue;
+        if (!/[A-Za-z]/.test(out[at - 1] || '') || !/[A-Z]/.test(out[at + 1] || '')) continue;
+        const start = text.lastIndexOf(' ', at) + 1, end = text.indexOf(' ', at);
+        const token = text.slice(start, end < 0 ? text.length : end);
+        if (/@/.test(token) || WEB_RE.test(token.replace(/[^A-Za-z0-9]+$/, '')) || /\.[A-Za-z]{2,}\//.test(token)) out[at] = 'I';
+    }
+    return out.join('');
+}
+
+/** ".../Kalamazoom\" with MI as the card's state -> ".../KalamazooMI": only when the path ends in a bar OCR made of an I. */
+function endWithStateCode(text, state) {
+    return text.replace(/(\/[A-Za-z-]{3,})([A-Za-z])([\\|!1])(?=\s|$)/, (m, path, letter, bar) => (normaliseState(letter + bar) === state ? path + state : m));
 }
 
 /** What the review box shows for a classified line (see the end of classifyLines). */

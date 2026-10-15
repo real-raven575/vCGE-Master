@@ -443,6 +443,22 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const zafer = fm.classifyLines('Nick Zafer\nOwner & General Manager\nE nzafer@TeamlLogiciT.com\nT 269.492.7400\nw TeamLogicIT.com/KalamazooMI');
   ok('email domain one OCR slip from the web address takes its spelling (review and fields)', zafer[2].text === 'nzafer@TeamLogicIT.com' && fm.buildFields(zafer).fields.emails[0].value === 'nzafer@TeamLogicIT.com', zafer[2].text);
   ok('a different email domain is left alone', fm.parseOCRText('Jo Smith\njo@acme.co\nacme.com').emails[0].value === 'jo@acme.co' && fm.parseOCRText('Jo Smith\njo@brightpath.com\nnorthwind.com').emails[0].value === 'jo@brightpath.com' && fm.parseOCRText('Jo Smith\njo@gmail.com\ngmail.co').emails[0].value === 'jo@gmail.com');
+  // The same card as the OCR reads its photo: capital I and lowercase l are the same bar in its font, so the OCR's
+  // second guesses (MOD04 alts) and the card's state settle them.
+  const scanned = [
+    { text: 'Portage, Ml 49024', alts: [{ at: 10, chars: ['l', '|', 'I', '\\', 'i'] }] },
+    { text: 'Nick Zafer', alts: [] },
+    { text: 'E nzafer@TeamlLogic\\T.com', alts: [{ at: 13, chars: ['l', 'L'] }, { at: 14, chars: ['L', 'l'] }] },
+    { text: 'w TeamLogiciT.com/Kalamazoom\\', alts: [{ at: 11, chars: ['i', 'I', '!', '|'] }, { at: 27, chars: ['m', 'M'] }, { at: 28, chars: ['\\', 'y', 'l'] }] }
+  ];
+  const scannedFields = fm.buildFields(fm.classifyLines(scanned)).fields;
+  ok('second guesses: TeamLogiciT read with "I" as runner-up becomes TeamLogicIT (company, email, web)', scannedFields.organization === 'TeamLogicIT' && scannedFields.emails[0].value === 'nzafer@TeamLogicIT.com' && scannedFields.websites[0].value === 'TeamLogicIT.com/KalamazooMI', JSON.stringify([scannedFields.organization, scannedFields.emails, scannedFields.websites]));
+  const noGuesses = fm.buildFields(fm.classifyLines(scanned.map(l => ({ text: l.text })))).fields;
+  ok('without second guesses the OCR pick stands (TeamLogiciT)', noGuesses.organization === 'TeamLogiciT', noGuesses.organization);
+  ok('second guesses change only web and email addresses', fm.classifyLines([{ text: 'Owner of iTunes Store', alts: [{ at: 9, chars: ['i', 'I'] }] }])[0].text === 'Owner of iTunes Store');
+  ok('a second guess without "I" changes nothing', fm.classifyLines([{ text: 'w shopiT.com', alts: [{ at: 6, chars: ['i', 'l'] }] }])[0].text === 'shopiT.com');
+  const pathState = (site, place) => fm.buildFields(fm.classifyLines(`Jo Smith\nw ${site}\n${place}`)).fields.websites[0].value;
+  ok('a web path ends in the card\'s state code only when its I was read as a bar', pathState('acme.com/Detroitm\\', 'Detroit, MI 48201') === 'acme.com/DetroitMI' && pathState('acme.com/Detroitm\\', 'Austin, TX 73301') === 'acme.com/Detroitm' && pathState('acme.com/email', 'Chicago, IL 60601') === 'acme.com/email', [pathState('acme.com/Detroitm\\', 'Detroit, MI 48201'), pathState('acme.com/Detroitm\\', 'Austin, TX 73301')].join(' | '));
   ok('a short domain is not matched (too easy to confuse)', fm.parseOCRText('Jo Smith\njo@abd.com\nabc.com').emails[0].value === 'jo@abd.com');
   ok('review text, read again as plain lines, fills the same fields', JSON.stringify(fm.buildFields(slips).fields) === JSON.stringify(fm.parseOCRText(slips.map(l => l.text).join('\n'))));
   const slipFields = fm.buildFields(slips);
@@ -568,6 +584,25 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   delete globalThis.qrcode;
 }
 
+// OCR second guesses (MOD04 glyphChoices: pure)
+{
+  const g = await import(`${R}/modules/mod04-ocr/glyphChoices.js`);
+  const sym = (text, x0, x1, confidence, choices) => ({ text, bbox: { x0, x1, y0: 0, y1: 40 }, confidence, choices: choices.map(([t, c]) => ({ text: t, confidence: c })) });
+  // The "m" of "Kalamazoo" read as "rm": the "r" box lies inside the "m" box and "m" was one of its guesses.
+  const kala = { text: 'Kalarmazoo', symbols: [sym('K', 0, 44, 99, [['K', 94]]), sym('a', 42, 74, 99, [['a', 88]]), sym('l', 71, 89, 99, [['l', 94]]),
+    sym('a', 89, 122, 99, [['a', 95]]), sym('r', 128, 149, 95, [['r', 92], ['m', 76]]), sym('m', 123, 182, 96, [['m', 92], ['n', 48]]),
+    sym('a', 181, 215, 98, [['a', 93]]), sym('z', 212, 248, 99, [['z', 95]]), sym('o', 245, 278, 99, [['o', 94]]), sym('o', 281, 314, 98, [['o', 90]])] };
+  ok('a letter read twice (the "r" inside an "m") is dropped', g.refineWord(kala).text === 'Kalamazoo', g.refineWord(kala).text);
+  const rn = { text: 'rn', symbols: [sym('r', 0, 20, 90, [['r', 90], ['m', 70]]), sym('n', 22, 50, 92, [['n', 92]])] };
+  ok('letters side by side are both kept ("rn")', g.refineWord(rn).text === 'rn');
+  const logic = { text: 'LogiciT', symbols: [sym('L', 0, 30, 95, [['L', 89]]), sym('o', 30, 60, 99, [['o', 94]]), sym('g', 60, 90, 98, [['g', 95]]),
+    sym('i', 90, 100, 98, [['i', 89], ['j', 18]]), sym('c', 100, 130, 99, [['c', 95]]), sym('i', 132, 142, 87, [['i', 82], ['I', 78], ['!', 76], ['/', 60], ['l', 59], ['?', 40]]), sym('T', 142, 172, 99, [['T', 93]])] };
+  const refined = g.refineWord(logic);
+  ok('close second guesses are kept (within 20 points, at least 50); far ones are not', JSON.stringify(refined.alts) === JSON.stringify([{ at: 5, chars: ['i', 'I', '!'] }]), JSON.stringify(refined.alts));
+  ok('a word whose letters do not spell it is left alone', g.refineWord({ text: 'abc', symbols: [sym('a', 0, 9, 90, [['a', 90], ['o', 85]])] }).text === 'abc');
+  ok('second guesses follow the words into the final line text (label added, icon debris dropped)', JSON.stringify(g.altsForText('E jo@LogiciT.com', [{ text: 'Q', alts: [] }, { text: 'jo@LogiciT.com', alts: [{ at: 8, chars: ['i', 'I'] }] }])) === JSON.stringify([{ at: 10, chars: ['i', 'I'] }]));
+}
+
 // OCR worker (ESM): returns raw text, publishes on the shared bus, and fails loudly (never with made-up text)
 {
   globalThis.document = { baseURI: 'http://localhost/', createElement: () => ({ getContext: () => ({ drawImage() {}, getImageData: () => ({ data: new Uint8ClampedArray(4) }), putImageData() {} }), toDataURL: () => 'data:image/png;base64,' }) };
@@ -592,10 +627,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('OCR start-up that never finishes times out', slow && slow.code === 'OCR_UNAVAILABLE' && slow.message.includes('longer than'), slow && slow.message);
   ok('failed OCR publishes nothing to the form pipeline', evt === null);
 
-  let created = 0, psm = null, result = null;
+  let created = 0, terminated = 0, psm = null, params = null, result = null, hold = false;
   const words = (n, conf) => Array.from({ length: n }, (_, i) => ({ text: `word${i}`, confidence: conf }));
   globalThis.Tesseract = { createWorker: async () => { created++; return {
-    setParameters: async (p) => { psm = p.tessedit_pageseg_mode; }, recognize: async () => ({ data: result }), terminate() {} }; } };
+    setParameters: async (p) => { params = p; psm = p.tessedit_pageseg_mode; },
+    recognize: async () => (hold ? new Promise(() => {}) : { data: result }), terminate() { terminated++; } }; } };
   result = { text: 'Jane Doe\njane@example.com', confidence: 88, words: words(8, 90) };
   const r = await ocr.executeOCRScan('data:image/png;base64,x');
   ok('OCR returns raw text and confidence, publishes OCR_TEXT_EXTRACTED', r.text === 'Jane Doe\njane@example.com' && r.confidence === 88 && evt && evt.confidence === 88 && !('simulated' in r));
@@ -612,6 +648,33 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const sparse = await failure(ocr.executeOCRScan('data:image/png;base64,x'));
   ok('photo with too few readable words rejected as unreadable', sparse && sparse.code === 'OCR_UNREADABLE' && sparse.readableWords === 2, sparse && sparse.message);
   ok('OCR worker is started once and reused after a failure', created === 1, String(created));
+  ok('OCR asks the engine for second guesses', params && params.lstm_choice_mode === '2', JSON.stringify(params));
+
+  // "Preparing the reader…": reported only when the engine has to start first
+  result = { text: 'Jane Doe\njane@example.com', confidence: 88, words: words(8, 90) };
+  let statuses = [];
+  await ocr.executeOCRScan('data:image/png;base64,x', { onStatus: s => statuses.push(s) });
+  ok('a scan with the engine running reports only "reading"', statuses.join() === 'reading', statuses.join());
+
+  // Every wipe shuts the engine down; the next scan starts a fresh one
+  share.globalEventBus.publish(share.Events.VAULT_WIPED, { reason: 'test' });
+  await new Promise(res => setTimeout(res, 0));
+  ok('a wipe terminates the OCR engine', terminated === 1, String(terminated));
+  statuses = [];
+  await ocr.executeOCRScan('data:image/png;base64,x', { onStatus: s => statuses.push(s) });
+  ok('the first scan after a wipe starts a new engine and says so', created === 2 && statuses.join() === 'starting,reading', `${created} ${statuses.join()}`);
+  share.globalEventBus.publish(share.Events.MEMORY_PURGED, { reason: 'idle' });
+  await new Promise(res => setTimeout(res, 0));
+  ok('an idle purge terminates the OCR engine too', terminated === 2, String(terminated));
+
+  // A wipe during a scan ends it quietly, and nothing is published
+  hold = true; evt = null;
+  const running = failure(ocr.executeOCRScan('data:image/png;base64,x'));
+  await new Promise(res => setTimeout(res, 20));
+  share.globalEventBus.publish(share.Events.VAULT_WIPED, { reason: 'left the page' });
+  const stopped = await running;
+  ok('a wipe during a scan ends it with OCR_CANCELLED and publishes nothing', stopped && stopped.code === 'OCR_CANCELLED' && evt === null, stopped && stopped.message);
+  hold = false;
   ok('OCR no longer exposes a duplicate parser', !('parseExtractedTextToSchema' in ocr));
   console.log = origLog; console.error = origErr; delete globalThis.Tesseract;
 }
