@@ -1,14 +1,14 @@
 /**
- * vCGE-MOD02: secret inputs (vault passphrase and session PIN boxes)
+ * vCGE-MOD02: secret inputs (session PIN boxes)
  * Created by raven575, Gemini & Claude
  *
  * Browsers offer to save anything typed into a password field, and Chrome ignores autocomplete="off" there.
- * Where the browser can mask a plain text field (CSS text-security), the vault's secret boxes become masked text
+ * Where the browser can mask a plain text field (CSS text-security), the PIN boxes become masked text
  * fields, so no password manager treats the dialogs as a login form. Elsewhere they stay password fields: masking
  * matters more than the save prompt. The markup also asks keyboards not to capitalise, correct or learn the text.
  */
 
-const SECRET_INPUT_IDS = ['vaultPassphrase', 'vaultPassphraseConfirm', 'vaultPin', 'sessionPinInput', 'passkeyPassphrase'];
+const SECRET_INPUT_IDS = ['vaultPin', 'sessionPinInput'];
 
 export function canMaskTextInputs() {
     return typeof CSS !== 'undefined' && typeof CSS.supports === 'function' && CSS.supports('-webkit-text-security', 'disc');

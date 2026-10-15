@@ -2,10 +2,10 @@
  * vCGE-MOD02: session PIN (quick unlock after an idle lock)
  * Created by raven575, Gemini & Claude
  *
- * A short PIN or password chosen for this session only. After the idle timeout the card is hidden but the vault's
- * data key stays in memory for QUICK_UNLOCK_SECONDS, and the PIN brings the card back. When that window ends, after
- * MAX_PIN_ATTEMPTS wrong tries, on Lock or on reload, the key and the PIN are both dropped and the passphrase (or a
- * passkey) is needed again. The PIN is never stored: only a salted PBKDF2 hash, in memory.
+ * A short PIN or password chosen for this session only. After the idle timeout the card is hidden and held in the
+ * temporary vault (memory only) for QUICK_UNLOCK_SECONDS, and the PIN brings it back. When that window ends, after
+ * MAX_PIN_ATTEMPTS wrong tries, on leaving or reloading the page, the held card and the PIN are both wiped.
+ * The PIN is never stored: only a salted PBKDF2 hash, in memory.
  */
 
 export const QUICK_UNLOCK_SECONDS = 300;

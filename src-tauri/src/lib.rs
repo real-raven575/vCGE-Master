@@ -1,39 +1,17 @@
 //! vCGE desktop shell (Tauri v2).
 //! Created by raven575, Gemini & Claude.
 //!
-//! Native side of the MOD02 vault: a random 256-bit device key kept in the OS credential store
-//! (macOS Keychain, Windows Credential Manager/DPAPI, Linux Secret Service). The web vault mixes it
-//! into its key derivation, so a copied vault file cannot be opened on another machine with the
-//! passphrase alone. The key never leaves this device except to the app's own webview.
+//! The vault is memory only, so nothing is kept in the OS credential store. Builds before that bound the saved
+//! vault to a random device key in the macOS Keychain, Windows Credential Manager or Linux Secret Service; the web
+//! side calls `delete_device_secret` at startup when it finds such an old vault, so the key is removed too.
 
-use base64::{engine::general_purpose::STANDARD, Engine as _};
 use keyring::Entry;
 
 const SERVICE: &str = "com.vcge.app";
 const ACCOUNT: &str = "vault-device-key";
-const SECRET_LEN: usize = 32;
 
 fn device_entry() -> Result<Entry, String> {
     Entry::new(SERVICE, ACCOUNT).map_err(|e| format!("keychain unavailable: {e}"))
-}
-
-/// Returns the device key stored in `entry`. When `create` is true (new vault) and none exists, a fresh
-/// random key is stored first; when false (unlocking), a missing key is an error rather than silently replaced.
-fn get_secret(entry: &Entry, create: bool) -> Result<Vec<u8>, String> {
-    match entry.get_secret() {
-        Ok(secret) if secret.len() == SECRET_LEN => Ok(secret),
-        Ok(_) => Err("keychain entry has an unexpected length".into()),
-        Err(keyring::Error::NoEntry) if !create => Err("DEVICE_KEY_MISSING".into()),
-        Err(keyring::Error::NoEntry) => {
-            let mut secret = vec![0u8; SECRET_LEN];
-            getrandom::fill(&mut secret).map_err(|e| format!("no secure randomness: {e}"))?;
-            entry
-                .set_secret(&secret)
-                .map_err(|e| format!("could not store device key: {e}"))?;
-            Ok(secret)
-        }
-        Err(e) => Err(format!("could not read device key: {e}")),
-    }
 }
 
 fn delete_secret(entry: &Entry) -> Result<(), String> {
@@ -43,13 +21,7 @@ fn delete_secret(entry: &Entry) -> Result<(), String> {
     }
 }
 
-/// Base64 device key for the vault's HKDF step. `create` is true only when a new vault is being created.
-#[tauri::command]
-fn device_secret(create: bool) -> Result<String, String> {
-    get_secret(&device_entry()?, create).map(|secret| STANDARD.encode(secret))
-}
-
-/// Removes the device key (used by "Wipe vault"); missing keys are not an error.
+/// Removes the old device key; a missing key is not an error.
 #[tauri::command]
 fn delete_device_secret() -> Result<(), String> {
     delete_secret(&device_entry()?)
@@ -58,7 +30,7 @@ fn delete_device_secret() -> Result<(), String> {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![device_secret, delete_device_secret])
+        .invoke_handler(tauri::generate_handler![delete_device_secret])
         .run(tauri::generate_context!())
         .expect("error while running vCGE");
 }
@@ -73,44 +45,17 @@ mod tests {
     }
 
     #[test]
-    fn creates_a_32_byte_secret_once_and_reuses_it() {
+    fn deletes_an_old_device_key() {
         let entry = mock_entry();
-        let first = get_secret(&entry, true).expect("create");
-        assert_eq!(first.len(), SECRET_LEN);
-        let second = get_secret(&entry, true).expect("reuse");
-        assert_eq!(first, second, "an existing device key must be returned unchanged");
-    }
-
-    #[test]
-    fn secrets_are_random() {
-        let a = get_secret(&mock_entry(), true).unwrap();
-        let b = get_secret(&mock_entry(), true).unwrap();
-        assert_ne!(a, b);
-        assert!(a.iter().any(|&byte| byte != 0));
-    }
-
-    #[test]
-    fn delete_is_idempotent_and_forces_a_new_key() {
-        let entry = mock_entry();
-        let first = get_secret(&entry, true).unwrap();
+        entry.set_secret(&[7u8; 32]).unwrap();
         delete_secret(&entry).expect("delete");
-        delete_secret(&entry).expect("delete again is fine");
-        let fresh = get_secret(&entry, true).unwrap();
-        assert_ne!(first, fresh);
+        assert!(matches!(entry.get_secret(), Err(keyring::Error::NoEntry)));
     }
 
     #[test]
-    fn unlocking_never_creates_a_key() {
+    fn delete_without_a_key_is_fine() {
         let entry = mock_entry();
-        assert_eq!(get_secret(&entry, false).unwrap_err(), "DEVICE_KEY_MISSING");
-        let created = get_secret(&entry, true).unwrap();
-        assert_eq!(get_secret(&entry, false).unwrap(), created);
-    }
-
-    #[test]
-    fn rejects_a_corrupted_entry() {
-        let entry = mock_entry();
-        entry.set_secret(&[1, 2, 3]).unwrap();
-        assert!(get_secret(&entry, true).is_err());
+        delete_secret(&entry).expect("delete with nothing stored");
+        delete_secret(&entry).expect("and again");
     }
 }

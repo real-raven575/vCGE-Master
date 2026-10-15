@@ -9,7 +9,6 @@ const ROOT = path.resolve(__dirname, '..');
 const APP = process.env.VCGE_APP || path.join(ROOT, 'src-tauri/target/debug/vcge');
 const DRIVER = 'http://127.0.0.1:4444';
 const ELEMENT = 'element-6066-11e4-a52e-4f735466cecf';
-const PASS = 'desktop passphrase 42';
 
 let pass = 0, fail = 0;
 const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, console.log('FAIL', n, d)); };
@@ -46,26 +45,21 @@ function keyringHasDeviceKey() {
 
   try {
     await until(() => js(`return document.readyState === 'complete' && !!document.getElementById('vaultModal');`));
-    ok('desktop app loads the bundled UI', await visible('vaultModal') && (await txt('vaultModalTitle')).includes('Create'));
+    ok('desktop app opens straight to an empty card (no passphrase dialog)', !(await visible('vaultModal')) && (await val('firstName')) === '' && (await txt('vaultStateIndicator')) === 'UNLOCKED / memory only');
     ok('Tauri IPC is available (withGlobalTauri)', await js(`return !!(window.__TAURI__ && window.__TAURI__.core);`));
     ok('page is served from the Tauri asset protocol', /^(tauri:|http:\/\/tauri\.localhost)/.test(await js('return location.href;')), await js('return location.href;'));
     ok('keyring starts empty', !keyringHasDeviceKey());
 
-    // Create a keychain-bound vault
-    await type('#vaultPassphrase', PASS); await type('#vaultPassphraseConfirm', PASS); await click('#vaultUnlockBtn');
-    ok('vault created with OS keychain binding', await until(async () => (await txt('vaultStateIndicator')).includes('OS keychain')), await txt('vaultStateIndicator'));
-    ok('device key stored in the OS keyring (Secret Service)', keyringHasDeviceKey());
-    ok('session PIN offered after creating the vault', await until(() => visible('quickSetupModal'), 5000));
+    // Session PIN from the Security panel
+    await click('#setSessionPinBtn');
     await type('#sessionPinInput', '2468'); await click('#quickSetupSaveBtn');
     ok('session PIN set in the desktop app', await until(async () => !(await visible('quickSetupModal')) && (await txt('sessionPinStatus')) === 'Session PIN: set', 10000));
-    const passkeys = await js('return !!(window.isSecureContext && window.PublicKeyCredential && navigator.credentials && navigator.credentials.create);');
-    ok(`passkey option matches this webview (WebAuthn ${passkeys ? 'available' : 'not available'})`, (await visible('addPasskeyBtn')) === passkeys && (await visible('passkeyUnsupported')) === !passkeys);
 
     await type('#firstName', 'Desk'); await type('#lastName', 'Top'); await type('#organization', 'Tauri, Inc');
     await sleep(900);
-    const blob = JSON.parse(await js(`return localStorage.getItem('vCGE_secure_vault.dat');`));
-    ok('vault blob records keychain KDF', blob && blob.kdf === 'pbkdf2-sha256+hkdf-device-key', blob && blob.kdf);
-    ok('no plaintext contact data in webview storage', !(await js('return JSON.stringify(localStorage);')).includes('Desk'));
+    const stored = await js('return JSON.stringify(localStorage);');
+    ok('nothing saved in webview storage (no vault, no card)', !stored.includes('vCGE_secure_vault') && !stored.includes('Desk'), stored.slice(0, 200));
+    ok('nothing stored in the OS keyring', !keyringHasDeviceKey());
 
     // Egress lock inside the desktop webview
     const blocked = await jsAsync(`const done = arguments[arguments.length - 1]; fetch('https://example.com/x').then(() => done('ALLOWED'), () => done('blocked'));`);
@@ -160,36 +154,28 @@ function keyringHasDeviceKey() {
     await sleep(124000);
     ok('desktop: idle lock with a session PIN shows the PIN prompt', await until(async () => (await visible('vaultModal')) && (await visible('vaultPinRow')) && (await val('firstName')) === '', 10000));
     await type('#vaultPin', '2468'); await click('#vaultUnlockBtn');
-    ok('desktop: session PIN restores the card (keychain-bound vault)', await until(async () => !(await visible('vaultModal')) && (await val('firstName')) === 'Maria', 10000), await val('firstName'));
+    ok('desktop: session PIN restores the card', await until(async () => !(await visible('vaultModal')) && (await val('firstName')) === 'Maria', 10000), await val('firstName'));
 
-    // Restart the page: unlock needs passphrase + keychain device key
+    // Restart the page: nothing was saved, so it starts empty
     await wd('POST', S('/refresh'), {});
     await until(() => js(`return document.readyState === 'complete' && !!document.getElementById('vaultModal');`));
-    ok('after reload: unlock mode', await until(async () => (await txt('vaultModalTitle')).includes('Unlock'), 5000));
-    await type('#vaultPassphrase', PASS); await click('#vaultUnlockBtn');
-    ok('passphrase + keychain key restore the card', await until(async () => (await val('firstName')) === 'Maria'), await val('firstName'));
-    await until(() => visible('quickSetupModal'), 5000);
-    await click('#quickSetupSkipBtn');
+    ok('after reload: empty card, no unlock dialog', await until(async () => (await val('firstName')) === '' && !(await visible('vaultModal')), 5000));
 
-    // Without the device key (e.g. vault copied to another machine) the vault cannot be opened
-    await click('#lockVaultBtn');
-    execFileSync('secret-tool', ['clear', 'service', 'com.vcge.app']);
-    await type('#vaultPassphrase', PASS); await click('#vaultUnlockBtn');
-    ok('vault refuses to open when the keychain device key is missing', await until(async () => (await txt('vaultError')).includes('device key is missing')), await txt('vaultError'));
-    ok('unlock attempt did not create a replacement key', !keyringHasDeviceKey());
+    // A keychain-bound vault saved by an older build is deleted at startup, with its keychain device key
+    await js(`localStorage.setItem('vCGE_secure_vault.dat', JSON.stringify({ v: 2, kdf: 'pbkdf2-sha256+hkdf-device-key', ciphertext: [1, 2, 3] }));`);
+    await wd('POST', S('/refresh'), {});
+    await until(() => js(`return document.readyState === 'complete' && !!document.getElementById('auditLog');`));
+    ok('old keychain-bound vault deleted at startup', await until(async () => (await js(`return localStorage.getItem('vCGE_secure_vault.dat');`)) === null
+      && (await txt('auditLog')).includes('copy saved by an older build'), 5000), await txt('auditLog'));
+    const ipc = await jsAsync(`const done = arguments[arguments.length - 1]; const inv = window.__TAURI__.core.invoke;
+      inv('delete_device_secret').then(() => inv('device_secret', { create: true }).then(() => done('created'), () => done('ok')), e => done('delete failed: ' + e));`);
+    ok('desktop: deleting the old device key works and no key can be created any more', ipc === 'ok' && !keyringHasDeviceKey(), ipc);
 
-    // Wipe removes the vault (and the device key)
+    // Wipe button
     await js('window.confirm = () => true;');
-    await click('#vaultSkipBtn');
+    await type('#firstName', 'Wipe me');
     await click('#wipeVaultBtn');
-    await sleep(500);
-    ok('wipe deletes the vault and re-prompts in create mode', (await js(`return localStorage.getItem('vCGE_secure_vault.dat');`)) === null && (await txt('vaultModalTitle')).includes('Create'));
-    await type('#vaultPassphrase', PASS); await type('#vaultPassphraseConfirm', PASS); await click('#vaultUnlockBtn');
-    await until(async () => (await txt('vaultStateIndicator')).includes('OS keychain'));
-    ok('new vault creates a new device key', keyringHasDeviceKey());
-    await js('window.confirm = () => true;');
-    await click('#wipeVaultBtn');
-    ok('wipe deletes the device key from the keyring', await until(async () => !keyringHasDeviceKey(), 5000));
+    ok('desktop: Wipe empties the card', await until(async () => (await val('firstName')) === '' && (await txt('auditLog')).includes('Vault wiped'), 5000));
   } finally {
     await wd('DELETE', S('')).catch(() => {});
     driver.kill();

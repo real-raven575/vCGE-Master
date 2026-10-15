@@ -4,17 +4,17 @@
  *
  * Wires the modules together over the shared event bus:
  *   MOD03 camera / upload -> MOD04 OCR -> MOD05 mapper -> MOD06 card view -> MOD07 vCard + QR
- *   -> MOD02 vault (encrypted persistence) and MOD08 egress (every outbound action).
+ *   -> MOD02 temporary vault (memory only) and MOD08 egress (every outbound action).
  * MOD01 is imported first so its network gatekeeper is installed before any other module code runs.
+ * Nothing is stored: leaving or reloading the page, 30 s out of view, or 2 minutes idle without a session PIN wipes it.
  */
 import './modules/mod01-shell/shell.js';
 import { initTheme } from './modules/mod01-shell/themeManager.js';
 import { globalEventBus, Events } from './share/eventBus.js';
-import { secureVault } from './modules/mod02-vault/vault.js';
+import { CONTACT_FIELDS, CONTACT_LIST_FIELDS, createEmptyContact } from './share/cardSchema.js';
+import { temporaryVault, deleteLegacyVault } from './modules/mod02-vault/vault.js';
 import { TTLMemoryStreamManager } from './modules/mod02-vault/ttlManager.js';
-import { getDeviceSecret, deleteDeviceSecret, isKeychainAvailable } from './modules/mod02-vault/keychain.js';
-import { KDF_KEYCHAIN } from './modules/mod02-vault/vault.js';
-import { isPasskeySupported, createPasskey, getPasskeySecret } from './modules/mod02-vault/passkey.js';
+import { deleteDeviceSecret } from './modules/mod02-vault/keychain.js';
 import { SessionPin, QUICK_UNLOCK_SECONDS, MIN_PIN_LENGTH, MAX_PIN_ATTEMPTS } from './modules/mod02-vault/sessionPin.js';
 import { maskSecretInputs } from './modules/mod02-vault/secretInputs.js';
 import { VCGEActiveCamera } from './modules/mod03-camera/camera.js';
@@ -28,9 +28,12 @@ import { vcgeQREngine } from './modules/mod07-qr/qrGenerator.js';
 import { egressController } from './modules/mod08-egress/egressController.js';
 
 const $ = (id) => document.getElementById(id);
-const MIN_PASSPHRASE_LENGTH = 8;
-const SAVE_DEBOUNCE_MS = 400;
 const IDLE_PURGE_SECONDS = 120;
+// Out of view (another app, another tab, screen off) for this long wipes everything.
+const HIDDEN_WIPE_SECONDS = 30;
+// The page going out of view this soon after the app opened the photo picker or a share action is that picker or
+// share sheet, so the 2-minute idle rule applies instead of the 30-second one.
+const EXTERNAL_APP_GRACE_MS = 5000;
 // Plaintext keys written by builds before the vault was wired in; removed on every start.
 const LEGACY_PLAINTEXT_KEYS = ['vcge_contact_state', 'vcge_state', 'vcge_prefs'];
 
@@ -39,18 +42,20 @@ const cardView = new CardView({ onChange: refresh, addressEngine: new AddressAut
 const camera = new VCGEActiveCamera();
 const cropEditor = new CropEditor();
 
-// 'quick': the card is hidden after an idle lock but the vault key is still in memory, so the session PIN can resume it.
-let storageMode = 'locked'; // 'locked' | 'quick' | 'vault' | 'memory'
-let vaultModalMode = 'passphrase'; // 'create' | 'passphrase' | 'pin'
-let saveTimer = null;
-let quickSetupDismissed = false;
-// During a quick lock: the open scan (photo, review step, last scan), sealed with the vault's data key, in memory only.
-let heldScan = null;   // Promise<{ iv, ciphertext } | null>
+// 'open': the card is on the page. 'quick': hidden after an idle lock and held in the temporary vault until the
+// session PIN brings it back (for up to 5 minutes).
+let vaultMode = 'open';
+let holding = null;          // Promise from temporaryVault.hold() while a quick lock seals the card
+let hiddenDeadline = 0;      // wall-clock time at which a page that is out of view gets wiped (0 = none)
+let externalAppUntil = 0;    // until then, the page going out of view is the picker or share sheet the app opened
+let leaveGuardArmed = false; // an extra history entry is in place, so Back asks before leaving
+let leaving = false;
 
 // 120-second TTL on everything held in RAM: any user activity restarts it; on expiry the volatile state is purged.
 const idleTtl = new TTLMemoryStreamManager(IDLE_PURGE_SECONDS, () => purgeVolatileState('idle'));
-// After an idle lock with a session PIN set, the vault key is kept for 5 minutes; then the vault locks fully.
-const quickUnlockTtl = new TTLMemoryStreamManager(QUICK_UNLOCK_SECONDS, () => lockVault('quick unlock expired'));
+// After an idle lock with a session PIN set, the card is held for 5 minutes; then it is wiped.
+const quickUnlockTtl = new TTLMemoryStreamManager(QUICK_UNLOCK_SECONDS, () => wipeSession('quick unlock expired',
+    `The PIN window ended after ${QUICK_UNLOCK_SECONDS / 60} minutes: the card was wiped.`));
 const sessionPin = new SessionPin();
 
 // ---- Contact pipeline ------------------------------------------------------------------------------------------
@@ -63,49 +68,27 @@ function refresh(contact = cardView.getContact()) {
     $('qrNotice').classList.toggle('hidden', qrOk);
     egressController.setPayload(vcard, contact);
     globalEventBus.publish(Events.CONTACT_UPDATED, { timestamp: Date.now() });
-    scheduleSave(contact);
 }
 
-function scheduleSave(contact) {
-    if (storageMode !== 'vault') return;
-    clearTimeout(saveTimer);
-    saveTimer = setTimeout(() => persist(contact), SAVE_DEBOUNCE_MS);
-}
-
-async function persist(contact) {
-    if (storageMode !== 'vault') return;
-    try {
-        await secureVault.encryptAndStore(contact);
-        globalEventBus.publish(Events.VAULT_SAVED, { timestamp: Date.now() });
-    } catch (e) {
-        console.error('[vCGE] Vault save failed:', e);
-        cardView.showToast('Could not save to the vault (storage full or vault locked).');
-    }
-}
-
-// ---- Vault (MOD02) ---------------------------------------------------------------------------------------------
+// ---- Temporary vault (MOD02): memory only ----------------------------------------------------------------------
 
 const minutes = (seconds) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 
 function setVaultIndicator() {
     const el = $('vaultStateIndicator');
-    const states = {
-        vault: [secureVault.kdf === KDF_KEYCHAIN ? 'UNLOCKED / AES-256 + OS keychain' : 'UNLOCKED / AES-256 (saving)', 'text-emerald-500'],
-        quick: [`LOCKED (PIN for ${minutes(quickUnlockTtl.getRemainingTime())})`, 'text-amber-500'],
-        memory: ['NOT SAVED (memory only)', 'text-amber-500'],
-        locked: ['LOCKED', 'text-slate-400']
-    };
-    const [text, color] = states[storageMode];
+    const [text, color] = vaultMode === 'quick'
+        ? [`LOCKED (PIN for ${minutes(quickUnlockTtl.getRemainingTime())})`, 'text-amber-500']
+        : ['UNLOCKED / memory only', 'text-emerald-500'];
     el.textContent = text;
     el.className = `text-xs font-mono ${color}`;
     setVaultBadge();
-    $('lockVaultBtn').classList.toggle('hidden', storageMode !== 'vault');
+    $('lockVaultBtn').classList.toggle('hidden', vaultMode !== 'open' || !sessionPin.isSet());
     renderQuickUnlockPanel();
 }
 
-// Header badge: UNLOCKED only while the vault key is in use; a quick lock or memory-only mode reads as LOCKED.
+// Header badge: UNLOCKED while the card is on the page, LOCKED while it is held behind the session PIN.
 function setVaultBadge() {
-    const unlocked = storageMode === 'vault';
+    const unlocked = vaultMode === 'open';
     $('vaultBadgeText').textContent = unlocked ? 'Vault: UNLOCKED' : 'Vault: LOCKED';
     $('vaultBadge').className = `flex text-xs px-2.5 py-1 rounded-full items-center gap-1.5 border ${unlocked
         ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-800/50'
@@ -113,202 +96,111 @@ function setVaultBadge() {
     $('vaultBadgeDot').className = `w-1.5 h-1.5 rounded-full ${unlocked ? 'bg-emerald-500' : 'bg-slate-400'}`;
 }
 
-// Security panel: session PIN state and the enrolled passkeys (vault mode only).
+// Security panel: session PIN state.
 function renderQuickUnlockPanel() {
-    $('quickUnlockPanel').classList.toggle('hidden', storageMode !== 'vault');
+    $('quickUnlockPanel').classList.toggle('hidden', vaultMode !== 'open');
     $('sessionPinStatus').textContent = sessionPin.isSet() ? 'Session PIN: set' : 'Session PIN: not set';
     $('setSessionPinBtn').textContent = sessionPin.isSet() ? 'Change' : 'Set PIN';
     $('clearSessionPinBtn').classList.toggle('hidden', !sessionPin.isSet());
-    const supported = isPasskeySupported();
-    $('addPasskeyBtn').classList.toggle('hidden', !supported);
-    $('passkeyUnsupported').classList.toggle('hidden', supported);
-    const items = secureVault.passkeySlots().map((slot, i) => {
-        const li = document.createElement('li');
-        li.className = 'flex items-center justify-between gap-2';
-        const name = document.createElement('span');
-        name.id = `passkeyName${i}`;
-        name.className = 'truncate';
-        name.textContent = `🔑 ${slot.label}`;
-        const remove = document.createElement('button');
-        remove.type = 'button';
-        remove.id = `passkeyRemove${i}`;
-        remove.className = 'shrink-0 hover:text-rose-500';
-        remove.textContent = 'Remove';
-        remove.addEventListener('click', () => {
-            if (!confirm(`Remove the passkey "${slot.label}"? It will no longer unlock this vault.`)) return;
-            secureVault.removePasskeySlot(slot.id);
-            globalEventBus.publish(Events.VAULT_UNLOCK_METHOD_CHANGED, { change: 'Passkey removed', timestamp: Date.now() });
-            renderQuickUnlockPanel();
-        });
-        li.append(name, remove);
-        return li;
-    });
-    $('passkeyList').replaceChildren(...items);
 }
 
-function setVaultModalMode(mode) {
-    vaultModalMode = mode;
-    const creating = mode === 'create', pin = mode === 'pin';
-    const passkeys = !creating && isPasskeySupported() && secureVault.passkeySlots().length > 0;
-    $('vaultModalTitle').textContent = creating ? 'Create your encrypted vault' : pin ? 'Locked' : 'Unlock your vault';
-    $('vaultModalHint').textContent = creating
-        ? `Choose a passphrase (at least ${MIN_PASSPHRASE_LENGTH} characters). Your card is encrypted on this device with AES-256; the passphrase cannot be recovered.`
-        : pin
-            ? `Hidden after ${IDLE_PURGE_SECONDS / 60} minutes without activity. Enter your session PIN to continue${passkeys ? ', or use a passkey' : ''}.`
-            : `Enter your passphrase${passkeys ? ' or use a passkey' : ''} to decrypt your saved card on this device.`;
-    $('vaultPinRow').classList.toggle('hidden', !pin);
-    $('quickUnlockCountdown').classList.toggle('hidden', !pin);
-    $('vaultPassphraseRow').classList.toggle('hidden', pin);
-    $('vaultConfirmRow').classList.toggle('hidden', !creating);
-    $('vaultUsePassphraseBtn').classList.toggle('hidden', !pin);
-    $('vaultPasskeyBtn').classList.toggle('hidden', !passkeys);
-    $('vaultPasskeyHint').classList.toggle('hidden', !passkeys);
-    $('vaultUnlockBtn').textContent = creating ? 'Create vault' : 'Unlock';
+function openPinModal() {
+    $('vaultModalHint').textContent = `Hidden after ${IDLE_PURGE_SECONDS / 60} minutes without activity. Enter your session PIN to continue, or start over to wipe it.`;
     $('vaultError').textContent = '';
     $('vaultPin').value = '';
-    $('vaultPassphrase').value = '';
-    $('vaultPassphraseConfirm').value = '';
+    $('vaultModal').classList.remove('hidden');
     updateQuickUnlockCountdown();
-    $(pin ? 'vaultPin' : 'vaultPassphrase').focus();
+    $('vaultPin').focus();
 }
 
-function openVaultModal() {
-    $('vaultModal').classList.remove('hidden');
-    setVaultModalMode(!secureVault.hasStoredVault() ? 'create' : storageMode === 'quick' ? 'pin' : 'passphrase');
+function closePinModal() {
+    $('vaultPin').value = '';
+    $('vaultModal').classList.add('hidden');
 }
 
 function updateQuickUnlockCountdown() {
-    if (storageMode !== 'quick') return;
-    $('quickUnlockCountdown').textContent = `PIN unlock available for ${minutes(quickUnlockTtl.getRemainingTime())}; then the passphrase is needed.`;
+    if (vaultMode !== 'quick') return;
+    $('quickUnlockCountdown').textContent = `PIN unlock available for ${minutes(quickUnlockTtl.getRemainingTime())}; then the card is wiped.`;
 }
 
-// Desktop (Tauri): the device key held in the OS keychain, when this vault is bound to it (or is being created).
-async function deviceSecretFor(creating) {
-    if (!isKeychainAvailable() || !(creating || secureVault.requiresDeviceKey())) return { deviceSecret: null, keychainError: null };
-    try {
-        return { deviceSecret: await getDeviceSecret(creating), keychainError: null };
-    } catch (e) {
-        console.error('[vCGE] OS keychain unavailable:', e);
-        return { deviceSecret: null, keychainError: String(e) };
-    }
-}
-
-function keychainMessage(keychainError) {
-    if (keychainError && keychainError.includes('DEVICE_KEY_MISSING')) {
-        return 'This vault\'s device key is missing from the OS keychain (was the vault copied from another device?).';
-    }
-    return keychainError
-        ? `This vault is bound to the OS keychain, which is unavailable: ${keychainError}`
-        : 'This vault was created in the desktop app and is bound to its OS keychain.';
-}
-
-async function submitVault(event) {
+async function submitPin(event) {
     event.preventDefault();
-    if (vaultModalMode === 'pin') return submitPin();
-    const passphrase = $('vaultPassphrase').value;
-    const creating = vaultModalMode === 'create';
-    const fail = (msg) => { $('vaultError').textContent = msg; };
-
-    if (creating) {
-        if (passphrase.length < MIN_PASSPHRASE_LENGTH) return fail(`Use at least ${MIN_PASSPHRASE_LENGTH} characters.`);
-        if (passphrase !== $('vaultPassphraseConfirm').value) return fail('The passphrases do not match.');
-    }
-
-    const { deviceSecret, keychainError } = await deviceSecretFor(creating);
-    const result = await secureVault.initialize(passphrase, deviceSecret);
-    if (!result.success && result.error === 'ERR_KEYCHAIN_REQUIRED') return fail(keychainMessage(keychainError));
-    if (!result.success) return fail('Wrong passphrase.');
-    await finishUnlock(creating ? 'created' : 'passphrase', { keychainFallback: creating && !!keychainError });
-}
-
-async function submitPin() {
-    const fail = (msg) => { $('vaultError').textContent = msg; };
     const { result, attemptsLeft } = await sessionPin.verify($('vaultPin').value);
-    if (result === 'ok') return finishUnlock('session PIN');
-    if (result === 'locked_out') {
-        lockVault('too many wrong PINs');
-        return fail(`${MAX_PIN_ATTEMPTS} wrong PINs: the vault is locked. Use the passphrase${secureVault.passkeySlots().length ? ' or a passkey' : ''}.`);
-    }
-    if (result === 'not_set') {
-        lockVault('session PIN missing');
-        return;
-    }
+    if (result === 'ok') return quickUnlock();
+    if (result === 'locked_out') return wipeSession('too many wrong PINs', `${MAX_PIN_ATTEMPTS} wrong PINs: the card was wiped.`);
+    if (result === 'not_set') return wipeSession('session PIN missing');
     $('vaultPin').value = '';
-    fail(`Wrong PIN. ${attemptsLeft} ${attemptsLeft === 1 ? 'try' : 'tries'} left.`);
+    $('vaultError').textContent = `Wrong PIN. ${attemptsLeft} ${attemptsLeft === 1 ? 'try' : 'tries'} left.`;
 }
 
-async function unlockWithPasskey() {
-    const fail = (msg) => { $('vaultError').textContent = msg; };
-    fail('');
-    const { deviceSecret, keychainError } = await deviceSecretFor(false);
-    if (secureVault.requiresDeviceKey() && !deviceSecret) return fail(keychainMessage(keychainError));
-    let secret;
-    try {
-        secret = await getPasskeySecret(secureVault.passkeyPrfSalts());
-    } catch (e) {
-        return fail(e.code === 'CANCELLED' ? 'Passkey cancelled.' : `Passkey unlock failed: ${e.message}`);
-    }
-    const result = await secureVault.unlockWithPasskey(secret.id, secret.prfOutput, deviceSecret);
-    secret.prfOutput.fill(0);
-    if (!result.success) return fail(result.error === 'ERR_PASSKEY_UNKNOWN' ? 'That passkey is not enrolled for this vault.' : 'That passkey could not unlock this vault.');
-    await finishUnlock('passkey');
-}
-
-// Shared by every unlock method: load the saved card, start saving, re-arm the idle timer.
-async function finishUnlock(method, { keychainFallback = false } = {}) {
-    const creating = method === 'created';
-    const held = storageMode === 'quick' ? heldScan : null;
-    heldScan = null;
-    try {
-        const saved = await secureVault.retrieveAndDecrypt();
-        if (saved) cardView.setContact(saved);
-    } catch (e) {
-        lockVault('saved card unreadable');
-        $('vaultError').textContent = 'The saved card could not be decrypted.';
-        return;
-    }
-    quickUnlockTtl.stop();
-    storageMode = 'vault';
-    $('vaultPin').value = '';
-    $('vaultPassphrase').value = '';
-    $('vaultPassphraseConfirm').value = '';
-    $('vaultModal').classList.add('hidden');
-    setVaultIndicator();
-    globalEventBus.publish(Events.VAULT_UNLOCKED, { created: creating, method, timestamp: Date.now() });
-    refresh();
-    armIdleTtl();
-    await restoreScan(held);
-    if (creating) await persist(cardView.getContact());
-    if (keychainFallback) {
-        cardView.showToast('OS keychain unavailable: vault protected by passphrase only.');
-    } else {
-        cardView.showToast(creating ? 'Vault created. Changes are saved encrypted.' : `Vault unlocked (${method}).`);
-    }
-    // With a passkey enrolled the PIN offer is not shown on its own (the passkey is already the quick way back in);
-    // Security → Quick unlock still sets one.
-    if (method !== 'session PIN' && !sessionPin.isSet() && !quickSetupDismissed && secureVault.passkeySlots().length === 0) openQuickSetup();
-}
-
-function continueWithoutSaving() {
-    // From a quick lock, drop the retained key first: memory-only mode never holds a vault key.
-    quickUnlockTtl.stop();
-    sessionPin.clear();
-    heldScan = null;
-    secureVault.lock();
-    storageMode = 'memory';
-    $('vaultModal').classList.add('hidden');
+// Idle lock with a session PIN: the card and the scan in progress leave the page and are held, encrypted, in the
+// temporary vault for 5 minutes.
+function quickLock() {
+    const payload = { contact: cardView.getContact(), scan: scanSnapshot() };
+    idleTtl.stop();
+    closeQuickUnlockDialogs();
+    clearCapturedImages();
+    holding = temporaryVault.hold(payload).catch(e => { console.error('[vCGE] Could not hold the card:', e); return false; });
+    vaultMode = 'quick';
+    quickUnlockTtl.startStream(null);
     cardView.clear();
     refresh();
     setVaultIndicator();
-    armIdleTtl();
-    cardView.showToast('Working in memory only. Nothing will be saved.');
+    globalEventBus.publish(Events.VAULT_QUICK_LOCKED, { seconds: QUICK_UNLOCK_SECONDS, scanKept: !!payload.scan, timestamp: Date.now() });
+    openPinModal();
 }
 
-// ---- Quick unlock setup: session PIN and passkeys -------------------------------------------------------------
+async function quickUnlock() {
+    await holding;
+    let held = null;
+    try {
+        held = await temporaryVault.release();
+    } catch (e) {
+        console.error('[vCGE] Held card unreadable:', e);
+    }
+    holding = null;
+    quickUnlockTtl.stop();
+    vaultMode = 'open';
+    closePinModal();
+    if (held && held.contact) cardView.setContact(held.contact);
+    refresh();
+    setVaultIndicator();
+    globalEventBus.publish(Events.VAULT_UNLOCKED, { method: 'session PIN', timestamp: Date.now() });
+    armIdleTtl();
+    restoreScan(held && held.scan);
+    cardView.showToast('Unlocked (session PIN).');
+}
+
+// Wipes everything: the card, the photo and scan, the Undo copy, the held card and the session PIN.
+// The page stays usable with an empty card.
+function wipeSession(reason, message = null) {
+    idleTtl.stop();
+    quickUnlockTtl.stop();
+    hiddenDeadline = 0;
+    sessionPin.clear();
+    temporaryVault.wipe();
+    holding = null;
+    closeQuickUnlockDialogs();
+    closePinModal();
+    $('leaveModal').classList.add('hidden');
+    clearCapturedImages();
+    vaultMode = 'open';
+    cardView.clear();
+    refresh();
+    setVaultIndicator();
+    globalEventBus.publish(Events.VAULT_WIPED, { reason, timestamp: Date.now() });
+    if (message) cardView.showToast(message);
+}
+
+function wipeVault() {
+    if (!confirm('Wipe the card, the photo and everything held in memory? This cannot be undone.')) return;
+    wipeSession('wipe button', 'Wiped. Nothing is kept.');
+}
+
+// ---- Session PIN setup -----------------------------------------------------------------------------------------
 
 function openQuickSetup() {
-    $('quickSetupHint').textContent = `After ${IDLE_PURGE_SECONDS / 60} minutes without activity the card is hidden. This PIN (at least ${MIN_PIN_LENGTH} characters) brings it back for up to ${QUICK_UNLOCK_SECONDS / 60} minutes; after that, or after ${MAX_PIN_ATTEMPTS} wrong tries, the passphrase is needed. It is forgotten when you lock, reload or close the app.`;
-    $('quickSetupPasskeyHint').classList.toggle('hidden', !isPasskeySupported() || secureVault.passkeySlots().length > 0);
+    $('quickSetupHint').textContent = `After ${IDLE_PURGE_SECONDS / 60} minutes without activity the card is hidden. This PIN (at least ${MIN_PIN_LENGTH} characters) brings it back for up to ${QUICK_UNLOCK_SECONDS / 60} minutes; after that, or after ${MAX_PIN_ATTEMPTS} wrong tries, the card is wiped. Without a PIN it is wiped straight away. The PIN is forgotten when you leave or reload.`;
     $('quickSetupError').textContent = '';
     $('sessionPinInput').value = '';
     $('quickSetupModal').classList.remove('hidden');
@@ -326,12 +218,11 @@ async function saveSessionPin(event) {
     $('sessionPinInput').value = '';
     $('quickSetupModal').classList.add('hidden');
     globalEventBus.publish(Events.VAULT_UNLOCK_METHOD_CHANGED, { change: 'Session PIN set', timestamp: Date.now() });
-    renderQuickUnlockPanel();
+    setVaultIndicator();
     cardView.showToast(`Session PIN set: it unlocks for ${QUICK_UNLOCK_SECONDS / 60} minutes after an idle lock.`);
 }
 
-function skipQuickSetup() {
-    quickSetupDismissed = true;
+function closeQuickSetup() {
     $('sessionPinInput').value = '';
     $('quickSetupModal').classList.add('hidden');
 }
@@ -339,72 +230,27 @@ function skipQuickSetup() {
 function clearSessionPin() {
     sessionPin.clear();
     globalEventBus.publish(Events.VAULT_UNLOCK_METHOD_CHANGED, { change: 'Session PIN removed', timestamp: Date.now() });
-    renderQuickUnlockPanel();
+    setVaultIndicator();
 }
 
-function defaultPasskeyName() {
-    const ua = navigator.userAgent;
-    const device = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android' : /Mac/.test(ua) ? 'Mac'
-        : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : 'This device';
-    return `${device} passkey`;
-}
-
-function openPasskeyModal() {
-    $('passkeyLabel').value = defaultPasskeyName();
-    $('passkeyPassphrase').value = '';
-    $('passkeyError').textContent = '';
-    $('passkeyModal').classList.remove('hidden');
-    $('passkeyPassphrase').focus();
-}
-
-function closePasskeyModal() {
-    $('passkeyPassphrase').value = '';
-    $('passkeyModal').classList.add('hidden');
-}
-
-// The PIN and passkey dialogs belong to an unlocked vault: any lock or wipe closes them.
+// The PIN setup dialog belongs to an open card: any lock or wipe closes it.
 function closeQuickUnlockDialogs() {
-    $('sessionPinInput').value = '';
-    $('quickSetupModal').classList.add('hidden');
-    closePasskeyModal();
-}
-
-async function addPasskey(event) {
-    event.preventDefault();
-    const fail = (msg) => { $('passkeyError').textContent = msg; };
-    const label = $('passkeyLabel').value.trim() || defaultPasskeyName();
-    const { deviceSecret, keychainError } = await deviceSecretFor(false);
-    if (secureVault.requiresDeviceKey() && !deviceSecret) return fail(keychainMessage(keychainError));
-    const exported = await secureVault.exportDataKey($('passkeyPassphrase').value, deviceSecret);
-    if (!exported.success) return fail('That is not the vault passphrase. Use the passphrase you created the vault with, not the session PIN.');
-    $('passkeySaveBtn').disabled = true;
-    try {
-        const passkey = await createPasskey(label);
-        await secureVault.addPasskeySlot(exported.dataKey, { id: passkey.id, label, prfSalt: passkey.prfSalt }, passkey.prfOutput, deviceSecret);
-        passkey.prfOutput.fill(0);
-    } catch (e) {
-        console.warn('[vCGE] Passkey not added:', e);
-        return fail(e.code === 'CANCELLED' ? 'Passkey cancelled.'
-            : e.code === 'PRF_UNSUPPORTED' ? 'This device or passkey provider cannot unlock an encrypted vault (it lacks the PRF feature). Try another device, browser or a security key.'
-                : `Could not add the passkey: ${e.message}`);
-    } finally {
-        exported.dataKey.fill(0);
-        $('passkeySaveBtn').disabled = false;
-    }
-    closePasskeyModal();
-    globalEventBus.publish(Events.VAULT_UNLOCK_METHOD_CHANGED, { change: `Passkey added (${label})`, timestamp: Date.now() });
-    renderQuickUnlockPanel();
-    cardView.showToast('Passkey added: use it to unlock this vault.');
+    closeQuickSetup();
 }
 
 // ---- Ephemeral memory lifecycle (TTL purge + startup residue check) -------------------------------------------
 
 function purgeStartupResidue() {
     LEGACY_PLAINTEXT_KEYS.forEach(key => localStorage.removeItem(key));
+    const legacy = deleteLegacyVault();
+    if (!legacy) return;
+    globalEventBus.publish(Events.VAULT_WIPED, { reason: 'copy saved by an older build', timestamp: Date.now() });
+    // Desktop: that vault was bound to a device key in the OS keychain, which nothing uses any more.
+    if (legacy.keychainBound) deleteDeviceSecret().catch(e => console.error('[vCGE] Could not delete the old keychain device key:', e));
 }
 
 function armIdleTtl() {
-    if (storageMode !== 'vault' && storageMode !== 'memory') return;
+    if (vaultMode !== 'open') return;
     // The snapshot is zero-filled on expiry (best effort: JS strings are immutable, so the DOM is cleared too).
     idleTtl.startStream(cardView.getContact());
 }
@@ -426,81 +272,103 @@ function clearCapturedImages() {
 
 function purgeVolatileState(reason) {
     idleTtl.stop();
-    const scan = storageMode === 'vault' && sessionPin.isSet() ? scanSnapshot() : null;
-    clearCapturedImages();
     globalEventBus.publish(Events.MEMORY_PURGED, { reason, timestamp: Date.now() });
-    if (storageMode === 'vault' && sessionPin.isSet()) {
-        quickLock(scan);
-    } else if (storageMode === 'vault') {
-        lockVault(reason);
+    if (sessionPin.isSet()) {
+        quickLock();
+        cardView.showToast(`Hidden after ${IDLE_PURGE_SECONDS / 60} minutes without activity.`);
     } else {
-        cardView.clear();
-        refresh();
+        wipeSession(reason, `Wiped after ${IDLE_PURGE_SECONDS / 60} minutes without activity.`);
     }
-    cardView.showToast(`Cleared after ${IDLE_PURGE_SECONDS / 60} minutes without activity.`);
 }
 
 function updatePurgeCountdown() {
     const el = $('purgeCountdown');
-    el.textContent = storageMode === 'quick' ? `Quick unlock ends in ${quickUnlockTtl.getRemainingTime()} s`
+    el.textContent = vaultMode === 'quick' ? `Quick unlock ends in ${quickUnlockTtl.getRemainingTime()} s`
         : idleTtl.timerId ? `Auto-clear in ${idleTtl.getRemainingTime()} s` : 'Auto-clear idle';
-    if (storageMode === 'quick') {
+    if (vaultMode === 'quick') {
         setVaultIndicator();
         updateQuickUnlockCountdown();
     }
 }
 
-// Idle lock with a session PIN: the card is cleared from the page, the vault key stays in memory for 5 minutes.
-// An open scan is kept sealed with that key and comes back with the unlock.
-function quickLock(scan = null) {
-    clearTimeout(saveTimer);
-    idleTtl.stop();
-    closeQuickUnlockDialogs();
-    heldScan = scan ? secureVault.seal(scan).catch(e => { console.error('[vCGE] Could not keep the scan:', e); return null; }) : null;
-    storageMode = 'quick';
-    quickUnlockTtl.startStream(null);
-    cardView.clear();
-    refresh();
-    setVaultIndicator();
-    globalEventBus.publish(Events.VAULT_QUICK_LOCKED, { seconds: QUICK_UNLOCK_SECONDS, scanKept: !!scan, timestamp: Date.now() });
-    openVaultModal();
+// ---- Leaving the page: Back guard, wipe on leave, wipe after 30 s out of view ---------------------------------
+
+// True when wiping would lose something: a card being filled in, a photo or scan, or a card held behind the PIN.
+function hasWork() {
+    if (vaultMode === 'quick' || $('reviewImage').getAttribute('src') || lastScan) return true;
+    const contact = cardView.getContact(), empty = createEmptyContact();
+    return !!contact.avatarBase64 || CONTACT_FIELDS.some(f => (contact[f] || '') !== (empty[f] || ''))
+        || CONTACT_LIST_FIELDS.some(f => contact[f].length > 0);
 }
 
-// Full lock: drops the vault key and the session PIN.
-function lockVault(reason = 'manual') {
-    clearTimeout(saveTimer);
-    idleTtl.stop();
-    quickUnlockTtl.stop();
-    sessionPin.clear();
-    heldScan = null;
-    closeQuickUnlockDialogs();
-    clearCapturedImages();
-    secureVault.lock();
-    storageMode = 'locked';
-    cardView.clear();
-    refresh();
-    setVaultIndicator();
-    globalEventBus.publish(Events.VAULT_LOCKED, { reason, timestamp: Date.now() });
-    openVaultModal();
+// Back (button or swipe) first lands on an extra history entry, so the app can ask before the card is wiped.
+// Browsers skip history entries added without a user gesture, so the entry is added on a tap or key press.
+function armLeaveGuard() {
+    if (leaveGuardArmed || leaving || !$('leaveModal').classList.contains('hidden')) return;
+    if (navigator.userActivation && !navigator.userActivation.isActive) return;
+    history.pushState({ vcgeLeaveGuard: true }, '');
+    leaveGuardArmed = true;
 }
 
-function wipeVault() {
-    if (!confirm('Permanently delete the encrypted vault and clear the card? This cannot be undone.')) return;
-    clearTimeout(saveTimer);
-    idleTtl.stop();
-    quickUnlockTtl.stop();
-    sessionPin.clear();
-    heldScan = null;
-    closeQuickUnlockDialogs();
-    clearCapturedImages();
-    secureVault.zeroFillWipe();
-    deleteDeviceSecret().catch(e => console.error('[vCGE] Could not delete the keychain device key:', e));
-    storageMode = 'locked';
-    cardView.clear();
-    refresh();
-    setVaultIndicator();
-    globalEventBus.publish(Events.VAULT_WIPED, { timestamp: Date.now() });
-    openVaultModal();
+function onPopState(event) {
+    if (event.state && event.state.vcgeLeaveGuard) {   // Forward onto the guard entry again
+        leaveGuardArmed = true;
+        return;
+    }
+    if (leaving || !leaveGuardArmed) return;
+    leaveGuardArmed = false;
+    if (!hasWork()) return leavePage();
+    $('leaveModal').classList.remove('hidden');
+}
+
+function stayOnPage() {
+    $('leaveModal').classList.add('hidden');
+    armLeaveGuard();
+}
+
+function leavePage() {
+    leaving = true;
+    wipeSession('left the page');
+    history.back();
+}
+
+// Closing, reloading or navigating away (including into the back/forward cache): wipe before the page goes.
+function onPageHide() {
+    wipeSession('left the page');
+}
+
+function onPageShow(event) {
+    if (!event.persisted) return;
+    // Restored from the back/forward cache: it was wiped when it was left.
+    leaving = false;
+    leaveGuardArmed = false;
+    cardView.showToast('Everything was wiped when you left the page.');
+}
+
+function onVisibilityChange() {
+    if (document.visibilityState === 'hidden') {
+        hiddenDeadline = Date.now() < externalAppUntil ? 0 : Date.now() + HIDDEN_WIPE_SECONDS * 1000;
+    } else {
+        // Phones freeze timers in the background, so the deadline is checked as the page comes back.
+        checkHiddenDeadline();
+        hiddenDeadline = 0;
+    }
+}
+
+function checkHiddenDeadline() {
+    if (!hiddenDeadline || Date.now() < hiddenDeadline) return;
+    hiddenDeadline = 0;
+    wipeSession(`out of view for ${HIDDEN_WIPE_SECONDS} s`, `Wiped: the app was out of view for more than ${HIDDEN_WIPE_SECONDS} seconds.`);
+}
+
+// The app is about to open the photo picker or a share action (another app may come to the front).
+function expectExternalApp() {
+    externalAppUntil = Date.now() + EXTERNAL_APP_GRACE_MS;
+}
+
+function onActivity() {
+    armIdleTtl();
+    armLeaveGuard();
 }
 
 // ---- Intake: camera / upload (MOD03) -> OCR (MOD04) -> mapper (MOD05) -----------------------------------------
@@ -667,17 +535,10 @@ function scanSnapshot() {
     return { photo, review, lastScan };
 }
 
-// Puts a scan kept by quickLock back: the review dialog at the step it was on, and "Reopen last scan".
-async function restoreScan(held) {
-    const sealed = held && await held;
-    if (!sealed) return;
-    let scan;
-    try {
-        scan = await secureVault.unseal(sealed);
-    } catch (e) {
-        console.error('[vCGE] Kept scan unreadable:', e);
-        return;
-    }
+
+// Puts a scan held through a quick lock back: the review dialog at the step it was on, and "Reopen last scan".
+function restoreScan(scan) {
+    if (!scan) return;
     if (scan.photo) {
         camera.capturedImageDataUrl = scan.photo;
         $('reviewImage').src = scan.photo;
@@ -699,6 +560,7 @@ async function restoreScan(held) {
 }
 
 function wireIntake() {
+    $('imageUpload').addEventListener('click', expectExternalApp);
     $('imageUpload').addEventListener('change', (e) => {
         camera.handleGalleryUpload(e.target.files[0]);
         e.target.value = '';
@@ -734,6 +596,9 @@ function wireIntake() {
 // ---- Egress (MOD08 only) ---------------------------------------------------------------------------------------
 
 function wireEgress() {
+    // A share or download may bring another app to the front: the 2-minute idle rule applies, not the 30-second one.
+    ['downloadVcfBtn', 'exportQrBtn', 'emailBtn', 'smsBtn', 'printCardBtn', 'shareNativeBtn']
+        .forEach(id => $(id).addEventListener('click', expectExternalApp, true));
     $('downloadVcfBtn').addEventListener('click', () => egressController.downloadVcf());
     $('exportQrBtn').addEventListener('click', () => egressController.exportQRPNG($('qrCanvas')));
     $('emailBtn').addEventListener('click', () => egressController.triggerEmailShare());
@@ -753,11 +618,10 @@ function wireAuditLog() {
     const describe = {
         [Events.EXPORT_DISPATCHED]: (d) => `MOD08 egress: ${d.method}`,
         [Events.EGRESS_BLOCKED]: (d) => `Blocked ${d.api} → ${d.url}`,
-        [Events.VAULT_UNLOCKED]: (d) => (d.created ? 'Vault created' : `Vault unlocked (${d.method})`),
-        [Events.VAULT_LOCKED]: (d) => `Vault locked${d.reason && d.reason !== 'manual' ? ` (${d.reason})` : ''}`,
+        [Events.VAULT_UNLOCKED]: (d) => `Vault unlocked (${d.method})`,
         [Events.VAULT_QUICK_LOCKED]: (d) => `Card${d.scanKept ? ' and scan' : ''} hidden; session PIN unlocks for ${d.seconds / 60} min`,
         [Events.VAULT_UNLOCK_METHOD_CHANGED]: (d) => d.change,
-        [Events.VAULT_WIPED]: () => 'Vault wiped',
+        [Events.VAULT_WIPED]: (d) => `Vault wiped${d.reason && d.reason !== 'wipe button' ? ` (${d.reason})` : ''}`,
         [Events.OCR_TEXT_EXTRACTED]: (d) => `OCR text extracted${d.icons ? ` (${d.icons} icon${d.icons === 1 ? '' : 's'} recognised)` : ''}`,
         [Events.MEMORY_PURGED]: (d) => `RAM purged (${d.reason})`
     };
@@ -774,33 +638,33 @@ function wireAuditLog() {
 // ---- Boot ------------------------------------------------------------------------------------------------------
 
 function boot() {
-    purgeStartupResidue();
     maskSecretInputs();
     initTheme($('themeToggle'));
     cardView.init();
     wireAuditLog();
+    purgeStartupResidue();
     wireIntake();
     wireEgress();
-    $('vaultForm').addEventListener('submit', submitVault);
-    $('vaultSkipBtn').addEventListener('click', continueWithoutSaving);
-    $('lockVaultBtn').addEventListener('click', () => lockVault());
-    $('vaultPasskeyBtn').addEventListener('click', unlockWithPasskey);
-    $('vaultUsePassphraseBtn').addEventListener('click', () => setVaultModalMode('passphrase'));
+    $('vaultForm').addEventListener('submit', submitPin);
+    $('vaultStartOverBtn').addEventListener('click', () => wipeSession('start over', 'Wiped. Starting over.'));
+    $('lockVaultBtn').addEventListener('click', () => { if (sessionPin.isSet()) quickLock(); });
     $('quickSetupForm').addEventListener('submit', saveSessionPin);
-    $('quickSetupSkipBtn').addEventListener('click', skipQuickSetup);
+    $('quickSetupSkipBtn').addEventListener('click', closeQuickSetup);
     $('setSessionPinBtn').addEventListener('click', openQuickSetup);
     $('clearSessionPinBtn').addEventListener('click', clearSessionPin);
-    $('addPasskeyBtn').addEventListener('click', openPasskeyModal);
-    $('passkeyForm').addEventListener('submit', addPasskey);
-    $('passkeyCancelBtn').addEventListener('click', closePasskeyModal);
     $('wipeVaultBtn').addEventListener('click', wipeVault);
+    $('leaveStayBtn').addEventListener('click', stayOnPage);
+    $('leaveConfirmBtn').addEventListener('click', leavePage);
     $('clearFormBtn').addEventListener('click', () => cardView.changeWithUndo('Form cleared.', () => cardView.clear()));
-    ['pointerdown', 'keydown', 'input'].forEach(type => document.addEventListener(type, armIdleTtl, true));
-    setInterval(updatePurgeCountdown, 1000);
+    window.addEventListener('popstate', onPopState);
+    window.addEventListener('pagehide', onPageHide);
+    window.addEventListener('pageshow', onPageShow);
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    ['pointerdown', 'pointerup', 'keydown', 'input'].forEach(type => document.addEventListener(type, onActivity, true));
+    setInterval(() => { updatePurgeCountdown(); checkHiddenDeadline(); }, 1000);
     refresh();
     setVaultIndicator();
     updatePurgeCountdown();
-    openVaultModal();
 }
 
 boot();

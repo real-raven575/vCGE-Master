@@ -116,107 +116,36 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('CryptoUtils rejects missing passphrase on decrypt', legacyDefault === null);
 }
 
-// Vault
+// Temporary vault: memory only, nothing written to storage
 {
-  const { SecureStorageVault, VAULT_FORMAT } = await import(`${R}/modules/mod02-vault/vault.js`);
-  const origErr = console.error;
-  const v = new SecureStorageVault('t');
-  const created = await v.initialize('pw');
-  ok('vault initialize creates a format-2 vault (data key wrapped by the passphrase)', created.success && created.created && JSON.parse(localStorage.getItem('t')).v === VAULT_FORMAT && JSON.parse(localStorage.getItem('t')).passphrase.wrapped.length > 0);
-  await v.encryptAndStore({ name: 'Jane' });
-  ok('vault same-session round-trip', (await v.retrieveAndDecrypt()).name === 'Jane');
-  // Simulate app restart: new instance, same passphrase.
-  const v2 = new SecureStorageVault('t');
-  await v2.initialize('pw');
-  let reopened = null;
-  console.error = () => {};
-  try { reopened = await v2.retrieveAndDecrypt(); } catch (e) { reopened = 'THREW:' + e.message; }
-  console.error = origErr;
-  ok('vault reopens after restart with same passphrase', reopened && reopened.name === 'Jane', String(reopened));
-  const v3 = new SecureStorageVault('t');
-  console.error = () => {};
-  const wrong = await v3.initialize('not-the-passphrase');
-  console.error = origErr;
-  ok('vault rejects wrong passphrase at unlock', !wrong.success && wrong.error === 'ERR_VAULT_DECRYPT_FAIL' && !v3.isUnlocked, JSON.stringify(wrong));
-  ok('vault lock drops key but keeps data', v2.lock().status === 'LOCKED' && v2.masterKey === null && v2.hasStoredVault());
+  const { TemporaryVault, deleteLegacyVault, LEGACY_VAULT_KEY } = await import(`${R}/modules/mod02-vault/vault.js`);
+  const before = JSON.stringify(localStorage);
+  const v = new TemporaryVault();
+  ok('temporary vault starts empty', !v.isHolding() && (await v.release()) === null);
+  ok('hold encrypts and keeps the card in memory', await v.hold({ contact: { name: 'Jane' } }) && v.isHolding() && v.key.extractable === false);
+  ok('held card is ciphertext, not the plain card', !new TextDecoder().decode(v.sealed.ciphertext).includes('Jane'));
+  ok('nothing is written to browser storage', JSON.stringify(localStorage) === before);
+  const sealed = v.sealed;
+  ok('release returns the card and empties the vault', (await v.release()).contact.name === 'Jane' && !v.isHolding() && v.key === null);
+  ok('released ciphertext is zero-filled', new Uint8Array(sealed.ciphertext).every(b => b === 0));
+  await v.hold({ contact: { name: 'Again' } });
+  const first = v.key;
+  await v.hold({ contact: { name: 'Third' } });
+  ok('every hold uses a new key', v.key !== first && (await v.release()).contact.name === 'Third');
+  await v.hold({ a: 1 });
+  ok('wipe drops the key and the ciphertext', v.wipe().status === 'WIPED' && !v.isHolding() && v.key === null && (await v.release()) === null);
+  const late = v.hold({ contact: { name: 'Late' } });
+  v.wipe();
+  ok('a hold that finishes after a wipe is discarded', (await late) === false && !v.isHolding());
 
-  // Passkey slots: the data key wrapped with a key from the passkey's PRF output (32 bytes from the authenticator)
-  const prf = crypto.getRandomValues(new Uint8Array(32));
-  ok('exportDataKey refuses a wrong passphrase', (await v.exportDataKey('nope')).error === 'ERR_VAULT_DECRYPT_FAIL');
-  const exported = await v.exportDataKey('pw');
-  ok('exportDataKey returns the 32-byte data key for the right passphrase', exported.success && exported.dataKey.length === 32);
-  await v.addPasskeySlot(exported.dataKey, { id: 'cred-A', label: 'Test phone', prfSalt: [1, 2, 3] }, prf);
-  ok('passkey slot listed (no secrets in the listing)', JSON.stringify(v.passkeySlots()) === JSON.stringify([{ id: 'cred-A', label: 'Test phone', created: v.passkeySlots()[0].created }]) && v.passkeyPrfSalts()['cred-A'].join() === '1,2,3');
-  const p1 = new SecureStorageVault('t');
-  ok('passkey unlocks the vault without the passphrase', (await p1.unlockWithPasskey('cred-A', prf)).success && (await p1.retrieveAndDecrypt()).name === 'Jane');
-  ok('passkey-unlocked key is not extractable', p1.masterKey.extractable === false);
-  await p1.encryptAndStore({ name: 'Jane 2' });
-  const p2 = new SecureStorageVault('t'); await p2.initialize('pw');
-  ok('passphrase and passkey open the same data', (await p2.retrieveAndDecrypt()).name === 'Jane 2');
-  const p3 = new SecureStorageVault('t');
-  console.error = () => {};
-  const badPrf = await p3.unlockWithPasskey('cred-A', crypto.getRandomValues(new Uint8Array(32)));
-  console.error = origErr;
-  ok('a different PRF output does not unlock', !badPrf.success && !p3.isUnlocked);
-  ok('an unknown passkey is reported', (await p3.unlockWithPasskey('cred-Z', prf)).error === 'ERR_PASSKEY_UNKNOWN');
-  v.removePasskeySlot('cred-A');
-  ok('removed passkey no longer unlocks', v.passkeySlots().length === 0 && (await new SecureStorageVault('t').unlockWithPasskey('cred-A', prf)).error === 'ERR_PASSKEY_UNKNOWN');
-  ok('raw stored blob has no plaintext', !localStorage.getItem('t').includes('Jane'));
-  v.zeroFillWipe();
-  ok('vault zeroFillWipe clears storage', localStorage.getItem('t') === null && v.masterKey === null);
-
-  // Keychain-bound vault (Tauri): passphrase + OS keychain device key via HKDF
-  const { KDF_KEYCHAIN, KDF_PASSPHRASE } = await import(`${R}/modules/mod02-vault/vault.js`);
-  const device = crypto.getRandomValues(new Uint8Array(32));
-  const k1 = new SecureStorageVault('kc');
-  ok('keychain vault initializes with device key', (await k1.initialize('pw-123456', device)).kdf === KDF_KEYCHAIN);
-  await k1.encryptAndStore({ name: 'Bound' });
-  ok('keychain vault records its KDF', JSON.parse(localStorage.getItem('kc')).kdf === KDF_KEYCHAIN && k1.requiresDeviceKey());
-  const k2 = new SecureStorageVault('kc');
-  ok('keychain vault refuses to open without the device key', (await k2.initialize('pw-123456')).error === 'ERR_KEYCHAIN_REQUIRED' && !k2.isUnlocked);
-  const k3 = new SecureStorageVault('kc');
-  console.error = () => {};
-  const otherDevice = await k3.initialize('pw-123456', crypto.getRandomValues(new Uint8Array(32)));
-  console.error = origErr;
-  ok('keychain vault cannot be opened with another device key', otherDevice.error === 'ERR_VAULT_DECRYPT_FAIL' && !k3.isUnlocked, JSON.stringify(otherDevice));
-  const k4 = new SecureStorageVault('kc'); await k4.initialize('pw-123456', device);
-  ok('keychain vault opens with passphrase + same device key', (await k4.retrieveAndDecrypt()).name === 'Bound');
-  ok('vault key is not extractable', k4.masterKey.extractable === false);
-  const kx = await k4.exportDataKey('pw-123456', device);
-  await k4.addPasskeySlot(kx.dataKey, { id: 'cred-K', label: 'Desk', prfSalt: [9] }, prf, device);
-  ok('keychain vault: passkey needs the device key too', (await new SecureStorageVault('kc').unlockWithPasskey('cred-K', prf)).error === 'ERR_KEYCHAIN_REQUIRED');
-  console.error = () => {};
-  const kOther = await new SecureStorageVault('kc').unlockWithPasskey('cred-K', prf, crypto.getRandomValues(new Uint8Array(32)));
-  console.error = origErr;
-  ok('keychain vault: passkey with another device key fails', !kOther.success);
-  const k5 = new SecureStorageVault('kc');
-  ok('keychain vault: passkey + device key unlocks', (await k5.unlockWithPasskey('cred-K', prf, device)).success && (await k5.retrieveAndDecrypt()).name === 'Bound');
-
-  // Format 1 vaults (card encrypted with the passphrase key itself) open and are converted to format 2.
-  const salt = crypto.getRandomValues(new Uint8Array(16)), iv = crypto.getRandomValues(new Uint8Array(12));
-  const base = await crypto.subtle.importKey('raw', new TextEncoder().encode('legacy-pass'), { name: 'PBKDF2' }, false, ['deriveKey']);
-  const oldKey = await crypto.subtle.deriveKey({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, base, { name: 'AES-GCM', length: 256 }, false, ['encrypt']);
-  const ct = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, oldKey, new TextEncoder().encode(JSON.stringify({ name: 'Legacy' })));
-  localStorage.setItem('legacy', JSON.stringify({ iv: Array.from(iv), salt: Array.from(salt), ciphertext: Array.from(new Uint8Array(ct)) }));
-  console.error = () => {};
-  const legacyWrong = await new SecureStorageVault('legacy').initialize('wrong-pass');
-  console.error = origErr;
-  ok('format-1 vault: wrong passphrase rejected and nothing rewritten', !legacyWrong.success && JSON.parse(localStorage.getItem('legacy')).v === undefined);
-  const lv = new SecureStorageVault('legacy');
-  const lres = await lv.initialize('legacy-pass');
-  ok('format-1 vault (no kdf field) opens and is converted', lres.kdf === KDF_PASSPHRASE && lres.migrated && (await lv.retrieveAndDecrypt()).name === 'Legacy' && JSON.parse(localStorage.getItem('legacy')).v === VAULT_FORMAT);
-  const lv2 = new SecureStorageVault('legacy');
-  ok('converted vault reopens with the same passphrase', (await lv2.initialize('legacy-pass')).success && (await lv2.retrieveAndDecrypt()).name === 'Legacy');
-  // A format-1 keychain vault (written by the previous derivation: PBKDF2 bits + HKDF with the device key)
-  const kSalt = crypto.getRandomValues(new Uint8Array(16)), kIv = crypto.getRandomValues(new Uint8Array(12));
-  const kBase = await crypto.subtle.importKey('raw', new TextEncoder().encode('desk-pass-1'), { name: 'PBKDF2' }, false, ['deriveBits']);
-  const kBits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: kSalt, iterations: 100000, hash: 'SHA-256' }, kBase, 256);
-  const kHkdf = await crypto.subtle.importKey('raw', kBits, { name: 'HKDF' }, false, ['deriveKey']);
-  const kOld = await crypto.subtle.deriveKey({ name: 'HKDF', hash: 'SHA-256', salt: device, info: new TextEncoder().encode('vCGE vault key v1') }, kHkdf, { name: 'AES-GCM', length: 256 }, false, ['encrypt']);
-  const kCt = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: kIv }, kOld, new TextEncoder().encode(JSON.stringify({ name: 'Old desk' })));
-  localStorage.setItem('legacy-kc', JSON.stringify({ kdf: KDF_KEYCHAIN, iv: Array.from(kIv), salt: Array.from(kSalt), ciphertext: Array.from(new Uint8Array(kCt)) }));
-  const lk = new SecureStorageVault('legacy-kc');
-  ok('format-1 keychain vault opens with passphrase + device key and is converted', (await lk.initialize('desk-pass-1', device)).migrated && (await lk.retrieveAndDecrypt()).name === 'Old desk' && JSON.parse(localStorage.getItem('legacy-kc')).kdf === KDF_KEYCHAIN);
+  // Vaults saved by older builds are deleted at startup
+  ok('no old vault: nothing reported', deleteLegacyVault() === null);
+  localStorage.setItem(LEGACY_VAULT_KEY, JSON.stringify({ v: 2, kdf: 'pbkdf2-sha256', ciphertext: [1, 2] }));
+  ok('old browser vault deleted (not keychain-bound)', JSON.stringify(deleteLegacyVault()) === '{"keychainBound":false}' && localStorage.getItem(LEGACY_VAULT_KEY) === null);
+  localStorage.setItem(LEGACY_VAULT_KEY, JSON.stringify({ v: 2, kdf: 'pbkdf2-sha256+hkdf-device-key' }));
+  ok('old desktop vault deleted and reported as keychain-bound', deleteLegacyVault().keychainBound === true && localStorage.getItem(LEGACY_VAULT_KEY) === null);
+  localStorage.setItem(LEGACY_VAULT_KEY, 'not json');
+  ok('unreadable old vault deleted all the same', deleteLegacyVault().keychainBound === false && localStorage.getItem(LEGACY_VAULT_KEY) === null);
 }
 
 // Session PIN (quick unlock after an idle lock)
