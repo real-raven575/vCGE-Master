@@ -5,6 +5,14 @@
  */
 import { globalEventBus, Events } from '../../share/eventBus.js';
 
+// A web page cannot claim the camera for itself, so the camera is turned off and the user told whenever another app
+// shows up: it holds the camera (start fails), takes it away mid-scan (the feed ends or stays muted), or sits in front of
+// it as a virtual camera (software that sees every frame before any app does).
+const CAMERA_IN_USE_ERRORS = ['NotReadableError', 'TrackStartError'];
+const VIRTUAL_CAMERA = /\b(obs|manycam|snap camera|xsplit|virtual|droidcam|camo|mmhmm|ndi|splitcam|vcam|youcam|e2esoft)\b/i;
+const MUTE_GRACE_MS = 1000;   // a feed muted this long while the app is in view counts as cut off
+const IN_USE_MESSAGE = 'Another app is using or watching your camera, so vCGE turned it off. Close the other app and try again, or upload a photo instead.';
+
 export class VCGEActiveCamera {
     constructor(config = {}) {
         this.videoEl = config.videoEl || document.getElementById('cameraStream');
@@ -16,6 +24,7 @@ export class VCGEActiveCamera {
         this.cropReviewModal = config.cropReviewModal || document.getElementById('cropReviewModal');
         this.reviewImage = config.reviewImage || document.getElementById('reviewImage');
         this.eventLog = config.eventLog || document.getElementById('eventLog');
+        this.cameraPanel = config.cameraPanel || document.getElementById('cameraPanel');
 
         this.currentFacingMode = config.facingMode || 'environment';
         this.activeStream = null;
@@ -48,6 +57,11 @@ export class VCGEActiveCamera {
             this.logEvent(`Camera stream established (${this.currentFacingMode} mode) - Zero disk cache policy enforced.`);
 
             const track = this.activeStream.getVideoTracks()[0];
+            if (track && VIRTUAL_CAMERA.test(track.label || '')) {
+                this.blockCamera(`virtual camera "${track.label}"`);
+                return;
+            }
+            this.watchTrack(track);
             const capabilities = track.getCapabilities ? track.getCapabilities() : {};
             if (capabilities.zoom && this.zoomSlider) {
                 this.zoomSlider.min = capabilities.zoom.min;
@@ -55,8 +69,67 @@ export class VCGEActiveCamera {
                 this.zoomSlider.step = capabilities.zoom.step;
             }
         } catch (err) {
-            this.logEvent(`Camera access unavailable: ${err.message}. Use "Upload card image" instead.`);
+            if (err && CAMERA_IN_USE_ERRORS.includes(err.name)) this.blockCamera('the camera is held by another app');
+            else this.logEvent(`Camera access unavailable: ${err.message}. Use "Upload card image" instead.`);
         }
+    }
+
+    // Another app taking the camera ends our feed (or mutes it, on some phones); stopping it ourselves fires neither.
+    watchTrack(track) {
+        if (!track) return;
+        const isCurrent = () => !!this.activeStream && this.activeStream.getVideoTracks()[0] === track;
+        track.addEventListener('ended', () => {
+            if (isCurrent()) this.blockCamera('the camera was taken by another app');
+        });
+        track.addEventListener('mute', () => {
+            setTimeout(() => {
+                if (isCurrent() && track.muted && document.visibilityState === 'visible') this.blockCamera('the camera feed was cut off');
+            }, MUTE_GRACE_MS);
+        });
+    }
+
+    blockCamera(reason) {
+        this.stopCamera();
+        if (this.cameraPanel) this.cameraPanel.classList.add('hidden');
+        this.logEvent(`Camera turned off: ${reason}.`);
+        this.showInUseNotice();
+    }
+
+    // The pop-up is built here on first use, so the camera module needs nothing from the page markup.
+    showInUseNotice() {
+        let notice = document.getElementById('cameraInUseModal');
+        if (!notice) {
+            notice = document.createElement('div');
+            notice.id = 'cameraInUseModal';
+            notice.className = 'hidden fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4';
+            const box = document.createElement('div');
+            box.className = 'bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-sm w-full space-y-3 shadow-2xl';
+            box.setAttribute('role', 'alertdialog');
+            box.setAttribute('aria-labelledby', 'cameraInUseTitle');
+            box.setAttribute('aria-describedby', 'cameraInUseMessage');
+            const title = document.createElement('h2');
+            title.id = 'cameraInUseTitle';
+            title.className = 'text-lg font-bold';
+            title.textContent = 'Camera turned off';
+            const message = document.createElement('p');
+            message.id = 'cameraInUseMessage';
+            message.className = 'text-xs text-slate-500 dark:text-slate-400';
+            message.textContent = IN_USE_MESSAGE;
+            const row = document.createElement('div');
+            row.className = 'flex justify-end';
+            const ok = document.createElement('button');
+            ok.id = 'cameraInUseOkBtn';
+            ok.type = 'button';
+            ok.className = 'px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition';
+            ok.textContent = 'OK';
+            ok.addEventListener('click', () => notice.classList.add('hidden'));
+            row.append(ok);
+            box.append(title, message, row);
+            notice.append(box);
+            document.body.append(notice);
+        }
+        notice.classList.remove('hidden');
+        document.getElementById('cameraInUseOkBtn').focus();
     }
 
     initListeners() {
