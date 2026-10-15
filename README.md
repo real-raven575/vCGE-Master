@@ -58,7 +58,7 @@ npm run tauri build               # release build + installers in src-tauri/targ
 
 ```bash
 npm install
-npm test                          # 149 unit tests (Node)
+npm test                          # 186 unit tests (Node)
 npx playwright install chromium   # once, for the browser tests
 npm run test:e2e                  # 140 browser end-to-end tests (real OCR, icons, crop & straighten, text review, logo fitting, reopen last scan, scan kept across a PIN lock, undo, typed fields & regions, blurry-photo retake, OCR failure, QR decode, nothing stored, wipe on reload / 30 s out of view / idle, Back guard, session PIN, SMS and email summary, one-page print, egress lock)
 SERVE_DIR=dist npm run test:e2e   # same suite against the Vite build (run `npm run build` first)
@@ -122,7 +122,7 @@ vCGE-Master/
     │   └── vcardFormatter.js      # The single vCard 3.0 builder (RFC 2426 escaping, CRLF)
     └── modules/                   # Isolated Core Functional Modules
         ├── mod01-shell/           # shell.js (network gatekeeper), themeManager.js (light/dark)
-        ├── mod02-vault/           # vault.js (temporary vault, memory only: AES-GCM-256 hold/release, old-vault clean-up), sessionPin.js, secretInputs.js (no save-password prompts), keychain.js (deletes the old desktop device key), ttlManager.js (120 s idle purge)
+        ├── mod02-vault/           # vault.js (temporary vault, memory only: AES-GCM-256 hold/release, old-vault clean-up), sessionPin.js, secretInputs.js (no save-password prompts), keychain.js (deletes the old desktop device key), ttlManager.js (120 s idle purge), vaultStore.js + wipePolicy.js (hub store with per-module handles and the wipe rules; built and tested, not yet wired into main.js)
         ├── mod03-camera/          # camera.js (viewfinder, zoom, capture), cropEditor.js (corner handles, rotate), perspective.js (straightening maths)
         ├── mod04-ocr/             # ocrWorker.js (image pre-processing + bundled Tesseract.js, on-device), iconDetector.js + iconMatcher.js (icons in front of lines)
         ├── mod05-form/            # formMapper.js (OCR text → contact), addressAutocomplete.js (local-only)

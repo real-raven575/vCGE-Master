@@ -193,6 +193,133 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('TTL expires on next tick after a clock jump', expired2);
 }
 
+// Vault store: the hub every module goes through (memory only, per-module rights, no data in notices)
+{
+  const { VaultStore, SLOTS, MODULE_RIGHTS } = await import(`${R}/modules/mod02-vault/vaultStore.js`);
+  const before = JSON.stringify(localStorage);
+  let gesture = false;
+  const s = new VaultStore({ isUserGesture: () => gesture });
+  ok('vault store has the pipeline slots and starts empty', SLOTS.join() === 'photo,ocr,review,contact,lastScan,undo' && s.isEmpty() && s.state() === 'open');
+  const notices = []; s.onChange('contact', n => notices.push(n));
+  const contact = { firstName: 'Jane', phones: [{ type: 'work', value: '555' }] };
+  s.put('contact', contact);
+  contact.firstName = 'Changed';
+  const got = s.get('contact'); got.phones[0].value = 'x';
+  ok('values are copied in and out (no shared references)', s.get('contact').firstName === 'Jane' && s.get('contact').phones[0].value === '555');
+  ok('change notices name the slot and carry no data', notices.length === 1 && JSON.stringify(notices[0]) === '{"slot":"contact"}');
+  let unknown = false; try { s.get('passwords'); } catch (e) { unknown = e.message.startsWith('VAULT_UNKNOWN_SLOT'); }
+  ok('unknown slots are refused', unknown);
+
+  // Handles: each module reaches only its own slots
+  const denied = (fn) => { try { fn(); return false; } catch (e) { return e.message.startsWith('VAULT_DENIED'); } };
+  const cam = s.handle('mod03'), ocrH = s.handle('mod04'), qr = s.handle('mod07'), egress = s.handle('mod08');
+  cam.put('photo', 'data:image/png;base64,AAA');
+  ok('camera writes the photo; OCR reads it', ocrH.get('photo') === 'data:image/png;base64,AAA');
+  ok('camera cannot read the photo back or touch the contact', denied(() => cam.get('photo')) && denied(() => cam.put('contact', {})));
+  ok('OCR cannot read the contact', denied(() => ocrH.get('contact')));
+  ok('QR reads the contact but cannot write it', qr.get('contact').firstName === 'Jane' && denied(() => qr.put('contact', {})));
+  ok('egress has no standing read of the contact', denied(() => egress.get('contact')));
+  ok('egress reads the contact only during a user gesture', egress.readForShare('contact') === null && ((gesture = true), egress.readForShare('contact').firstName === 'Jane'));
+  gesture = false;
+  ok('egress cannot share the photo', denied(() => egress.readForShare('photo')));
+  let unknownModule = false; try { s.handle('mod99'); } catch (e) { unknownModule = e.message.startsWith('VAULT_UNKNOWN_MODULE'); }
+  ok('unknown modules get no handle', unknownModule);
+  ok('every module right names a real slot', Object.values(MODULE_RIGHTS).every(r => [...r.read, ...r.write, ...(r.share || [])].every(x => SLOTS.includes(x))));
+
+  // Lock behind the session PIN, unlock, wipe
+  ok('lock without a PIN is refused and keeps the card', s.lock() === false && s.get('contact').firstName === 'Jane');
+  await s.setPin('2468');
+  const states = []; s.onStateChange(e => states.push(e.state));
+  ok('lock seals every slot and empties them', s.lock() === true && s.state() === 'locked' && s.get('contact') === null && s.get('photo') === null && !s.isEmpty());
+  ok('nothing goes in while locked', s.put('contact', { firstName: 'X' }) === false);
+  await s.locking;
+  ok('the held copy is ciphertext', s.vault.isHolding() && !new TextDecoder().decode(s.vault.sealed.ciphertext).includes('Jane'));
+  const wrong = await s.unlock('0000');
+  ok('wrong PIN keeps it locked', wrong.result === 'wrong' && s.state() === 'locked');
+  const right = await s.unlock('2468');
+  ok('right PIN puts every slot back', right.result === 'ok' && s.state() === 'open' && s.get('contact').firstName === 'Jane' && ocrH.get('photo').endsWith('AAA') && !s.vault.isHolding());
+  s.lock(); await s.locking;
+  for (let i = 0; i < 5; i++) await s.unlock('9999');
+  ok('5 wrong PINs wipe the card and the PIN', s.state() === 'open' && s.isEmpty() && !s.hasPin() && !s.vault.isHolding());
+  await s.setPin('2468'); s.put('contact', { firstName: 'Lost' });
+  s.vault.hold = async () => false;   // the seal fails
+  s.lock();
+  const lost = await s.unlock('2468');
+  ok('a failed seal is reported as lost, not as unlocked', lost.result === 'lost' && s.isEmpty());
+  delete s.vault.hold;
+  s.put('review', { lines: [] }); s.wipe('test');
+  ok('wipe empties every slot and forgets the PIN', s.isEmpty() && !s.hasPin() && states.at(-1) === 'wiped');
+  ok('the store writes nothing to browser storage', JSON.stringify(localStorage) === before);
+}
+
+// Wipe policy: idle lock or wipe, PIN window, leaving the page, 30 s out of view
+{
+  const { VaultStore } = await import(`${R}/modules/mod02-vault/vaultStore.js`);
+  const { WipePolicy } = await import(`${R}/modules/mod02-vault/wipePolicy.js`);
+  const makeEnv = () => {
+    const env = { t: 1_000_000, hidden: false, handlers: {}, intervals: 0,
+      now: () => env.t, isHidden: () => env.hidden,
+      on: (target, type, fn) => { env.handlers[type] = fn; }, off: (target, type) => { delete env.handlers[type]; },
+      setInterval: () => ++env.intervals, clearInterval: () => {} };
+    return env;
+  };
+  const setup = async (withPin) => {
+    const env = makeEnv(), store = new VaultStore();
+    if (withPin) await store.setPin('2468');
+    const policy = new WipePolicy(store, { env });
+    policy.start();
+    store.put('contact', { firstName: 'Jane' });
+    const reasons = []; store.onStateChange(e => reasons.push(`${e.state}:${e.reason}`));
+    return { env, store, policy, reasons };
+  };
+
+  let { env, store, policy, reasons } = await setup(false);
+  ok('wipe policy listens for pagehide and visibility, ticks every second', env.handlers.pagehide && env.handlers.visibilitychange && env.intervals === 1);
+  env.t += 119_000; policy.tick();
+  ok('idle under 2 minutes keeps the card', store.get('contact').firstName === 'Jane' && policy.remaining().idle === 1);
+  policy.activity(); env.t += 119_000; policy.tick();
+  ok('activity restarts the idle clock', store.get('contact') !== null);
+  env.t += 2_000; policy.tick();
+  ok('2 minutes idle without a PIN wipes', store.isEmpty() && reasons.at(-1) === 'wiped:idle');
+  env.t += 300_000; reasons.length = 0; policy.tick();
+  ok('an empty store is not wiped again until there is activity', reasons.length === 0);
+
+  ({ env, store, policy, reasons } = await setup(true));
+  env.t += 121_000; policy.tick();
+  ok('2 minutes idle with a PIN locks instead', store.state() === 'locked' && policy.remaining().quickUnlock === 300);
+  env.t += 301_000; policy.tick();
+  ok('5 minutes locked wipes the card', store.state() === 'open' && store.isEmpty() && reasons.at(-1) === 'wiped:quick unlock expired');
+
+  ({ env, store, policy, reasons } = await setup(true));
+  env.t += 121_000; policy.tick(); await store.locking;
+  await store.unlock('2468');
+  ok('unlock clears the PIN window and restarts the idle clock', policy.remaining().quickUnlock === 0 && policy.remaining().idle === 120);
+
+  ({ env, store, policy, reasons } = await setup(false));
+  env.handlers.pagehide();
+  ok('leaving the page wipes', store.isEmpty() && reasons.at(-1) === 'wiped:left the page');
+
+  ({ env, store, policy, reasons } = await setup(false));
+  env.hidden = true; env.handlers.visibilitychange();
+  env.t += 29_000; env.hidden = false; env.handlers.visibilitychange();
+  ok('back in view within 30 s keeps the card', store.get('contact').firstName === 'Jane');
+  env.hidden = true; env.handlers.visibilitychange();
+  env.t += 31_000; env.hidden = false; env.handlers.visibilitychange();
+  ok('30 s out of view wipes, checked as the page comes back (frozen timers)', store.isEmpty() && reasons.at(-1) === 'wiped:out of view for 30 s');
+
+  ({ env, store, policy, reasons } = await setup(false));
+  policy.expectExternalApp(); env.t += 1_000;
+  env.hidden = true; env.handlers.visibilitychange();
+  env.t += 60_000; env.hidden = false; env.handlers.visibilitychange();
+  ok('the photo picker or share sheet gets the idle rule, not the 30 s rule', store.get('contact').firstName === 'Jane');
+  env.t += 6_000; env.hidden = true; env.handlers.visibilitychange();
+  env.t += 31_000; policy.tick();
+  ok('the picker grace ends after 5 s', store.isEmpty());
+
+  policy.stop();
+  ok('stop removes the page listeners', !env.handlers.pagehide && !env.handlers.visibilitychange);
+}
+
 // Form mapper (single OCR text -> contact mapper)
 {
   const { ContactFormMapper } = await import(`${R}/modules/mod05-form/formMapper.js`);
