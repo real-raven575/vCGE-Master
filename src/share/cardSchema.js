@@ -20,8 +20,10 @@ export const CONTACT_LIST_FIELDS = Object.freeze(['phones', 'emails', 'websites'
 export function createEmptyContact() {
     const contact = {
         id: crypto.randomUUID ? crypto.randomUUID() : 'vcge-' + Date.now(),
-        avatarBase64: null,
+        avatarBase64: null,     // the logo as a square JPEG: the vCard PHOTO
+        logoDisplay: null,      // the same logo trimmed, in its own shape, transparency kept: shown on the card only
         themePalette: 'ocean',
+        cardFont: 'font-sans',  // card typeface: font-sans, font-serif or font-mono
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
     };

@@ -57,8 +57,11 @@ export class CardView {
         this.onChange = onChange || (() => {});
         this.addressEngine = addressEngine;
         this.formMapper = formMapper;
-        this.avatarBase64 = null;
+        this.avatarBase64 = null;   // logo as the vCard PHOTO (square JPEG)
+        this.logoDisplay = null;    // logo as shown on the card (trimmed, own shape, transparency kept)
+        this.logoLook = null;       // { wide, transparent, tone } of logoDisplay, worked out when it is set
         this.themeKey = 'ocean';
+        this.fontClass = 'font-sans';
         this.isFlipped = false;
         this.toastTimer = null;
         this.undoSnapshot = null;   // the card before the last preset / scan fill / clear (memory only)
@@ -82,7 +85,9 @@ export class CardView {
         });
         Object.keys(LISTS).forEach(key => { contact[key] = this.readList(key).filter(e => e.value); });
         contact.avatarBase64 = this.avatarBase64;
+        contact.logoDisplay = this.logoDisplay;
         contact.themePalette = this.themeKey;
+        contact.cardFont = this.fontClass;
         return contact;
     }
 
@@ -96,8 +101,9 @@ export class CardView {
         $('country').value = c.country;
         this.syncRegion();
         Object.keys(LISTS).forEach(key => this.renderList(key, c[key]));
-        this.setAvatar(c.avatarBase64 || null);
+        this.setAvatar(c.avatarBase64 || null, c.logoDisplay || null);
         this.applyTheme(c.themePalette in THEMES ? c.themePalette : 'ocean');
+        this.applyFont(c.cardFont);
     }
 
     /**
@@ -250,8 +256,10 @@ export class CardView {
         }
     }
 
+    /** Empties the card, back to the default look: front side up, Ocean palette, Sans typeface. */
     clear() {
         this.setContact(createEmptyContact());
+        this.setFlipped(false);
     }
 
     changed() {
@@ -276,24 +284,55 @@ export class CardView {
 
         const initials = (contact.firstName && contact.lastName)
             ? (contact.firstName[0] + contact.lastName[0]).toUpperCase() : 'VC';
-        this.renderAvatarBox($('previewAvatar'), initials, 'w-16 h-16 text-2xl');
+        // A wide logo (a wordmark) gets a strip across the top of the card, where it is readable. The printed card has
+        // no room for the strip, so there the logo stays in the badge.
+        const wide = !!(this.logoDisplay && this.logoLook && this.logoLook.wide);
+        this.renderLogoStrip($('previewLogoStrip'), wide);
+        this.renderAvatarBox($('previewAvatar'), initials, `w-16 h-16 text-2xl${wide ? ' hidden print:flex' : ''}`);
         this.renderAvatarBox($('formAvatarPreview'), initials, 'w-14 h-14 text-xl');
     }
 
     renderAvatarBox(box, initials, sizeClasses) {
         if (!box) return;
         const t = THEMES[this.themeKey];
-        box.className = `${sizeClasses} rounded-2xl bg-gradient-to-tr ${t.bg} text-white flex items-center justify-center font-bold shadow-lg overflow-hidden flex-shrink-0`;
+        const base = `${sizeClasses} rounded-2xl flex items-center justify-center overflow-hidden flex-shrink-0`;
         box.replaceChildren();
-        if (this.avatarBase64) {
-            const img = document.createElement('img');
-            img.src = this.avatarBase64;
-            img.alt = '';
-            img.className = 'w-full h-full object-contain';
-            box.appendChild(img);
-        } else {
+        const logo = this.logoDisplay || this.avatarBase64;
+        if (!logo) {
+            box.className = `${base} bg-gradient-to-tr ${t.bg} text-white font-bold shadow-lg`;
             box.textContent = initials;
+            return;
         }
+        box.className = `${base} ${this.logoBacking()}`;
+        box.appendChild(logoImage(logo, 'w-full h-full object-contain'));
+    }
+
+    renderLogoStrip(strip, show) {
+        if (!strip) return;
+        if (!show) {
+            strip.className = 'hidden';
+            strip.replaceChildren();
+            return;
+        }
+        // A line of its own in the card's top row; hidden when printing, which takes away its gap too.
+        strip.className = 'basis-full print:hidden';
+        const plate = document.createElement('div');
+        plate.className = `h-12 w-fit max-w-full rounded-xl overflow-hidden ${this.logoBacking()}`;
+        plate.appendChild(logoImage(this.logoDisplay, 'h-full w-auto max-w-full object-contain'));
+        strip.replaceChildren(plate);
+    }
+
+    /**
+     * What goes behind the logo. A transparent logo sits straight on the card, except: a mostly light one (it would
+     * vanish on the white card) gets a plate in the palette colour, and a mostly dark one gets a white plate in dark
+     * mode. An opaque logo brings its own background.
+     */
+    logoBacking() {
+        const look = this.logoDisplay && this.logoLook;
+        if (!look || !look.transparent) return 'shadow-lg';
+        if (look.tone === 'light') return `bg-gradient-to-tr ${THEMES[this.themeKey].bg} p-1.5 shadow-lg`;
+        if (look.tone === 'dark') return 'p-1.5 dark:bg-white';
+        return '';
     }
 
     applyTheme(themeKey) {
@@ -303,14 +342,41 @@ export class CardView {
         $('paletteSwatch').style.background = t.hex;
     }
 
-    setAvatar(dataUrl) {
-        this.avatarBase64 = dataUrl;
-        $('removeAvatarBtn').classList.toggle('hidden', !dataUrl);
+    applyFont(fontClass) {
+        this.fontClass = FONT_CLASSES.includes(fontClass) ? fontClass : 'font-sans';
+        $('cardFontSelect').value = this.fontClass;
+        ['cardFront', 'cardBack'].forEach(id => {
+            $(id).classList.remove(...FONT_CLASSES);
+            $(id).classList.add(this.fontClass);
+        });
+    }
+
+    /**
+     * @param {string|null} photo    the square JPEG (vCard PHOTO)
+     * @param {string|null} display  the trimmed logo for the card; without it the card shows the photo
+     */
+    setAvatar(photo, display = null) {
+        this.avatarBase64 = photo;
+        this.logoDisplay = photo ? display : null;
+        this.logoLook = null;
+        $('removeAvatarBtn').classList.toggle('hidden', !photo);
+        if (!this.logoDisplay) return;
+        // Its shape and tone take a moment to read; the card is drawn again once they are known.
+        const shown = this.logoDisplay;
+        describeLogo(shown).then(look => {
+            if (this.logoDisplay !== shown) return;
+            this.logoLook = look;
+            this.render(this.getContact());
+        }).catch(err => console.warn('[vCGE] Logo shape not readable:', err));
+    }
+
+    setFlipped(flipped) {
+        this.isFlipped = flipped;
+        $('card3DFlipper').style.transform = flipped ? 'rotateY(180deg)' : 'rotateY(0deg)';
     }
 
     toggleFlip() {
-        this.isFlipped = !this.isFlipped;
-        $('card3DFlipper').style.transform = this.isFlipped ? 'rotateY(180deg)' : 'rotateY(0deg)';
+        this.setFlipped(!this.isFlipped);
     }
 
     /** @param {{ label: string, onClick: Function }} [action] a button in the toast (shown for 8 s instead of 3 s) */
@@ -371,7 +437,7 @@ export class CardView {
             btn.textContent = preset.label;
             btn.addEventListener('click', () => {
                 this.changeWithUndo(`Loaded sample: ${preset.firstName} ${preset.lastName}`,
-                    () => this.setContact({ ...createEmptyContact(), ...preset, avatarBase64: this.avatarBase64 }));
+                    () => this.setContact({ ...createEmptyContact(), ...preset, avatarBase64: this.avatarBase64, logoDisplay: this.logoDisplay, cardFont: this.fontClass }));
             });
             container.appendChild(btn);
         });
@@ -415,10 +481,8 @@ export class CardView {
         $('stateText').addEventListener('input', () => { $('state').value = $('stateText').value; this.changed(); });
 
         $('cardFontSelect').addEventListener('change', (e) => {
-            ['cardFront', 'cardBack'].forEach(id => {
-                $(id).classList.remove(...FONT_CLASSES);
-                $(id).classList.add(e.target.value);
-            });
+            this.applyFont(e.target.value);
+            this.changed();
         });
 
         $('flipCardBtn').addEventListener('click', () => this.toggleFlip());
@@ -442,13 +506,13 @@ export class CardView {
             reader.onload = async (evt) => {
                 let logo;
                 try {
-                    logo = await squareLogo(evt.target.result);
+                    logo = await prepareLogo(evt.target.result);
                 } catch (err) {
                     console.warn('[vCGE] Avatar not readable:', err);
                     this.showToast('That file could not be read as an image.');
                     return;
                 }
-                this.setAvatar(logo);
+                this.setAvatar(logo.photo, logo.display);
                 this.changed();
                 this.showToast('Avatar attached.');
             };
@@ -494,66 +558,185 @@ export class CardView {
     }
 }
 
-const LOGO_SIZE = 256;
+// ---- Logo preparation ----------------------------------------------------------------------------------------
+
+const LOGO_SIZE = 256;          // the vCard PHOTO: a square JPEG
+const LOGO_DISPLAY_MAX = 512;   // the card copy: longest side in px
+const WIDE_LOGO = 2;            // width / height from which a logo is a wordmark and gets the strip across the card
+
+function logoImage(src, className) {
+    const img = document.createElement('img');
+    img.src = src;
+    img.alt = '';
+    img.className = className;
+    return img;
+}
+
+function canvasOf(w, h) {
+    const c = document.createElement('canvas');
+    c.width = w;
+    c.height = h;
+    return c;
+}
 
 /**
- * Any image the browser can draw (PNG, JPEG, GIF, WebP, SVG) as a square JPEG for the card, print and vCard PHOTO:
- * the whole image fitted with a margin (never cropped), on an opaque background. An opaque image is extended with
- * the colour of its own edges; a transparent one gets white, or dark slate when the image itself is mostly light.
+ * Any image the browser can draw (PNG, JPEG, GIF, WebP, SVG), made ready for the card:
+ * - display: trimmed to the logo itself (empty or plain margins cut off), in its own shape, at most 512 px on the
+ *   long side; PNG with its transparency when it has any, else JPEG. Shown on the card only.
+ * - photo: the same trimmed logo fitted with a margin (never cropped) in a 256 px square JPEG on an opaque
+ *   background: the logo's own edge colour, or for a transparent logo white, or dark slate when it is mostly light.
+ *   This is the vCard PHOTO, which contact apps show square.
+ * A canvas the page may not read back (a tainted SVG) throws, and the caller reports the file as unreadable.
  * @param {string} dataUrl
- * @returns {Promise<string>} data:image/jpeg
+ * @returns {Promise<{ photo: string, display: string }>}
  */
-export async function squareLogo(dataUrl) {
-    const img = new Image();
-    img.src = dataUrl;
-    await img.decode();
-    // An SVG without width/height has no natural size in some browsers: draw it as a square.
-    const w = img.naturalWidth || LOGO_SIZE, h = img.naturalHeight || LOGO_SIZE;
-    const margin = Math.round(LOGO_SIZE * 0.08), fit = Math.min((LOGO_SIZE - 2 * margin) / w, (LOGO_SIZE - 2 * margin) / h);
-    const dw = Math.round(w * fit), dh = Math.round(h * fit), dx = Math.round((LOGO_SIZE - dw) / 2), dy = Math.round((LOGO_SIZE - dh) / 2);
+export async function prepareLogo(dataUrl) {
+    const { img, w, h, vector } = await loadLogo(dataUrl);
+    // A drawing is redrawn at full size; a picture is only ever made smaller.
+    const k = vector ? LOGO_DISPLAY_MAX / Math.max(w, h) : Math.min(1, LOGO_DISPLAY_MAX / Math.max(w, h));
+    const cw = Math.max(1, Math.round(w * k)), ch = Math.max(1, Math.round(h * k));
+    const work = canvasOf(cw, ch);
+    const wctx = work.getContext('2d', { willReadFrequently: true });
+    wctx.drawImage(img, 0, 0, cw, ch);
+    const px = wctx.getImageData(0, 0, cw, ch).data;
+    const box = logoBounds(px, cw, ch);
 
-    const probe = document.createElement('canvas');
-    probe.width = dw; probe.height = dh;
-    const pctx = probe.getContext('2d', { willReadFrequently: true });
-    pctx.drawImage(img, 0, 0, dw, dh);
-    const background = logoBackground(pixelsOf(pctx, dw, dh), dw, dh);
-    probe.width = probe.height = 0;
+    const display = canvasOf(box.w, box.h);
+    display.getContext('2d').drawImage(work, box.x, box.y, box.w, box.h, 0, 0, box.w, box.h);
+    const displayUrl = box.transparent ? display.toDataURL('image/png') : display.toDataURL('image/jpeg', 0.92);
 
-    const out = document.createElement('canvas');
-    out.width = out.height = LOGO_SIZE;
+    const background = box.transparent ? (toneOf(px, cw, box) === 'light' ? '#1e293b' : '#ffffff') : box.edge;
+    const margin = Math.round(LOGO_SIZE * 0.08), fit = Math.min((LOGO_SIZE - 2 * margin) / box.w, (LOGO_SIZE - 2 * margin) / box.h);
+    const dw = Math.round(box.w * fit), dh = Math.round(box.h * fit);
+    const out = canvasOf(LOGO_SIZE, LOGO_SIZE);
     const ctx = out.getContext('2d');
     ctx.fillStyle = background;
     ctx.fillRect(0, 0, LOGO_SIZE, LOGO_SIZE);
-    ctx.drawImage(img, dx, dy, dw, dh);
-    return out.toDataURL('image/jpeg', 0.9);
+    ctx.drawImage(display, Math.round((LOGO_SIZE - dw) / 2), Math.round((LOGO_SIZE - dh) / 2), dw, dh);
+    const photo = out.toDataURL('image/jpeg', 0.9);
+
+    [work, display, out].forEach(c => { c.width = c.height = 0; });
+    return { photo, display: displayUrl };
 }
 
-// Pixels for picking the background; empty if the browser will not let the page read them (then: white).
-function pixelsOf(ctx, w, h) {
+/**
+ * Shape and tone of a prepared display logo, for the card layout: { wide, transparent, tone } where tone is 'light'
+ * or 'dark' when most of the logo is, else null.
+ * @param {string} displayUrl
+ */
+export async function describeLogo(displayUrl) {
+    const { img, w, h } = await loadLogo(displayUrl);
+    const k = Math.min(1, 128 / Math.max(w, h));
+    const cw = Math.max(1, Math.round(w * k)), ch = Math.max(1, Math.round(h * k));
+    const c = canvasOf(cw, ch);
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0, cw, ch);
+    const px = ctx.getImageData(0, 0, cw, ch).data;
+    c.width = c.height = 0;
+    return { wide: w / h >= WIDE_LOGO, transparent: isTransparent(px, cw * ch), tone: toneOf(px, cw, { x: 0, y: 0, w: cw, h: ch }) };
+}
+
+async function loadLogo(dataUrl) {
+    const vector = /^data:image\/svg\+xml/i.test(dataUrl);
+    const img = new Image();
+    img.src = vector ? sizedSvg(dataUrl) : dataUrl;
+    await img.decode();
+    // Should a browser still report no size for an SVG, it is drawn as a square.
+    return { img, w: img.naturalWidth || LOGO_SIZE, h: img.naturalHeight || LOGO_SIZE, vector };
+}
+
+/**
+ * The SVG with its width and height written in, taken from its viewBox. Browsers differ on an SVG that has only a
+ * viewBox (some report no size, and it would be drawn square and squashed), so its own shape is made explicit.
+ * Returns the SVG unchanged when it already has a size in pixels or cannot be read.
+ */
+function sizedSvg(dataUrl) {
     try {
-        return ctx.getImageData(0, 0, w, h).data;
+        const comma = dataUrl.indexOf(',');
+        const meta = dataUrl.slice(0, comma), body = dataUrl.slice(comma + 1);
+        const text = /;base64/i.test(meta)
+            ? new TextDecoder().decode(Uint8Array.from(atob(body), ch => ch.charCodeAt(0)))
+            : decodeURIComponent(body);
+        const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+        const root = doc.documentElement;
+        if (!root || root.localName !== 'svg' || doc.getElementsByTagName('parsererror').length) return dataUrl;
+        const px = (v) => (/^\s*\d*\.?\d+\s*(px)?\s*$/.test(v || '') ? parseFloat(v) : 0);
+        let w = px(root.getAttribute('width')), h = px(root.getAttribute('height'));
+        if (w && h) return dataUrl;
+        const vb = (root.getAttribute('viewBox') || '').trim().split(/[\s,]+/).map(Number);
+        if (vb.length !== 4 || !(vb[2] > 0) || !(vb[3] > 0)) return dataUrl;
+        if (w) h = w * vb[3] / vb[2];
+        else if (h) w = h * vb[2] / vb[3];
+        else { w = vb[2]; h = vb[3]; }
+        root.setAttribute('width', String(w));
+        root.setAttribute('height', String(h));
+        let bin = '';
+        new TextEncoder().encode(new XMLSerializer().serializeToString(root)).forEach(b => { bin += String.fromCharCode(b); });
+        return `data:image/svg+xml;base64,${btoa(bin)}`;
     } catch (e) {
-        return new Uint8ClampedArray(0);
+        return dataUrl;
     }
 }
 
-/** Transparent image: white, or dark slate if it is mostly light. Opaque image: the average colour of its edges. */
-function logoBackground(px, w, h) {
-    if (!px.length) return '#ffffff';
-    let transparent = 0, solid = 0, light = 0;
-    for (let i = 0; i < px.length; i += 4) {
-        if (px[i + 3] < 250) transparent++;
-        if (px[i + 3] > 128) { solid++; if (0.2126 * px[i] + 0.7152 * px[i + 1] + 0.0722 * px[i + 2] > 160) light++; }
+const isTransparent = (px, count) => {
+    let clear = 0;
+    for (let i = 3; i < px.length; i += 4) if (px[i] < 250) clear++;
+    return clear > count / 100;
+};
+
+/**
+ * The part of the image that is the logo: for a transparent image what is not see-through, for an opaque one what
+ * differs from the colour of its edges; with a small margin. Also says if the image is transparent and, if not, its
+ * edge colour (the background for the square photo).
+ */
+export function logoBounds(px, w, h) {
+    const transparent = isTransparent(px, w * h);
+    const edge = [0, 0, 0];
+    if (!transparent) {
+        let n = 0;
+        for (let y = 0; y < h; y++) {
+            for (let x = 0; x < w; x++) {
+                if (y !== 0 && y !== h - 1 && x !== 0 && x !== w - 1) continue;
+                const k = (y * w + x) * 4;
+                edge[0] += px[k]; edge[1] += px[k + 1]; edge[2] += px[k + 2]; n++;
+            }
+        }
+        for (let i = 0; i < 3; i++) edge[i] = Math.round(edge[i] / n);
     }
-    if (transparent > (w * h) / 100) return solid && light / solid > 0.6 ? '#1e293b' : '#ffffff';
-    const sum = [0, 0, 0];
-    let n = 0;
+    const ink = transparent
+        ? (k) => px[k + 3] > 16
+        : (k) => Math.abs(px[k] - edge[0]) + Math.abs(px[k + 1] - edge[1]) + Math.abs(px[k + 2] - edge[2]) > 60;
+    let x0 = w, y0 = h, x1 = -1, y1 = -1;
     for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
-            if (y !== 0 && y !== h - 1 && x !== 0 && x !== w - 1) continue;
-            const k = (y * w + x) * 4;
-            sum[0] += px[k]; sum[1] += px[k + 1]; sum[2] += px[k + 2]; n++;
+            if (!ink((y * w + x) * 4)) continue;
+            if (x < x0) x0 = x;
+            if (x > x1) x1 = x;
+            if (y < y0) y0 = y;
+            if (y > y1) y1 = y;
         }
     }
-    return `rgb(${sum.map(v => Math.round(v / n)).join(',')})`;
+    const result = { transparent, edge: `rgb(${edge.join(',')})` };
+    if (x1 < 0) return { ...result, x: 0, y: 0, w, h };
+    const pad = Math.max(2, Math.round(Math.max(x1 - x0 + 1, y1 - y0 + 1) * 0.04));
+    x0 = Math.max(0, x0 - pad); y0 = Math.max(0, y0 - pad);
+    x1 = Math.min(w - 1, x1 + pad); y1 = Math.min(h - 1, y1 + pad);
+    return { ...result, x: x0, y: y0, w: x1 - x0 + 1, h: y1 - y0 + 1 };
+}
+
+/** 'light' or 'dark' when more than 60% of the logo's solid pixels are, else null. */
+export function toneOf(px, w, box) {
+    let solid = 0, light = 0, dark = 0;
+    for (let y = box.y; y < box.y + box.h; y++) {
+        for (let x = box.x; x < box.x + box.w; x++) {
+            const k = (y * w + x) * 4;
+            if (px[k + 3] <= 128) continue;
+            solid++;
+            const luma = 0.2126 * px[k] + 0.7152 * px[k + 1] + 0.0722 * px[k + 2];
+            if (luma > 160) light++;
+            else if (luma < 90) dark++;
+        }
+    }
+    if (!solid) return null;
+    return light / solid > 0.6 ? 'light' : dark / solid > 0.6 ? 'dark' : null;
 }

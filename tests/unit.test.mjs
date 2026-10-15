@@ -706,5 +706,36 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('worker lock refuses to load a worker script from another host', evil.error && evil.loaded.length === 0);
 }
 
+// MOD06 3D Card: logo trimming and tone (pure pixel logic), and the card look kept in the contact
+{
+  const card = await import(`${R}/modules/mod06-gui/card3dView.js`);
+  const c = share.createEmptyContact();
+  ok('empty contact: no logo, Sans typeface', c.logoDisplay === null && c.avatarBase64 === null && c.cardFont === 'font-sans');
+  const n = share.normalizeContact({ ...c, logoDisplay: 'data:image/png;base64,AAAA', cardFont: 'font-serif' });
+  ok('normalize keeps the card logo and typeface', n.logoDisplay === 'data:image/png;base64,AAAA' && n.cardFont === 'font-serif');
+  ok('the card-only logo never goes into the vCard', !share.formatVCard({ firstName: 'A', lastName: 'B', logoDisplay: 'data:image/png;base64,AAAA' }).includes('PHOTO'));
+
+  // A 20 x 10 image with a 4 x 2 block at (8, 4).
+  const image = (bg, ink) => {
+    const px = new Uint8ClampedArray(20 * 10 * 4);
+    for (let i = 0; i < 200; i++) px.set(bg, i * 4);
+    for (let y = 4; y < 6; y++) for (let x = 8; x < 12; x++) px.set(ink, (y * 20 + x) * 4);
+    return px;
+  };
+  const clear = card.logoBounds(image([0, 0, 0, 0], [10, 20, 30, 255]), 20, 10);
+  ok('transparent logo trimmed to what is not see-through (2 px margin)', clear.transparent && clear.x === 6 && clear.y === 2 && clear.w === 8 && clear.h === 6, JSON.stringify(clear));
+  const solid = card.logoBounds(image([255, 0, 0, 255], [255, 255, 255, 255]), 20, 10);
+  ok('opaque logo trimmed to what differs from its edge colour', !solid.transparent && solid.edge === 'rgb(255,0,0)' && solid.x === 6 && solid.w === 8 && solid.h === 6, JSON.stringify(solid));
+  const blank = card.logoBounds(image([255, 255, 255, 255], [255, 255, 255, 255]), 20, 10);
+  ok('plain image is kept whole', blank.x === 0 && blank.y === 0 && blank.w === 20 && blank.h === 10, JSON.stringify(blank));
+
+  const all = { x: 0, y: 0, w: 20, h: 10 };
+  ok('tone: mostly light, mostly dark, mixed, see-through',
+    card.toneOf(image([250, 250, 250, 255], [250, 250, 250, 255]), 20, all) === 'light'
+    && card.toneOf(image([10, 10, 10, 255], [10, 10, 10, 255]), 20, all) === 'dark'
+    && card.toneOf(image([128, 128, 128, 255], [128, 128, 128, 255]), 20, all) === null
+    && card.toneOf(image([0, 0, 0, 0], [0, 0, 0, 0]), 20, all) === null);
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;

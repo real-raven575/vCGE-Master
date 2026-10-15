@@ -505,43 +505,93 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     p11.on('console', m => { if (m.type() === 'error') errors11.push('console: ' + m.text()); });
     await p11.goto(ORIGIN); await p11.waitForTimeout(300);
     await p11.fill('#firstName', 'Logo'); await p11.fill('#lastName', 'Tester');
-    // A wide logo: dark text on a transparent background, a light one, an opaque red banner, and an SVG.
+    // Wide logos: dark text on a transparent background, a light one, an opaque red banner, an SVG with a size and one
+    // with only a viewBox; and a small round logo with a wide transparent margin.
     const logo = (kind) => p11.evaluate((kind) => {
-      if (kind === 'svg') return 'data:image/svg+xml;base64,' + btoa('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="100"><text x="10" y="70" font-size="60" fill="#0a6">TeamLogic</text></svg>');
-      const c = document.createElement('canvas'); c.width = 400; c.height = 100;
+      const text = '<text x="10" y="70" font-size="60" fill="#0a6">TeamLogic</text>';
+      if (kind === 'svg') return 'data:image/svg+xml;base64,' + btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="100">${text}</svg>`);
+      if (kind === 'viewbox') return 'data:image/svg+xml;base64,' + btoa(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 100">${text.replace('#0a6', '#06a')}</svg>`);
+      const c = document.createElement('canvas'); c.width = kind === 'round' ? 300 : 400; c.height = kind === 'round' ? 300 : 100;
       const x = c.getContext('2d');
+      if (kind === 'round') { x.fillStyle = '#e11'; x.beginPath(); x.arc(150, 150, 40, 0, 7); x.fill(); return c.toDataURL('image/png'); }
       if (kind === 'opaque') { x.fillStyle = '#c00'; x.fillRect(0, 0, 400, 100); }
       x.fillStyle = kind === 'light' ? '#f5f5f5' : kind === 'opaque' ? '#fff' : '#123';
       x.font = 'bold 60px Arial'; x.fillText('TeamLogic', 10, 70);
       return c.toDataURL('image/png');
     }, kind);
+    // Uploads a logo; returns the vCard PHOTO (from the .vcf) and what the card shows.
     const upload = async (kind, name) => {
       const url = await logo(kind);
+      const before = await p11.evaluate(() => { const i = document.querySelector('#formAvatarPreview img'); return i ? i.src : ''; });
       await p11.setInputFiles('#avatarUpload', { name, mimeType: url.slice(5, url.indexOf(';')), buffer: Buffer.from(url.split(',')[1], 'base64') });
-      await p11.waitForFunction(() => { const i = document.querySelector('#previewAvatar img'); return i && i.src.startsWith('data:image/jpeg') && i.complete; });
-      await p11.waitForTimeout(100);
-      return p11.evaluate(() => {
-        const i = document.querySelector('#previewAvatar img');
-        const c = document.createElement('canvas'); c.width = i.naturalWidth; c.height = i.naturalHeight;
-        const x = c.getContext('2d'); x.drawImage(i, 0, 0);
+      await p11.waitForFunction((before) => { const i = document.querySelector('#formAvatarPreview img'); return i && i.src !== before && i.complete; }, before);
+      await p11.waitForTimeout(300);   // the logo's shape and tone are read, then the card is drawn again
+      const [dl] = await Promise.all([p11.waitForEvent('download'), p11.click('#downloadVcfBtn')]);
+      const vcf = fs.readFileSync(await dl.path(), 'utf8').replace(/\r\n[ \t]/g, '');
+      const m = /\r\nPHOTO;TYPE=(\w+);ENCODING=b:([A-Za-z0-9+/=]+)/.exec(vcf);
+      return p11.evaluate(async ([type, b64]) => {
+        const img = new Image(); img.src = `data:image/${type.toLowerCase()};base64,${b64}`; await img.decode();
+        const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+        const x = c.getContext('2d'); x.drawImage(img, 0, 0);
         const at = (px, py) => Array.from(x.getImageData(px, py, 1, 1).data.slice(0, 3));
-        // Fitted, not cropped: the logo is 4:1, so the top and bottom bands stay background and the edges stay clear.
-        return { w: i.naturalWidth, h: i.naturalHeight, corner: at(2, 2), band: at(128, 40), fit: getComputedStyle(i).objectFit };
-      });
+        const strip = document.getElementById('previewLogoStrip'), plate = strip.firstElementChild;
+        const shown = (strip.querySelector('img') || document.querySelector('#previewAvatar img'));
+        return {
+          // Fitted, not cropped: the wide logo leaves the top and bottom bands as background.
+          photo: { type, w: img.naturalWidth, h: img.naturalHeight, corner: at(2, 2), band: at(128, 40) },
+          display: { png: shown.src.startsWith('data:image/png'), w: shown.naturalWidth, h: shown.naturalHeight },
+          strip: !strip.classList.contains('hidden') && strip.getBoundingClientRect().height > 0,
+          badge: getComputedStyle(document.getElementById('previewAvatar')).display !== 'none',
+          plate: plate ? plate.className : document.getElementById('previewAvatar').className
+        };
+      }, [m[1], m[2]]);
     };
     const near = (rgb, target, tol = 40) => rgb.every((v, k) => Math.abs(v - target[k]) <= tol);
     const dark = await upload('dark', 'logo.png');
-    ok('logo becomes a 256 px square JPEG, fitted (not cropped)', dark.w === 256 && dark.h === 256 && dark.fit === 'contain' && near(dark.band, [255, 255, 255]), JSON.stringify(dark));
-    ok('transparent dark logo gets a white background', near(dark.corner, [255, 255, 255]), JSON.stringify(dark.corner));
+    ok('vCard photo is a 256 px square JPEG, fitted (not cropped)', dark.photo.type === 'JPEG' && dark.photo.w === 256 && dark.photo.h === 256 && near(dark.photo.band, [255, 255, 255]), JSON.stringify(dark.photo));
+    ok('transparent dark logo: white behind it in the vCard photo', near(dark.photo.corner, [255, 255, 255]), JSON.stringify(dark.photo.corner));
+    ok('card keeps the transparency and trims the empty space', dark.display.png && dark.display.w < 400 && dark.display.h < 100, JSON.stringify(dark.display));
+    ok('wide logo gets the strip across the card, not the small badge', dark.strip && !dark.badge, JSON.stringify(dark));
+    ok('dark transparent logo: white plate in dark mode only', /(^| )dark:bg-white( |$)/.test(dark.plate) && !dark.plate.includes('gradient'), dark.plate);
     const light = await upload('light', 'light.png');
-    ok('transparent light logo gets a dark background', light.corner.every(v => v < 80), JSON.stringify(light.corner));
+    ok('transparent light logo: dark background in the vCard photo', light.photo.corner.every(v => v < 80), JSON.stringify(light.photo.corner));
+    ok('light transparent logo: plate in the palette colour on the card', light.plate.includes('bg-gradient-to-tr'), light.plate);
     const opaque = await upload('opaque', 'banner.png');
-    ok('opaque logo is extended with its own edge colour', near(opaque.corner, [204, 0, 0], 50), JSON.stringify(opaque.corner));
+    ok('opaque logo is extended with its own edge colour', near(opaque.photo.corner, [204, 0, 0], 50), JSON.stringify(opaque.photo.corner));
+    ok('opaque logo: trimmed to the lettering, no plate', !opaque.display.png && opaque.display.w < 360 && !opaque.plate.includes('gradient') && !opaque.plate.includes('dark:bg-white'), JSON.stringify(opaque));
     const svg = await upload('svg', 'logo.svg');
-    ok('SVG logo is accepted and converted', svg.w === 256 && near(svg.corner, [255, 255, 255]), JSON.stringify(svg));
+    ok('SVG logo is accepted and converted', svg.photo.w === 256 && near(svg.photo.corner, [255, 255, 255]) && svg.strip, JSON.stringify(svg));
+    const viewbox = await upload('viewbox', 'viewbox.svg');
+    ok('SVG with only a viewBox keeps its wide shape (not squashed square)', viewbox.strip && viewbox.display.w / viewbox.display.h > 3 && near(viewbox.photo.band, [255, 255, 255]), JSON.stringify(viewbox));
+    const round = await upload('round', 'round.png');
+    ok('small logo in a wide margin: trimmed, stays in the badge', !round.strip && round.badge && round.display.w < 110 && Math.abs(round.display.w - round.display.h) < 4, JSON.stringify(round));
+    // Print: the strip does not fit on a 2 in card, so the printed card shows the logo in the badge, with every line in.
+    await upload('dark', 'logo.png');
+    await p11.fill('#street', '745 Fifth Avenue'); await p11.fill('#city', 'New York');
+    await p11.evaluate(() => { window.print = () => {}; });
+    await p11.click('#printCardBtn');
+    await p11.emulateMedia({ media: 'print' });
+    const printed = await p11.evaluate(() => {
+      const card = document.querySelector('#printSheet .print-card'), r = card.getBoundingClientRect();
+      const strip = card.querySelector('.basis-full'), badgeImg = [...card.querySelectorAll('img')].find(i => i.getBoundingClientRect().height > 0);
+      const bottoms = [...card.querySelectorAll('p,h3')].map(e => e.getBoundingClientRect().bottom - r.top);
+      return { stripShown: !!strip && getComputedStyle(strip).display !== 'none', badge: !!badgeImg && Math.round(badgeImg.getBoundingClientRect().height), last: Math.round(Math.max(...bottoms)), h: Math.round(r.height) };
+    });
+    await p11.emulateMedia({ media: 'screen' });
+    ok('printed card: logo in the badge, no strip, every line inside the card', !printed.stripShown && printed.badge > 0 && printed.last <= printed.h, JSON.stringify(printed));
     const [dl11] = await Promise.all([p11.waitForEvent('download'), p11.click('#downloadVcfBtn')]);
     const vcf11 = fs.readFileSync(await dl11.path(), 'utf8');
-    ok('.vcf carries the logo as a JPEG photo', /\r\nPHOTO;TYPE=JPEG;ENCODING=b:\/9j\//.test(vcf11) && !vcf11.includes('svg'), vcf11.slice(vcf11.indexOf('PHOTO'), vcf11.indexOf('PHOTO') + 40));
+    ok('.vcf carries the logo as a JPEG photo', /\r\nPHOTO;TYPE=JPEG;ENCODING=b:\/9j\//.test(vcf11) && !vcf11.includes('svg') && !vcf11.includes('image/png'), vcf11.slice(vcf11.indexOf('PHOTO'), vcf11.indexOf('PHOTO') + 40));
+    // Typeface and side are part of the card's look: Clear goes back to Sans and the front; Undo brings the typeface back.
+    await p11.selectOption('#cardFontSelect', 'font-serif');
+    await p11.click('#flipCardBtn');
+    await p11.click('#clearFormBtn');
+    const cleared = await p11.evaluate(() => ({ font: document.getElementById('cardFontSelect').value, serif: document.getElementById('cardFront').classList.contains('font-serif'), flip: document.getElementById('card3DFlipper').style.transform, logo: !!document.querySelector('#previewLogoStrip img') }));
+    ok('Clear form: Sans typeface, front side up, no logo', cleared.font === 'font-sans' && !cleared.serif && cleared.flip === 'rotateY(0deg)' && !cleared.logo, JSON.stringify(cleared));
+    await p11.click('#toastAction');
+    await p11.waitForTimeout(300);
+    const undone = await p11.evaluate(() => ({ font: document.getElementById('cardFontSelect').value, back: document.getElementById('cardBack').classList.contains('font-serif'), logo: !!document.querySelector('#previewLogoStrip img') }));
+    ok('Undo brings back the typeface and the logo strip', undone.font === 'font-serif' && undone.back && undone.logo, JSON.stringify(undone));
     ok('round 3: no page errors', errors11.length === 0, errors11.join(' | '));
     await ctx11.close();
   }

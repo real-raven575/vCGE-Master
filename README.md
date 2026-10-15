@@ -11,7 +11,7 @@ The **vCard Generator Engine (vCGE)** is a high-security, cross-platform digital
 *Design targets. Implementation status is tracked in [`docs/spec.md` §3](docs/spec.md#3-current-progress--verification-status).*
 
 1. **The Vault Principle (`vCGE-MOD02`):** Nothing is stored. The vault is temporary and lives in memory only: leaving or reloading the page, or 7 minutes without activity, wipes the card, the photo and the scan. With a 4-digit session PIN the screen timing out only locks the card; without one, 30 seconds out of view or 2 idle minutes wipe it. A locked card is held encrypted with AES-GCM-256 under a key made for that lock alone.
-2. **Ephemeral Memory Lifecycle:** Visual card rendering (`MOD06`) and QR code matrix generation (`MOD07`) operate strictly on read-only, volatile RAM streams protected by a 120-second TTL zero-fill auto-purge protocol and startup memory residue checks.
+2. **Ephemeral Memory Lifecycle:** The card being edited (`MOD06`) lives only in the page's form fields and in memory, never in storage, and QR code matrix generation (`MOD07`) operates on volatile RAM streams; both are protected by a 120-second TTL zero-fill auto-purge protocol and startup memory residue checks.
 3. **Sole Egress Gateway (`vCGE-MOD08`):** All external data sharing (Web Share API, `.vcf` downloads, high-res PNG QR exports, SMS/Email, and 3.5" x 2" physical printing) is strictly routed through a single, audited egress controller. Direct network calls from sub-modules are intercepted and blocked by the central container.
 
 ---
@@ -58,9 +58,9 @@ npm run tauri build               # release build + installers in src-tauri/targ
 
 ```bash
 npm install
-npm test                          # 223 unit tests (Node)
+npm test                          # 230 unit tests (Node)
 npx playwright install chromium   # once, for the browser tests
-npm run test:e2e                  # 173 browser end-to-end tests (real OCR, icons, crop & straighten, text review, logo fitting, reopen last scan, scan kept across a PIN lock, undo, typed fields & regions, blurry-photo retake, OCR failure, QR decode, nothing stored, wipe on reload / 30 s out of view / idle, lock on screen off with a PIN, 7-minute reset, Back guard, session PIN, biometric unlock, SMS and email summary, one-page print, egress lock)
+npm run test:e2e                  # 183 browser end-to-end tests (real OCR, icons, crop & straighten, text review, logo fitting and trimming, wide-logo strip, reopen last scan, scan kept across a PIN lock, undo, typed fields & regions, blurry-photo retake, OCR failure, QR decode, nothing stored, wipe on reload / 30 s out of view / idle, lock on screen off with a PIN, 7-minute reset, Back guard, session PIN, biometric unlock, SMS and email summary, one-page print, egress lock)
 SERVE_DIR=dist npm run test:e2e   # same suite against the Vite build (run `npm run build` first)
 npm run test:icons                # icon-detection accuracy on three icon sets the detector does not use as templates
 (cd src-tauri && cargo test)      # 2 Rust tests (deleting the old keychain device key)
@@ -126,7 +126,7 @@ vCGE-Master/
         ├── mod03-camera/          # camera.js (viewfinder, zoom, capture), cropEditor.js (corner handles, rotate), perspective.js (straightening maths)
         ├── mod04-ocr/             # ocrWorker.js (image pre-processing + bundled Tesseract.js, on-device), iconDetector.js + iconMatcher.js (icons in front of lines), glyphChoices.js (second guesses for each letter)
         ├── mod05-form/            # formMapper.js (OCR text → contact), addressAutocomplete.js (local-only)
-        ├── mod06-gui/             # card3dView.js (CardView: form, preview, palettes, avatar), cardStyles.css
+        ├── mod06-gui/             # card3dView.js (CardView: form, preview, palettes, typeface, logo trimming and layout), cardStyles.css
         ├── mod07-qr/              # qrGenerator.js (vCard via shared builder, scannable QR via qrcode-generator)
         └── mod08-egress/          # egressController.js (share, .vcf, QR PNG, mailto/sms, print + audit), print.css
 ```
