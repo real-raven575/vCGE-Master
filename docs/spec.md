@@ -59,7 +59,9 @@ The application is structured into a strictly modular ES Architecture consisting
   - Verified on Linux, both debug and release (9.7 MB binary, 7 MB `.deb`): the bundled UI loads, real OCR runs in WebKitGTK, QR decodes, external fetch is blocked, and webview storage holds no contact data.
 - **OS keychain clean-up:** builds before the memory-only vault bound the saved vault to a random device key in the OS credential store (`keyring` crate: macOS Keychain, Windows Credential Manager, Linux Secret Service). Nothing is stored there now. When the app finds an old keychain-bound vault at startup it deletes it and calls `delete_device_secret`; no command can create a key any more (checked in the desktop test against a real Secret Service).
 - **No network egress:**
-  - The MOD01 gatekeeper is imported first. It wraps `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource` and `sendBeacon`, blocks every non-same-origin request and publishes `EGRESS_BLOCKED`.
+  - The MOD01 network lock (`netLock.js`) is a classic script at the top of `index.html`, so it runs before the bundled libraries and every module. It wraps `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource` and `sendBeacon` and blocks every non-same-origin request; `shell.js` publishes each block as `EGRESS_BLOCKED` with the scheme and host only.
+  - The OCR worker starts through `workerGuard.js`, which applies the same rule to the worker's `fetch`, `XMLHttpRequest`, `importScripts` and `WebSocket` (the page's interceptor and CSP meta tag do not reach a worker) before loading Tesseract's worker.
+  - The event bus carries signals only: `IMAGE_CAPTURED` and `OCR_TEXT_EXTRACTED` hold no photo or text, and the bus is not exposed on `window`.
   - The CSP restricts scripts, styles and connections to `'self'`.
   - Tailwind is compiled locally (`npm run build:css`).
   - A full browser session made zero non-local requests, and same-origin requests still work.

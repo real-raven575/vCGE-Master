@@ -16,6 +16,8 @@ const MODULE_NAME = 'OCR Engine Module';
 // Bundled, pinned Tesseract.js assets (src/vendor/tesseract, see scripts/vendor.mjs). Nothing is fetched from a CDN.
 // Resolved from the page URL (not import.meta.url) so the path survives Vite bundling into dist/assets/.
 const vendorUrl = (file) => new URL(`src/vendor/tesseract/${file}`, document.baseURI).href;
+// The Tesseract worker runs behind MOD01's worker network lock, which loads the real worker named after the '#'.
+const guardedWorkerUrl = () => `${new URL('src/modules/mod01-shell/workerGuard.js', document.baseURI).href}#${encodeURIComponent(vendorUrl('worker.min.js'))}`;
 
 let tesseractWorker = null;
 
@@ -67,7 +69,7 @@ async function initOCREngine(timeoutMs) {
     const failed = new Promise((_, reject) => { fail = reject; });
     const timer = setTimeout(() => fail(new OcrUnavailableError(`start-up took longer than ${Math.round(timeoutMs / 1000)} s`)), timeoutMs);
     const created = Promise.resolve().then(() => Tesseract.createWorker('eng', 1, {
-        workerPath: vendorUrl('worker.min.js'),
+        workerPath: guardedWorkerUrl(),
         corePath: vendorUrl('core/'),
         langPath: vendorUrl('lang/'),
         gzip: true,
@@ -198,7 +200,8 @@ export async function executeOCRScan(imageSrc, { initTimeoutMs = OCR_INIT_TIMEOU
         throw new OcrUnreadableError(confidence, readableWords);
     }
     const lines = await linesWithIcons(processedImage, result.data);
-    globalEventBus.publish(Events.OCR_TEXT_EXTRACTED, { sourceModule: MODULE_ID, text, confidence, icons: lines.filter(l => l.icon).length });
+    // A signal only: the text itself is contact data and goes back to the caller, never onto the bus.
+    globalEventBus.publish(Events.OCR_TEXT_EXTRACTED, { sourceModule: MODULE_ID, confidence, icons: lines.filter(l => l.icon).length, timestamp: Date.now() });
     return { text, confidence, lines };
 }
 

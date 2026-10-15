@@ -140,10 +140,10 @@ export class VCGEActiveCamera {
         this.publishCapture(this.capturedImageDataUrl, 'HARDWARE_STREAM_SNAP');
     }
 
-    // The captured image stays in memory; it is handed to the review modal and announced on the bus for OCR.
+    // The captured image stays in memory and is handed only to the review modal; the bus gets a signal, never the photo.
     publishCapture(dataUrl, sourceMode) {
         this.logEvent(`Image captured (${sourceMode}). Review it, then run OCR.`);
-        globalEventBus.publish(Events.IMAGE_CAPTURED, { dataUrl, sourceMode, focusPoint: this.focusPoint });
+        globalEventBus.publish(Events.IMAGE_CAPTURED, { sourceMode, timestamp: Date.now() });
         this.openCropReviewModal(dataUrl);
     }
 

@@ -598,7 +598,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     setParameters: async (p) => { psm = p.tessedit_pageseg_mode; }, recognize: async () => ({ data: result }), terminate() {} }; } };
   result = { text: 'Jane Doe\njane@example.com', confidence: 88, words: words(8, 90) };
   const r = await ocr.executeOCRScan('data:image/png;base64,x');
-  ok('OCR returns raw text and confidence, publishes OCR_TEXT_EXTRACTED', r.text === 'Jane Doe\njane@example.com' && r.confidence === 88 && evt && evt.text === r.text && !('simulated' in r));
+  ok('OCR returns raw text and confidence, publishes OCR_TEXT_EXTRACTED', r.text === 'Jane Doe\njane@example.com' && r.confidence === 88 && evt && evt.confidence === 88 && !('simulated' in r));
+  ok('OCR_TEXT_EXTRACTED is a signal: no text on the bus', !('text' in evt) && !JSON.stringify(evt).includes('Jane'), JSON.stringify(evt));
   ok('OCR uses sparse-text page segmentation', psm === ocr.OCR_PAGE_SEG_MODE && psm === '11', String(psm));
   evt = null;
   result = { text: 'py A Year op WW es', confidence: 46, words: words(12, 70) };
@@ -613,6 +614,33 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('OCR worker is started once and reused after a failure', created === 1, String(created));
   ok('OCR no longer exposes a duplicate parser', !('parseExtractedTextToSchema' in ocr));
   console.log = origLog; console.error = origErr; delete globalThis.Tesseract;
+}
+
+// MOD01 worker network lock (workerGuard.js) in a fake worker scope
+{
+  const vm = await import('node:vm'); const fs = await import('node:fs');
+  const code = fs.readFileSync(`${R}/modules/mod01-shell/workerGuard.js`, 'utf8');
+  const run = (hash) => {
+    const loaded = [], fetched = [];
+    class XHR { open(m, u) { this.url = u; } }
+    const self = { location: { href: `http://localhost/src/modules/mod01-shell/workerGuard.js${hash}` }, fetch: async (u) => { fetched.push(u); return 'ok'; },
+      importScripts: (...u) => loaded.push(...u), XMLHttpRequest: XHR, WebSocket: class {} };
+    const ctx = vm.createContext({ self, XMLHttpRequest: XHR, Request: class {}, URL, console: { warn() {} }, Promise, TypeError, Error, decodeURIComponent });
+    let error = null;
+    try { vm.runInContext(code, ctx); } catch (e) { error = e; }
+    return { self, ctx, loaded, fetched, error };
+  };
+  const good = run('#' + encodeURIComponent('http://localhost/src/vendor/tesseract/worker.min.js'));
+  ok('worker lock loads the same-origin Tesseract worker', !good.error && good.loaded.join() === 'http://localhost/src/vendor/tesseract/worker.min.js', String(good.error));
+  const local = await good.self.fetch('http://localhost/src/vendor/tesseract/lang/eng.traineddata.gz');
+  const remote = await good.self.fetch('https://example.com/x').then(() => 'ALLOWED', () => 'blocked');
+  ok('worker lock allows same-origin fetch and blocks other hosts', local === 'ok' && remote === 'blocked' && good.fetched.length === 1);
+  let xhr = 'ALLOWED'; try { new good.ctx.XMLHttpRequest().open('GET', 'https://example.com/'); } catch (e) { xhr = 'blocked'; }
+  let imp = 'ALLOWED'; try { good.self.importScripts('https://cdn.example.com/x.js'); } catch (e) { imp = 'blocked'; }
+  let ws = 'ALLOWED'; try { new good.self.WebSocket('wss://example.com'); } catch (e) { ws = 'blocked'; }
+  ok('worker lock blocks XHR, importScripts and WebSocket to other hosts', xhr === 'blocked' && imp === 'blocked' && ws === 'blocked', [xhr, imp, ws].join());
+  const evil = run('#' + encodeURIComponent('https://example.com/evil.js'));
+  ok('worker lock refuses to load a worker script from another host', evil.error && evil.loaded.length === 0);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -5,7 +5,7 @@
  * Wires the modules together over the shared event bus:
  *   MOD03 camera / upload -> MOD04 OCR -> MOD05 mapper -> MOD06 card view -> MOD07 vCard + QR
  *   -> MOD02 temporary vault (memory only) and MOD08 egress (every outbound action).
- * MOD01 is imported first so its network gatekeeper is installed before any other module code runs.
+ * MOD01's network lock (netLock.js) is loaded by index.html before every other script; shell.js, imported first, reports its blocks.
  * Nothing is stored: leaving or reloading the page, or 7 minutes without activity, wipes it. With a session PIN set,
  * the screen turning off or 2 idle minutes lock the card (PIN or biometric brings it back); without one, 30 s out of
  * view or 2 idle minutes wipe it.
