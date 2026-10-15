@@ -10,7 +10,7 @@ The **vCard Generator Engine (vCGE)** is a high-security, cross-platform digital
 
 *Design targets. Implementation status is tracked in [`docs/spec.md` §3](docs/spec.md#3-current-progress--verification-status).*
 
-1. **The Vault Principle (`vCGE-MOD02`):** Nothing is stored. The vault is temporary and lives in memory only: leaving or reloading the page, 30 seconds out of view, or 2 idle minutes wipes the card, the photo and the scan. A card hidden behind the session PIN is held encrypted with AES-GCM-256 under a key made for that lock alone.
+1. **The Vault Principle (`vCGE-MOD02`):** Nothing is stored. The vault is temporary and lives in memory only: leaving or reloading the page, or 7 minutes without activity, wipes the card, the photo and the scan. With a 4-digit session PIN the screen timing out only locks the card; without one, 30 seconds out of view or 2 idle minutes wipe it. A locked card is held encrypted with AES-GCM-256 under a key made for that lock alone.
 2. **Ephemeral Memory Lifecycle:** Visual card rendering (`MOD06`) and QR code matrix generation (`MOD07`) operate strictly on read-only, volatile RAM streams protected by a 120-second TTL zero-fill auto-purge protocol and startup memory residue checks.
 3. **Sole Egress Gateway (`vCGE-MOD08`):** All external data sharing (Web Share API, `.vcf` downloads, high-res PNG QR exports, SMS/Email, and 3.5" x 2" physical printing) is strictly routed through a single, audited egress controller. Direct network calls from sub-modules are intercepted and blocked by the central container.
 
@@ -40,9 +40,9 @@ ES modules don't load from `file://`, so serve the folder over HTTP. This needs 
 npm start            # serves http://localhost:8080 (localhost only; PORT=xxxx to change)
 ```
 
-The app opens straight to an empty card, and nothing is ever saved. Leaving or reloading the page wipes it, and so does 30 seconds with the app out of view (the photo picker and share sheets the app opens get the 2-minute rule instead). Back, by button or swipe, asks before it wipes.
+The app opens straight to an empty card, and nothing is ever saved. Leaving or reloading the page wipes it, and so do 7 minutes without activity. Back, by button or swipe, asks before it wipes.
 
-After 2 idle minutes the card is wiped. To get a short break instead, set a **session PIN** under Security → Quick unlock: the card (and any scan you were reviewing) is then hidden, and the PIN brings it back for up to 5 minutes before it is wiped.
+Without a PIN, 30 seconds with the app out of view or 2 idle minutes wipe the card (the photo picker and share sheets the app opens get the 2-minute rule instead). Set a 4-digit **session PIN** under Security → Quick unlock and the screen timing out, another app, or 2 idle minutes only lock the card (and any scan you were reviewing): typing the 4 digits brings it straight back, and so can Face ID or a fingerprint once added there. Everything is wiped after 7 minutes without activity.
 
 ### Desktop app (Tauri v2)
 
@@ -58,9 +58,9 @@ npm run tauri build               # release build + installers in src-tauri/targ
 
 ```bash
 npm install
-npm test                          # 186 unit tests (Node)
+npm test                          # 202 unit tests (Node)
 npx playwright install chromium   # once, for the browser tests
-npm run test:e2e                  # 140 browser end-to-end tests (real OCR, icons, crop & straighten, text review, logo fitting, reopen last scan, scan kept across a PIN lock, undo, typed fields & regions, blurry-photo retake, OCR failure, QR decode, nothing stored, wipe on reload / 30 s out of view / idle, Back guard, session PIN, SMS and email summary, one-page print, egress lock)
+npm run test:e2e                  # 157 browser end-to-end tests (real OCR, icons, crop & straighten, text review, logo fitting, reopen last scan, scan kept across a PIN lock, undo, typed fields & regions, blurry-photo retake, OCR failure, QR decode, nothing stored, wipe on reload / 30 s out of view / idle, lock on screen off with a PIN, 7-minute reset, Back guard, session PIN, biometric unlock, SMS and email summary, one-page print, egress lock)
 SERVE_DIR=dist npm run test:e2e   # same suite against the Vite build (run `npm run build` first)
 npm run test:icons                # icon-detection accuracy on three icon sets the detector does not use as templates
 (cd src-tauri && cargo test)      # 2 Rust tests (deleting the old keychain device key)
@@ -122,7 +122,7 @@ vCGE-Master/
     │   └── vcardFormatter.js      # The single vCard 3.0 builder (RFC 2426 escaping, CRLF)
     └── modules/                   # Isolated Core Functional Modules
         ├── mod01-shell/           # shell.js (network gatekeeper), themeManager.js (light/dark)
-        ├── mod02-vault/           # vault.js (temporary vault, memory only: AES-GCM-256 hold/release, old-vault clean-up), sessionPin.js, secretInputs.js (no save-password prompts), keychain.js (deletes the old desktop device key), ttlManager.js (120 s idle purge), vaultStore.js + wipePolicy.js (hub store with per-module handles and the wipe rules; built and tested, not yet wired into main.js)
+        ├── mod02-vault/           # vault.js (temporary vault, memory only: AES-GCM-256 hold/release, old-vault clean-up), sessionPin.js (4-digit PIN), biometric.js (Face ID / fingerprint via WebAuthn, on-device), secretInputs.js (no save-password prompts), keychain.js (deletes the old desktop device key), ttlManager.js (120 s idle purge), vaultStore.js + wipePolicy.js (hub store with per-module handles and the wipe rules; built and tested, not yet wired into main.js)
         ├── mod03-camera/          # camera.js (viewfinder, zoom, capture), cropEditor.js (corner handles, rotate), perspective.js (straightening maths)
         ├── mod04-ocr/             # ocrWorker.js (image pre-processing + bundled Tesseract.js, on-device), iconDetector.js + iconMatcher.js (icons in front of lines)
         ├── mod05-form/            # formMapper.js (OCR text → contact), addressAutocomplete.js (local-only)

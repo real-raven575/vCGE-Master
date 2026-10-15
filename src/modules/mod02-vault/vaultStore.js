@@ -8,11 +8,13 @@
  * holds a live reference into another's data. Change notices name the slot, never its contents.
  *
  * lock() seals every slot in the TemporaryVault (AES-GCM, a fresh key per lock) behind the session PIN; unlock(pin)
- * puts them back. wipe() empties everything, the held copy and the PIN. Nothing is ever written to storage.
+ * or unlockBiometric() puts them back. wipe() empties everything, the held copy, the PIN and the biometric enrolment.
+ * Nothing is ever written to storage.
  */
 
 import { TemporaryVault } from './vault.js';
 import { SessionPin } from './sessionPin.js';
+import { BiometricUnlock } from './biometric.js';
 
 export const SLOTS = Object.freeze(['photo', 'ocr', 'review', 'contact', 'lastScan', 'undo']);
 
@@ -34,11 +36,12 @@ function userGesture() {
 
 export class VaultStore {
     /**
-     * @param {{ vault?: TemporaryVault, pin?: SessionPin, isUserGesture?: () => boolean }} [deps]
+     * @param {{ vault?: TemporaryVault, pin?: SessionPin, biometric?: BiometricUnlock, isUserGesture?: () => boolean }} [deps]
      */
-    constructor({ vault = new TemporaryVault(), pin = new SessionPin(), isUserGesture = userGesture } = {}) {
+    constructor({ vault = new TemporaryVault(), pin = new SessionPin(), biometric = new BiometricUnlock(), isUserGesture = userGesture } = {}) {
         this.vault = vault;
         this.pin = pin;
+        this.biometric = biometric;
         this.isUserGesture = isUserGesture;
         this.slots = new Map(SLOTS.map((s) => [s, null]));
         this.mode = 'open';       // 'open' | 'locked'
@@ -126,6 +129,7 @@ export class VaultStore {
 
     clearPin() {
         this.pin.clear();
+        this.biometric.clear();   // biometric needs the PIN as its fallback
     }
 
     // ---- Lock, unlock, wipe ----
@@ -144,7 +148,7 @@ export class VaultStore {
     /**
      * Checks the PIN and puts the slots back.
      * @returns {Promise<{ result: 'ok' | 'lost' | 'wrong' | 'locked_out' | 'not_set' | 'not_locked', attemptsLeft: number }>}
-     *   'lost': the PIN was right but the sealed copy could not be kept or read, so the card is gone.
+     *   'lost': the PIN was right but the sealed copy could not be kept or read, so everything was wiped.
      */
     async unlock(pin) {
         if (this.mode !== 'locked') return { result: 'not_locked', attemptsLeft: 0 };
@@ -154,6 +158,19 @@ export class VaultStore {
             return check;
         }
         if (check.result !== 'ok') return check;
+        return this.#release(check.attemptsLeft);
+    }
+
+    /** Asks the device to check the user's face or fingerprint (enrolled for this session) and puts the slots back. */
+    async unlockBiometric() {
+        if (this.mode !== 'locked') return { result: 'not_locked', attemptsLeft: 0 };
+        if (!this.biometric.isEnrolled() || !(await this.biometric.verify())) return { result: 'not_confirmed', attemptsLeft: 0 };
+        return this.#release(0);
+    }
+
+    // Puts the sealed slots back after a successful check. A seal that failed or cannot be read wipes everything.
+    async #release(attemptsLeft) {
+        if (this.mode !== 'locked') return { result: 'not_locked', attemptsLeft: 0 };
         const held = await this.locking;
         let payload = null;
         try {
@@ -163,16 +180,21 @@ export class VaultStore {
         }
         this.locking = null;
         if (this.mode !== 'locked') return { result: 'not_locked', attemptsLeft: 0 };   // wiped while unlocking
+        if (!payload) {
+            this.wipe('held card lost');
+            return { result: 'lost', attemptsLeft: 0 };
+        }
         this.mode = 'open';
-        if (payload) SLOTS.forEach((s) => { if (payload[s] !== undefined && payload[s] !== null) this.put(s, payload[s]); });
-        this.#emit('open', payload ? 'unlock' : 'held card lost');
-        return { result: payload ? 'ok' : 'lost', attemptsLeft: check.attemptsLeft };
+        SLOTS.forEach((s) => { if (payload[s] !== undefined && payload[s] !== null) this.put(s, payload[s]); });
+        this.#emit('open', 'unlock');
+        return { result: 'ok', attemptsLeft };
     }
 
-    /** Empties every slot, the copy held behind the PIN, and the PIN itself. */
+    /** Empties every slot, the copy held behind the PIN, the PIN itself and the biometric enrolment. */
     wipe(reason = 'wipe') {
         this.vault.wipe();
         this.pin.clear();
+        this.biometric.clear();
         this.locking = null;
         this.mode = 'open';
         SLOTS.forEach((s) => this.clear(s));

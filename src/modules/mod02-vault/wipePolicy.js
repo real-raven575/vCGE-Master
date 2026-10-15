@@ -4,15 +4,15 @@
  *
  * The rules that today live in main.js, owned by the vault instead:
  *   - 2 minutes without activity: lock behind the session PIN if one is set, else wipe.
- *   - 5 minutes locked without the right PIN: wipe.
+ *   - Out of view (screen off, another app): with a PIN, lock at once; without one, wipe after 30 seconds.
+ *   - 7 minutes without activity, whether the card is open, locked or out of view: wipe.
  *   - Leaving, closing or reloading the page (pagehide, back/forward cache included): wipe.
- *   - 30 seconds out of view: wipe. Phones freeze background timers, so the deadline is also checked as the page
- *     comes back. Going out of view within 5 s of expectExternalApp() (photo picker, share sheet) does not start it;
- *     the idle rule applies instead.
+ *   Phones freeze background timers, so the deadlines are also checked as the page comes back. Going out of view within
+ *   5 s of expectExternalApp() (photo picker, share sheet) neither locks nor starts the 30 s; the idle rule applies.
  * All deadlines follow the wall clock. The Back guard prompt stays with the UI; it calls store.wipe() on leave.
  */
 
-import { QUICK_UNLOCK_SECONDS } from './sessionPin.js';
+import { RESET_SECONDS } from './sessionPin.js';
 
 export const IDLE_SECONDS = 120;
 export const HIDDEN_WIPE_SECONDS = 30;
@@ -33,19 +33,19 @@ export function browserEnv() {
 export class WipePolicy {
     /**
      * @param {import('./vaultStore.js').VaultStore} store
-     * @param {{ env?: object, idleSeconds?: number, hiddenSeconds?: number, quickUnlockSeconds?: number, externalGraceMs?: number }} [options]
+     * @param {{ env?: object, idleSeconds?: number, hiddenSeconds?: number, resetSeconds?: number, externalGraceMs?: number }} [options]
      */
     constructor(store, { env = browserEnv(), idleSeconds = IDLE_SECONDS, hiddenSeconds = HIDDEN_WIPE_SECONDS,
-        quickUnlockSeconds = QUICK_UNLOCK_SECONDS, externalGraceMs = EXTERNAL_APP_GRACE_MS } = {}) {
+        resetSeconds = RESET_SECONDS, externalGraceMs = EXTERNAL_APP_GRACE_MS } = {}) {
         this.store = store;
         this.env = env;
         this.idleMs = idleSeconds * 1000;
         this.hiddenMs = hiddenSeconds * 1000;
-        this.quickMs = quickUnlockSeconds * 1000;
+        this.resetMs = resetSeconds * 1000;
         this.graceMs = externalGraceMs;
         this.idleDeadline = 0;
         this.hiddenDeadline = 0;
-        this.quickDeadline = 0;
+        this.resetDeadline = 0;
         this.externalUntil = 0;
         this.timer = null;
         this.unsubscribe = null;
@@ -72,12 +72,14 @@ export class WipePolicy {
         this.env.clearInterval(this.timer);
         this.timer = null;
         this.unsubscribe = null;
-        this.idleDeadline = this.hiddenDeadline = this.quickDeadline = 0;
+        this.idleDeadline = this.hiddenDeadline = this.resetDeadline = 0;
     }
 
-    /** Call on any user activity (tap, key, typing). Restarts the idle deadline while the card is open. */
+    /** Call on any user activity (tap, key, typing). Restarts the idle lock and the 7-minute reset while the card is open. */
     activity() {
-        if (this.store.state() === 'open') this.idleDeadline = this.env.now() + this.idleMs;
+        if (this.store.state() !== 'open') return;
+        this.idleDeadline = this.env.now() + this.idleMs;
+        this.resetDeadline = this.env.now() + this.resetMs;
     }
 
     /** Call just before opening the photo picker, a download or a share action. */
@@ -85,10 +87,10 @@ export class WipePolicy {
         this.externalUntil = this.env.now() + this.graceMs;
     }
 
-    /** Seconds left before the next idle lock or wipe, and before a locked card is wiped (for countdowns). */
+    /** Seconds left before the next idle lock or wipe, and before the 7-minute reset (for countdowns). */
     remaining() {
         const left = (deadline) => (deadline ? Math.max(0, Math.ceil((deadline - this.env.now()) / 1000)) : 0);
-        return { idle: left(this.idleDeadline), quickUnlock: left(this.quickDeadline) };
+        return { idle: left(this.idleDeadline), reset: left(this.resetDeadline) };
     }
 
     /** Checks every deadline. Runs every second, and as the page comes back into view. */
@@ -99,8 +101,9 @@ export class WipePolicy {
             this.store.wipe(`out of view for ${this.hiddenMs / 1000} s`);
             return;
         }
-        if (this.quickDeadline && now >= this.quickDeadline) {
-            this.store.wipe('quick unlock expired');
+        if (this.resetDeadline && now >= this.resetDeadline) {
+            this.resetDeadline = 0;
+            if (this.store.state() === 'locked' || !this.store.isEmpty()) this.store.wipe(`${this.resetMs / 60000} minutes without activity`);
             return;
         }
         if (this.idleDeadline && now >= this.idleDeadline) {
@@ -111,7 +114,13 @@ export class WipePolicy {
 
     #onVisibility() {
         if (this.env.isHidden()) {
-            this.hiddenDeadline = this.env.now() < this.externalUntil ? 0 : this.env.now() + this.hiddenMs;
+            this.hiddenDeadline = 0;
+            if (this.env.now() < this.externalUntil) return;
+            if (this.store.hasPin()) {
+                if (this.store.state() === 'open' && !this.store.isEmpty()) this.store.lock();
+            } else {
+                this.hiddenDeadline = this.env.now() + this.hiddenMs;
+            }
         } else {
             this.tick();
             this.hiddenDeadline = 0;
@@ -120,17 +129,12 @@ export class WipePolicy {
 
     #onState(state) {
         if (state === 'locked') {
-            this.idleDeadline = 0;
-            this.quickDeadline = this.env.now() + this.quickMs;
+            this.idleDeadline = 0;   // the 7-minute reset keeps running from the last activity
+        } else if (state === 'wiped') {
+            // Nothing left to protect: the clocks start again with the next activity.
+            this.idleDeadline = this.hiddenDeadline = this.resetDeadline = 0;
         } else {
-            this.quickDeadline = 0;
-            if (state === 'wiped') {
-                // Nothing left to protect: the idle clock starts again with the next activity.
-                this.idleDeadline = 0;
-                this.hiddenDeadline = 0;
-            } else {
-                this.activity();
-            }
+            this.activity();   // unlocked
         }
     }
 }

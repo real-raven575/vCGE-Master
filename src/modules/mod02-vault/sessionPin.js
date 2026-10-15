@@ -1,21 +1,27 @@
 /**
- * vCGE-MOD02: session PIN (quick unlock after an idle lock)
+ * vCGE-MOD02: session PIN (quick unlock after a lock)
  * Created by raven575, Gemini & Claude
  *
- * A short PIN or password chosen for this session only. After the idle timeout the card is hidden and held in the
- * temporary vault (memory only) for QUICK_UNLOCK_SECONDS, and the PIN brings it back. When that window ends, after
- * MAX_PIN_ATTEMPTS wrong tries, on leaving or reloading the page, the held card and the PIN are both wiped.
- * The PIN is never stored: only a salted PBKDF2 hash, in memory.
+ * A 4-digit PIN chosen for this session only. With a PIN set, the screen turning off (the page going out of view) or
+ * 2 minutes without activity hide the card and hold it in the temporary vault (memory only), and the PIN brings it
+ * back. After RESET_SECONDS without activity, after MAX_PIN_ATTEMPTS wrong tries, or on leaving or reloading the page,
+ * the held card and the PIN are both wiped. The PIN is never stored: only a salted PBKDF2 hash, in memory.
  */
 
-export const QUICK_UNLOCK_SECONDS = 300;
-export const MIN_PIN_LENGTH = 4;
+// 7 minutes without activity (open or locked) wipes everything and the app starts new.
+export const RESET_SECONDS = 420;
+export const PIN_LENGTH = 4;
 export const MAX_PIN_ATTEMPTS = 5;
 const PIN_ITERATIONS = 100000;
 
 async function hashPin(pin, salt) {
     const key = await window.crypto.subtle.importKey('raw', new TextEncoder().encode(pin), { name: 'PBKDF2' }, false, ['deriveBits']);
     return new Uint8Array(await window.crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: PIN_ITERATIONS, hash: 'SHA-256' }, key, 256));
+}
+
+/** True for exactly PIN_LENGTH digits. */
+export function isValidPin(pin) {
+    return typeof pin === 'string' && new RegExp(`^[0-9]{${PIN_LENGTH}}$`).test(pin);
 }
 
 export class SessionPin {
@@ -29,7 +35,7 @@ export class SessionPin {
     }
 
     async set(pin) {
-        if (typeof pin !== 'string' || pin.length < MIN_PIN_LENGTH) throw new Error('PIN_TOO_SHORT');
+        if (!isValidPin(pin)) throw new Error('PIN_INVALID');
         const salt = window.crypto.getRandomValues(new Uint8Array(16));
         this.record = { salt, hash: await hashPin(pin, salt) };
         this.attempts = 0;

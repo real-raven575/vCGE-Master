@@ -152,12 +152,14 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 
 // Session PIN (quick unlock after an idle lock)
 {
-  const { SessionPin, MAX_PIN_ATTEMPTS, MIN_PIN_LENGTH, QUICK_UNLOCK_SECONDS } = await import(`${R}/modules/mod02-vault/sessionPin.js`);
-  ok('quick unlock window is 5 minutes, PIN at least 4 characters', QUICK_UNLOCK_SECONDS === 300 && MIN_PIN_LENGTH === 4);
+  const { SessionPin, MAX_PIN_ATTEMPTS, PIN_LENGTH, RESET_SECONDS, isValidPin } = await import(`${R}/modules/mod02-vault/sessionPin.js`);
+  ok('reset after 7 minutes without activity, PIN is 4 digits', RESET_SECONDS === 420 && PIN_LENGTH === 4);
+  ok('only exactly 4 digits make a PIN', isValidPin('0420') && !isValidPin('123') && !isValidPin('12345') && !isValidPin('12a4') && !isValidPin(' 1234') && !isValidPin(1234));
   const pin = new SessionPin();
   ok('session PIN starts unset', !pin.isSet() && (await pin.verify('1234')).result === 'not_set');
-  let short = false; try { await pin.set('12'); } catch (e) { short = e.message === 'PIN_TOO_SHORT'; }
-  ok('too-short PIN refused', short && !pin.isSet());
+  let short = false; try { await pin.set('12'); } catch (e) { short = e.message === 'PIN_INVALID'; }
+  let letters = false; try { await pin.set('abcd'); } catch (e) { letters = e.message === 'PIN_INVALID'; }
+  ok('too-short or non-digit PIN refused', short && letters && !pin.isSet());
   await pin.set('2468');
   ok('session PIN stored as a hash, not the PIN', pin.isSet() && !JSON.stringify(Array.from(pin.record.hash)).includes('2468') && pin.record.hash.length === 32);
   ok('right PIN accepted', (await pin.verify('2468')).result === 'ok');
@@ -167,7 +169,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   let last;
   for (let i = 0; i < MAX_PIN_ATTEMPTS; i++) last = await pin.verify('9999');
   ok(`${MAX_PIN_ATTEMPTS} wrong PINs lock out and forget the PIN`, last.result === 'locked_out' && !pin.isSet() && (await pin.verify('2468')).result === 'not_set');
-  await pin.set('abcd'); pin.clear();
+  await pin.set('1357'); pin.clear();
   ok('clear forgets the PIN', !pin.isSet());
 }
 
@@ -191,6 +193,41 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   offset = 125000; await new Promise(r => setTimeout(r, 1100));
   Date.now = realNow;
   ok('TTL expires on next tick after a clock jump', expired2);
+}
+
+// Biometric unlock: the WebAuthn assertion check (signature, challenge, origin, site, user verified)
+{
+  const { verifyAssertion, derToRaw, base64url } = await import(`${R}/modules/mod02-vault/biometric.js`);
+  const subtle = globalThis.crypto.subtle;
+  const keys = await subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  const rawToDer = (raw) => {
+    const int = (b) => { let i = 0; while (i < b.length - 1 && b[i] === 0) i++; b = b.slice(i); if (b[0] & 0x80) b = Uint8Array.of(0, ...b); return Uint8Array.of(0x02, b.length, ...b); };
+    const r = int(raw.slice(0, 32)), s = int(raw.slice(32));
+    return Uint8Array.of(0x30, r.length + s.length, ...r, ...s);
+  };
+  const origin = 'https://vcge.app', rpId = 'vcge.app';
+  const challenge = globalThis.crypto.getRandomValues(new Uint8Array(32));
+  // What a phone's authenticator returns after checking the user's face or fingerprint
+  const assertion = async ({ flags = 0x05, site = rpId, ch = challenge, from = origin, type = 'webauthn.get' } = {}) => {
+    const authenticatorData = new Uint8Array(37);
+    authenticatorData.set(new Uint8Array(await subtle.digest('SHA-256', new TextEncoder().encode(site))), 0);
+    authenticatorData[32] = flags;
+    const clientDataJSON = new TextEncoder().encode(JSON.stringify({ type, challenge: base64url(ch), origin: from }));
+    const signed = new Uint8Array([...authenticatorData, ...new Uint8Array(await subtle.digest('SHA-256', clientDataJSON))]);
+    const raw = new Uint8Array(await subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, keys.privateKey, signed));
+    return { publicKey: keys.publicKey, algorithm: -7, challenge, origin, rpId, authenticatorData, clientDataJSON, signature: rawToDer(raw) };
+  };
+  const raw = globalThis.crypto.getRandomValues(new Uint8Array(64)); raw[0] = 0x80; raw[32] = 0;
+  ok('DER signature converts back to raw r || s', derToRaw(rawToDer(raw)).every((b, i) => b === raw[i]));
+  ok('a genuine biometric assertion is accepted', await verifyAssertion(await assertion()));
+  ok('user not verified (no face or fingerprint check) is refused', !(await verifyAssertion(await assertion({ flags: 0x01 }))));
+  ok('an old challenge (replay) is refused', !(await verifyAssertion({ ...(await assertion({ ch: new Uint8Array(32) })), challenge })));
+  ok('another site or origin is refused', !(await verifyAssertion(await assertion({ site: 'evil.example' }))) && !(await verifyAssertion({ ...(await assertion()), origin: 'https://evil.example' })));
+  ok('a registration response is not accepted as an unlock', !(await verifyAssertion(await assertion({ type: 'webauthn.create' }))));
+  const other = await subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+  ok('a signature from another credential is refused', !(await verifyAssertion({ ...(await assertion()), publicKey: other.publicKey })));
+  const tampered = await assertion(); tampered.signature = tampered.signature.slice(); tampered.signature[10] ^= 1;
+  ok('a tampered signature is refused', !(await verifyAssertion(tampered)));
 }
 
 // Vault store: the hub every module goes through (memory only, per-module rights, no data in notices)
@@ -247,12 +284,21 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const lost = await s.unlock('2468');
   ok('a failed seal is reported as lost, not as unlocked', lost.result === 'lost' && s.isEmpty());
   delete s.vault.hold;
+  // Biometric unlock (the device check is faked here; the real check is tested above and in the browser suite)
+  let deviceSays = false;
+  s.biometric = { enrolled: true, isEnrolled() { return this.enrolled; }, verify: async () => deviceSays, clear() { this.enrolled = false; } };
+  await s.setPin('2468'); s.put('contact', { firstName: 'Bio' }); s.lock(); await s.locking;
+  ok('biometric not confirmed keeps it locked', (await s.unlockBiometric()).result === 'not_confirmed' && s.state() === 'locked');
+  deviceSays = true;
+  ok('confirmed biometric puts the card back', (await s.unlockBiometric()).result === 'ok' && s.get('contact').firstName === 'Bio');
+  s.clearPin();
+  ok('removing the PIN removes biometric too', !s.biometric.isEnrolled());
   s.put('review', { lines: [] }); s.wipe('test');
   ok('wipe empties every slot and forgets the PIN', s.isEmpty() && !s.hasPin() && states.at(-1) === 'wiped');
   ok('the store writes nothing to browser storage', JSON.stringify(localStorage) === before);
 }
 
-// Wipe policy: idle lock or wipe, PIN window, leaving the page, 30 s out of view
+// Wipe policy: idle lock or wipe, screen off locks (PIN) or wipes after 30 s (no PIN), 7-minute reset, leaving the page
 {
   const { VaultStore } = await import(`${R}/modules/mod02-vault/vaultStore.js`);
   const { WipePolicy } = await import(`${R}/modules/mod02-vault/wipePolicy.js`);
@@ -272,6 +318,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     const reasons = []; store.onStateChange(e => reasons.push(`${e.state}:${e.reason}`));
     return { env, store, policy, reasons };
   };
+  const hide = (env) => { env.hidden = true; env.handlers.visibilitychange(); };
+  const show = (env) => { env.hidden = false; env.handlers.visibilitychange(); };
 
   let { env, store, policy, reasons } = await setup(false);
   ok('wipe policy listens for pagehide and visibility, ticks every second', env.handlers.pagehide && env.handlers.visibilitychange && env.intervals === 1);
@@ -280,41 +328,43 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   policy.activity(); env.t += 119_000; policy.tick();
   ok('activity restarts the idle clock', store.get('contact') !== null);
   env.t += 2_000; policy.tick();
-  ok('2 minutes idle without a PIN wipes', store.isEmpty() && reasons.at(-1) === 'wiped:idle');
-  env.t += 300_000; reasons.length = 0; policy.tick();
+  ok('no PIN: 2 minutes idle wipes', store.isEmpty() && reasons.at(-1) === 'wiped:idle');
+  env.t += 600_000; reasons.length = 0; policy.tick();
   ok('an empty store is not wiped again until there is activity', reasons.length === 0);
+
+  ({ env, store, policy, reasons } = await setup(false));
+  hide(env); env.t += 29_000; show(env);
+  ok('no PIN: back in view within 30 s keeps the card', store.get('contact').firstName === 'Jane');
+  hide(env); env.t += 31_000; show(env);
+  ok('no PIN: 30 s out of view wipes, checked as the page comes back (frozen timers)', store.isEmpty() && reasons.at(-1) === 'wiped:out of view for 30 s');
 
   ({ env, store, policy, reasons } = await setup(true));
   env.t += 121_000; policy.tick();
-  ok('2 minutes idle with a PIN locks instead', store.state() === 'locked' && policy.remaining().quickUnlock === 300);
-  env.t += 301_000; policy.tick();
-  ok('5 minutes locked wipes the card', store.state() === 'open' && store.isEmpty() && reasons.at(-1) === 'wiped:quick unlock expired');
+  ok('PIN: 2 minutes idle locks instead of wiping', store.state() === 'locked' && policy.remaining().reset === 299);
+  env.t += 299_000; policy.tick();
+  ok('PIN: 7 minutes after the last activity the locked card is wiped', store.state() === 'open' && store.isEmpty() && reasons.at(-1) === 'wiped:7 minutes without activity');
 
   ({ env, store, policy, reasons } = await setup(true));
-  env.t += 121_000; policy.tick(); await store.locking;
-  await store.unlock('2468');
-  ok('unlock clears the PIN window and restarts the idle clock', policy.remaining().quickUnlock === 0 && policy.remaining().idle === 120);
+  env.t += 10_000; hide(env);
+  ok('PIN: the screen turning off locks at once (nothing on screen when it wakes)', store.state() === 'locked' && reasons.at(-1) === 'locked:lock');
+  env.t += 200_000; show(env);
+  ok('PIN: the card survives a screen timeout (still locked, not wiped, after 3+ minutes)', store.state() === 'locked' && !store.isEmpty());
+  await store.locking; await store.unlock('2468');
+  ok('PIN: unlock brings the card back and restarts both clocks', store.get('contact').firstName === 'Jane' && policy.remaining().idle === 120 && policy.remaining().reset === 420);
+  hide(env); env.t += 421_000; show(env);
+  ok('PIN: 7 minutes out of view (frozen timers) wipes as the page comes back', store.isEmpty() && store.state() === 'open' && reasons.at(-1) === 'wiped:7 minutes without activity');
 
-  ({ env, store, policy, reasons } = await setup(false));
+  ({ env, store, policy, reasons } = await setup(true));
+  policy.expectExternalApp(); env.t += 1_000; hide(env);
+  ok('the photo picker or share sheet does not lock', store.state() === 'open');
+  env.t += 60_000; show(env);
+  ok('back from the picker after 60 s: card kept', store.get('contact').firstName === 'Jane');
+  env.t += 6_000; hide(env);
+  ok('the picker grace ends after 5 s', store.state() === 'locked');
+
+  ({ env, store, policy, reasons } = await setup(true));
   env.handlers.pagehide();
-  ok('leaving the page wipes', store.isEmpty() && reasons.at(-1) === 'wiped:left the page');
-
-  ({ env, store, policy, reasons } = await setup(false));
-  env.hidden = true; env.handlers.visibilitychange();
-  env.t += 29_000; env.hidden = false; env.handlers.visibilitychange();
-  ok('back in view within 30 s keeps the card', store.get('contact').firstName === 'Jane');
-  env.hidden = true; env.handlers.visibilitychange();
-  env.t += 31_000; env.hidden = false; env.handlers.visibilitychange();
-  ok('30 s out of view wipes, checked as the page comes back (frozen timers)', store.isEmpty() && reasons.at(-1) === 'wiped:out of view for 30 s');
-
-  ({ env, store, policy, reasons } = await setup(false));
-  policy.expectExternalApp(); env.t += 1_000;
-  env.hidden = true; env.handlers.visibilitychange();
-  env.t += 60_000; env.hidden = false; env.handlers.visibilitychange();
-  ok('the photo picker or share sheet gets the idle rule, not the 30 s rule', store.get('contact').firstName === 'Jane');
-  env.t += 6_000; env.hidden = true; env.handlers.visibilitychange();
-  env.t += 31_000; policy.tick();
-  ok('the picker grace ends after 5 s', store.isEmpty());
+  ok('leaving the page wipes, PIN or not', store.isEmpty() && !store.hasPin() && reasons.at(-1) === 'wiped:left the page');
 
   policy.stop();
   ok('stop removes the page listeners', !env.handlers.pagehide && !env.handlers.visibilitychange);

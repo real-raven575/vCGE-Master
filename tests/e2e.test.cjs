@@ -110,6 +110,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     els => els.map(el => ({ type: el.type, masked: getComputedStyle(el).webkitTextSecurity, ac: el.getAttribute('autocomplete'), caps: el.getAttribute('autocapitalize') })));
   ok('PIN boxes are masked text fields, not password fields (no save-password prompt)', secretBoxes.length === 2 && secretBoxes.every(b => b.type === 'text' && b.masked === 'disc'), JSON.stringify(secretBoxes));
   ok('PIN boxes opt out of autofill and keyboard capitalisation', secretBoxes.every(b => b.ac === 'off' && b.caps === 'none'));
+  ok('PIN boxes take 4 digits on a number keypad', (await page.$$eval('#vaultPin, #sessionPinInput', els => els.every(el => el.inputMode === 'numeric' && el.maxLength === 4))));
   ok('no password field anywhere on the page', (await page.$$('input[type=password]')).length === 0);
 
   // Edit contact -> preview (nothing saved)
@@ -287,7 +288,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await ctx2.close();
   }
 
-  // Quick unlock: session PIN after an idle lock (5-minute window); the card is held in memory only, then wiped
+  // Quick unlock: 4-digit session PIN after a lock (idle, screen off, Lock button); the card is held in memory only,
+  // and 7 minutes without activity wipe it
   {
     const ctx8 = await browser.newContext();
     const p8 = await ctx8.newPage();
@@ -304,29 +306,48 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('no session PIN offer on its own', !(await p8.isVisible('#quickSetupModal')) && (await t8('sessionPinStatus')) === 'Session PIN: not set');
     await p8.click('#setSessionPinBtn');
     await p8.fill('#sessionPinInput', '12'); await p8.click('#quickSetupSaveBtn');
-    ok('session PIN: too-short PIN refused', (await t8('quickSetupError')).includes('4'));
+    ok('session PIN: too-short PIN refused', (await t8('quickSetupError')) === 'Use exactly 4 digits.', await t8('quickSetupError'));
     await p8.fill('#sessionPinInput', '2468'); await p8.click('#quickSetupSaveBtn');
     await p8.waitForSelector('#quickSetupModal', { state: 'hidden' });
     ok('session PIN set: Security panel shows it and Lock appears', (await t8('sessionPinStatus')) === 'Session PIN: set' && await p8.isVisible('#lockVaultBtn'));
     await p8.fill('#firstName', 'Quick'); await p8.fill('#lastName', 'Unlock');
     await idle();
     ok('idle with a session PIN: card hidden, PIN prompt', await p8.isVisible('#vaultModal') && (await t8('vaultModalTitle')) === 'Locked' && await p8.isVisible('#vaultPin') && (await p8.inputValue('#firstName')) === '');
-    ok('quick lock: badge, indicator and countdown show the 5-minute window', (await t8('vaultBadge')) === 'Vault: LOCKED' && /^LOCKED \(PIN for [45]:/.test(await t8('vaultStateIndicator')) && (await t8('quickUnlockCountdown')).includes('then the card is wiped'), await t8('vaultStateIndicator'));
+    ok('quick lock: badge, indicator and countdown show the 7-minute reset', (await t8('vaultBadge')) === 'Vault: LOCKED' && /^LOCKED \(resets in 4:5\d\)$/.test(await t8('vaultStateIndicator')) && (await t8('quickUnlockCountdown')).includes('everything resets in 4:5'), await t8('vaultStateIndicator'));
+    ok('idle lock explains why it locked', (await t8('vaultModalHint')).startsWith('Locked after 2 minutes without activity. Enter your 4-digit PIN'));
     ok('quick lock: the held card is not in storage or the page', !(await p8.evaluate(() => JSON.stringify(localStorage) + document.body.innerText)).includes('Quick'));
-    await p8.fill('#vaultPin', '1111'); await p8.click('#vaultUnlockBtn'); await p8.waitForTimeout(300);
-    ok('wrong session PIN rejected with tries left', (await t8('vaultError')) === 'Wrong PIN. 4 tries left.', await t8('vaultError'));
-    await p8.fill('#vaultPin', '2468'); await p8.click('#vaultUnlockBtn');
+    await p8.fill('#vaultPin', '1111'); await p8.waitForTimeout(300);
+    ok('wrong session PIN (checked on the 4th digit) rejected with tries left', (await t8('vaultError')) === 'Wrong PIN. 4 tries left.' && (await p8.inputValue('#vaultPin')) === '', await t8('vaultError'));
+    await p8.fill('#vaultPin', '2468');
     await p8.waitForSelector('#vaultModal', { state: 'hidden' });
-    ok('right session PIN restores the card', (await p8.inputValue('#firstName')) === 'Quick' && (await t8('auditLog')).includes('Vault unlocked (session PIN)') && (await t8('vaultBadge')) === 'Vault: UNLOCKED');
+    ok('right session PIN unlocks on the 4th digit, no extra tap', (await p8.inputValue('#firstName')) === 'Quick' && (await t8('auditLog')).includes('Vault unlocked (session PIN)') && (await t8('vaultBadge')) === 'Vault: UNLOCKED');
 
+    // Screen timeout with a PIN: locks at once, the card survives, and the PIN brings it straight back
+    await p8.clock.fastForward(1000);
+    await setVisibility(p8, 'hidden');
+    ok('screen off with a PIN: locked at once, card off the page', await p8.isVisible('#vaultModal') && (await p8.inputValue('#firstName')) === '' && (await t8('auditLog')).includes('hidden behind the PIN (out of view)'));
+    await p8.clock.setSystemTime(await p8.evaluate(() => Date.now() + 200000));   // 3+ minutes asleep, timers frozen
+    await setVisibility(p8, 'visible');
+    ok('screen back on after 3+ minutes: still locked, not wiped', await p8.isVisible('#vaultModal') && (await t8('vaultModalHint')).startsWith('Locked while the screen was off'));
+    await p8.fill('#vaultPin', '2468');
+    await p8.waitForSelector('#vaultModal', { state: 'hidden' });
+    ok('PIN after a screen timeout restores the card', (await p8.inputValue('#firstName')) === 'Quick');
+    await p8.clock.fastForward(1000);
+    await setVisibility(p8, 'hidden');
+    await p8.clock.setSystemTime(await p8.evaluate(() => Date.now() + 425000));   // 7+ minutes asleep
+    await setVisibility(p8, 'visible');
+    ok('7 minutes without activity: wiped as the screen comes back on', !(await p8.isVisible('#vaultModal')) && (await p8.inputValue('#firstName')) === '' && (await t8('auditLog')).includes('7 minutes without activity') && (await t8('sessionPinStatus')) === 'Session PIN: not set');
+
+    await setPin(p8, '2468');
+    await p8.fill('#firstName', 'Seven');
     await idle();
     await p8.clock.fastForward(301000);
-    ok('after 5 minutes the PIN window ends: card and PIN wiped, no dialog', !(await p8.isVisible('#vaultModal')) && (await p8.inputValue('#firstName')) === '' && (await t8('auditLog')).includes('quick unlock expired') && (await t8('sessionPinStatus')) === 'Session PIN: not set');
+    ok('idle lock, then 7 minutes since the last activity: card and PIN wiped, no dialog', !(await p8.isVisible('#vaultModal')) && (await p8.inputValue('#firstName')) === '' && (await t8('toastMessage')).startsWith('Reset: 7 minutes without activity') && (await t8('sessionPinStatus')) === 'Session PIN: not set', await t8('toastMessage'));
 
     await setPin(p8, '1357');
     await p8.fill('#firstName', 'Tries');
     await idle();
-    for (let i = 0; i < 5; i++) { await p8.fill('#vaultPin', '0000'); await p8.click('#vaultUnlockBtn'); await p8.waitForTimeout(250); }
+    for (let i = 0; i < 5; i++) { await p8.fill('#vaultPin', '0000'); await p8.waitForTimeout(250); }
     ok('5 wrong PINs: card wiped', !(await p8.isVisible('#vaultModal')) && (await p8.inputValue('#firstName')) === '' && (await t8('toastMessage')).startsWith('5 wrong PINs'), await t8('toastMessage'));
 
     await setPin(p8, '4321');
@@ -342,6 +363,45 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('Security panel: Remove forgets the PIN and hides Lock', (await t8('sessionPinStatus')) === 'Session PIN: not set' && (await t8('auditLog')).includes('Session PIN removed') && !(await p8.isVisible('#lockVaultBtn')));
     ok('quick unlock: no page errors', errors8.length === 0, errors8.join(' | '));
     await ctx8.close();
+  }
+
+  // Biometric unlock (Face ID / fingerprint / Windows Hello) through a virtual platform authenticator: on-device only
+  {
+    const ctxB = await browser.newContext();
+    const pB = await ctxB.newPage();
+    const errorsB = [], externalB = [];
+    pB.on('pageerror', e => errorsB.push(e.message));
+    pB.on('console', m => { if (m.type() === 'error') errorsB.push('console: ' + m.text()); });
+    pB.on('request', r => { if (!r.url().startsWith(ORIGIN) && !/^(data|blob):/.test(r.url())) externalB.push(r.url()); });
+    const cdp = await ctxB.newCDPSession(pB);
+    await cdp.send('WebAuthn.enable');
+    const { authenticatorId } = await cdp.send('WebAuthn.addVirtualAuthenticator', { options: {
+      protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } });
+    const tB = id => pB.textContent('#' + id).then(t => t.trim());
+    await pB.goto(ORIGIN); await pB.waitForTimeout(300);
+    ok('biometric not offered before a PIN is set', !(await pB.isVisible('#biometricRow')));
+    await setPin(pB, '2468');
+    ok('biometric offered once a PIN is set', await pB.isVisible('#biometricRow') && (await tB('biometricStatus')) === 'Face ID / fingerprint: off');
+    await pB.click('#addBiometricBtn'); await pB.waitForTimeout(500);
+    ok('biometric added for this session', (await tB('biometricStatus')) === 'Face ID / fingerprint: on' && (await tB('auditLog')).includes('Face ID / fingerprint added'), await tB('toastMessage'));
+    await pB.fill('#firstName', 'Bio'); await pB.click('#lockVaultBtn');
+    ok('lock screen offers Face ID / fingerprint', await pB.isVisible('#vaultBiometricBtn') && (await pB.inputValue('#firstName')) === '');
+    await pB.click('#vaultBiometricBtn');
+    await pB.waitForSelector('#vaultModal', { state: 'hidden', timeout: 5000 }).catch(() => {});
+    ok('biometric unlocks the card', !(await pB.isVisible('#vaultModal')) && (await pB.inputValue('#firstName')) === 'Bio' && (await tB('auditLog')).includes('Vault unlocked (biometric)'));
+    await cdp.send('WebAuthn.setUserVerified', { authenticatorId, isUserVerified: false });
+    await pB.click('#lockVaultBtn');
+    await pB.click('#vaultBiometricBtn'); await pB.waitForTimeout(800);
+    ok('face or fingerprint not confirmed: stays locked, PIN offered', await pB.isVisible('#vaultModal') && (await tB('vaultError')).includes('Use your PIN') && (await pB.inputValue('#firstName')) === '', await tB('vaultError'));
+    await pB.fill('#vaultPin', '2468');
+    await pB.waitForSelector('#vaultModal', { state: 'hidden' });
+    ok('the PIN still works as the fallback', (await pB.inputValue('#firstName')) === 'Bio');
+    await pB.click('#clearSessionPinBtn');
+    ok('removing the PIN removes biometric too', !(await pB.isVisible('#biometricRow')) && !(await pB.isVisible('#lockVaultBtn')));
+    ok('biometric: nothing saved to browser storage', !(await pB.evaluate(() => JSON.stringify(localStorage) + JSON.stringify(sessionStorage))).includes('Bio'));
+    ok('biometric: no network requests', externalB.length === 0, externalB.join(', '));
+    ok('biometric: no page errors', errorsB.length === 0, errorsB.join(' | '));
+    await ctxB.close();
   }
 
   // Back (button or swipe): asks before wiping, Stay keeps the card, leaving wipes it; an empty card just leaves
@@ -380,7 +440,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p10.clock.install();
     const t10 = id => p10.textContent('#' + id).then(t => t.trim());
     const idle = async () => { await p10.clock.fastForward(1000); await p10.clock.fastForward(125000); };
-    const unlockPin = async () => { await p10.fill('#vaultPin', '2468'); await p10.click('#vaultUnlockBtn'); await p10.waitForSelector('#vaultModal', { state: 'hidden' }); await p10.waitForTimeout(300); };
+    const unlockPin = async () => { await p10.fill('#vaultPin', '2468'); await p10.waitForSelector('#vaultModal', { state: 'hidden' }); await p10.waitForTimeout(300); };
     await p10.goto(ORIGIN); await p10.waitForTimeout(300);
     await setPin(p10, '2468');
 
@@ -407,7 +467,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
     await idle();
     await p10.clock.fastForward(301000); await p10.waitForTimeout(300);
-    ok('when the PIN window ends the card and the kept scan are wiped', !(await p10.isVisible('#vaultModal')) && !(await p10.isVisible('#reopenScanBtn')) && !(await p10.isVisible('#cropReviewModal')) && (await p10.inputValue('#firstName')) === '');
+    ok('7 minutes without activity wipe the card and the kept scan', !(await p10.isVisible('#vaultModal')) && !(await p10.isVisible('#reopenScanBtn')) && !(await p10.isVisible('#cropReviewModal')) && (await p10.inputValue('#firstName')) === '');
     ok('kept scan: no page errors', errors10.length === 0, errors10.join(' | '));
     await ctx10.close();
   }

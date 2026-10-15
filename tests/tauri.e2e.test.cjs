@@ -153,7 +153,7 @@ function keyringHasDeviceKey() {
     await click('#firstName');
     await sleep(124000);
     ok('desktop: idle lock with a session PIN shows the PIN prompt', await until(async () => (await visible('vaultModal')) && (await visible('vaultPinRow')) && (await val('firstName')) === '', 10000));
-    await type('#vaultPin', '2468'); await click('#vaultUnlockBtn');
+    await type('#vaultPin', '2468');   // unlocks on the 4th digit
     ok('desktop: session PIN restores the card', await until(async () => !(await visible('vaultModal')) && (await val('firstName')) === 'Maria', 10000), await val('firstName'));
 
     // Restart the page: nothing was saved, so it starts empty
