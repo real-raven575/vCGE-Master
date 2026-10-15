@@ -66,7 +66,7 @@ function refresh(contact = cardView.getContact()) {
     // The QR payload omits the photo: base64 images exceed QR capacity.
     const qrOk = vcgeQREngine.renderQRCode($('qrCanvas'), vcgeQREngine.generateVCard30({ ...contact, avatarBase64: null }), { size: 320 });
     $('qrNotice').classList.toggle('hidden', qrOk);
-    egressController.setPayload(vcard, contact);
+    egressController.setPayload(vcard, contact, { qrReal: qrOk });
     globalEventBus.publish(Events.CONTACT_UPDATED, { timestamp: Date.now() });
 }
 
@@ -597,17 +597,25 @@ function wireIntake() {
 
 function wireEgress() {
     // A share or download may bring another app to the front: the 2-minute idle rule applies, not the 30-second one.
-    ['downloadVcfBtn', 'exportQrBtn', 'emailBtn', 'smsBtn', 'printCardBtn', 'shareNativeBtn']
+    ['downloadVcfBtn', 'exportQrBtn', 'emailBtn', 'smsBtn', 'printCardBtn', 'shareNativeBtn', 'copyVcardBtn']
         .forEach(id => $(id).addEventListener('click', expectExternalApp, true));
     $('downloadVcfBtn').addEventListener('click', () => egressController.downloadVcf());
-    $('exportQrBtn').addEventListener('click', () => egressController.exportQRPNG($('qrCanvas')));
+    $('exportQrBtn').addEventListener('click', () => {
+        if (!egressController.exportQRPNG($('qrCanvas'))) cardView.showToast('Too much information for one QR code: use .vcf or Share instead.');
+    });
     $('emailBtn').addEventListener('click', () => egressController.triggerEmailShare());
     $('smsBtn').addEventListener('click', () => egressController.triggerSmsShare());
     $('printCardBtn').addEventListener('click', () => egressController.triggerPhysicalPrint($('qrCanvas')));
     $('shareNativeBtn').addEventListener('click', async () => {
         const result = await egressController.triggerQuickShare();
-        if (result && result.method === 'clipboard_fallback') cardView.showToast('vCard copied to the clipboard.');
-        else if (result && result.reason === 'clipboard_unavailable') cardView.showToast('Sharing is not available on this device.');
+        if (result && result.reason === 'share_unavailable') cardView.showToast('Sharing is not available here: use .vcf, Email or Copy.');
+        else if (result && result.reason === 'share_failed') cardView.showToast('Sharing did not work: use .vcf, Email or Copy.');
+    });
+    // Copy only on request: the clipboard is outside the app, so a wipe cannot clear it.
+    $('copyVcardBtn').addEventListener('click', async () => {
+        const result = await egressController.copyVCard();
+        if (result.success) cardView.showToast('vCard copied. The clipboard is not cleared when vCGE wipes.');
+        else if (result.reason === 'clipboard_unavailable') cardView.showToast('Copying is not available on this device.');
     });
 }
 

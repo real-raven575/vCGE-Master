@@ -4,6 +4,7 @@
  * 
  * Manages secure outbound communications including Web Share API triggers,
  * native vCard downloads, SMS/Email mailto links, and physical card printing.
+ * Nothing goes to the clipboard unless the user taps Copy: the system clipboard outlives the app's wipes.
  */
 
 import { globalEventBus, Events } from '../../share/eventBus.js';
@@ -29,18 +30,21 @@ export class EgressController {
     constructor() {
         this.currentVCard = "";
         this.contactData = {};
+        this.qrReal = false;
     }
 
     /**
      * Updates the active vCard payload and associated contact details.
+     * qrReal: false when the QR canvas holds the "not scannable" placeholder (MOD07), so it is never exported or printed.
      */
-    setPayload(vcardString, contactAttributes) {
+    setPayload(vcardString, contactAttributes, { qrReal = false } = {}) {
         this.currentVCard = vcardString;
         this.contactData = contactAttributes || {};
+        this.qrReal = qrReal;
     }
 
     /**
-     * Triggers the native OS Share Sheet or falls back to clipboard.
+     * Triggers the native OS Share Sheet. There is no automatic clipboard fallback: copying is its own button (copyVCard).
      */
     async triggerQuickShare() {
         if (!this.currentVCard) return false;
@@ -68,17 +72,25 @@ export class EgressController {
                 return { success: true, method: 'native_text' };
             } catch (error) {
                 if (error.name === 'AbortError') return { success: false, reason: 'cancelled' };
+                return { success: false, reason: 'share_failed' };
             }
         }
+        return { success: false, reason: 'share_unavailable' };
+    }
 
-        // Fallback to clipboard
+    /**
+     * Copies the vCard text to the system clipboard, only when the user taps Copy. The clipboard is outside the app,
+     * so the wipe cannot clear it: the caller tells the user so.
+     */
+    async copyVCard() {
+        if (!this.currentVCard) return { success: false, reason: 'empty' };
         try {
             await navigator.clipboard.writeText(this.currentVCard);
         } catch (e) {
             return { success: false, reason: 'clipboard_unavailable' };
         }
         audit('clipboard');
-        return { success: true, method: 'clipboard_fallback' };
+        return { success: true, method: 'clipboard' };
     }
 
     /**
@@ -107,7 +119,7 @@ export class EgressController {
      * Saves a canvas (the QR code) as a PNG file.
      */
     exportQRPNG(canvas, filename = `${this.contactData.firstName || 'Contact'}_QR.png`) {
-        if (!canvas) return false;
+        if (!canvas || !this.qrReal) return false;
         clickDownload(canvas.toDataURL('image/png'), filename);
         audit('export_png', { filename });
         return true;
@@ -183,7 +195,8 @@ export class EgressController {
     }
 
     /**
-     * Prints (or saves as PDF) one page with the card front and back (QR code) at 3.5" x 2".
+     * Prints (or saves as PDF) one page with the card front and back (QR code) at 3.5" x 2". When the contact is too big
+     * for a QR code the back has the name and a short note instead of the unscannable placeholder.
      * The copies are rebuilt on each print and kept in the hidden #printSheet until the next print, idle purge or lock:
      * clearing them on 'afterprint' is unsafe, as some browsers (Android) fire it before the PDF is rendered.
      */
@@ -195,7 +208,7 @@ export class EgressController {
             frontCopy.classList.add('print-card');
             const back = document.createElement('div');
             back.className = 'print-card print-back';
-            if (qrCanvas) {
+            if (qrCanvas && this.qrReal) {
                 const qr = document.createElement('img');
                 qr.src = qrCanvas.toDataURL('image/png');
                 qr.alt = 'vCard QR code';
@@ -204,6 +217,12 @@ export class EgressController {
             const name = document.createElement('p');
             name.textContent = this.displayName();
             back.append(name);
+            if (!this.qrReal) {
+                const note = document.createElement('p');
+                note.className = 'print-qr-note';
+                note.textContent = 'Too much information for one QR code';
+                back.append(note);
+            }
             sheet.replaceChildren(frontCopy, back);
         }
         audit('print');
