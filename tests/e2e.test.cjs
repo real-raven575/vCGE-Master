@@ -1,8 +1,10 @@
-// vCGE end-to-end tests in headless Chromium (`npm run test:e2e`).
-// Needs devDependencies (`npm install`) and a Chromium for Playwright (`npx playwright install chromium`).
+// vCGE end-to-end tests in a headless browser (`npm run test:e2e`).
+// Needs devDependencies (`npm install`) and the browser for Playwright (`npx playwright install chromium`).
 // SERVE_DIR=dist runs the same suite against the Vite build (`npm run build` first).
+// VCGE_BROWSER picks the browser: chromium (default), firefox, webkit, or the branded chrome / msedge.
+// VCGE_DEVICE makes it a phone, by Playwright device name (e.g. "iPhone 15" with webkit, "Galaxy S24" with chromium).
 const path = require('path'), fs = require('fs'), { spawn } = require('child_process');
-const { chromium } = require('playwright');
+const playwright = require('playwright');
 const jsQR = require('jsqr');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -80,14 +82,27 @@ const setVisibility = (page, state) => page.evaluate((state) => {
   document.dispatchEvent(new Event('visibilitychange'));
 }, state);
 
-let pass = 0, fail = 0;
+const BROWSER = process.env.VCGE_BROWSER || 'chromium';
+const CHANNELS = { chrome: 'chrome', msedge: 'msedge' };
+const ENGINE = CHANNELS[BROWSER] ? 'chromium' : BROWSER;
+if (!['chromium', 'firefox', 'webkit'].includes(ENGINE)) throw new Error(`unknown VCGE_BROWSER "${BROWSER}"`);
+const DEVICE = process.env.VCGE_DEVICE ? playwright.devices[process.env.VCGE_DEVICE] : {};
+if (!DEVICE) throw new Error(`unknown VCGE_DEVICE "${process.env.VCGE_DEVICE}"`);
+const { defaultBrowserType, ...deviceOptions } = DEVICE;
+const RUN = BROWSER + (process.env.VCGE_DEVICE ? ` (${process.env.VCGE_DEVICE})` : '');
+
+let pass = 0, fail = 0, notRun = 0;
 const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, console.log('FAIL', n, d)); };
+// A check whose test tool exists only in some engines: reported and counted, never silently dropped.
+const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`); };
 
 (async () => {
   const server = spawn(process.execPath, [path.join(ROOT, 'scripts/serve.mjs')], { env: { ...process.env, PORT } });
   await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('exit', c => reject(new Error(`server exited ${c}`))); });
-  const browser = await chromium.launch();
-  const context = await browser.newContext({ acceptDownloads: true });
+  console.log(`Browser: ${RUN}`);
+  const browser = await playwright[ENGINE].launch(CHANNELS[BROWSER] ? { channel: CHANNELS[BROWSER] } : {});
+  const newContext = (options = {}) => browser.newContext({ ...deviceOptions, ...options });
+  const context = await newContext({ acceptDownloads: true });
   const page = await context.newPage();
   const external = [], errors = [], notFound = [];
   page.on('request', r => { if (!r.url().startsWith(ORIGIN) && !/^(data|blob):/.test(r.url())) external.push(r.url()); });
@@ -264,7 +279,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   ok('no page errors', errors.length === 0, errors.join(' | '));
   // Startup residue check + 120 s idle purge (fresh context with a controllable clock)
   {
-    const ctx2 = await browser.newContext();
+    const ctx2 = await newContext();
     await ctx2.addInitScript(() => {
       if (!sessionStorage.getItem('seeded')) {
         sessionStorage.setItem('seeded', '1');
@@ -315,7 +330,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   // Quick unlock: 4-digit session PIN after a lock (idle, screen off, Lock button); the card is held in memory only,
   // and 7 minutes without activity wipe it
   {
-    const ctx8 = await browser.newContext();
+    const ctx8 = await newContext();
     const p8 = await ctx8.newPage();
     const errors8 = [];
     p8.on('pageerror', e => errors8.push(e.message));
@@ -389,9 +404,11 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await ctx8.close();
   }
 
-  // Biometric unlock (Face ID / fingerprint / Windows Hello) through a virtual platform authenticator: on-device only
-  {
-    const ctxB = await browser.newContext();
+  // Biometric unlock (Face ID / fingerprint / Windows Hello) through a virtual platform authenticator: on-device only.
+  // The virtual authenticator is a Chromium DevTools tool; Firefox and WebKit have none.
+  if (ENGINE !== 'chromium') notRunHere('biometric unlock (11 checks)', 'the virtual authenticator exists only in Chromium');
+  else {
+    const ctxB = await newContext();
     const pB = await ctxB.newPage();
     const errorsB = [], externalB = [];
     pB.on('pageerror', e => errorsB.push(e.message));
@@ -430,7 +447,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // Back (button or swipe): asks before wiping, Stay keeps the card, leaving wipes it; an empty card just leaves
   {
-    const ctx11 = await browser.newContext();
+    const ctx11 = await newContext();
     const p11 = await ctx11.newPage();
     const errors11 = [];
     p11.on('pageerror', e => errors11.push(e.message));
@@ -456,7 +473,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // Quick lock keeps the scan in progress: the open review comes back with the session PIN, sealed while locked
   {
-    const ctx10 = await browser.newContext();
+    const ctx10 = await newContext();
     const p10 = await ctx10.newPage();
     const errors10 = [];
     p10.on('pageerror', e => errors10.push(e.message));
@@ -498,7 +515,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // Tester feedback round 3: logos fitted square on an opaque background, and a JPEG vCard photo
   {
-    const ctx11 = await browser.newContext();
+    const ctx11 = await newContext();
     const p11 = await ctx11.newPage();
     const errors11 = [];
     p11.on('pageerror', e => errors11.push(e.message));
@@ -598,7 +615,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // Tester feedback round 1: Undo after a sample / clear / scan fill, reopen the last scan, readable SMS and email, one-page print
   {
-    const ctx9 = await browser.newContext();
+    const ctx9 = await newContext();
     const p9 = await ctx9.newPage();
     const errors9 = [];
     p9.on('pageerror', e => errors9.push(e.message));
@@ -652,9 +669,12 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     const size = await p9.evaluate(() => { const r = document.querySelector('#printSheet .print-card').getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; });
     ok('printed card is 3.5 x 2 inches', size[0] === 336 && size[1] === 192, JSON.stringify(size));
     await p9.emulateMedia({ media: null });
-    const pdf = (await p9.pdf({ format: 'Letter', preferCSSPageSize: true, printBackground: true })).toString('latin1');
-    const pages = (pdf.match(/\/Type\s*\/Page[^s]/g) || []).length;
-    ok('print is one page (no blank pages) and the card is still on the sheet', pages === 1 && (await p9.evaluate(() => document.getElementById('printSheet').children.length)) === 2, `${pages} pages`);
+    if (ENGINE !== 'chromium') notRunHere('print is one page (no blank pages)', 'saving a page as PDF exists only in Chromium');
+    else {
+      const pdf = (await p9.pdf({ format: 'Letter', preferCSSPageSize: true, printBackground: true })).toString('latin1');
+      const pages = (pdf.match(/\/Type\s*\/Page[^s]/g) || []).length;
+      ok('print is one page (no blank pages) and the card is still on the sheet', pages === 1 && (await p9.evaluate(() => document.getElementById('printSheet').children.length)) === 2, `${pages} pages`);
+    }
     await p9.evaluate(() => window.dispatchEvent(new Event('afterprint')));
     ok('print copies stay until the next print (afterprint can fire before the PDF is drawn)', (await p9.evaluate(() => document.getElementById('printSheet').children.length)) === 2);
     ok('tester round 1: no page errors', errors9.length === 0, errors9.join(' | '));
@@ -663,7 +683,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // Icons instead of labels: unlabelled numbers typed by their icons, a bare handle next to a social logo
   {
-    const ctx7 = await browser.newContext();
+    const ctx7 = await newContext();
     const p7 = await ctx7.newPage();
     await p7.goto(ORIGIN); await p7.waitForTimeout(300);
     const icon = (f) => fs.readFileSync(path.join(ROOT, 'node_modules/@tabler/icons/icons/outline', f), 'utf8').replace(/currentColor/g, '#111');
@@ -695,7 +715,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // Blurry photo: OCR runs but the result is unreadable -> retake prompt, form untouched
   {
-    const ctx4 = await browser.newContext();
+    const ctx4 = await newContext();
     const p4 = await ctx4.newPage();
     await p4.goto(ORIGIN); await p4.waitForTimeout(300);
     await p4.fill('#firstName', 'Typed');
@@ -718,7 +738,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // Crooked photo: drag the corners onto the card, extract, fix a line, change a picker, fill the form
   {
-    const ctx5 = await browser.newContext();
+    const ctx5 = await newContext();
     const p5 = await ctx5.newPage();
     await p5.goto(ORIGIN); await p5.waitForTimeout(300);
     const crooked = await renderSkewedCard(p5);
@@ -764,7 +784,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // OCR engine cannot start (language model missing, as on a host that refuses .gz): no hang, clear message, form untouched
   {
-    const ctx3 = await browser.newContext();
+    const ctx3 = await newContext();
     await ctx3.route('**/eng.traineddata.gz', r => r.fulfill({ status: 404, body: 'not found' }));
     const p3 = await ctx3.newPage();
     await p3.goto(ORIGIN); await p3.waitForTimeout(300);
@@ -780,7 +800,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // Camera in use by another app: busy at start, a virtual camera, the feed taken or muted mid-scan -> camera off + pop-up
   {
-    const ctxC = await browser.newContext();
+    const ctxC = await newContext();
     await ctxC.addInitScript(() => {
       window.__camMode = 'normal';
       navigator.mediaDevices.getUserMedia = async () => {
@@ -836,7 +856,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await ctxC.close();
   }
 
-  console.log(`\n${pass} passed, ${fail} failed`);
+  console.log(`\n${RUN}: ${pass} passed, ${fail} failed` + (notRun ? `, ${notRun} not run in this engine` : ''));
   await browser.close(); server.kill();
   process.exitCode = fail ? 1 : 0;
 })().catch(e => { console.error(e); process.exit(1); });
