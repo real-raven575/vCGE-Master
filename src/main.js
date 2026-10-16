@@ -22,7 +22,7 @@ import { BiometricUnlock, biometricAvailable } from './modules/mod02-vault/biome
 import { maskSecretInputs } from './modules/mod02-vault/secretInputs.js';
 import { VCGEActiveCamera } from './modules/mod03-camera/camera.js';
 import { CropEditor } from './modules/mod03-camera/cropEditor.js';
-import { executeOCRScan } from './modules/mod04-ocr/ocrWorker.js';
+import { executeOCRScan, shutdownOCREngine, readProgress } from './modules/mod04-ocr/ocrWorker.js';
 import { ContactFormMapper, LINE_ROLES } from './modules/mod05-form/formMapper.js';
 import { PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES } from './share/contactOptions.js';
 import { AddressAutocompleteEngine } from './modules/mod05-form/addressAutocomplete.js';
@@ -491,6 +491,7 @@ function showReviewStep(step) {
 // Closes the dialog and drops the extracted text (it is contact data, so it is not kept around).
 function closeReviewDialog() {
     $('cropReviewModal').classList.add('hidden');
+    $('ocrTimeoutModal').classList.add('hidden');
     showReviewStep('photo');
     ocrReview = null;
     $('ocrLines').replaceChildren();
@@ -578,26 +579,71 @@ function renderOcrLines() {
     renderOcrSummary();
 }
 
+// Reading progress: the bar fills fast, then slower than real time, and is full when the 60 s read limit runs out.
+const ocrProgress = {
+    timer: null,
+    set(fraction) {
+        const pct = Math.round(fraction * 100);
+        $('ocrProgressFill').style.width = `${pct}%`;
+        $('ocrProgressBar').setAttribute('aria-valuenow', String(pct));
+    },
+    show() {
+        this.stop(); this.set(0);
+        $('ocrProgressLabel').textContent = 'Extracting…';
+        $('ocrPhotoActions').classList.add('hidden');
+        $('ocrProgress').classList.remove('hidden');
+    },
+    // 'starting': the bar waits at 0 while the reader loads; 'reading': it starts filling.
+    status(status) {
+        $('ocrProgressLabel').textContent = status === 'starting' ? 'Preparing the reader…' : 'Extracting…';
+        if (status !== 'reading' || this.timer) return;
+        const started = Date.now();
+        this.timer = setInterval(() => this.set(readProgress(Date.now() - started)), 100);
+    },
+    stop() { clearInterval(this.timer); this.timer = null; },
+    hide() {
+        this.stop();
+        $('ocrProgress').classList.add('hidden');
+        $('ocrPhotoActions').classList.remove('hidden');
+    }
+};
+let ocrStoppedByUser = false;
+
 async function runOcr() {
     if (!$('reviewImage').src) return;
     showRetakePrompt(false);
+    ocrStoppedByUser = false;
     $('runOcrBtn').disabled = true;
     $('runOcrBtn').textContent = 'Extracting…';
+    ocrProgress.show();
     try {
         // The first scan (and the first after a wipe) starts the reader from ~7 MB of bundled files: say so.
-        const onStatus = (status) => { $('runOcrBtn').textContent = status === 'starting' ? 'Preparing the reader…' : 'Extracting…'; };
+        const onStatus = (status) => {
+            $('runOcrBtn').textContent = status === 'starting' ? 'Preparing the reader…' : 'Extracting…';
+            ocrProgress.status(status);
+        };
         const { text, lines } = await executeOCRScan(cropEditor.getCroppedImage(), { onStatus });
+        // Finished early: the bar fills up before the review step opens.
+        ocrProgress.stop(); ocrProgress.set(1);
+        await new Promise(res => setTimeout(res, 250));
+        if ($('cropReviewModal').classList.contains('hidden')) return;   // closed by a wipe meanwhile
         ocrReview = { lines: formMapper.classifyLines(lines && lines.length ? lines : text), fields: null };
         renderOcrLines();
         showReviewStep('text');
     } catch (e) {
-        if (e && e.code === 'OCR_CANCELLED') return;   // a wipe stopped it; the wipe already cleared the dialog
+        if (e && e.code === 'OCR_CANCELLED') {
+            // Cancel: back to the photo, ready to extract again or take a new one. A wipe already cleared the dialog.
+            if (ocrStoppedByUser) $('retakePhotoBtn').classList.remove('hidden');
+            return;
+        }
         console.error('[vCGE] OCR failed:', e);
         if (e && e.code === 'OCR_UNREADABLE') {
             showRetakePrompt(true);
         } else if (e && e.code === 'OCR_TIMEOUT') {
-            // The reader was restarted; the photo stays so Extract can be tapped again.
-            cardView.showToast('The reader stopped before it finished. Please try again. A closer, well-lit photo helps.');
+            // The reader was restarted; the photo stays for Try Again.
+            ocrProgress.stop(); ocrProgress.set(1);
+            $('ocrTimeoutModal').classList.remove('hidden');
+            $('ocrTryAgainBtn').focus();
         } else if (e && e.code === 'OCR_UNAVAILABLE') {
             closeReviewDialog();
             cardView.showToast('The OCR engine could not start, so your form was not changed. Type the details in, or try again.');
@@ -605,9 +651,23 @@ async function runOcr() {
             cardView.showToast('Could not read that image.');
         }
     } finally {
+        ocrProgress.hide();
         $('runOcrBtn').disabled = false;
         $('runOcrBtn').textContent = 'Extract fields';
     }
+}
+
+// Cancel while reading: the reader is stopped at once (MOD04 drops it and anything it read).
+function stopOcr() {
+    ocrStoppedByUser = true;
+    shutdownOCREngine();
+}
+
+// After a timeout: Try Again reads the same photo with a fresh reader; Cancel goes back to the photo step.
+function closeTimeoutPrompt(retry) {
+    $('ocrTimeoutModal').classList.add('hidden');
+    if (retry) runOcr();
+    else $('retakePhotoBtn').classList.remove('hidden');
 }
 
 function applyOcrReview() {
@@ -684,6 +744,9 @@ function wireIntake() {
         $('cameraPanel').classList.add('hidden');
     });
     $('runOcrBtn').addEventListener('click', runOcr);
+    $('ocrStopBtn').addEventListener('click', stopOcr);
+    $('ocrTryAgainBtn').addEventListener('click', () => closeTimeoutPrompt(true));
+    $('ocrTimeoutCancelBtn').addEventListener('click', () => closeTimeoutPrompt(false));
     $('rotatePhotoBtn').addEventListener('click', () => { showRetakePrompt(false); cropEditor.rotate(); });
     $('cancelReviewBtn').addEventListener('click', closeReviewDialog);
     $('ocrCancelBtn').addEventListener('click', closeReviewDialog);

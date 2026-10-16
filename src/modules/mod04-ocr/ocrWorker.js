@@ -32,6 +32,15 @@ export const OCR_INIT_TIMEOUT_MS = 60000;
 // can stop the engine mid-read when memory runs low; Tesseract.js then never answers, so without a limit the scan hangs.
 export const OCR_READ_TIMEOUT_MS = 60000;
 
+/**
+ * How full the progress bar is (0..1) `elapsedMs` into reading a photo: fast at first, then slower than real time, full
+ * exactly when the time limit runs out.
+ */
+export function readProgress(elapsedMs, limitMs = OCR_READ_TIMEOUT_MS) {
+    const t = Math.min(1, Math.max(0, elapsedMs / limitMs));
+    return 1 - (1 - t) * (1 - t);
+}
+
 // Page segmentation mode: 11 = sparse text (short lines scattered over the card), see setParameters below.
 export const OCR_PAGE_SEG_MODE = '11';
 

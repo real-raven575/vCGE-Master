@@ -717,6 +717,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   hold = false; statuses = [];
   await ocr.executeOCRScan('data:image/png;base64,x', { onStatus: s => statuses.push(s) });
   ok('the scan after a timeout starts a fresh engine', created === before.created + 1 && statuses.join() === 'starting,reading', `${created} ${statuses.join()}`);
+  const curve = [0, 2000, 10000, 30000, 50000, 60000, 90000].map(t => ocr.readProgress(t));
+  ok('the progress bar fills fast, then slower than real time, full exactly at the read limit', curve[0] === 0 && curve[3] === 0.75 && curve[5] === 1 && curve[6] === 1 && curve.every((v, i) => i === 0 || v >= curve[i - 1]) && curve[2] > 10000 / 60000, curve.join());
   ok('OCR no longer exposes a duplicate parser', !('parseExtractedTextToSchema' in ocr));
   console.log = origLog; console.error = origErr; delete globalThis.Tesseract;
 }

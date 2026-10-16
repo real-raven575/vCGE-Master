@@ -181,9 +181,17 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   await page.setInputFiles('#imageUpload', await renderCardImage(page)); await page.waitForTimeout(300);
   ok('upload opens review modal', await visible('cropReviewModal'));
   await page.evaluate(() => { window.__ocrButtonTexts = []; new MutationObserver(() => window.__ocrButtonTexts.push(document.getElementById('runOcrBtn').textContent)).observe(document.getElementById('runOcrBtn'), { childList: true, characterData: true, subtree: true }); });
+  await page.evaluate(() => {
+    window.__ocrBar = { shown: false, values: [], labels: [] };
+    const bar = document.getElementById('ocrProgressBar'), box = document.getElementById('ocrProgress'), label = document.getElementById('ocrProgressLabel');
+    new MutationObserver(() => { if (!box.classList.contains('hidden')) window.__ocrBar.shown = true; window.__ocrBar.values.push(Number(bar.getAttribute('aria-valuenow'))); window.__ocrBar.labels.push(label.textContent); })
+      .observe(box, { attributes: true, subtree: true, childList: true, characterData: true });
+  });
   await page.click('#runOcrBtn');
   await page.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
   const buttonTexts = await page.evaluate(() => window.__ocrButtonTexts);
+  const bar = await page.evaluate(() => window.__ocrBar);
+  ok('a progress bar shows while reading, says the reader is being prepared, and fills to 100% before the review opens', bar.shown && bar.values.includes(100) && bar.labels.includes('Preparing the reader…') && !(await visible('ocrProgress')) && (await visible('ocrStepText')), JSON.stringify({ shown: bar.shown, max: Math.max(...bar.values), labels: [...new Set(bar.labels)] }));
   ok('first scan says the reader is being prepared, then extracting', buttonTexts.indexOf('Preparing the reader…') >= 0 && buttonTexts.indexOf('Extracting…', buttonTexts.indexOf('Preparing the reader…')) > 0, buttonTexts.join(' | '));
   ok('review step lists the OCR lines with a field picker each', (await page.$$('#ocrLines select')).length >= 8 && (await page.inputValue('#ocrLineRole0')) === 'name', String((await page.$$('#ocrLines select')).length));
   ok('nothing reaches the form before Fill form', !(await rows(page, 'email')).some(r => r.value.includes('northwind')));
@@ -745,6 +753,51 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await pZ.fill(`#ocrLineText${row}`, 'Portage, MI 49024');
     ok('editing a flagged line clears its note', !(await pZ.$(`#ocrLineCheck${row}`)) && (await pZ.textContent('#ocrSummary')).includes('49024'));
     await ctxZ.close();
+  }
+
+  // Cancel while reading: the reader stops, the photo step comes back with Retake, and Extract works again
+  {
+    const ctxS = await browser.newContext();
+    const pS = await ctxS.newPage();
+    const errorsS = []; pS.on('pageerror', e => errorsS.push(String(e)));
+    await pS.goto(ORIGIN); await pS.waitForTimeout(300);
+    await pS.setInputFiles('#imageUpload', await renderCardImage(pS)); await pS.waitForTimeout(300);
+    await pS.click('#runOcrBtn');
+    ok('reading shows the progress bar with a Cancel button instead of the photo buttons', await pS.isVisible('#ocrProgress') && await pS.isVisible('#ocrStopBtn') && !(await pS.isVisible('#runOcrBtn')));
+    await pS.click('#ocrStopBtn');
+    await pS.waitForSelector('#ocrProgress', { state: 'hidden', timeout: 10000 });
+    ok('Cancel stops reading and goes back to the photo step (Retake or Extract again)', await pS.isVisible('#ocrStepPhoto') && !(await pS.isVisible('#ocrStepText')) && await pS.isVisible('#retakePhotoBtn') && await pS.isVisible('#runOcrBtn') && !(await pS.isDisabled('#runOcrBtn')));
+    await pS.click('#runOcrBtn');
+    await pS.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
+    ok('after Cancel, Extract reads the photo with a fresh reader', (await pS.$$('#ocrLines select')).length >= 8);
+    ok('Cancel while reading: no page errors', errorsS.length === 0, errorsS.join(' | '));
+    await ctxS.close();
+  }
+
+  // Reading that never finishes (a phone stopped the engine): the bar is full at 60 s, then Try Again or Cancel
+  {
+    const ctxT = await browser.newContext();
+    const pT = await ctxT.newPage();
+    await pT.clock.install();
+    await pT.goto(ORIGIN); await pT.waitForTimeout(300);
+    await pT.evaluate(() => { window.Tesseract.createWorker = async () => ({ setParameters: async () => {}, recognize: () => new Promise(() => {}), terminate() { window.__terminated = (window.__terminated || 0) + 1; } }); });
+    await pT.setInputFiles('#imageUpload', await renderCardImage(pT)); await pT.waitForTimeout(300);
+    await pT.click('#runOcrBtn');
+    await pT.waitForFunction(() => document.getElementById('ocrProgressLabel').textContent === 'Extracting…' && !document.getElementById('ocrProgress').classList.contains('hidden'));
+    await pT.clock.runFor(30000);
+    const half = Number(await pT.getAttribute('#ocrProgressBar', 'aria-valuenow'));
+    ok('the bar fills faster than real time at first (75% at 30 s)', half >= 70 && half <= 80, String(half));
+    await pT.clock.runFor(31000);
+    await pT.waitForSelector('#ocrTimeoutModal', { state: 'visible', timeout: 10000 });
+    ok('at 60 s the bar is full and Try Again / Cancel pops up; the stuck reader is stopped', (await pT.getAttribute('#ocrProgressBar', 'aria-valuenow')) === '100' && await pT.isVisible('#ocrTryAgainBtn') && await pT.isVisible('#ocrTimeoutCancelBtn') && (await pT.evaluate(() => window.__terminated)) === 1);
+    await pT.click('#ocrTryAgainBtn');
+    ok('Try Again reads the same photo again', !(await pT.isVisible('#ocrTimeoutModal')) && await pT.isVisible('#ocrProgress'));
+    await pT.waitForFunction(() => document.getElementById('ocrProgressLabel').textContent === 'Extracting…');
+    await pT.clock.runFor(61000);
+    await pT.waitForSelector('#ocrTimeoutModal', { state: 'visible', timeout: 10000 });
+    await pT.click('#ocrTimeoutCancelBtn');
+    ok('Cancel after a timeout goes back to the photo step', !(await pT.isVisible('#ocrTimeoutModal')) && await pT.isVisible('#ocrStepPhoto') && await pT.isVisible('#retakePhotoBtn') && !(await pT.isVisible('#ocrProgress')));
+    await ctxT.close();
   }
 
   // Blurry photo: OCR runs but the result is unreadable -> retake prompt, form untouched
