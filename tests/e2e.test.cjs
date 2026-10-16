@@ -112,6 +112,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   ok('PIN boxes opt out of autofill and keyboard capitalisation', secretBoxes.every(b => b.ac === 'off' && b.caps === 'none'));
   ok('PIN boxes take 4 digits on a number keypad', (await page.$$eval('#vaultPin, #sessionPinInput', els => els.every(el => el.inputMode === 'numeric' && el.maxLength === 4))));
   ok('no password field anywhere on the page', (await page.$$('input[type=password]')).length === 0);
+  ok('empty card shows the blank QR placeholder, not a scannable code', (await decodeQr(page)) === null && !(await visible('qrNotice')));
 
   // Edit contact -> preview (nothing saved)
   await page.fill('#firstName', 'Jane'); await page.fill('#lastName', 'Doe'); await page.fill('#organization', 'Smith, Jones');

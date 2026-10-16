@@ -581,6 +581,15 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const hugeOk = q.renderQRCode(huge, 'x'.repeat(5000));
   console.warn = origWarn;
   ok('QR falls back (labelled) when data exceeds capacity', hugeOk === false);
+  const { createEmptyContact } = await import(`${R}/share/cardSchema.js`);
+  ok('MOD07 empty card has no details (default country and address type do not count)', q.hasDetails(createEmptyContact()) === false);
+  ok('MOD07 a name, company, phone or city counts as details', [{ firstName: 'A' }, { organization: 'B' }, { phones: [{ type: 'work', value: '555' }] }, { city: 'Boise' }].every(c => q.hasDetails(c)));
+  ok('MOD07 blank rows and spaces do not count', q.hasDetails({ firstName: '  ', phones: [{ type: 'work', value: '' }] }) === false);
+  const blank = makeCanvas();
+  q.renderPlaceholder(blank, 320);
+  const px = (x, y) => blank._px[(y * blank.width + x) * 4];
+  ok('MOD07 placeholder is a white square on a black square', blank.width === 320 && px(5, 5) === 0 && px(160, 160) === 255 && px(314, 314) === 0);
+  ok('MOD07 placeholder never decodes as a QR code', jsQR(blank._px, blank.width, blank.height) === null);
   delete globalThis.qrcode;
 }
 

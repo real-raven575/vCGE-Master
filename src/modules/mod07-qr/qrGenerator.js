@@ -6,6 +6,7 @@
  * Scope:
  * - Builds vCard 3.0 payloads (RFC 2425/2426) via the shared formatter, so every module emits identical output.
  * - Renders QR codes onto an HTML5 canvas in RAM (bundled qrcode-generator, MIT).
+ * - Until the card has details, draws a blank placeholder (a white square on a black square) that can never scan.
  * File exports (PNG, .vcf) are egress and live in vCGE-MOD08.
  */
 import { formatVCard } from '../../share/vcardFormatter.js';
@@ -24,6 +25,33 @@ export class VCGEQREngine {
      */
     generateVCard30(contact = {}) {
         return formatVCard(contact);
+    }
+
+    /**
+     * True once the card holds something worth sharing: a name, company, phone, email, website or address.
+     * The default country and address type alone do not count.
+     */
+    hasDetails(contact = {}) {
+        const filled = (v) => String(v ?? '').trim() !== '';
+        const fields = ['namePrefix', 'firstName', 'middleName', 'lastName', 'nameSuffix', 'organization',
+            'street', 'unitNumber', 'city', 'state', 'zip'];
+        return fields.some((f) => filled(contact[f]))
+            || ['phones', 'emails', 'websites'].some((f) => (contact[f] || []).some((row) => row && filled(row.value)));
+    }
+
+    /**
+     * Blank placeholder for an empty card: a white square centred on a slightly larger black square.
+     * It has no finder patterns or data, so no scanner can read it. Rounded corners and the shadow are page CSS.
+     */
+    renderPlaceholder(canvas, size = this.defaultCanvasSize) {
+        if (!canvas) return;
+        canvas.width = canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        const border = Math.round(size * 0.12);
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, size, size);
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(border, border, size - border * 2, size - border * 2);
     }
 
     /**
