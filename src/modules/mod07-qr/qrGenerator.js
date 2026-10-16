@@ -41,7 +41,7 @@ export class VCGEQREngine {
 
     /**
      * Blank placeholder for an empty card: a white square centred on a slightly larger black square.
-     * It has no finder patterns or data, so no scanner can read it. Rounded corners and the shadow are page CSS.
+     * It has no finder patterns or data, so no scanner can read it. Corner rounding and the soft edge effect come from page CSS, so they never reach the saved PNG.
      */
     renderPlaceholder(canvas, size = this.defaultCanvasSize) {
         if (!canvas) return;
