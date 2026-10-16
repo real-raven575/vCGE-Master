@@ -63,12 +63,13 @@ jobs:
           - { name: Firefox, browser: firefox, install: firefox }
           - { name: WebKit, browser: webkit, install: webkit }
           - { name: Google Chrome, browser: chrome, install: chrome }
-          - { name: Microsoft Edge, browser: msedge, install: msedge }
+          - { name: Microsoft Edge, browser: msedge, install: msedge, debug: 'pw:api' }
           - { name: iPhone, browser: webkit, install: webkit, device: iPhone 15 }
           - { name: Android phone, browser: chromium, install: chromium, device: Galaxy S24 }
     env:
       VCGE_BROWSER: ${{ matrix.browser }}
       VCGE_DEVICE: ${{ matrix.device }}
+      DEBUG: ${{ matrix.debug }}   # temporary: logs each Playwright call to find where the Edge run stalls
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
