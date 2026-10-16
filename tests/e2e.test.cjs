@@ -723,6 +723,30 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await ctx7.close();
   }
 
+  // Lines to check: a ZIP code the card's state doesn't use is flagged under its line; editing the line clears the note
+  {
+    const ctxZ = await browser.newContext();
+    const pZ = await ctxZ.newPage();
+    await pZ.goto(ORIGIN); await pZ.waitForTimeout(300);
+    const dataUrl = await pZ.evaluate(() => {
+      const c = document.createElement('canvas'); c.width = 1050; c.height = 600; const x = c.getContext('2d');
+      x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111';
+      x.font = 'bold 52px Arial'; x.fillText('Nora Lindqvist', 60, 90); x.font = '32px Arial'; x.fillText('General Manager', 60, 145);
+      ['7950 Harbor Road', 'Portage, MI 42024', 'nora@harborworks.com', 'T 269.555.0142'].forEach((t, i) => x.fillText(t, 60, 250 + i * 70));
+      return c.toDataURL('image/png');
+    });
+    await pZ.setInputFiles('#imageUpload', { name: 'zip.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') }); await pZ.waitForTimeout(300);
+    await pZ.click('#runOcrBtn');
+    await pZ.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
+    const roles = await pZ.$$eval('#ocrLines select', s => s.map(x => x.value));
+    const row = roles.indexOf('cityStateZip');
+    const note = row >= 0 && await pZ.$(`#ocrLineCheck${row}`);
+    ok('a ZIP code the state does not use is flagged under its line', !!note && (await note.textContent()) === '42024 is not a Michigan ZIP code. Please check it.' && (await pZ.getAttribute(`#ocrLineText${row}`, 'aria-describedby')) === `ocrLineCheck${row}`, roles.join());
+    await pZ.fill(`#ocrLineText${row}`, 'Portage, MI 49024');
+    ok('editing a flagged line clears its note', !(await pZ.$(`#ocrLineCheck${row}`)) && (await pZ.textContent('#ocrSummary')).includes('49024'));
+    await ctxZ.close();
+  }
+
   // Blurry photo: OCR runs but the result is unreadable -> retake prompt, form untouched
   {
     const ctx4 = await browser.newContext();

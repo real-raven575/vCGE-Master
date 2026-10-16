@@ -58,9 +58,9 @@ npm run tauri build               # release build + installers in src-tauri/targ
 
 ```bash
 npm install
-npm test                          # 243 unit tests (Node)
+npm test                          # 257 unit tests (Node)
 npx playwright install chromium   # once, for the browser tests
-npm run test:e2e                  # 200 browser end-to-end tests (real OCR, icons, crop & straighten, text review, scan replacing a sample, logo fitting and trimming, wide-logo strip, reopen last scan, scan kept across a PIN lock, undo, typed fields & regions, blurry-photo retake, OCR failure, QR decode, nothing stored, wipe on reload / 30 s out of view / idle, lock on screen off with a PIN, 7-minute reset, Back guard, session PIN, biometric unlock, SMS and email summary, one-page print, egress lock)
+npm run test:e2e                  # 202 browser end-to-end tests (real OCR, icons, lines to check, crop & straighten, text review, scan replacing a sample, logo fitting and trimming, wide-logo strip, reopen last scan, scan kept across a PIN lock, undo, typed fields & regions, blurry-photo retake, OCR failure, QR decode, nothing stored, wipe on reload / 30 s out of view / idle, lock on screen off with a PIN, 7-minute reset, Back guard, session PIN, biometric unlock, SMS and email summary, one-page print, egress lock)
 SERVE_DIR=dist npm run test:e2e   # same suite against the Vite build (run `npm run build` first)
 npm run test:icons                # icon-detection accuracy on three icon sets the detector does not use as templates
 (cd src-tauri && cargo test)      # 2 Rust tests (deleting the old keychain device key)

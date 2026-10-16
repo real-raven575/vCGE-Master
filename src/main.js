@@ -540,7 +540,14 @@ function renderOcrLines() {
         text.className = 'field-input flex-1 min-w-0';
         text.value = line.text;
         text.setAttribute('aria-label', `Line ${i + 1} text`);
-        text.addEventListener('input', () => { line.text = text.value; renderOcrSummary(); });
+        // MOD05 asks for a check: a ZIP the state doesn't use, or letters the reader was unsure of.
+        const note = document.createElement('p');
+        text.addEventListener('input', () => {
+            line.text = text.value;
+            // Edited means checked: the note to check this line goes away.
+            if (line.check) { delete line.check; text.classList.remove('border-amber-500', 'dark:border-amber-400'); text.removeAttribute('aria-describedby'); note.remove(); }
+            renderOcrSummary();
+        });
         const role = document.createElement('select');
         role.id = `ocrLineRole${i}`;
         role.className = 'field-input w-44 shrink-0';
@@ -556,7 +563,16 @@ function renderOcrLines() {
             row.append(chip);
         }
         row.append(text, role);
-        return row;
+        if (!line.check) return row;
+        note.id = `ocrLineCheck${i}`;
+        note.className = 'text-xs text-amber-600 dark:text-amber-400 pl-1';
+        note.textContent = line.check;
+        text.classList.add('border-amber-500', 'dark:border-amber-400');
+        text.setAttribute('aria-describedby', note.id);
+        const wrap = document.createElement('div');
+        wrap.className = 'space-y-0.5';
+        wrap.append(row, note);
+        return wrap;
     });
     $('ocrLines').replaceChildren(...rows);
     renderOcrSummary();
@@ -579,6 +595,9 @@ async function runOcr() {
         console.error('[vCGE] OCR failed:', e);
         if (e && e.code === 'OCR_UNREADABLE') {
             showRetakePrompt(true);
+        } else if (e && e.code === 'OCR_TIMEOUT') {
+            // The reader was restarted; the photo stays so Extract can be tapped again.
+            cardView.showToast('The reader stopped before it finished. Please try again. A closer, well-lit photo helps.');
         } else if (e && e.code === 'OCR_UNAVAILABLE') {
             closeReviewDialog();
             cardView.showToast('The OCR engine could not start, so your form was not changed. Type the details in, or try again.');
