@@ -65,6 +65,8 @@ export class CardView {
         this.isFlipped = false;
         this.toastTimer = null;
         this.undoSnapshot = null;   // the card before the last preset / scan fill / clear (memory only)
+        this.undoWasSample = false;
+        this.holdsSample = false;   // the card is a sample preset: the next scan fill replaces it instead of merging
     }
 
     init() {
@@ -104,14 +106,21 @@ export class CardView {
         this.setAvatar(c.avatarBase64 || null, c.logoDisplay || null);
         this.applyTheme(c.themePalette in THEMES ? c.themePalette : 'ocean');
         this.applyFont(c.cardFont);
+        this.holdsSample = false;
     }
 
     /**
      * Fills the fields that have a value (used for OCR results); a name or address in the result replaces the whole
      * name or address. For each list entry: a row with the same value is left alone, a row of the same type gets the
      * new value, else an empty row is used, else a row is added.
+     * A sample preset is replaced as a whole instead (none of its data is left behind); the logo, palette and
+     * typeface stay.
      */
     mergeContact(partial = {}) {
+        if (this.holdsSample) {
+            this.setContact({ ...createEmptyContact(), avatarBase64: this.avatarBase64, logoDisplay: this.logoDisplay,
+                themePalette: this.themeKey, cardFont: this.fontClass });
+        }
         const p = normalizeContact(partial);
         // A name or an address is replaced as a whole, so no part of the previous one (a prefix, a suite) is left behind.
         const groups = [
@@ -405,6 +414,7 @@ export class CardView {
      */
     changeWithUndo(message, apply) {
         this.undoSnapshot = this.getContact();
+        this.undoWasSample = this.holdsSample;
         apply();
         this.changed();
         this.showToast(message, {
@@ -412,6 +422,7 @@ export class CardView {
             onClick: () => {
                 if (!this.undoSnapshot) return;
                 this.setContact(this.undoSnapshot);
+                this.holdsSample = this.undoWasSample;
                 this.undoSnapshot = null;
                 this.changed();
                 this.showToast('Undone.');
@@ -437,7 +448,10 @@ export class CardView {
             btn.textContent = preset.label;
             btn.addEventListener('click', () => {
                 this.changeWithUndo(`Loaded sample: ${preset.firstName} ${preset.lastName}`,
-                    () => this.setContact({ ...createEmptyContact(), ...preset, avatarBase64: this.avatarBase64, logoDisplay: this.logoDisplay, cardFont: this.fontClass }));
+                    () => {
+                        this.setContact({ ...createEmptyContact(), ...preset, avatarBase64: this.avatarBase64, logoDisplay: this.logoDisplay, cardFont: this.fontClass });
+                        this.holdsSample = true;
+                    });
             });
             container.appendChild(btn);
         });

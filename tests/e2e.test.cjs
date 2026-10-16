@@ -597,6 +597,35 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await ctx11.close();
   }
 
+  // A scan filled into a sample preset replaces the sample as a whole (none of its phones, fax or links are left);
+  // Undo brings the sample back, and a second fill replaces it again.
+  {
+    const ctxS = await browser.newContext();
+    const pS = await ctxS.newPage();
+    const errorsS = [];
+    pS.on('pageerror', e => errorsS.push(e.message));
+    await pS.goto(ORIGIN); await pS.waitForTimeout(300);
+    await pS.click('#presetButtonsContainer button:nth-child(2)');   // Managing Attorney: main, mobile and fax numbers
+    ok('sample loaded with three phones', (await rows(pS, 'phone')).length === 3 && (await pS.inputValue('#firstName')) === 'Marcus');
+    await pS.setInputFiles('#imageUpload', await renderCardImage(pS)); await pS.waitForTimeout(300);
+    await pS.click('#runOcrBtn');
+    await pS.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
+    await pS.click('#applyOcrBtn');
+    const card = async () => ({ first: await pS.inputValue('#firstName'), middle: await pS.inputValue('#middleName'), suffix: await pS.inputValue('#nameSuffix'),
+      unit: await pS.inputValue('#unitNumber'), phones: await rows(pS, 'phone'), front: await pS.textContent('#previewPhone') });
+    const filled = await card();
+    ok('scan into a sample: the sample is replaced, nothing of it left', filled.first === 'Maria' && !filled.middle && !filled.suffix && !filled.unit
+      && filled.phones.length === 1 && filled.phones[0].value === '+1 (312) 555-0147' && filled.front === '+1 (312) 555-0147', JSON.stringify(filled));
+    await pS.click('#toastAction');
+    ok('Undo brings the sample back', (await pS.inputValue('#firstName')) === 'Marcus' && (await rows(pS, 'phone')).length === 3);
+    await pS.click('#reopenScanBtn');
+    await pS.click('#applyOcrBtn');
+    const again = await card();
+    ok('filling the sample again replaces it again', again.first === 'Maria' && again.phones.length === 1, JSON.stringify(again));
+    ok('sample then scan: no page errors', errorsS.length === 0, errorsS.join(' | '));
+    await ctxS.close();
+  }
+
   // Tester feedback round 1: Undo after a sample / clear / scan fill, reopen the last scan, readable SMS and email, one-page print
   {
     const ctx9 = await browser.newContext();
