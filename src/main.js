@@ -92,6 +92,7 @@ function setVaultIndicator() {
     setVaultBadge();
     $('lockVaultBtn').classList.toggle('hidden', vaultMode !== 'open' || !sessionPin.isSet());
     renderQuickUnlockPanel();
+    updateTimerStrip();
 }
 
 // Header badge: UNLOCKED while the card is on the page, LOCKED while it is held behind the session PIN.
@@ -133,9 +134,36 @@ function closePinModal() {
     $('vaultModal').classList.add('hidden');
 }
 
+// Lock screen: a calm green ring empties toward the 7-minute reset, with the time left in its middle.
+const LOCK_RING_LENGTH = 2 * Math.PI * 52;   // circumference of #vaultLockRing (r = 52)
 function updateQuickUnlockCountdown() {
     if (vaultMode !== 'quick') return;
-    $('quickUnlockCountdown').textContent = `Without activity, everything resets in ${minutes(resetRemaining())}; then the card is wiped.`;
+    const left = resetRemaining();
+    $('vaultLockRingTime').textContent = minutes(left);
+    $('vaultLockRing').setAttribute('stroke-dashoffset', (LOCK_RING_LENGTH * (1 - left / RESET_SECONDS)).toFixed(2));
+    $('quickUnlockCountdown').textContent = `Your card is safe. Without activity, everything resets in ${minutes(left)}; then the card is wiped.`;
+}
+
+// Strip under the header: time until the open card locks (PIN set) or is cleared (no PIN). Any tap refills it. The
+// last 20 seconds turn it amber (never red) and show one quiet note; it never flashes or makes a sound.
+const TIMER_WARN_SECONDS = 20;
+const TIMER_CALM = ['bg-white/90', 'text-slate-600', 'border-slate-200', 'dark:bg-slate-900/90', 'dark:text-slate-300', 'dark:border-slate-800'];
+const TIMER_WARN = ['bg-amber-50/95', 'text-amber-800', 'border-amber-200', 'dark:bg-amber-950/90', 'dark:text-amber-300', 'dark:border-amber-800/60'];
+const NOTE_HIDDEN = ['invisible', 'opacity-0', '-translate-y-1'];
+function updateTimerStrip() {
+    const remaining = idleTtl.getRemainingTime();
+    const show = vaultMode === 'open' && remaining > 0 && hasWork();
+    $('vaultTimerStrip').classList.toggle('hidden', !show);
+    const warn = show && remaining <= TIMER_WARN_SECONDS;
+    NOTE_HIDDEN.forEach(c => $('vaultTimerNote').classList.toggle(c, !warn));
+    if (!show) return;
+    $('vaultTimerLabel').textContent = sessionPin.isSet() ? 'Locks in' : 'Clears in';
+    $('vaultTimerTime').textContent = minutes(remaining);
+    $('vaultTimerBar').style.transform = `scaleX(${remaining / IDLE_PURGE_SECONDS})`;
+    TIMER_CALM.forEach(c => $('vaultTimerBand').classList.toggle(c, !warn));
+    TIMER_WARN.forEach(c => $('vaultTimerBand').classList.toggle(c, warn));
+    $('vaultTimerBar').classList.toggle('bg-brand-500', !warn);
+    $('vaultTimerBar').classList.toggle('bg-amber-500', warn);
 }
 
 let checkingPin = false;
@@ -352,6 +380,8 @@ function updatePurgeCountdown() {
     if (vaultMode === 'quick') {
         setVaultIndicator();
         updateQuickUnlockCountdown();
+    } else {
+        updateTimerStrip();
     }
 }
 
@@ -455,6 +485,7 @@ function expectExternalApp() {
 function onActivity() {
     markActivity();
     armLeaveGuard();
+    if (vaultMode === 'open') updateTimerStrip();
 }
 
 // ---- Intake: camera / upload (MOD03) -> OCR (MOD04) -> mapper (MOD05) -----------------------------------------
@@ -840,6 +871,7 @@ function boot() {
     $('addBiometricBtn').addEventListener('click', addBiometric);
     $('clearBiometricBtn').addEventListener('click', clearBiometric);
     $('wipeVaultBtn').addEventListener('click', wipeVault);
+    $('vaultTimerKeepBtn').addEventListener('click', () => { markActivity(); updateTimerStrip(); });
     $('leaveStayBtn').addEventListener('click', stayOnPage);
     $('leaveConfirmBtn').addEventListener('click', leavePage);
     $('clearFormBtn').addEventListener('click', () => cardView.changeWithUndo('Form cleared.', () => cardView.clear()));

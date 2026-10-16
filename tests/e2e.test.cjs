@@ -106,6 +106,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   ok('opens straight to an empty card (no passphrase dialog)', !(await visible('vaultModal')) && (await val('firstName')) === '');
   ok('header badge reads "Vault: UNLOCKED" and the indicator says memory only', (await text('vaultBadge')) === 'Vault: UNLOCKED' && (await text('vaultStateIndicator')) === 'UNLOCKED / memory only');
   ok('Lock button hidden until a session PIN is set', !(await visible('lockVaultBtn')));
+  ok('timer strip hidden while the card is empty', !(await visible('vaultTimerStrip')));
   const secretBoxes = await page.$$eval('#vaultPin, #sessionPinInput',
     els => els.map(el => ({ type: el.type, masked: getComputedStyle(el).webkitTextSecurity, ac: el.getAttribute('autocomplete'), caps: el.getAttribute('autocapitalize') })));
   ok('PIN boxes are masked text fields, not password fields (no save-password prompt)', secretBoxes.length === 2 && secretBoxes.every(b => b.type === 'text' && b.masked === 'disc'), JSON.stringify(secretBoxes));
@@ -292,12 +293,14 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p2.fill('#firstName', 'Idle'); await p2.fill('#lastName', 'Tester');
     await p2.clock.fastForward(5000);
     ok('countdown shows remaining time', /Auto-clear in 11\d s/.test(await p2.textContent('#purgeCountdown')), await p2.textContent('#purgeCountdown'));
+    ok('timer strip: without a PIN it reads "Clears in" with the time left', await p2.isVisible('#vaultTimerStrip') && (await p2.textContent('#vaultTimerLabel')) === 'Clears in' && /^1:5\d$/.test(await p2.textContent('#vaultTimerTime')), await p2.textContent('#vaultTimerTime'));
     await p2.clock.fastForward(60000);
     await p2.fill('#organization', 'Activity resets');
     await p2.clock.fastForward(100000);
     ok('activity restarts the TTL (not purged at 165 s)', (await p2.inputValue('#firstName')) === 'Idle');
     await p2.clock.fastForward(25000);
     ok('idle 120 s without a PIN wipes the card', (await p2.inputValue('#firstName')) === '' && (await p2.textContent('#previewFullName')).trim() === 'New Contact' && !(await p2.isVisible('#vaultModal')));
+    ok('timer strip gone once the card is wiped', !(await p2.isVisible('#vaultTimerStrip')));
     ok('purge logged in audit log', (await p2.textContent('#auditLog')).includes('RAM purged (idle)'));
 
     // Out of view: 30 s wipes, a shorter absence keeps the card, and frozen background timers are caught on return
@@ -344,9 +347,18 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p8.waitForSelector('#quickSetupModal', { state: 'hidden' });
     ok('session PIN set: Security panel shows it and Lock appears', (await t8('sessionPinStatus')) === 'Session PIN: set' && await p8.isVisible('#lockVaultBtn'));
     await p8.fill('#firstName', 'Quick'); await p8.fill('#lastName', 'Unlock');
+    await p8.clock.fastForward(1000);
+    ok('timer strip: with a PIN it reads "Locks in", calm, no note', await p8.isVisible('#vaultTimerStrip') && (await t8('vaultTimerLabel')) === 'Locks in' && /^1:5\d$/.test(await t8('vaultTimerTime')) && !(await p8.isVisible('#vaultTimerNote')), await t8('vaultTimerTime'));
+    await p8.clock.fastForward(102000);
+    const warn8 = await p8.evaluate(() => document.getElementById('vaultTimerBand').className + ' ' + document.getElementById('vaultTimerBar').className);
+    ok('timer strip: last 20 s turn it amber (never red) with one quiet note', await p8.isVisible('#vaultTimerNote') && /^0:1\d$/.test(await t8('vaultTimerTime')) && warn8.includes('bg-amber-50/95') && warn8.includes('bg-amber-500') && !/red|rose/.test(warn8), warn8);
+    await p8.click('#vaultTimerKeepBtn');
+    ok('timer strip: Keep open refills it and the note goes away', /^(2:00|1:59)$/.test(await t8('vaultTimerTime')) && !(await p8.isVisible('#vaultTimerNote')) && (await p8.evaluate(() => document.getElementById('vaultTimerBar').className)).includes('bg-brand-500'), await t8('vaultTimerTime'));
     await idle();
     ok('idle with a session PIN: card hidden, PIN prompt', await p8.isVisible('#vaultModal') && (await t8('vaultModalTitle')) === 'Locked' && await p8.isVisible('#vaultPin') && (await p8.inputValue('#firstName')) === '');
     ok('quick lock: badge, indicator and countdown show the 7-minute reset', (await t8('vaultBadge')) === 'Vault: LOCKED' && /^LOCKED \(resets in 4:5\d\)$/.test(await t8('vaultStateIndicator')) && (await t8('quickUnlockCountdown')).includes('everything resets in 4:5'), await t8('vaultStateIndicator'));
+    const ring8 = await p8.evaluate(() => Number(document.getElementById('vaultLockRing').getAttribute('stroke-dashoffset')));
+    ok('lock screen: calm green ring shows the time left until it is cleared', (await t8('vaultLockRingTime')).startsWith('4:5') && ring8 > 90 && ring8 < 105 && !(await p8.isVisible('#vaultTimerStrip')), `${await t8('vaultLockRingTime')} ${ring8}`);
     ok('idle lock explains why it locked', (await t8('vaultModalHint')).startsWith('Locked after 2 minutes without activity. Enter your 4-digit PIN'));
     ok('quick lock: the held card is not in storage or the page', !(await p8.evaluate(() => JSON.stringify(localStorage) + document.body.innerText)).includes('Quick'));
     await p8.fill('#vaultPin', '1111'); await p8.waitForTimeout(300);
