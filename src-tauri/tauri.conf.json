@@ -29,8 +29,8 @@
     "active": true,
     "targets": "all",
     "category": "Productivity",
-    "shortDescription": "Offline, encrypted digital business cards",
-    "longDescription": "vCard Generator Engine: scan business cards with on-device OCR, edit and preview them as 3D cards, export scannable vCard QR codes. Everything stays on the device; contact data is encrypted at rest.",
+    "shortDescription": "Offline business card scanner. Nothing is stored.",
+    "longDescription": "vCard Generator Engine: scan business cards with on-device OCR, edit and preview them as 3D cards, export scannable vCard QR codes. Everything stays on the device, and nothing is stored. The card lives in memory only and is wiped when you close the app.",
     "copyright": "Copyright (c) 2026 raven575, Gemini & Claude. MIT License.",
     "licenseFile": "../LICENSE.md",
     "icon": [
