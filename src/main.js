@@ -73,7 +73,7 @@ function refresh(contact = cardView.getContact()) {
     if (!hasDetails) vcgeQREngine.renderPlaceholder($('qrCanvas'), 320);
     const qrOk = hasDetails && vcgeQREngine.renderQRCode($('qrCanvas'), vcgeQREngine.generateVCard30({ ...contact, avatarBase64: null }), { size: 320 });
     $('qrNotice').classList.toggle('hidden', qrOk || !hasDetails);
-    egressController.setPayload(vcard, contact, { qrReal: qrOk });
+    egressController.setPayload(vcard, contact, { qrReal: qrOk, hasDetails });
     globalEventBus.publish(Events.CONTACT_UPDATED, { timestamp: Date.now() });
 }
 
@@ -690,12 +690,15 @@ function wireEgress() {
         .forEach(id => $(id).addEventListener('click', expectExternalApp, true));
     $('downloadVcfBtn').addEventListener('click', () => egressController.downloadVcf());
     $('exportQrBtn').addEventListener('click', () => {
-        if (egressController.exportQRPNG($('qrCanvas'))) return;
-        cardView.showToast(vcgeQREngine.hasDetails(cardView.getContact()) ? 'Too much information for one QR code: use .vcf or Share instead.' : 'Add a contact first.');
+        const result = egressController.exportQRPNG($('qrCanvas'));
+        if (result.reason === 'empty') cardView.showToast('Add a contact first.');
+        else if (result.reason === 'qr_too_large') cardView.showToast('Too much information for one QR code: use .vcf or Share instead.');
     });
     $('emailBtn').addEventListener('click', () => egressController.triggerEmailShare());
     $('smsBtn').addEventListener('click', () => egressController.triggerSmsShare());
-    $('printCardBtn').addEventListener('click', () => egressController.triggerPhysicalPrint($('qrCanvas')));
+    $('printCardBtn').addEventListener('click', () => {
+        if (egressController.triggerPhysicalPrint($('qrCanvas')).reason === 'empty') cardView.showToast('Add a contact first.');
+    });
     $('shareNativeBtn').addEventListener('click', async () => {
         const result = await egressController.triggerQuickShare();
         if (result && result.reason === 'share_unavailable') cardView.showToast('Sharing is not available here: use .vcf, Email or Copy.');

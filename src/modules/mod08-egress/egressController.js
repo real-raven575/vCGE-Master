@@ -31,16 +31,24 @@ export class EgressController {
         this.currentVCard = "";
         this.contactData = {};
         this.qrReal = false;
+        this.hasDetails = false;
     }
 
     /**
      * Updates the active vCard payload and associated contact details.
-     * qrReal: false when the QR canvas holds the "not scannable" placeholder (MOD07), so it is never exported or printed.
+     * qrReal: false when the QR canvas holds a placeholder (MOD07), so it is never exported or printed.
+     * hasDetails: MOD07's test for a card worth sharing; false for an empty card, which is not printed or saved as a QR.
      */
-    setPayload(vcardString, contactAttributes, { qrReal = false } = {}) {
+    setPayload(vcardString, contactAttributes, { qrReal = false, hasDetails = false } = {}) {
         this.currentVCard = vcardString;
         this.contactData = contactAttributes || {};
         this.qrReal = qrReal;
+        this.hasDetails = hasDetails;
+    }
+
+    /** True when the card has nothing worth sharing yet (the same test that gives the QR its blank placeholder). */
+    isEmpty() {
+        return !this.currentVCard || !this.hasDetails;
     }
 
     /**
@@ -116,13 +124,15 @@ export class EgressController {
     }
 
     /**
-     * Saves a canvas (the QR code) as a PNG file.
+     * Saves a canvas (the QR code) as a PNG file. Refused for a blank card and for the "not scannable" placeholder.
+     * @returns {{ success: boolean, reason?: 'empty' | 'qr_too_large' }}
      */
     exportQRPNG(canvas, filename = `${this.contactData.firstName || 'Contact'}_QR.png`) {
-        if (!canvas || !this.qrReal) return false;
+        if (this.isEmpty()) return { success: false, reason: 'empty' };
+        if (!canvas || !this.qrReal) return { success: false, reason: 'qr_too_large' };
         clickDownload(canvas.toDataURL('image/png'), filename);
         audit('export_png', { filename });
-        return true;
+        return { success: true };
     }
 
     displayName() {
@@ -199,8 +209,11 @@ export class EgressController {
      * for a QR code the back has the name and a short note instead of the unscannable placeholder.
      * The copies are rebuilt on each print and kept in the hidden #printSheet until the next print, idle purge or lock:
      * clearing them on 'afterprint' is unsafe, as some browsers (Android) fire it before the PDF is rendered.
+     * A blank card is not printed.
+     * @returns {{ success: boolean, reason?: 'empty' }}
      */
     triggerPhysicalPrint(qrCanvas) {
+        if (this.isEmpty()) return { success: false, reason: 'empty' };
         const sheet = document.getElementById('printSheet'), front = document.getElementById('cardFront');
         if (sheet && front) {
             const frontCopy = front.cloneNode(true);
@@ -227,7 +240,7 @@ export class EgressController {
         }
         audit('print');
         window.print();
-        return true;
+        return { success: true };
     }
 
     clearPrintSheet() {
