@@ -52,9 +52,17 @@ async function stopDriver(driver) {
   const txt = (id) => js(`return document.getElementById(arguments[0]).textContent.trim();`, id);
   const visible = (id) => js(`const e = document.getElementById(arguments[0]); return !e.classList.contains('hidden');`, id);
   const until = async (fn, ms = 20000) => { const end = Date.now() + ms; while (Date.now() < end) { if (await fn()) return true; await sleep(250); } return false; };
+  // The welcome pop-up opens on every start and makes the page behind it inert: press START NOW.
+  const startNow = async () => {
+    await until(() => js(`return !!document.getElementById('welcomeStartBtn');`), 5000);
+    await js(`const b = document.getElementById('welcomeStartBtn'); if (b) b.click();`);
+  };
 
   try {
     await until(() => js(`return document.readyState === 'complete' && !!document.getElementById('vaultModal');`));
+    ok('desktop app opens on the welcome pop-up (START NOW / Show me around)', await until(() => js(`return !!document.getElementById('welcomeDialog') && document.querySelector('main').inert;`), 5000));
+    await click('#welcomeStartBtn');
+    ok('START NOW closes it and the page takes input', await until(() => js(`return !document.getElementById('welcomeLayer') && !document.querySelector('main').inert;`), 5000));
     ok('desktop app opens straight to an empty card (no passphrase dialog)', !(await visible('vaultModal')) && (await val('firstName')) === '' && (await txt('vaultStateIndicator')) === 'UNLOCKED / memory only');
     ok('Tauri IPC is available (withGlobalTauri)', await js(`return !!(window.__TAURI__ && window.__TAURI__.core);`));
     ok('page is served from the Tauri asset protocol', /^(tauri:|http:\/\/tauri\.localhost)/.test(await js('return location.href;')), await js('return location.href;'));
@@ -169,12 +177,14 @@ async function stopDriver(driver) {
     // Restart the page: nothing was saved, so it starts empty
     await wd('POST', S('/refresh'), {});
     await until(() => js(`return document.readyState === 'complete' && !!document.getElementById('vaultModal');`));
+    await startNow();
     ok('after reload: empty card, no unlock dialog', await until(async () => (await val('firstName')) === '' && !(await visible('vaultModal')), 5000));
 
     // A keychain-bound vault saved by an older build is deleted at startup, with its keychain device key
     await js(`localStorage.setItem('vCGE_secure_vault.dat', JSON.stringify({ v: 2, kdf: 'pbkdf2-sha256+hkdf-device-key', ciphertext: [1, 2, 3] }));`);
     await wd('POST', S('/refresh'), {});
     await until(() => js(`return document.readyState === 'complete' && !!document.getElementById('auditLog');`));
+    await startNow();
     ok('old keychain-bound vault deleted at startup', await until(async () => (await js(`return localStorage.getItem('vCGE_secure_vault.dat');`)) === null
       && (await txt('auditLog')).includes('copy saved by an older build'), 5000), await txt('auditLog'));
     const ipc = await jsAsync(`const done = arguments[arguments.length - 1]; const inv = window.__TAURI__.core.invoke;

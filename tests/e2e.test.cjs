@@ -87,6 +87,13 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   const server = spawn(process.execPath, [path.join(ROOT, 'scripts/serve.mjs')], { env: { ...process.env, PORT } });
   await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('exit', c => reject(new Error(`server exited ${c}`))); });
   const browser = await chromium.launch();
+  // The welcome pop-up opens on every start; every test page presses START NOW at once, except the welcome tests below.
+  const plainContext = browser.newContext.bind(browser);
+  const pressStartNow = () => new MutationObserver((_, o) => {
+    const b = document.getElementById('welcomeStartBtn');
+    if (b) { o.disconnect(); b.click(); }
+  }).observe(document, { childList: true, subtree: true });
+  browser.newContext = async (opts) => { const c = await plainContext(opts); await c.addInitScript(pressStartNow); return c; };
   const context = await browser.newContext({ acceptDownloads: true });
   const page = await context.newPage();
   const external = [], errors = [], notFound = [];
@@ -1000,6 +1007,81 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await pW.click('#browserGateDismiss');
     ok('gate: the warning banner can be dismissed (nothing stored)', !(await pW.$('#browserGateBanner')) && (await pW.evaluate(() => localStorage.length + sessionStorage.length)) === 0);
     await ctxW.close();
+  }
+
+  // MOD01 welcome pop-up and tour: on every start, nothing stored, page inert behind it, six steps that spotlight each area
+  {
+    const ctxH = await plainContext();
+    const pH = await ctxH.newPage();
+    const errorsH = [], externalH = [];
+    pH.on('pageerror', e => errorsH.push(e.message));
+    pH.on('console', m => { if (m.type() === 'error') errorsH.push('console: ' + m.text()); });
+    pH.on('request', r => { if (!r.url().startsWith(ORIGIN) && !/^(data|blob):/.test(r.url())) externalH.push(r.url()); });
+    await pH.goto(ORIGIN); await pH.waitForTimeout(400);
+    const state = () => pH.evaluate(() => ({
+      dialog: !!document.getElementById('welcomeDialog'), layer: !!document.getElementById('welcomeLayer'),
+      focus: document.activeElement && document.activeElement.id,
+      inert: !!document.querySelector('main').inert && !!document.querySelector('header').inert,
+      title: (document.getElementById('welcomeTitle') || {}).textContent, tagline: (document.getElementById('welcomeTagline') || {}).textContent
+    }));
+    const first = await state();
+    ok('welcome: opens on start with START NOW focused and the page behind it inert', first.dialog && first.focus === 'welcomeStartBtn' && first.inert, JSON.stringify(first));
+    ok('welcome: title and the tagline "Operation: Never Lose Contact"', first.title === 'Welcome to vCGE' && first.tagline === 'Operation: Never Lose Contact', JSON.stringify(first));
+    ok('welcome: buttons read START NOW and Show me around', (await pH.textContent('#welcomeStartBtn')) === 'START NOW' && (await pH.textContent('#welcomeTourBtn')) === 'Show me around');
+    await pH.keyboard.press('Escape');
+    const afterEsc = await state();
+    ok('welcome: Esc closes it and the app takes input again', !afterEsc.layer && !afterEsc.inert);
+    await pH.fill('#firstName', 'Welcomed');
+    ok('welcome: the form works after it closes', (await pH.inputValue('#firstName')) === 'Welcomed');
+    await pH.reload(); await pH.waitForTimeout(400);
+    ok('welcome: shows again on the next start (nothing remembers it was seen)', (await state()).dialog && (await pH.evaluate(() => localStorage.length + sessionStorage.length + document.cookie.length)) === 0);
+
+    await pH.click('#welcomeTourBtn');
+    const titles = [];
+    for (let i = 0; i < 6; i++) {
+      const s = await pH.evaluate((i) => {
+        const spot = document.getElementById('tourSpot').getBoundingClientRect(), tip = document.getElementById('tourTip').getBoundingClientRect();
+        const area = (i === 0 ? document.getElementById('imageUpload').parentElement   // the "Upload image" button (the file input is hidden)
+          : i < 5 ? document.getElementById(['', 'firstName', 'card3DFlipper', 'downloadVcfBtn', 'wipeVaultBtn'][i]) : document.querySelector('header')).getBoundingClientRect();
+        // The spotlight surrounds the area as far as it is on screen (its outline is pulled 4 px in at the screen edge)
+        const covers = spot.left <= Math.max(area.left, 4) && spot.top <= Math.max(area.top, 4) && spot.right >= Math.min(area.right, innerWidth - 4) && spot.bottom >= Math.min(area.bottom, innerHeight - 4);
+        return { covers, step: document.getElementById('tourStep').textContent, title: document.getElementById('tourTitle').textContent, next: document.getElementById('tourNextBtn').textContent,
+          spot: [spot.left, spot.top, spot.right, spot.bottom], tip: [tip.left, tip.top, tip.right, tip.bottom], vw: document.documentElement.clientWidth, vh: innerHeight,
+          focus: document.activeElement && document.activeElement.id };
+      }, i);
+      titles.push(s);
+      if (i < 5) await pH.click('#tourNextBtn');
+    }
+    ok('tour: six steps in order, "Step N of 6", Next focused', titles.map(t => t.title).join('|') === 'Scan a business card|Check the details|Your 3D card|Share when you choose|Your card stays private|You\u2019re ready'
+      && titles.every((t, i) => t.step === `Step ${i + 1} of 6` && t.focus === 'tourNextBtn'), titles.map(t => t.title + ' ' + t.step).join(' | '));
+    ok('tour: each step spotlights its area (scan, form, card, share, security, header)', titles.every(t => t.covers), JSON.stringify(titles.map(t => t.spot)));
+    ok('tour: the last step\'s button is START NOW', titles[5].next === 'START NOW' && titles.slice(0, 5).every(t => t.next === 'Next'));
+    ok('tour: every card fits on screen and does not cover its spotlight', titles.every(t => t.tip[0] >= 0 && t.tip[1] >= 0 && t.tip[2] <= t.vw && t.tip[3] <= t.vh
+      && (t.tip[0] >= t.spot[2] || t.tip[2] <= t.spot[0] || t.tip[1] >= t.spot[3] || t.tip[3] <= t.spot[1])), JSON.stringify(titles.map(t => [t.spot, t.tip])));
+    await pH.click('#tourBackBtn');
+    ok('tour: Back goes to the previous step', (await pH.textContent('#tourTitle')) === 'Your card stays private');
+    await pH.keyboard.press('ArrowRight');
+    await pH.click('#tourNextBtn');
+    ok('tour: START NOW on the last step closes it', !(await state()).layer && !(await state()).inert);
+
+    await pH.reload(); await pH.waitForTimeout(400);
+    await pH.click('#welcomeTourBtn'); await pH.click('#tourSkipBtn');
+    ok('tour: Skip tour closes it', !(await state()).layer);
+
+    // Phone size: the card sits under (or over) the area and stays on screen at every step
+    await pH.setViewportSize({ width: 390, height: 844 });
+    await pH.reload(); await pH.waitForTimeout(400);
+    await pH.click('#welcomeTourBtn');
+    const phone = [];
+    for (let i = 0; i < 6; i++) {
+      phone.push(await pH.evaluate(() => { const r = document.getElementById('tourTip').getBoundingClientRect(); return { side: document.getElementById('tourTip').dataset.side, l: r.left, t: r.top, r: r.right, b: r.bottom }; }));
+      if (i < 5) await pH.click('#tourNextBtn');
+    }
+    ok('tour on a phone: every card stays on screen, never beside the area', phone.every(p => p.l >= 0 && p.t >= 0 && p.r <= 390 && p.b <= 844 && p.side !== 'right' && p.side !== 'left'), JSON.stringify(phone));
+    await pH.click('#tourNextBtn');
+    ok('welcome: nothing stored, no outside requests, no page errors', (await pH.evaluate(() => localStorage.length + sessionStorage.length)) === 0 && externalH.length === 0 && errorsH.length === 0,
+      externalH.concat(errorsH).join(' | '));
+    await ctxH.close();
   }
 
   console.log(`\n${pass} passed, ${fail} failed`);

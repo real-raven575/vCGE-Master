@@ -4,9 +4,10 @@
  *
  * The network lock itself is netLock.js, a classic script index.html loads before every other script, and
  * workerGuard.js inside the OCR worker. This module, imported first by src/main.js, puts the lock's blocks on the event
- * bus for the audit log and reports if the lock is missing.
+ * bus for the audit log and reports if the lock is missing. It also opens the welcome pop-up (welcome.js) as vCGE starts.
  */
 import { globalEventBus, Events } from '../../share/eventBus.js';
+import { showWelcome } from './welcome.js';
 
 // Action-level gatekeeper: outbound intents must be dispatched by vCGE-MOD08.
 export function enforceGatekeeper(sourceModule, action) {
@@ -28,3 +29,6 @@ window.addEventListener('vcge:egress-blocked', (e) => {
     const { api, url, timestamp } = e.detail || {};
     globalEventBus.publish(Events.EGRESS_BLOCKED, { api, url, timestamp });
 });
+
+// Every new session opens on the welcome pop-up (START NOW or the tour). Nothing records that it was seen.
+showWelcome();

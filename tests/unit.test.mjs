@@ -811,5 +811,21 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('gate scripts use ES5 syntax only (browserGate.js, unsupported/unsupported.js)', es5('browserGate.js') && es5('unsupported/unsupported.js'));
 }
 
+// MOD01 welcome pop-up and tour (welcome.js): six steps, the card placed beside or under the area, nothing stored
+{
+  const fs = await import('node:fs');
+  const welcome = await import(`${R}/modules/mod01-shell/welcome.js`);
+  ok('welcome: six tour steps, each with a title, text and an area', welcome.TOUR_STEPS.length === 6 && welcome.TOUR_STEPS.every(s => s.title && s.body && typeof s.target === 'function'));
+  ok('welcome: the tour gives no exact lock or wipe minutes (Vault owns the timers)', welcome.TOUR_STEPS.every(s => !/\d+\s*(min|minute|s\b|sec)/i.test(s.body)));
+  const area = { left: 100, top: 100, right: 500, bottom: 300 };
+  ok('welcome: on a wide screen the card goes beside the area', welcome.placeTip(area, 330, 200, 1440, 900).side === 'right' && welcome.placeTip({ left: 1000, top: 100, right: 1400, bottom: 300 }, 330, 200, 1440, 900).side === 'left');
+  const phone = welcome.placeTip({ left: 16, top: 80, right: 374, bottom: 300 }, 358, 220, 390, 844);
+  ok('welcome: on a phone the card goes under the area, inside the screen', phone.side === 'below' && phone.left >= 16 && phone.left + 358 <= 390 - 16 + 0.5 && phone.top === 316, JSON.stringify(phone));
+  ok('welcome: a tall area puts the card above it, or over it as a last resort', welcome.placeTip({ left: 16, top: 600, right: 374, bottom: 830 }, 358, 220, 390, 844).side === 'above'
+    && welcome.placeTip({ left: 16, top: 0, right: 374, bottom: 844 }, 358, 220, 390, 844).side === 'over');
+  const code = fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  ok('welcome: stores nothing and publishes nothing (no storage, cookies or bus)', !/localStorage|sessionStorage|indexedDB|document\.cookie|globalEventBus|innerHTML/.test(code));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;

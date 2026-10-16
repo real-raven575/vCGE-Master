@@ -1,0 +1,51 @@
+/* vCGE-MOD01 welcome pop-up and tour. Light by default, .dark variants follow the app theme. No sound, no flashing:
+   the only motion is a short fade-in, off under reduced motion. */
+.vcge-welcome { position: fixed; inset: 0; z-index: 70; }
+.vcge-welcome-backdrop, .vcge-tour-blocker { position: fixed; inset: 0; }
+.vcge-welcome-backdrop { background: rgba(2, 6, 23, 0.55); }
+.vcge-welcome-card, .vcge-tour-tip { position: fixed; background: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 18px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.45); }
+.vcge-welcome-card { left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(440px, calc(100vw - 32px)); max-height: calc(100vh - 32px); overflow-y: auto; padding: 28px; box-sizing: border-box; }
+.vcge-welcome-tag { display: inline-block; background: #22c55e; color: #020617; font-weight: 700; font-size: 13px; letter-spacing: 0.08em; padding: 3px 10px; border-radius: 8px; }
+.vcge-welcome-card h2 { font-size: 22px; font-weight: 700; margin: 12px 0 2px; }
+.vcge-welcome-tagline { font-size: 13px; font-weight: 600; color: #15803d; margin: 0 0 14px; }
+.vcge-welcome-points { margin: 0 0 20px; padding-left: 22px; list-style: decimal; font-size: 14px; line-height: 1.5; }
+.vcge-welcome-points li { margin: 8px 0; padding-left: 4px; }
+.vcge-welcome-points li::marker { color: #15803d; font-weight: 700; }
+.vcge-welcome-row { display: flex; flex-wrap: wrap; gap: 10px; }
+.vcge-welcome-go, .vcge-welcome-alt { flex: 1 1 150px; border-radius: 12px; padding: 12px; font-size: 15px; cursor: pointer; }
+.vcge-welcome-go { background: #16a34a; color: #020617; font-weight: 800; letter-spacing: 0.04em; border: 0; }
+.vcge-welcome-go:hover, .vcge-tour-next:hover { background: #22c55e; }
+.vcge-welcome-alt { background: #f1f5f9; color: #0f172a; font-weight: 600; border: 1px solid #cbd5e1; }
+.vcge-welcome-alt:hover, .vcge-tour-back:hover { background: #e2e8f0; }
+.vcge-welcome-fine { font-size: 11px; color: #64748b; margin: 12px 0 0; text-align: center; }
+.vcge-welcome button:focus-visible { outline: 3px solid #4ade80; outline-offset: 2px; }
+
+.vcge-tour-spot { position: fixed; border-radius: 18px; box-shadow: 0 0 0 9999px rgba(2, 6, 23, 0.55); outline: 3px solid #22c55e; outline-offset: 0; pointer-events: none; }
+.vcge-tour-tip { width: min(330px, calc(100vw - 32px)); padding: 20px; box-sizing: border-box; }
+.vcge-tour-dots { display: flex; gap: 5px; margin: 0 0 12px; }
+.vcge-tour-dots i { width: 7px; height: 7px; border-radius: 50%; background: #cbd5e1; }
+.vcge-tour-dots i.on { background: #16a34a; }
+.vcge-tour-step { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #64748b; }
+.vcge-tour-tip h3 { font-size: 17px; font-weight: 700; margin: 4px 0 6px; }
+.vcge-tour-body { font-size: 14px; line-height: 1.5; margin: 0 0 14px; color: #334155; }
+.vcge-tour-nav { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
+.vcge-tour-skip { margin-right: auto; font-size: 12px; color: #64748b; background: none; border: 0; padding: 4px 0; cursor: pointer; }
+.vcge-tour-skip:hover { text-decoration: underline; }
+.vcge-tour-back { background: #f1f5f9; color: #0f172a; border: 1px solid #cbd5e1; border-radius: 10px; padding: 7px 14px; font-size: 13px; cursor: pointer; }
+.vcge-tour-next { background: #16a34a; color: #020617; font-weight: 700; border: 0; border-radius: 10px; padding: 7px 14px; font-size: 13px; cursor: pointer; }
+
+.dark .vcge-welcome-backdrop { background: rgba(2, 6, 23, 0.65); }
+.dark .vcge-tour-spot { box-shadow: 0 0 0 9999px rgba(2, 6, 23, 0.65); outline-color: #4ade80; }
+.dark .vcge-welcome-card, .dark .vcge-tour-tip { background: #0f172a; color: #f1f5f9; border-color: #334155; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6); }
+.dark .vcge-welcome-tagline, .dark .vcge-welcome-points li::marker { color: #4ade80; }
+.dark .vcge-welcome-alt, .dark .vcge-tour-back { background: #1e293b; color: #f1f5f9; border-color: #334155; }
+.dark .vcge-welcome-alt:hover, .dark .vcge-tour-back:hover { background: #334155; }
+.dark .vcge-welcome-fine, .dark .vcge-tour-step, .dark .vcge-tour-skip { color: #94a3b8; }
+.dark .vcge-tour-body { color: #cbd5e1; }
+.dark .vcge-tour-dots i { background: #334155; }
+.dark .vcge-tour-dots i.on { background: #4ade80; }
+
+@media (prefers-reduced-motion: no-preference) {
+    .vcge-welcome-card, .vcge-tour-tip { animation: vcge-welcome-fade 0.2s ease-out; }
+}
+@keyframes vcge-welcome-fade { from { opacity: 0; } to { opacity: 1; } }
