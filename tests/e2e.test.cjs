@@ -12,16 +12,41 @@ const PORT = String(18000 + Math.floor(Math.random() * 2000));
 const ORIGIN = `http://localhost:${PORT}/`;
 
 // Renders a business card image in the page so OCR runs on real pixels.
-// `blur` (px) simulates a shaky or out-of-focus photo.
+// `blur` (px, the Gaussian's standard deviation) simulates a shaky or out-of-focus photo. The blur is computed here
+// (three box blurs) rather than with the canvas `filter`, which WebKit ignores, so every engine gets the same photo.
 async function renderCardImage(page, blur = 0) {
   const dataUrl = await page.evaluate((blur) => {
     const c = document.createElement('canvas'); c.width = 1050; c.height = 600;
     const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111';
-    if (blur) x.filter = `blur(${blur}px)`;
     const lines = [['bold 56px Arial', 'Maria Gonzalez'], ['34px Arial', 'Director of Engineering'], ['34px Arial', 'Northwind Systems'],
       ['30px Arial', '+1 (312) 555-0147'], ['30px Arial', 'maria.gonzalez@northwind.com'], ['30px Arial', 'https://northwind.com'],
       ['30px Arial', '233 South Wacker Drive'], ['30px Arial', 'Chicago, IL 60606']];
     let y = 80; for (const [f, t] of lines) { x.font = f; x.fillText(t, 70, y); y += f.startsWith('bold') ? 80 : 62; }
+    if (blur) {
+      const w = c.width, h = c.height, img = x.getImageData(0, 0, w, h);
+      let g = new Float32Array(w * h).map((_, i) => img.data[i * 4]);
+      const at = (a, i, n) => a[Math.min(n - 1, Math.max(0, i))];
+      const box = (a, r) => {   // separable running-sum box blur, edges clamped
+        const t = new Float32Array(a.length), o = new Float32Array(a.length), n = 2 * r + 1;
+        for (let yy = 0; yy < h; yy++) {
+          const row = a.subarray(yy * w, yy * w + w); let s = 0;
+          for (let k = -r; k <= r; k++) s += at(row, k, w);
+          for (let xx = 0; xx < w; xx++) { t[yy * w + xx] = s / n; s += at(row, xx + r + 1, w) - at(row, xx - r, w); }
+        }
+        for (let xx = 0; xx < w; xx++) {
+          const col = (i) => t[Math.min(h - 1, Math.max(0, i)) * w + xx]; let s = 0;
+          for (let k = -r; k <= r; k++) s += col(k);
+          for (let yy = 0; yy < h; yy++) { o[yy * w + xx] = s / n; s += col(yy + r + 1) - col(yy - r); }
+        }
+        return o;
+      };
+      // Box widths whose three passes approximate a Gaussian of this standard deviation.
+      let wl = Math.floor(Math.sqrt(4 * blur * blur + 1)); if (wl % 2 === 0) wl--;
+      const m = Math.round((12 * blur * blur - 3 * wl * wl - 12 * wl - 9) / (-4 * wl - 4));
+      for (let i = 0; i < 3; i++) g = box(g, ((i < m ? wl : wl + 2) - 1) / 2);
+      for (let i = 0; i < w * h; i++) img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = g[i];
+      x.putImageData(img, 0, 0);
+    }
     return c.toDataURL('image/png');
   }, blur);
   return { name: 'card.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') };
@@ -381,7 +406,7 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     await p8.fill('#firstName', 'Seven');
     await idle();
     await p8.clock.fastForward(301000);
-    ok('idle lock, then 7 minutes since the last activity: card and PIN wiped, no dialog', !(await p8.isVisible('#vaultModal')) && (await p8.inputValue('#firstName')) === '' && (await t8('toastMessage')).startsWith('Reset: 7 minutes without activity') && (await t8('sessionPinStatus')) === 'Session PIN: not set', await t8('toastMessage'));
+    ok('idle lock, then 7 minutes since the last activity: card and PIN wiped, no dialog', !(await p8.isVisible('#vaultModal')) && (await p8.inputValue('#firstName')) === '' && (await t8('toastMessage')).startsWith('Reset: 7 minutes without activity') && (await t8('sessionPinStatus')) === 'Session PIN: not set', `${await t8('toastMessage')} | ${await t8('vaultStateIndicator')}`);
 
     await setPin(p8, '1357');
     await p8.fill('#firstName', 'Tries');
@@ -451,7 +476,9 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     const p11 = await ctx11.newPage();
     const errors11 = [];
     p11.on('pageerror', e => errors11.push(e.message));
-    await p11.goto('about:blank');
+    // Start from a page of our own, not about:blank: in Firefox, Back from the app found no page to go back to.
+    const START = ORIGIN + '?start';
+    await p11.goto(START);
     await p11.goto(ORIGIN); await p11.waitForTimeout(300);
     await p11.click('#firstName'); await p11.keyboard.type('Swiped');
     await p11.goBack(); await p11.waitForTimeout(300);
@@ -460,13 +487,13 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     ok('Stay keeps the card', !(await p11.isVisible('#leaveModal')) && (await p11.inputValue('#firstName')) === 'Swiped');
     await p11.goBack(); await p11.waitForTimeout(300);
     ok('Back asks again after Stay', await p11.isVisible('#leaveModal'));
-    await Promise.all([p11.waitForURL('about:blank'), p11.click('#leaveConfirmBtn')]);
-    ok('"Wipe and leave" goes back', p11.url() === 'about:blank', p11.url());
+    await Promise.all([p11.waitForURL(START), p11.click('#leaveConfirmBtn')]);
+    ok('"Wipe and leave" goes back', p11.url() === START, p11.url());
     await p11.goForward(); await p11.waitForTimeout(500);
     ok('coming back forward: the card is gone', (await p11.inputValue('#firstName')) === '');
     await p11.click('#clearFormBtn');
     await p11.goBack(); await p11.waitForTimeout(500);
-    ok('Back with an empty card leaves without asking', p11.url() === 'about:blank', p11.url());
+    ok('Back with an empty card leaves without asking', p11.url() === START, p11.url());
     ok('Back guard: no page errors', errors11.length === 0, errors11.join(' | '));
     await ctx11.close();
   }
