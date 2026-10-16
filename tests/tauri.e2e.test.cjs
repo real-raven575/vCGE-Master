@@ -26,8 +26,18 @@ function keyringHasDeviceKey() {
   catch (e) { return false; }
 }
 
+/** Stops tauri-driver and everything it started (its process group): SIGTERM, then SIGKILL after 3 s. */
+async function stopDriver(driver) {
+  const signalGroup = (sig) => { try { process.kill(-driver.pid, sig); } catch (e) { /* already gone */ } };
+  const exited = new Promise(r => (driver.exitCode !== null || driver.signalCode !== null) ? r() : driver.once('exit', r));
+  signalGroup('SIGTERM');
+  await Promise.race([exited, sleep(3000)]);
+  signalGroup('SIGKILL');
+}
+
 (async () => {
-  const driver = spawn('tauri-driver', ['--native-driver', '/usr/bin/WebKitWebDriver'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  // Own process group and no pipes: nothing the driver starts (WebKitWebDriver, the app) can keep this process alive.
+  const driver = spawn('tauri-driver', ['--native-driver', '/usr/bin/WebKitWebDriver'], { stdio: 'ignore', detached: true });
   for (let i = 0; i < 50; i++) { try { await fetch(DRIVER + '/status'); break; } catch (e) { await sleep(200); } }
 
   const session = await wd('POST', '/session', { capabilities: { alwaysMatch: { 'tauri:options': { application: APP } } } });
@@ -178,8 +188,8 @@ function keyringHasDeviceKey() {
     ok('desktop: Wipe empties the card', await until(async () => (await val('firstName')) === '' && (await txt('auditLog')).includes('Vault wiped'), 5000));
   } finally {
     await wd('DELETE', S('')).catch(() => {});
-    driver.kill();
+    await stopDriver(driver);
   }
   console.log(`\n${pass} passed, ${fail} failed`);
-  process.exitCode = fail ? 1 : 0;
+  process.exit(fail ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });
