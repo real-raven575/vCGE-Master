@@ -29,7 +29,7 @@
     "active": true,
     "targets": "all",
     "category": "Productivity",
-    "publisher": "RavcoDesign LLC",
+    "publisher": "raven575",
     "homepage": "https://vcge.app",
     "shortDescription": "Offline business card scanner. Nothing is stored.",
     "longDescription": "vCard Generator Engine: scan business cards with on-device OCR, edit and preview them as 3D cards, export scannable vCard QR codes. Everything stays on the device, and nothing is stored. The card lives in memory only and is wiped when you close the app.",
