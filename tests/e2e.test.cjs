@@ -845,35 +845,40 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     const popup = () => pC.isVisible('#cameraInUseModal');
     const cameraOff = () => pC.evaluate(() => document.getElementById('cameraStream').srcObject === null && document.getElementById('cameraPanel').classList.contains('hidden'));
     const start = async (mode) => { await pC.evaluate(m => { window.__camMode = m; }, mode); await pC.click('#startCameraBtn'); await pC.waitForTimeout(300); };
+    // What the camera module logged, and whether the test's fake track is the one the app is showing (failure details).
+    const camState = () => pC.evaluate(() => { const s = document.getElementById('cameraStream').srcObject;
+      return `${document.getElementById('eventLog').textContent.trim()} | app shows test track: ${!!s && s.getVideoTracks()[0] === window.__camTrack}`; });
+    // A missing pop-up is reported by the check before it; closing it must not stop the rest of the section.
+    const closePopup = () => pC.click('#cameraInUseOkBtn', { timeout: 2000 }).catch(() => {});
 
     await start('normal');
     ok('ordinary camera starts with no pop-up', await pC.isVisible('#cameraPanel') && !(await popup()) && await pC.evaluate(() => !!document.getElementById('cameraStream').srcObject));
     await pC.click('#stopCameraBtn');
 
     await start('busy');
-    ok('camera held by another app: pop-up shown, camera off', await popup() && await cameraOff());
-    ok('pop-up tells the user to close the other app or upload', (await pC.textContent('#cameraInUseMessage')).includes('Another app is using or watching your camera'));
+    ok('camera held by another app: pop-up shown, camera off', await popup() && await cameraOff(), await camState());
+    ok('pop-up tells the user to close the other app or upload', ((await pC.textContent('#cameraInUseMessage', { timeout: 2000 }).catch(() => '')) || '').includes('Another app is using or watching your camera'));
     ok('OK is focused and closes the pop-up', await pC.evaluate(() => document.activeElement && document.activeElement.id === 'cameraInUseOkBtn'));
-    await pC.click('#cameraInUseOkBtn');
+    await closePopup();
     ok('pop-up closed after OK', !(await popup()));
 
     await start('virtual');
-    ok('virtual camera: pop-up shown, camera off', await popup() && await cameraOff());
-    await pC.click('#cameraInUseOkBtn');
+    ok('virtual camera: pop-up shown, camera off', await popup() && await cameraOff(), await camState());
+    await closePopup();
 
     await start('normal');
     await pC.evaluate(() => window.__camTrack.dispatchEvent(new Event('ended')));
     await pC.waitForTimeout(100);
-    ok('feed taken by another app mid-scan: pop-up shown, camera off', await popup() && await cameraOff());
-    await pC.click('#cameraInUseOkBtn');
+    ok('feed taken by another app mid-scan: pop-up shown, camera off', await popup() && await cameraOff(), await camState());
+    await closePopup();
 
     await start('normal');
     await pC.evaluate(() => { const t = window.__camTrack; Object.defineProperty(t, 'muted', { get: () => true }); t.dispatchEvent(new Event('mute')); });
     await pC.waitForTimeout(300);
     ok('brief mute does not trigger the pop-up', !(await popup()));
     await pC.waitForTimeout(1000);
-    ok('feed muted while in view: pop-up shown, camera off', await popup() && await cameraOff());
-    await pC.click('#cameraInUseOkBtn');
+    ok('feed muted while in view: pop-up shown, camera off', await popup() && await cameraOff(), await camState());
+    await closePopup();
 
     await start('normal');
     await pC.click('#stopCameraBtn');
