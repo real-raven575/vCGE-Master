@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="Shield with a lock">
+  <path d="M32 4 8 13v17c0 15 10 26 24 30 14-4 24-15 24-30V13L32 4z" fill="#556b2f" stroke="#d4a017" stroke-width="3" stroke-linejoin="round"/>
+  <rect x="22" y="29" width="20" height="15" rx="3" fill="#f5ecd7"/>
+  <path d="M26 29v-5a6 6 0 0 1 12 0v5" fill="none" stroke="#f5ecd7" stroke-width="3.5" stroke-linecap="round"/>
+  <circle cx="32" cy="36" r="2.5" fill="#556b2f"/>
+</svg>

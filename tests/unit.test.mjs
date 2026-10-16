@@ -737,5 +737,35 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     && card.toneOf(image([0, 0, 0, 0], [0, 0, 0, 0]), 20, all) === null);
 }
 
+// MOD01 browser gate (browserGate.js, ES5): which missing feature blocks the app and which only warns
+{
+  const fs = await import('node:fs');
+  const gate = require(`${R}/modules/mod01-shell/browserGate.js`);
+  const lockedFetch = () => {}; lockedFetch[Symbol.for('vcge.netLock')] = true;
+  const env = (over = {}) => Object.assign({
+    document: { createElement: () => ({ noModule: false }) }, SecurityPolicyViolationEvent: function () {}, isSecureContext: true,
+    crypto: { subtle: {} }, WebAssembly: {}, Worker: function () {}, Symbol, fetch: lockedFetch,
+    navigator: { userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36', mediaDevices: { getUserMedia() {} } },
+    CSS: { supports: () => true }
+  }, over);
+  ok('gate: a current browser is neither blocked nor warned', gate.blockReasons(env()).length === 0 && gate.warnReasons(env()).length === 0);
+  const cases = [['modules', { document: { createElement: () => ({}) } }], ['csp', { SecurityPolicyViolationEvent: undefined }], ['https', { isSecureContext: false }],
+    ['crypto', { crypto: {} }], ['wasm', { WebAssembly: undefined }], ['worker', { Worker: undefined }], ['netlock', { fetch: () => {} }], ['netlock', { Symbol: undefined }]];
+  ok('gate: each missing protection blocks with its own reason', cases.every(([code, over]) => gate.blockReasons(env(over)).join() === code), cases.map(([c, o]) => c + '=' + gate.blockReasons(env(o)).join('+')).join(' '));
+  const ie11 = env({ document: { createElement: () => ({}) }, SecurityPolicyViolationEvent: undefined, crypto: undefined, WebAssembly: undefined, Symbol: undefined, fetch: undefined });
+  ok('gate: an Internet Explorer 11-like browser is blocked for every missing protection', gate.blockReasons(ie11).join() === 'modules,csp,crypto,wasm,netlock', gate.blockReasons(ie11).join());
+  const win7 = env({ navigator: { userAgent: 'Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36', mediaDevices: { getUserMedia() {} } } });
+  ok('gate: Windows 7 with Chromium 109 warns (system and engine) but is not blocked', gate.warnReasons(win7).join() === 'oldos,oldengine' && gate.blockReasons(win7).length === 0, gate.warnReasons(win7).join());
+  ok('gate: Firefox on Windows 8.1 warns about the system only', gate.warnReasons(env({ navigator: { userAgent: 'Mozilla/5.0 (Windows NT 6.3; Win64; x64; rv:115.0) Gecko/20100101 Firefox/115.0', mediaDevices: { getUserMedia() {} } } })).join() === 'oldos');
+  ok('gate: no camera or no 3D flip only warns', gate.warnReasons(env({ navigator: { userAgent: 'x' }, CSS: { supports: () => false } })).join() === 'nocamera,no3d');
+  ok('gate: every warning has its text', ['oldos', 'oldengine', 'nocamera', 'no3d'].every(k => typeof gate.WARNINGS[k] === 'string'));
+  // Both gate scripts must parse in very old browsers: no ES2015+ syntax (comments and strings stripped first)
+  const es5 = (file) => {
+    const code = fs.readFileSync(`${R}/modules/mod01-shell/${file}`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '').replace(/'(?:\\.|[^'\\])*'/g, "''");
+    return !/=>|`|\.\.\.|\?\.|\?\?|\b(?:const|let|class|async|await|of)\b/.test(code);
+  };
+  ok('gate scripts use ES5 syntax only (browserGate.js, unsupported/unsupported.js)', es5('browserGate.js') && es5('unsupported/unsupported.js'));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;

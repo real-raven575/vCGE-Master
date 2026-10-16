@@ -836,6 +836,53 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await ctxC.close();
   }
 
+  // MOD01 browser gate: block (the app never starts) when a protection is missing; warn and run when only the
+  // system or engine outside the app is weak
+  {
+    ok('a current browser gets no gate banner', !(await page.$('#browserGateBanner')));
+    const blocked = async (setup, reason) => {
+      const ctxG = await browser.newContext();
+      const pG = await ctxG.newPage();
+      const requested = [], pageErrors = [];
+      pG.on('request', r => requested.push(r.url()));
+      pG.on('pageerror', e => pageErrors.push(e.message));
+      pG.on('console', m => { if (m.type() === 'error' && !/SyntaxError|Unexpected/.test(m.text())) pageErrors.push(m.text()); });
+      await setup(ctxG, pG);
+      await pG.goto(base); await pG.waitForTimeout(800);
+      const url = pG.url();
+      const shown = url.includes('src/modules/mod01-shell/unsupported/index.html#') && url.includes(reason);
+      const reasons = shown ? await pG.$$eval('#reasonList li', els => els.map(el => el.getAttribute('data-reason'))) : [];
+      const links = shown ? await pG.$$eval('.links a', els => els.map(a => ({ href: a.href, target: a.target, rel: a.rel }))) : [];
+      const external = requested.filter(u => !u.startsWith(ORIGIN));
+      await ctxG.close();
+      return { shown, url, reasons, links, requested, external, pageErrors };
+    };
+    const noWasm = await blocked((ctxG) => ctxG.addInitScript(() => { delete window.WebAssembly; }), 'wasm');
+    ok('gate: no WebAssembly opens the "cannot run" page with the reason listed', noWasm.shown && noWasm.reasons.includes('wasm'), noWasm.url);
+    ok('gate: blocked app never starts (main.js not even requested)', !noWasm.requested.some(u => /\/src\/main\.js|\/assets\/index-/.test(u)), noWasm.requested.filter(u => u.endsWith('.js')).join(' '));
+    ok('gate: free & open source browsers are listed first (Firefox, Firefox ESR, Brave)', noWasm.links.slice(0, 3).map(l => new URL(l.href).hostname).join() === 'www.firefox.com,support.mozilla.org,brave.com', noWasm.links.map(l => l.href).join(' '));
+    ok('gate: links open in a new tab with no opener, no referrer and no query data', noWasm.links.length === 6 && noWasm.links.every(l => l.target === '_blank' && /noopener/.test(l.rel) && /noreferrer/.test(l.rel) && !new URL(l.href).search && !new URL(l.href).hash));
+    ok('gate: the "cannot run" page makes no outside request and draws without errors', noWasm.external.length === 0 && noWasm.pageErrors.length === 0, noWasm.external.concat(noWasm.pageErrors).join(' | '));
+    const noLock = await blocked((ctxG, pG) => pG.route('**/src/modules/mod01-shell/netLock.js', r => r.fulfill({ contentType: 'text/javascript', body: '' })), 'netlock');
+    ok('gate fails closed: without vCGE\'s own network lock the app does not start', noLock.shown && noLock.reasons.includes('netlock'), noLock.url);
+    const noCsp = await blocked((ctxG) => ctxG.addInitScript(() => { delete window.SecurityPolicyViolationEvent; }), 'csp');
+    ok('gate: no Content-Security-Policy support blocks the app', noCsp.shown && noCsp.reasons.includes('csp'), noCsp.url);
+    if (!process.env.SERVE_DIR) {
+      const badCode = await blocked((ctxG, pG) => pG.route('**/src/main.js', r => r.fulfill({ contentType: 'text/javascript', body: 'let let = 1;' })), 'script');
+      ok('gate: code the browser cannot read opens the "cannot run" page, not a blank one', badCode.shown && badCode.reasons.includes('script'), badCode.url);
+    }
+
+    const ctxW = await browser.newContext({ userAgent: 'Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36' });
+    const pW = await ctxW.newPage();
+    await pW.goto(base); await pW.waitForTimeout(600);
+    const bannerText = await pW.$eval('#browserGateBanner', el => el.textContent).catch(() => '');
+    ok('gate: Windows 7 with Chromium 109 runs the app with a warning banner', bannerText.includes('operating system no longer gets security updates') && bannerText.includes('browser engine no longer gets security updates')
+      && (await pW.$eval('#vaultBadgeText', el => el.textContent)) === 'Vault: UNLOCKED', bannerText);
+    await pW.click('#browserGateDismiss');
+    ok('gate: the warning banner can be dismissed (nothing stored)', !(await pW.$('#browserGateBanner')) && (await pW.evaluate(() => localStorage.length + sessionStorage.length)) === 0);
+    await ctxW.close();
+  }
+
   console.log(`\n${pass} passed, ${fail} failed`);
   await browser.close(); server.kill();
   process.exitCode = fail ? 1 : 0;

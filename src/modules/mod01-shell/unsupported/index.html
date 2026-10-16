@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- Same lock as the app: only this page's own bundled files; links below are plain navigations the user clicks -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
+    <meta name="referrer" content="no-referrer">
+    <title>vCGE cannot run in this browser</title>
+    <link rel="stylesheet" href="unsupported.css">
+</head>
+<body>
+    <!-- MOD01 browser gate: opened by browserGate.js when a protection vCGE relies on is missing. The app never started,
+         so nothing was read, kept or sent. -->
+    <main class="page">
+        <header class="hero">
+            <img src="shield.svg" alt="" width="64" height="64">
+            <div>
+                <p class="eyebrow">vCard Generator Engine (vCGE)</p>
+                <h1>This app cannot run in this browser</h1>
+            </div>
+        </header>
+
+        <p class="lead">vCGE keeps your contacts on this device, with no internet. This browser is missing something vCGE needs to keep that promise, so the app did not start. Nothing was read, saved or sent.</p>
+
+        <section id="reasons" class="card hidden" aria-labelledby="reasonsTitle">
+            <h2 id="reasonsTitle">What&rsquo;s missing</h2>
+            <ul id="reasonList"></ul>
+        </section>
+
+        <section class="card" aria-labelledby="fossTitle">
+            <h2 id="fossTitle"><img src="open-source.svg" alt="" width="40" height="40"> Free &amp; open source browsers (recommended)</h2>
+            <ul class="links">
+                <li id="altFirefox">
+                    <a href="https://www.firefox.com/" target="_blank" rel="noopener noreferrer">Firefox</a>
+                    <span>By Mozilla, a nonprofit. Open source (MPL 2.0), with strong tracking protection.</span>
+                </li>
+                <li id="altFirefoxEsr">
+                    <a href="https://support.mozilla.org/kb/firefox-users-windows-7-8-and-81-moving-extended-support" target="_blank" rel="noopener noreferrer">Firefox ESR for Windows 7, 8 and 8.1</a>
+                    <span>On older Windows, Mozilla says it keeps sending security updates to Firefox ESR 115 until March 2027.</span>
+                </li>
+                <li id="altBrave">
+                    <a href="https://brave.com/download/" target="_blank" rel="noopener noreferrer">Brave</a>
+                    <span>Open source (MPL 2.0). Blocks trackers and ads by default.</span>
+                </li>
+            </ul>
+        </section>
+
+        <section class="card" aria-labelledby="otherTitle">
+            <h2 id="otherTitle"><img src="browser.svg" alt="" width="40" height="40"> Other current browsers</h2>
+            <ul class="links">
+                <li id="altEdge"><a href="https://www.microsoft.com/edge/download" target="_blank" rel="noopener noreferrer">Microsoft Edge</a> <span>Windows, Mac, Android, iPhone.</span></li>
+                <li id="altChrome"><a href="https://www.google.com/chrome/" target="_blank" rel="noopener noreferrer">Google Chrome</a> <span>Windows, Mac, Linux, Android, iPhone.</span></li>
+                <li id="altSafari"><a href="https://www.apple.com/safari/" target="_blank" rel="noopener noreferrer">Safari</a> <span>Mac, iPhone and iPad (keep the system up to date).</span></li>
+            </ul>
+        </section>
+
+        <p class="note">These links open each browser maker&rsquo;s own website. vCGE sends nothing with them.</p>
+    </main>
+    <script src="unsupported.js"></script>
+</body>
+</html>

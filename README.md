@@ -121,7 +121,7 @@ vCGE-Master/
     │   ├── regexMatchers.js       # Shared regex constants
     │   └── vcardFormatter.js      # The single vCard 3.0 builder (RFC 2426 escaping, CRLF)
     └── modules/                   # Isolated Core Functional Modules
-        ├── mod01-shell/           # netLock.js + workerGuard.js (network lock: page, OCR worker), shell.js (audit bridge), themeManager.js (light/dark)
+        ├── mod01-shell/           # netLock.js + workerGuard.js (network lock: page, OCR worker), browserGate.js + unsupported/ (old-browser gate), shell.js (audit bridge), themeManager.js (light/dark)
         ├── mod02-vault/           # vault.js (temporary vault, memory only: AES-GCM-256 hold/release, old-vault clean-up), sessionPin.js (4-digit PIN), biometric.js (Face ID / fingerprint via WebAuthn, on-device), secretInputs.js (no save-password prompts), keychain.js (deletes the old desktop device key), ttlManager.js (120 s idle purge), vaultStore.js + wipePolicy.js (hub store with per-module handles and the wipe rules; built and tested, not yet wired into main.js)
         ├── mod03-camera/          # camera.js (viewfinder, zoom, capture), cropEditor.js (corner handles, rotate), perspective.js (straightening maths)
         ├── mod04-ocr/             # ocrWorker.js (image pre-processing + bundled Tesseract.js, on-device), iconDetector.js + iconMatcher.js (icons in front of lines), glyphChoices.js (second guesses for each letter)
