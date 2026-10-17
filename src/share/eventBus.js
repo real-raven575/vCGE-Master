@@ -46,7 +46,8 @@ export const Events = Object.freeze({
     VAULT_WIPED: 'VAULT_WIPED',
     EXPORT_DISPATCHED: 'EXPORT_DISPATCHED',
     MEMORY_PURGED: 'MEMORY_PURGED',
-    EGRESS_BLOCKED: 'EGRESS_BLOCKED'
+    EGRESS_BLOCKED: 'EGRESS_BLOCKED',
+    CARD_CHANGED: 'CARD_CHANGED'      // MOD01 deck: { from, to } card names only, a hand-off signal
 });
 
 export const globalEventBus = new EventBus();

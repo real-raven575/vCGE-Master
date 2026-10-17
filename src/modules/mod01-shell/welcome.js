@@ -1,25 +1,29 @@
 /**
- * vCGE-MOD01: Welcome pop-up and "Show me around" tour
+ * vCGE-MOD01: Welcome card, "Take a Tour" and the Thank You page
  * Created by raven575, Gemini & Claude
  *
- * Every time vCGE opens: START NOW, or a short tour that spotlights each part of the page. Nothing is stored (no
- * "seen it" flag anywhere), so it greets every new session. It touches no contact data and sends nothing on the bus.
- * The rest of the page is inert while it is open. No sound, no flashing; the fade is off under reduced motion.
+ * The first card of the deck, every time vCGE opens: Set Up PIN/BIO Lock Now, START (the big one), Take a Tour,
+ * CANCEL, and a small "Play with sample fields" link. Nothing is stored (no "seen it" flag anywhere), so it greets
+ * every new session. It touches no contact data and sends nothing on the bus. CANCEL wipes the session (through the
+ * deck's cancel hook, which main.js points at the Vault's wipe) and shows the Thank You page.
+ * The tour spotlights one card at a time and moves the deck as it goes. No sound, no flashing; the fade is off under
+ * reduced motion.
  */
+import { go, openSheet, closeSheet, sheetOpen, cardEl, requestCancel } from './deck.js';
 
 export const TOUR_STEPS = [
-    { target: () => document.getElementById('imageUpload').closest('.rounded-2xl'), title: 'Scan a business card',
-        body: 'Upload a photo or use the camera. vCGE reads it right here on this device. The photo never leaves.' },
-    { target: () => document.getElementById('firstName').closest('section'), title: 'Check the details',
-        body: 'First you straighten the photo and check each line it read. Nothing fills this form until you say so. You can also type or fix anything here.' },
-    { target: () => document.getElementById('card3DFlipper').closest('.rounded-2xl'), title: 'Your 3D card',
+    { card: 'capture', title: 'Scan a business card',
+        body: 'Take a photo or upload one. vCGE reads it right here on this device. The photo never leaves.' },
+    { card: 'fields', title: 'Check the details',
+        body: 'First you straighten the photo and check each line it read. Nothing fills these fields until you say so. You can also type or fix anything here.' },
+    { card: 'card', title: 'Your 3D card',
         body: 'Pick colors and a font. Flip the card to see its QR code. A phone camera can scan it to save the contact.' },
-    { target: () => document.getElementById('downloadVcfBtn').closest('.rounded-2xl'), title: 'Share when you choose',
+    { card: 'share', title: 'Share when you choose',
         body: 'Save a .vcf file, show the QR, email, text or print. Nothing leaves vCGE until you press one of these.' },
-    { target: () => document.getElementById('wipeVaultBtn').closest('.rounded-2xl'), title: 'Your card stays private',
-        body: 'Nothing is saved. Step away and the card locks, then wipes. Set a 4-digit PIN to unlock it fast. Wipe clears everything now.' },
-    { target: () => document.querySelector('header'), title: 'You’re ready',
-        body: 'The Vault badge shows if the card is locked. The moon switches light and dark. That’s the tour.' }
+    { sheet: 'vaultPage', title: 'Your card stays private',
+        body: 'Nothing is saved. Step away and the card locks, then wipes. Set a 4-digit PIN to unlock it fast. The red trash button on any card clears everything now.' },
+    { header: true, title: 'You’re ready',
+        body: 'The icons at the top jump to any card. The lock shows whether your card is locked, and the cog opens Settings. That’s the tour.' }
 ];
 
 const WELCOME_POINTS = [
@@ -29,7 +33,7 @@ const WELCOME_POINTS = [
 ];
 
 const GAP = 16;
-let layer = null, inerted = [], stepIndex = -1, onViewportChange = null;
+let layer = null, stepIndex = -1, onViewportChange = null;
 
 function el(tag, props = {}, ...children) {
     const node = document.createElement(tag);
@@ -38,57 +42,105 @@ function el(tag, props = {}, ...children) {
     return node;
 }
 
-// Everything on the page except the welcome layer stops taking clicks, keys and focus while it is open.
-function setPageInert(on) {
-    if (on) {
-        inerted = Array.from(document.body.children).filter(n => n !== layer && !n.inert && n.tagName !== 'SCRIPT');
-        inerted.forEach(n => { n.inert = true; });
-    } else {
-        inerted.forEach(n => { n.inert = false; });
-        inerted = [];
+// What a tour step points at: the card, the Vault page's panel, or the header.
+function targetOf(step) {
+    if (step.header) return document.querySelector('header');
+    if (step.sheet) return document.getElementById(step.sheet).querySelector('.vcge-sheet-panel');
+    return cardEl(step.card);
+}
+
+// ---- Welcome card ----------------------------------------------------------------------------------------------
+
+export function renderWelcomeCard() {
+    const host = document.getElementById('welcomeBody');
+    if (!host) return;
+    const pin = el('button', { type: 'button', id: 'welcomePinBtn', className: 'welcome-pin' }, 'Set Up PIN/BIO Lock Now');
+    const start = el('button', { type: 'button', id: 'welcomeStartBtn', className: 'welcome-start' }, 'START');
+    const tour = el('button', { type: 'button', id: 'welcomeTourBtn', className: 'welcome-tour' }, 'Take a Tour');
+    const cancel = el('button', { type: 'button', id: 'welcomeCancelBtn', className: 'welcome-cancel' }, 'CANCEL');
+    const sample = el('button', { type: 'button', id: 'welcomeSampleBtn', className: 'welcome-sample' }, 'Play with sample fields');
+    pin.addEventListener('click', () => openSheet('vaultPage'));
+    start.addEventListener('click', () => go('capture'));
+    tour.addEventListener('click', () => startTour());
+    cancel.addEventListener('click', cancelSession);
+    sample.addEventListener('click', () => go('fields'));
+    const list = el('ol', { className: 'vcge-welcome-points' }, ...WELCOME_POINTS.map(t => el('li', {}, t)));
+    host.replaceChildren(
+        el('span', { className: 'vcge-welcome-tag' }, 'vCGE'),
+        el('h2', { id: 'welcomeTitle' }, 'Welcome to vCGE'),
+        el('p', { id: 'welcomeTagline', className: 'vcge-welcome-tagline' }, 'Operation: Never Lose Contact'),
+        list,
+        el('div', { className: 'welcome-actions' }, pin, start, tour, cancel),
+        sample,
+        el('p', { className: 'welcome-fine' }, 'This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data.'));
+    const thanks = document.getElementById('thankYouPage');
+    if (thanks) {
+        document.getElementById('thankYouStartOverBtn').addEventListener('click', () => location.reload());
+        const closeBtn = document.getElementById('thankYouCloseBtn');
+        closeBtn.textContent = isDesktopApp() ? 'EXIT PROGRAM' : 'CLOSE WINDOW';
+        closeBtn.addEventListener('click', closeWindow);
     }
 }
+
+const isDesktopApp = () => !!(window.__TAURI__ && window.__TAURI__.core);
+
+// CANCEL: the session is wiped (nothing is kept anyway) and the Thank You page takes the screen.
+function cancelSession() {
+    requestCancel();
+    const page = document.getElementById('thankYouPage');
+    if (!page) return;
+    document.getElementById('thankYouNote').textContent = '';
+    page.classList.remove('hidden');
+    document.getElementById('thankYouStartOverBtn').focus();
+}
+
+// Browsers only let a page close a tab it opened itself; if the tab stays, say so. The desktop app really exits.
+async function closeWindow() {
+    const note = document.getElementById('thankYouNote');
+    if (isDesktopApp()) {
+        try {
+            await window.__TAURI__.window.getCurrentWindow().close();
+            return;
+        } catch (e) {
+            console.warn('[vCGE-MOD01] The window could not be closed:', e);
+        }
+    } else {
+        window.close();
+    }
+    setTimeout(() => { if (!document.hidden) note.textContent = 'You can close this tab now.'; }, 300);
+}
+
+// ---- Tour ----------------------------------------------------------------------------------------------------------
 
 function close() {
     if (!layer) return;
     if (onViewportChange) {
         window.removeEventListener('resize', onViewportChange);
         window.removeEventListener('scroll', onViewportChange, true);
+        document.removeEventListener('transitionend', onViewportChange, true);
         onViewportChange = null;
     }
     document.removeEventListener('keydown', onKey, true);
-    setPageInert(false);
     layer.remove();
     layer = null;
     stepIndex = -1;
-    window.scrollTo(0, 0);
+    if (sheetOpen('vaultPage')) closeSheet('vaultPage');
+    go('capture');
 }
 
 function onKey(e) {
     if (!layer) return;
-    if (e.key === 'Escape') { e.preventDefault(); close(); }
-    else if (stepIndex >= 0 && e.key === 'ArrowRight') { e.preventDefault(); goTo(stepIndex + 1); }
-    else if (stepIndex > 0 && e.key === 'ArrowLeft') { e.preventDefault(); goTo(stepIndex - 1); }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+    else if (stepIndex >= 0 && e.key === 'ArrowRight') { e.preventDefault(); e.stopPropagation(); goTo(stepIndex + 1); }
+    else if (stepIndex > 0 && e.key === 'ArrowLeft') { e.preventDefault(); e.stopPropagation(); goTo(stepIndex - 1); }
 }
 
-function renderWelcome() {
-    const start = el('button', { type: 'button', id: 'welcomeStartBtn', className: 'vcge-welcome-go' }, 'START NOW');
-    const tour = el('button', { type: 'button', id: 'welcomeTourBtn', className: 'vcge-welcome-alt' }, 'Show me around');
-    start.addEventListener('click', close);
-    tour.addEventListener('click', () => goTo(0));
-    const list = el('ol', { className: 'vcge-welcome-points' }, ...WELCOME_POINTS.map(t => el('li', {}, t)));
-    const card = el('div', { id: 'welcomeDialog', className: 'vcge-welcome-card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'welcomeTitle', 'aria-describedby': 'welcomeTagline' },
-        el('div', { className: 'mod-tag mod-tag-inset', 'aria-hidden': 'true' }, el('span', {}, 'MOD-01')),
-        el('span', { className: 'vcge-welcome-tag' }, 'vCGE'),
-        el('h2', { id: 'welcomeTitle' }, 'Welcome to vCGE'),
-        el('p', { id: 'welcomeTagline', className: 'vcge-welcome-tagline' }, 'Operation: Never Lose Contact'),
-        list,
-        el('div', { className: 'vcge-welcome-row' }, start, tour),
-        el('p', { className: 'vcge-welcome-fine' }, 'This greeting appears each time you open vCGE, because vCGE remembers nothing.'));
-    const backdrop = el('div', { className: 'vcge-welcome-backdrop' });
-    backdrop.addEventListener('click', close);
-    layer.replaceChildren(backdrop, card);
-    start.focus();
+export function startTour() {
+    if (layer) return;
+    layer = el('div', { id: 'welcomeLayer', className: 'vcge-welcome' });
+    document.body.append(layer);
+    document.addEventListener('keydown', onKey, true);
+    goTo(0);
 }
 
 function goTo(i) {
@@ -121,15 +173,10 @@ function goTo(i) {
     const blocker = el('div', { className: 'vcge-tour-blocker' });
     layer.replaceChildren(blocker, spot, tip);
 
-    // Bring the area into view without animation; a tall area starts just under the sticky header.
-    const target = step.target();
-    const header = document.querySelector('header');
-    const room = window.innerHeight - (header && target !== header ? header.offsetHeight : 0) - 2 * GAP;
-    if (target === header) window.scrollTo(0, 0);
-    else if (target.getBoundingClientRect().height > room) {
-        target.scrollIntoView({ block: 'start' });
-        window.scrollBy(0, -((header ? header.offsetHeight : 0) + GAP));
-    } else target.scrollIntoView({ block: 'center' });
+    // Bring the step's card into view (the Vault page opens for its step and closes after it).
+    if (step.sheet) openSheet(step.sheet);
+    else if (sheetOpen('vaultPage')) closeSheet('vaultPage');
+    if (step.card) go(step.card, { silent: true });
 
     if (!onViewportChange) {
         let queued = false;
@@ -140,6 +187,7 @@ function goTo(i) {
         };
         window.addEventListener('resize', onViewportChange);
         window.addEventListener('scroll', onViewportChange, true);
+        document.addEventListener('transitionend', onViewportChange, true);   // the card grows as it becomes current
     }
     placeStep();
     next.focus();
@@ -161,7 +209,7 @@ export function placeTip(r, tipW, tipH, vw, vh) {
 
 function placeStep() {
     if (!layer || stepIndex < 0) return;
-    const r = TOUR_STEPS[stepIndex].target().getBoundingClientRect();
+    const r = targetOf(TOUR_STEPS[stepIndex]).getBoundingClientRect();
     const vw = document.documentElement.clientWidth, vh = window.innerHeight;
     // The outline sits just outside the area, kept on screen when the area touches the edge (the header).
     const pad = 6;
@@ -172,13 +220,4 @@ function placeStep() {
     const pos = placeTip({ left, top, right, bottom }, tip.offsetWidth, tip.offsetHeight, vw, vh);
     Object.assign(tip.style, { left: `${pos.left}px`, top: `${pos.top}px` });
     tip.dataset.side = pos.side;
-}
-
-export function showWelcome() {
-    if (layer) return;
-    layer = el('div', { id: 'welcomeLayer', className: 'vcge-welcome' });
-    document.body.append(layer);
-    setPageInert(true);
-    document.addEventListener('keydown', onKey, true);
-    renderWelcome();
 }

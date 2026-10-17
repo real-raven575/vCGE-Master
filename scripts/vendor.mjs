@@ -98,6 +98,15 @@ fs.copyFileSync(path.join(NM, 'simple-icons/LICENSE.md'), path.join(iconsOut, 'L
 console.log(`${(fs.statSync(path.join(iconsOut, 'templates.json')).size / 1024).toFixed(0).padStart(6)} KB  src/vendor/icons/templates.json`);
 const appIconsOut = path.join(iconsOut, 'app');
 fs.mkdirSync(appIconsOut, { recursive: true });
-for (const name of APP_ICONS) fs.copyFileSync(path.join(NM, '@tabler/icons/icons/outline', `${name}.svg`), path.join(appIconsOut, `${name}.svg`));
+const symbols = [];
+for (const name of APP_ICONS) {
+    const svg = fs.readFileSync(path.join(NM, '@tabler/icons/icons/outline', `${name}.svg`), 'utf8');
+    fs.writeFileSync(path.join(appIconsOut, `${name}.svg`), svg);
+    // One sprite for the app's <use> references: each icon as a symbol without its own stroke width, so the page's
+    // CSS (--vcge-icon-stroke) sets it.
+    const inner = /<svg[^>]*>([\s\S]*?)<\/svg>/.exec(svg)[1].replace(/\s+/g, ' ').trim();
+    symbols.push(`<symbol id="${name}" viewBox="0 0 24 24">${inner}</symbol>`);
+}
+fs.writeFileSync(path.join(appIconsOut, 'sprite.svg'), `<svg xmlns="http://www.w3.org/2000/svg" style="display:none">${symbols.join('')}</svg>\n`);
 fs.copyFileSync(path.join(NM, '@tabler/icons/LICENSE'), path.join(appIconsOut, 'LICENSE-tabler.txt'));
-console.log(`${String(APP_ICONS.length).padStart(6)} SVG src/vendor/icons/app/ (Tabler)`);
+console.log(`${String(APP_ICONS.length).padStart(6)} SVG src/vendor/icons/app/ (Tabler) + sprite.svg`);

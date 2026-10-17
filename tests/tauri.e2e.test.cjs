@@ -52,26 +52,31 @@ async function stopDriver(driver) {
   const txt = (id) => js(`return document.getElementById(arguments[0]).textContent.trim();`, id);
   const visible = (id) => js(`const e = document.getElementById(arguments[0]); return !e.classList.contains('hidden');`, id);
   const until = async (fn, ms = 20000) => { const end = Date.now() + ms; while (Date.now() < end) { if (await fn()) return true; await sleep(250); } return false; };
-  // The welcome pop-up opens on every start and makes the page behind it inert: press START NOW.
+  // The deck opens on the Welcome card every start: press START to reach the Capture card.
   const startNow = async () => {
     await until(() => js(`return !!document.getElementById('welcomeStartBtn');`), 5000);
     await js(`const b = document.getElementById('welcomeStartBtn'); if (b) b.click();`);
   };
+  // The Security panel is the Vault page, a sheet over the deck: open it from the header, close it with its X.
+  const openVaultPage = async () => { await click('#navVault'); await until(() => visible('vaultPage'), 5000); };
+  const closeVaultPage = async () => { await click('#vaultPage [data-sheet-close]'); await until(async () => !(await visible('vaultPage')), 5000); };
 
   try {
     await until(() => js(`return document.readyState === 'complete' && !!document.getElementById('vaultModal');`));
-    ok('desktop app opens on the welcome pop-up (START NOW / Show me around)', await until(() => js(`return !!document.getElementById('welcomeDialog') && document.querySelector('main').inert;`), 5000));
+    ok('desktop app opens on the Welcome card (START / Take a Tour)', await until(() => js(`return document.getElementById('cardWelcome').classList.contains('is-current') && !!document.getElementById('welcomeTourBtn');`), 5000));
     await click('#welcomeStartBtn');
-    ok('START NOW closes it and the page takes input', await until(() => js(`return !document.getElementById('welcomeLayer') && !document.querySelector('main').inert;`), 5000));
+    ok('START moves the deck to the Capture card', await until(() => js(`return document.documentElement.dataset.card === 'capture' && document.getElementById('cardCapture').classList.contains('is-current');`), 5000));
     ok('desktop app opens straight to an empty card (no passphrase dialog)', !(await visible('vaultModal')) && (await val('firstName')) === '' && (await txt('vaultStateIndicator')) === 'UNLOCKED / memory only');
     ok('Tauri IPC is available (withGlobalTauri)', await js(`return !!(window.__TAURI__ && window.__TAURI__.core);`));
     ok('page is served from the Tauri asset protocol', /^(tauri:|http:\/\/tauri\.localhost)/.test(await js('return location.href;')), await js('return location.href;'));
     ok('keyring starts empty', !keyringHasDeviceKey());
 
-    // Session PIN from the Security panel
+    // Session PIN from the Security panel (the Vault page)
+    await openVaultPage();
     await click('#setSessionPinBtn');
     await type('#sessionPinInput', '2468'); await click('#quickSetupSaveBtn');
     ok('session PIN set in the desktop app', await until(async () => !(await visible('quickSetupModal')) && (await txt('sessionPinStatus')) === 'Session PIN: set', 10000));
+    await closeVaultPage();
 
     await type('#firstName', 'Desk'); await type('#lastName', 'Top'); await type('#organization', 'Tauri, Inc');
     await sleep(900);
@@ -194,6 +199,7 @@ async function stopDriver(driver) {
     // Wipe button
     await js('window.confirm = () => true;');
     await type('#firstName', 'Wipe me');
+    await openVaultPage();
     await click('#wipeVaultBtn');
     ok('desktop: Wipe empties the card', await until(async () => (await val('firstName')) === '' && (await txt('auditLog')).includes('Vault wiped'), 5000));
   } finally {

@@ -44,7 +44,14 @@ async function renderSkewedCard(page) {
 }
 
 // Drags each crop handle onto a point given in the photo's own pixels.
+// Waits until the deck has finished scrolling and the card in view sits centred (positions measured after this hold).
+const deckSettled = (page) => page.waitForFunction(() => {
+  const t = document.getElementById('deck'), c = document.querySelector('.deck-card.is-current');
+  return !!c && Math.abs(t.scrollLeft - (c.offsetLeft + c.offsetWidth / 2 - t.clientWidth / 2)) < 1.5;
+});
+
 async function dragCorners(page, corners) {
+  await deckSettled(page);
   const box = await page.locator('#reviewImage').boundingBox();
   const natural = await page.$eval('#reviewImage', i => ({ w: i.naturalWidth, h: i.naturalHeight }));
   for (let i = 0; i < 4; i++) {
@@ -66,11 +73,19 @@ async function decodeQr(page) {
   return r && r.data;
 }
 
-// Sets a session PIN from the Security panel.
+// The Security panel is the Vault page, a sheet over the deck: the header padlock icon opens it, its X (or Esc) closes it.
+const vaultOpen = (page) => page.isVisible('#vaultPage');
+async function openVault(page) { if (!(await vaultOpen(page))) { await page.click('#navVault'); await page.waitForSelector('#vaultPage', { state: 'visible' }); } }
+async function closeVault(page) { if (await vaultOpen(page)) { await page.click('#vaultPage [data-sheet-close]'); await page.waitForSelector('#vaultPage', { state: 'hidden' }); } }
+
+// Sets a session PIN from the Security panel (opens the Vault page, and closes it again if it was closed).
 async function setPin(page, pin) {
+  const wasOpen = await vaultOpen(page);
+  await openVault(page);
   await page.click('#setSessionPinBtn');
   await page.fill('#sessionPinInput', pin); await page.click('#quickSetupSaveBtn');
   await page.waitForSelector('#quickSetupModal', { state: 'hidden' });
+  if (!wasOpen) await closeVault(page);
 }
 
 // Makes the page look hidden (another app in front, screen off) or visible again.
@@ -249,16 +264,21 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   }));
   ok('OCR worker lock refuses a script from another host', guardRefuses === 'refused', guardRefuses);
 
-  // Flip & theme
+  // Flip & theme (the theme switch lives in the Settings sheet, behind the header cog)
   await page.click('#flipCardBtn');
   ok('card flips', (await page.$eval('#card3DFlipper', el => el.style.transform)) === 'rotateY(180deg)');
+  await page.click('#navSettings');
+  ok('the cog opens Settings with the theme switch', await page.isVisible('#settingsSheet') && await page.isVisible('#themeToggle'));
   await page.click('#themeToggle');
   ok('theme toggles to light', !(await page.evaluate(() => document.documentElement.classList.contains('dark'))));
   await page.click('#themeToggle');
+  await page.click('#settingsSheet [data-sheet-close]');
   await page.waitForTimeout(600);
 
-  // Wipe button
+  // Wipe button (on the Vault page)
+  await openVault(page);
   await page.click('#wipeVaultBtn'); await page.waitForTimeout(200);
+  await closeVault(page);
   ok('Wipe empties the card, the scan and Reopen last scan', (await val('firstName')) === '' && !(await visible('reopenScanBtn')) && (await text('auditLog')).includes('Vault wiped'));
   ok('Wipe leaves the app usable (no dialog)', !(await visible('vaultModal')) && (await text('vaultBadge')) === 'Vault: UNLOCKED');
 
@@ -347,12 +367,14 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p8.goto(ORIGIN); await p8.waitForTimeout(300);
 
     ok('no session PIN offer on its own', !(await p8.isVisible('#quickSetupModal')) && (await t8('sessionPinStatus')) === 'Session PIN: not set');
+    await openVault(p8);
     await p8.click('#setSessionPinBtn');
     await p8.fill('#sessionPinInput', '12'); await p8.click('#quickSetupSaveBtn');
     ok('session PIN: too-short PIN refused', (await t8('quickSetupError')) === 'Use exactly 4 digits.', await t8('quickSetupError'));
     await p8.fill('#sessionPinInput', '2468'); await p8.click('#quickSetupSaveBtn');
     await p8.waitForSelector('#quickSetupModal', { state: 'hidden' });
     ok('session PIN set: Security panel shows it and Lock appears', (await t8('sessionPinStatus')) === 'Session PIN: set' && await p8.isVisible('#lockVaultBtn'));
+    await closeVault(p8);
     await p8.fill('#firstName', 'Quick'); await p8.fill('#lastName', 'Unlock');
     await p8.clock.fastForward(1000);
     ok('timer strip: with a PIN it reads "Locks in", calm, no note', await p8.isVisible('#vaultTimerStrip') && (await t8('vaultTimerLabel')) === 'Locks in' && /^1:5\d$/.test(await t8('vaultTimerTime')) && !(await p8.isVisible('#vaultTimerNote')), await t8('vaultTimerTime'));
@@ -410,6 +432,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('"Wipe and start over" wipes the held card', !(await p8.isVisible('#vaultModal')) && (await p8.inputValue('#firstName')) === '' && (await t8('auditLog')).includes('Vault wiped (start over)'));
 
     await setPin(p8, '4321');
+    await openVault(p8);
     ok('Security panel: Change and Remove offered', (await t8('setSessionPinBtn')) === 'Change' && await p8.isVisible('#clearSessionPinBtn'));
     await p8.click('#clearSessionPinBtn');
     ok('Security panel: Remove forgets the PIN and hides Lock', (await t8('sessionPinStatus')) === 'Session PIN: not set' && (await t8('auditLog')).includes('Session PIN removed') && !(await p8.isVisible('#lockVaultBtn')));
@@ -431,11 +454,13 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
       protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true } });
     const tB = id => pB.textContent('#' + id).then(t => t.trim());
     await pB.goto(ORIGIN); await pB.waitForTimeout(300);
+    await openVault(pB);
     ok('biometric not offered before a PIN is set', !(await pB.isVisible('#biometricRow')));
     await setPin(pB, '2468');
     ok('biometric offered once a PIN is set', await pB.isVisible('#biometricRow') && (await tB('biometricStatus')) === 'Face ID / fingerprint: off');
     await pB.click('#addBiometricBtn'); await pB.waitForTimeout(500);
     ok('biometric added for this session', (await tB('biometricStatus')) === 'Face ID / fingerprint: on' && (await tB('auditLog')).includes('Face ID / fingerprint added'), await tB('toastMessage'));
+    await closeVault(pB);
     await pB.fill('#firstName', 'Bio'); await pB.click('#lockVaultBtn');
     ok('lock screen offers Face ID / fingerprint', await pB.isVisible('#vaultBiometricBtn') && (await pB.inputValue('#firstName')) === '');
     await pB.click('#vaultBiometricBtn');
@@ -448,6 +473,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await pB.fill('#vaultPin', '2468');
     await pB.waitForSelector('#vaultModal', { state: 'hidden' });
     ok('the PIN still works as the fallback', (await pB.inputValue('#firstName')) === 'Bio');
+    await openVault(pB);
     await pB.click('#clearSessionPinBtn');
     ok('removing the PIN removes biometric too', !(await pB.isVisible('#biometricRow')) && !(await pB.isVisible('#lockVaultBtn')));
     ok('biometric: nothing saved to browser storage', !(await pB.evaluate(() => JSON.stringify(localStorage) + JSON.stringify(sessionStorage))).includes('Bio'));
@@ -1009,7 +1035,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await ctxW.close();
   }
 
-  // MOD01 welcome pop-up and tour: on every start, nothing stored, page inert behind it, six steps that spotlight each area
+  // MOD01 postcard deck, Welcome card, CANCEL / Thank You page and the tour: on every start, nothing stored, six steps
   {
     const ctxH = await plainContext();
     const pH = await ctxH.newPage();
@@ -1017,69 +1043,112 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     pH.on('pageerror', e => errorsH.push(e.message));
     pH.on('console', m => { if (m.type() === 'error') errorsH.push('console: ' + m.text()); });
     pH.on('request', r => { if (!r.url().startsWith(ORIGIN) && !/^(data|blob):/.test(r.url())) externalH.push(r.url()); });
+    pH.on('dialog', d => d.accept());
     await pH.goto(ORIGIN); await pH.waitForTimeout(400);
     const state = () => pH.evaluate(() => ({
-      dialog: !!document.getElementById('welcomeDialog'), layer: !!document.getElementById('welcomeLayer'),
+      card: document.documentElement.dataset.card, layer: !!document.getElementById('welcomeLayer'),
+      welcomeCurrent: document.getElementById('cardWelcome').classList.contains('is-current'),
+      thanks: !document.getElementById('thankYouPage').classList.contains('hidden'),
+      vault: !document.getElementById('vaultPage').classList.contains('hidden'),
       focus: document.activeElement && document.activeElement.id,
-      inert: !!document.querySelector('main').inert && !!document.querySelector('header').inert,
       title: (document.getElementById('welcomeTitle') || {}).textContent, tagline: (document.getElementById('welcomeTagline') || {}).textContent
     }));
+    const stored = () => pH.evaluate(() => localStorage.length + sessionStorage.length + document.cookie.length);
     const first = await state();
-    ok('welcome: opens on start with START NOW focused and the page behind it inert', first.dialog && first.focus === 'welcomeStartBtn' && first.inert, JSON.stringify(first));
+    ok('welcome: the deck opens on the Welcome card', first.welcomeCurrent && first.card === 'welcome' && !first.thanks && !first.vault, JSON.stringify(first));
     ok('welcome: title and the tagline "Operation: Never Lose Contact"', first.title === 'Welcome to vCGE' && first.tagline === 'Operation: Never Lose Contact', JSON.stringify(first));
-    ok('welcome: buttons read START NOW and Show me around', (await pH.textContent('#welcomeStartBtn')) === 'START NOW' && (await pH.textContent('#welcomeTourBtn')) === 'Show me around');
-    await pH.keyboard.press('Escape');
-    const afterEsc = await state();
-    ok('welcome: Esc closes it and the app takes input again', !afterEsc.layer && !afterEsc.inert);
-    await pH.fill('#firstName', 'Welcomed');
-    ok('welcome: the form works after it closes', (await pH.inputValue('#firstName')) === 'Welcomed');
+    ok('welcome: buttons read Set Up PIN/BIO Lock Now, START, Take a Tour, CANCEL', (await pH.textContent('#welcomePinBtn')) === 'Set Up PIN/BIO Lock Now' && (await pH.textContent('#welcomeStartBtn')) === 'START'
+      && (await pH.textContent('#welcomeTourBtn')) === 'Take a Tour' && (await pH.textContent('#welcomeCancelBtn')) === 'CANCEL');
+    ok('deck: the cards out of view are hidden from assistive tech and covered against taps', await pH.evaluate(() => document.querySelectorAll('.deck-card[aria-hidden="true"]').length === 5 && document.getElementById('cardWelcome').getAttribute('aria-hidden') === 'false'
+      && document.querySelectorAll('.deck-card > .deck-cover').length === 6 && getComputedStyle(document.querySelector('#cardWelcome > .deck-cover')).display === 'none'
+      && getComputedStyle(document.querySelector('#cardCapture > .deck-cover')).display !== 'none'));
+    await pH.click('#welcomeStartBtn'); await pH.waitForTimeout(700);
+    ok('welcome: START moves to the Capture card and lights its header icon', (await state()).card === 'capture'
+      && await pH.$eval('#navCapture', b => b.classList.contains('is-on') && b.getAttribute('aria-current') === 'page') && await pH.$eval('#navRead', b => !b.classList.contains('is-on')));
+    await pH.fill('#firstName', 'Welcomed'); await pH.waitForTimeout(400);
+    ok('deck: typing in a field brings its card into view', (await pH.inputValue('#firstName')) === 'Welcomed' && (await state()).card === 'fields', (await state()).card);
     await pH.reload(); await pH.waitForTimeout(400);
-    ok('welcome: shows again on the next start (nothing remembers it was seen)', (await state()).dialog && (await pH.evaluate(() => localStorage.length + sessionStorage.length + document.cookie.length)) === 0);
+    ok('welcome: shows again on the next start (nothing remembers it was seen)', (await state()).welcomeCurrent && (await stored()) === 0);
+    await pH.click('#welcomePinBtn');
+    ok('welcome: Set Up PIN/BIO Lock Now opens the Vault page', (await state()).vault && await pH.isVisible('#setSessionPinBtn'));
+    await pH.keyboard.press('Escape');
+    ok('deck: Esc closes a sheet', !(await state()).vault);
+    await pH.click('#welcomeSampleBtn'); await pH.waitForTimeout(700);
+    ok('welcome: "Play with sample fields" goes to the Fields card', (await state()).card === 'fields', (await state()).card);
+    await pH.keyboard.press('ArrowLeft'); await pH.waitForTimeout(700);
+    ok('deck: the arrow keys move one card at a time', (await state()).card === 'read', (await state()).card);
+    await pH.click('#navCard'); await pH.waitForTimeout(700);
+    ok('deck: a header icon jumps to its card', (await state()).card === 'card', (await state()).card);
+    await pH.focus('#firstName'); await pH.waitForTimeout(400);
+    await pH.keyboard.press('ArrowLeft'); await pH.waitForTimeout(300);
+    ok('deck: the arrow keys leave the deck alone while typing', (await state()).card === 'fields', (await state()).card);
+    await pH.evaluate(() => document.getElementById('cardCapture').scrollIntoView({ inline: 'center', block: 'nearest' })); await pH.waitForTimeout(400);
+    ok('deck: a swipe (scroll) settles on the nearest card', (await state()).card === 'capture', (await state()).card);
+    await pH.evaluate(() => document.getElementById('cardWelcome').scrollIntoView({ inline: 'center', block: 'nearest' })); await pH.waitForTimeout(400);
+    await pH.click('#welcomeCancelBtn'); await pH.waitForTimeout(300);
+    const cancelled = await state();
+    ok('welcome: CANCEL wipes the card and shows the Thank You page with START OVER focused', cancelled.thanks && cancelled.focus === 'thankYouStartOverBtn' && (await pH.inputValue('#firstName')) === ''
+      && (await pH.textContent('#thankYouStartOverBtn')) === 'START OVER' && (await pH.textContent('#thankYouCloseBtn')) === 'CLOSE WINDOW', JSON.stringify(cancelled));
+    await pH.evaluate(() => { window.close = () => {}; });   // a tab the user opened cannot be closed by the page; the note covers that
+    await pH.click('#thankYouCloseBtn'); await pH.waitForTimeout(500);
+    ok('thank you: CLOSE WINDOW in a browser tab says the tab can be closed', (await pH.textContent('#thankYouNote')).includes('close this tab'));
+    await pH.click('#thankYouStartOverBtn'); await pH.waitForTimeout(600);
+    ok('thank you: START OVER starts fresh on the Welcome card', (await state()).welcomeCurrent && !(await state()).thanks && (await stored()) === 0);
 
     await pH.click('#welcomeTourBtn');
     const titles = [];
     for (let i = 0; i < 6; i++) {
+      await pH.waitForTimeout(700);
       const s = await pH.evaluate((i) => {
         const spot = document.getElementById('tourSpot').getBoundingClientRect(), tip = document.getElementById('tourTip').getBoundingClientRect();
-        const area = (i === 0 ? document.getElementById('imageUpload').parentElement   // the "Upload image" button (the file input is hidden)
-          : i < 5 ? document.getElementById(['', 'firstName', 'card3DFlipper', 'downloadVcfBtn', 'wipeVaultBtn'][i]) : document.querySelector('header')).getBoundingClientRect();
+        const area = (i < 4 ? document.getElementById(['cardCapture', 'cardFields', 'cardCard', 'cardShare'][i])
+          : i === 4 ? document.querySelector('#vaultPage .vcge-sheet-panel') : document.querySelector('header')).getBoundingClientRect();
         // The spotlight surrounds the area as far as it is on screen (its outline is pulled 4 px in at the screen edge)
-        const covers = spot.left <= Math.max(area.left, 4) && spot.top <= Math.max(area.top, 4) && spot.right >= Math.min(area.right, innerWidth - 4) && spot.bottom >= Math.min(area.bottom, innerHeight - 4);
+        const covers = spot.left <= Math.max(area.left, 4) + 1 && spot.top <= Math.max(area.top, 4) + 1 && spot.right >= Math.min(area.right, innerWidth - 4) - 1 && spot.bottom >= Math.min(area.bottom, innerHeight - 4) - 1;
         return { covers, step: document.getElementById('tourStep').textContent, title: document.getElementById('tourTitle').textContent, next: document.getElementById('tourNextBtn').textContent,
           spot: [spot.left, spot.top, spot.right, spot.bottom], tip: [tip.left, tip.top, tip.right, tip.bottom], vw: document.documentElement.clientWidth, vh: innerHeight,
-          focus: document.activeElement && document.activeElement.id };
+          focus: document.activeElement && document.activeElement.id, card: document.documentElement.dataset.card, vault: !document.getElementById('vaultPage').classList.contains('hidden') };
       }, i);
       titles.push(s);
       if (i < 5) await pH.click('#tourNextBtn');
     }
-    ok('tour: six steps in order, "Step N of 6", Next focused', titles.map(t => t.title).join('|') === 'Scan a business card|Check the details|Your 3D card|Share when you choose|Your card stays private|You\u2019re ready'
+    ok('tour: six steps in order, "Step N of 6", Next focused', titles.map(t => t.title).join('|') === 'Scan a business card|Check the details|Your 3D card|Share when you choose|Your card stays private|You’re ready'
       && titles.every((t, i) => t.step === `Step ${i + 1} of 6` && t.focus === 'tourNextBtn'), titles.map(t => t.title + ' ' + t.step).join(' | '));
-    ok('tour: each step spotlights its area (scan, form, card, share, security, header)', titles.every(t => t.covers), JSON.stringify(titles.map(t => t.spot)));
+    ok('tour: the deck moves to each step\'s card and the Vault page opens for its step only', titles.map(t => t.card).join('|') === 'capture|fields|card|share|share|share'
+      && titles.map(t => t.vault ? 1 : 0).join('') === '000010', titles.map(t => t.card + (t.vault ? '+vault' : '')).join('|'));
+    ok('tour: each step spotlights its area (scan, fields, card, share, Vault page, header)', titles.every(t => t.covers), JSON.stringify(titles.map(t => t.spot)));
     ok('tour: the last step\'s button is START NOW', titles[5].next === 'START NOW' && titles.slice(0, 5).every(t => t.next === 'Next'));
-    ok('tour: every card fits on screen and does not cover its spotlight', titles.every(t => t.tip[0] >= 0 && t.tip[1] >= 0 && t.tip[2] <= t.vw && t.tip[3] <= t.vh
-      && (t.tip[0] >= t.spot[2] || t.tip[2] <= t.spot[0] || t.tip[1] >= t.spot[3] || t.tip[3] <= t.spot[1])), JSON.stringify(titles.map(t => [t.spot, t.tip])));
+    // The tip sits beside a small area (the Vault page, the header); a whole card leaves no room beside it, so there it sits over the card
+    const beside = (t) => t.tip[0] >= t.spot[2] || t.tip[2] <= t.spot[0] || t.tip[1] >= t.spot[3] || t.tip[3] <= t.spot[1];
+    const noRoom = (t) => { const w = t.tip[2] - t.tip[0] + 32, h = t.tip[3] - t.tip[1] + 32; return t.spot[0] < w && t.vw - t.spot[2] < w && t.spot[1] < h && t.vh - t.spot[3] < h; };
+    ok('tour: every card fits on screen and covers its spotlight only when there is no room beside it', titles.every(t => t.tip[0] >= 0 && t.tip[1] >= 0 && t.tip[2] <= t.vw && t.tip[3] <= t.vh
+      && (beside(t) || noRoom(t))) && beside(titles[4]) && beside(titles[5]), JSON.stringify(titles.map(t => [t.spot, t.tip])));
     await pH.click('#tourBackBtn');
-    ok('tour: Back goes to the previous step', (await pH.textContent('#tourTitle')) === 'Your card stays private');
+    ok('tour: Back goes to the previous step', (await pH.textContent('#tourTitle')) === 'Your card stays private' && (await state()).vault);
     await pH.keyboard.press('ArrowRight');
-    await pH.click('#tourNextBtn');
-    ok('tour: START NOW on the last step closes it', !(await state()).layer && !(await state()).inert);
+    await pH.click('#tourNextBtn'); await pH.waitForTimeout(700);
+    const ended = await state();
+    ok('tour: START NOW on the last step closes it on the Capture card', !ended.layer && !ended.vault && ended.card === 'capture', JSON.stringify(ended));
 
     await pH.reload(); await pH.waitForTimeout(400);
-    await pH.click('#welcomeTourBtn'); await pH.click('#tourSkipBtn');
-    ok('tour: Skip tour closes it', !(await state()).layer);
+    await pH.click('#welcomeTourBtn'); await pH.click('#tourSkipBtn'); await pH.waitForTimeout(700);
+    ok('tour: Skip tour closes it', !(await state()).layer && (await state()).card === 'capture');
 
-    // Phone size: the card sits under (or over) the area and stays on screen at every step
+    // Phone size: one card fills the screen; the tour card sits under (or over) the area and stays on screen at every step
     await pH.setViewportSize({ width: 390, height: 844 });
     await pH.reload(); await pH.waitForTimeout(400);
+    const phoneDeck = await pH.evaluate(() => { const r = document.getElementById('cardWelcome').getBoundingClientRect(); return { l: r.left, r: r.right, w: innerWidth, sw: document.documentElement.scrollWidth, side: document.documentElement.scrollWidth <= innerWidth }; });
+    ok('phone: the Welcome card fills the width and the page does not scroll sideways', phoneDeck.l >= 0 && phoneDeck.r <= 390 && phoneDeck.r - phoneDeck.l >= 370 && phoneDeck.side, JSON.stringify(phoneDeck));
     await pH.click('#welcomeTourBtn');
     const phone = [];
     for (let i = 0; i < 6; i++) {
+      await pH.waitForTimeout(700);
       phone.push(await pH.evaluate(() => { const r = document.getElementById('tourTip').getBoundingClientRect(); return { side: document.getElementById('tourTip').dataset.side, l: r.left, t: r.top, r: r.right, b: r.bottom }; }));
       if (i < 5) await pH.click('#tourNextBtn');
     }
     ok('tour on a phone: every card stays on screen, never beside the area', phone.every(p => p.l >= 0 && p.t >= 0 && p.r <= 390 && p.b <= 844 && p.side !== 'right' && p.side !== 'left'), JSON.stringify(phone));
     await pH.click('#tourNextBtn');
-    ok('welcome: nothing stored, no outside requests, no page errors', (await pH.evaluate(() => localStorage.length + sessionStorage.length)) === 0 && externalH.length === 0 && errorsH.length === 0,
+    ok('welcome: nothing stored, no outside requests, no page errors', (await stored()) === 0 && externalH.length === 0 && errorsH.length === 0,
       externalH.concat(errorsH).join(' | '));
     await ctxH.close();
   }
@@ -1094,21 +1163,26 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await pU.goto(ORIGIN); await pU.waitForTimeout(500);
     const tags = await pU.evaluate(async () => {
       await document.fonts.ready;
-      return Array.from(document.querySelectorAll('.mod-tag')).map(t => {
+      // The cards' tags (the Vault page's MOD-02 and the Settings sheet's MOD-01 show only when those sheets are open)
+      return Array.from(document.querySelectorAll('.deck-card > .mod-tag')).map(t => {
         const span = t.querySelector('span'), host = t.parentElement.getBoundingClientRect(), r = t.getBoundingClientRect();
         return { text: Array.from(t.children).map(c => c.textContent).join(' '), font: getComputedStyle(span).fontFamily, size: getComputedStyle(span).fontSize,
-          onEdge: Math.abs((r.top + r.bottom) / 2 - host.top) < 2 && host.right - r.right > 8 && host.right - r.right < 24 };
+          inCorner: r.top - host.top > 8 && r.top - host.top < 20 && host.right - r.right > 8 && host.right - r.right < 24 };
       });
     });
-    ok('MOD-XX tags: every module\'s panel shows its tag', tags.map(t => t.text).join('|') === 'MOD-03 MOD-04|MOD-02|MOD-05|MOD-06 MOD-07|MOD-08', tags.map(t => t.text).join('|'));
-    ok('MOD-XX tags: same spot (top-right edge), same font (Sixtyfour) and size', tags.every(t => t.onEdge && /Sixtyfour/.test(t.font) && t.size === tags[0].size), JSON.stringify(tags));
+    ok('MOD-XX tags: every card shows its module tag, in step order', tags.map(t => t.text).join('|') === 'MOD-01|MOD-03|MOD-04|MOD-05|MOD-06 MOD-07|MOD-08', tags.map(t => t.text).join('|'));
+    ok('MOD-XX tags: same spot (inside the top-right corner), same font (Sixtyfour) and size', tags.every(t => t.inCorner && /Sixtyfour/.test(t.font) && t.size === tags[0].size), JSON.stringify(tags));
+    await pU.click('#navVault');
+    ok('MOD-XX tags: the Vault page carries MOD-02', await pU.$eval('#vaultPage .mod-tag', t => t.textContent.trim() === 'MOD-02' && t.getBoundingClientRect().width > 0));
+    await pU.click('#vaultPage [data-sheet-close]');
     ok('MOD-XX tags: the bundled Sixtyfour font loads', await pU.evaluate(async () => { await document.fonts.load('10px Sixtyfour'); return document.fonts.check('10px Sixtyfour'); }));
     const small = await pU.evaluate(() => Array.from(document.querySelectorAll('button:not(.crop-handle), label'))
       .filter(b => (b.tagName === 'BUTTON' || b.querySelector(':scope > input[type=file]')) && b.offsetParent)
-      .map(b => { const r = b.getBoundingClientRect(), cs = getComputedStyle(b); return { id: b.id || b.textContent.trim().slice(0, 20), h: r.height, w: r.width, border: cs.borderTopWidth }; })
+      .map(b => { const cs = getComputedStyle(b); return { id: b.id || b.textContent.trim().slice(0, 20), h: b.offsetHeight, w: b.offsetWidth, border: cs.borderTopWidth }; })   // layout size: cards out of view are drawn smaller
       .filter(b => b.h < 43.5 || b.w < 43.5 || b.border !== '2px'));
     ok('buttons: every visible button is at least 44 px with a 2 px outline', small.length === 0, JSON.stringify(small));
     // A finger tap on the outer 4 px of a button is ignored; in the middle it works; a mouse click on the edge still works
+    await pU.click('#navCard'); await pU.waitForTimeout(700);
     const flip = await pU.locator('#flipCardBtn').boundingBox();
     const turned = () => pU.$eval('#card3DFlipper', el => el.style.transform);
     await pU.touchscreen.tap(flip.x + flip.width / 2, flip.y + 1.5);

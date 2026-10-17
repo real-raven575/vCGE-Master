@@ -32,7 +32,7 @@ export default defineConfig({
         outDir: 'dist',
         emptyOutDir: true,
         target: 'es2021',
-        // Never inline fonts as data: URLs: the CSP allows font-src 'self' only
-        assetsInlineLimit: (file) => (file.endsWith('.woff2') ? false : undefined)
+        // Never inline fonts (the CSP allows font-src 'self' only) or the icon sprite (a <use> needs a real URL) as data: URLs
+        assetsInlineLimit: (file) => (/\.(woff2|svg)$/.test(file) ? false : undefined)
     }
 });

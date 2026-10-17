@@ -5,13 +5,16 @@
  * Wires the modules together over the shared event bus:
  *   MOD03 camera / upload -> MOD04 OCR -> MOD05 mapper -> MOD06 card view -> MOD07 vCard + QR
  *   -> MOD02 temporary vault (memory only) and MOD08 egress (every outbound action).
- * MOD01's network lock (netLock.js) is loaded by index.html before every other script; shell.js, imported first, reports its blocks.
+ * MOD01's network lock (netLock.js) is loaded by index.html before every other script; shell.js, imported first, reports its blocks
+ * and starts the postcard deck (deck.js): this controller moves the deck to the card a step lands on and hands the deck its
+ * hooks (toast, wipe, cancel, QR flip) so MOD01 never imports another module.
  * Nothing is stored: leaving or reloading the page, or 7 minutes without activity, wipes it. With a session PIN set,
  * the screen turning off or 2 idle minutes lock the card (PIN or biometric brings it back); without one, 30 s out of
  * view or 2 idle minutes wipe it.
  */
 import './modules/mod01-shell/shell.js';
 import { initTheme } from './modules/mod01-shell/themeManager.js';
+import { go as showCard, use as useDeck } from './modules/mod01-shell/deck.js';
 import { globalEventBus, Events } from './share/eventBus.js';
 import { CONTACT_FIELDS, CONTACT_LIST_FIELDS, createEmptyContact } from './share/cardSchema.js';
 import { temporaryVault, deleteLegacyVault } from './modules/mod02-vault/vault.js';
@@ -261,6 +264,7 @@ function wipeSession(reason, message = null) {
     setVaultIndicator();
     globalEventBus.publish(Events.VAULT_WIPED, { reason, timestamp: Date.now() });
     if (message) cardView.showToast(message);
+    if (reason !== 'cancel' && reason !== 'left the page') showCard('capture');
 }
 
 function wipeVault() {
@@ -708,6 +712,7 @@ function applyOcrReview() {
     $('reopenScanBtn').classList.remove('hidden');
     closeReviewDialog();
     cardView.changeWithUndo('Form filled. Please check the details.', () => cardView.mergeContact(fields));
+    showCard('fields');
 }
 
 // Opens the review step again with the last scan's lines (as last edited), without running OCR again.
@@ -718,6 +723,7 @@ function reopenLastScan() {
     $('ocrBackBtn').classList.toggle('hidden', !$('reviewImage').getAttribute('src'));
     showReviewStep('text');
     $('cropReviewModal').classList.remove('hidden');
+    showCard('read');
 }
 
 function forgetLastScan() {
@@ -756,6 +762,7 @@ function restoreScan(scan) {
     }
     $('ocrBackBtn').classList.toggle('hidden', !scan.photo);
     $('cropReviewModal').classList.remove('hidden');
+    showCard('read');
 }
 
 function wireIntake() {
@@ -779,8 +786,8 @@ function wireIntake() {
     $('ocrTryAgainBtn').addEventListener('click', () => closeTimeoutPrompt(true));
     $('ocrTimeoutCancelBtn').addEventListener('click', () => closeTimeoutPrompt(false));
     $('rotatePhotoBtn').addEventListener('click', () => { showRetakePrompt(false); cropEditor.rotate(); });
-    $('cancelReviewBtn').addEventListener('click', closeReviewDialog);
-    $('ocrCancelBtn').addEventListener('click', closeReviewDialog);
+    $('cancelReviewBtn').addEventListener('click', () => { closeReviewDialog(); showCard('capture'); });
+    $('ocrCancelBtn').addEventListener('click', () => { closeReviewDialog(); showCard('capture'); });
     $('ocrBackBtn').addEventListener('click', () => showReviewStep('photo'));
     $('applyOcrBtn').addEventListener('click', applyOcrReview);
     $('reopenScanBtn').addEventListener('click', reopenLastScan);
@@ -788,11 +795,12 @@ function wireIntake() {
     // (on phones the picker also offers the camera).
     $('retakePhotoBtn').addEventListener('click', () => {
         closeReviewDialog();
+        showCard('capture');
         if ($('cameraPanel').classList.contains('hidden')) $('imageUpload').click();
         else cardView.showToast('Hold the card steady and capture again.');
     });
     // A new photo starts over at step 1 and drops any text extracted from the previous one (the camera reopens the dialog).
-    globalEventBus.subscribe(Events.IMAGE_CAPTURED, () => { showRetakePrompt(false); closeReviewDialog(); forgetLastScan(); $('ocrBackBtn').classList.remove('hidden'); });
+    globalEventBus.subscribe(Events.IMAGE_CAPTURED, () => { showRetakePrompt(false); closeReviewDialog(); forgetLastScan(); $('ocrBackBtn').classList.remove('hidden'); showCard('read'); });
 }
 
 // ---- Egress (MOD08 only) ---------------------------------------------------------------------------------------
@@ -854,6 +862,13 @@ function wireAuditLog() {
 function boot() {
     maskSecretInputs();
     initTheme($('themeToggle'));
+    // MOD01's deck talks to the other modules only through these hooks (and the CARD_CHANGED signal on the bus).
+    useDeck({
+        toast: (message) => cardView.showToast(message),
+        wipe: () => wipeVault(),
+        cancel: () => wipeSession('cancel'),
+        showQr: () => cardView.setFlipped(true)
+    });
     cardView.init();
     wireAuditLog();
     purgeStartupResidue();
