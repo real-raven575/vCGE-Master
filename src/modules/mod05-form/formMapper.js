@@ -57,11 +57,11 @@ export class ContactFormMapper {
     classifyLines(input) {
         const raw = Array.isArray(input) ? input : String(input || '').split('\n').map(text => ({ text, icon: null }));
         const lines = raw
-            .map(l => ({ text: applySecondGuesses(String(l.text || ''), l.alts).replace(/[“”]/g, '"').replace(/[‘’]/g, "'").replace(/\s+/g, ' ').trim(), icon: l.icon || null }))
+            .map(l => ({ text: applySecondGuesses(String(l.text || ''), l.alts).replace(/[“”]/g, '"').replace(/[‘’]/g, "'").replace(/\s+/g, ' ').trim(), icon: l.icon || null, unsure: Array.isArray(l.unsure) && l.unsure.length > 0 }))
             .filter(l => l.text.length > 0)
-            .map(({ text, icon }) => {
+            .map(({ text, icon, unsure }) => {
                 const parsed = splitLabel(text);
-                return { text, icon, ...parsed, label: parsed.label || ICON_LABEL[icon] || null, role: null };
+                return { text, icon, unsure, ...parsed, label: parsed.label || ICON_LABEL[icon] || null, role: null };
             });
         const free = (line) => line.role === null;
 
@@ -146,7 +146,7 @@ export class ContactFormMapper {
             if (TAGLINE_START.test(line.text)) score -= 3;
             if (!title || score > title.score) title = { line, score };
         });
-        if (title && title.score > 0) title.line.role = 'jobTitle';
+        if (title && title.score > 0) { title.line.role = 'jobTitle'; title.line.text = fixTitleSpelling(title.line.text); }
 
         // Company: suffixes (Inc, LLC...) or a match with the web/email domain. Without a convincing line, buildFields
         // derives the company from the domain; a weak line is used only when there is no domain either.
@@ -166,14 +166,27 @@ export class ContactFormMapper {
 
         // A web path ending in the card's own state code, its I read as a bar ("Kalamazoom\" on a Michigan card), ends
         // in that code ("KalamazooMI").
-        const state = (lines.map(l => (l.role === 'cityStateZip' || l.role === 'address') && findAddressLine(l.text)).find(Boolean) || {}).state;
+        const place = lines.map(l => (l.role === 'cityStateZip' || l.role === 'address') && { line: l, ...findAddressLine(l.text) }).find(a => a && a.state) || {};
+        const state = place.state;
         if (state) lines.forEach(l => { if (l.role === 'website') l.body = endWithStateCode(l.body, state); });
+
+        // Lines to check before filling (shown under the line in the review box): a ZIP code the card's state doesn't use,
+        // and lines with words the OCR was unsure of (MOD04 `unsure`). Phone numbers are checked by their own shape.
+        if (place.line && place.country === DEFAULT_COUNTRY && !zipFitsState(place.zip, state)) {
+            place.line.check = `${place.zip} is not a ${REGION_NAME[state] || state} ZIP code. Please check it.`;
+        }
+        lines.forEach(l => {
+            if (!l.check && l.unsure && l.role && !PHONE_ROLES.has(l.role) && l.role !== 'phone') l.check = 'The reader was not sure of some letters here. Please check them.';
+        });
 
         // The review box shows the value that will be filled: no line label ("E", "T", "w"...), the label having set the
         // role, and email and web addresses with their OCR slips repaired. Lines with several numbers keep their labels.
         // An email domain one or two OCR slips away from the web address takes the web address's spelling.
         const site = (lines.map(l => l.role === 'website' && reviewText(l)).find(w => w && !websiteTypeFor(w))) || '';
-        return lines.map(line => ({ text: line.role === 'email' ? matchEmailToWebsite(reviewText(line), site) : reviewText(line), role: line.role || 'ignore', icon: line.icon }));
+        return lines.map(line => ({
+            text: line.role === 'email' ? matchEmailToWebsite(reviewText(line), site, true) : reviewText(line), role: line.role || 'ignore', icon: line.icon,
+            ...(line.check ? { check: line.check } : {})
+        }));
     }
 
     /**
@@ -327,7 +340,7 @@ const TLDS = 'com|net|org|edu|gov|mil|int|io|co|us|biz|info|me|app|dev|ai|tech|o
 const WEB_RE = new RegExp(`^(?:https?:\\/\\/)?(?:www\\.)?[a-z0-9][a-z0-9-]*(?:\\.[a-z0-9-]+)*\\.(?:${TLDS})(?:\\/\\S*)?$`, 'i');
 const EMAIL_TLD_RE = new RegExp(`^(?:[a-z0-9-]+\\.)+(?:${TLDS}|[a-z]{2,})$`, 'i');
 
-const TITLE_WORDS = new RegExp('\\b(?:' + [
+const TITLE_TERMS = [
     'owner', 'co-?owner', 'founder', 'co-?founder', 'president', 'vice president', 'vp', 'svp', 'evp', 'ceo', 'cto', 'cfo', 'coo', 'cio', 'cmo', 'cso',
     'chief', 'chair(?:man|woman|person)?', 'director', 'manager', 'gm', 'head of', 'lead', 'principal', 'partner', 'managing partner',
     'associate', 'officer', 'supervisor', 'superintendent', 'administrator', 'coordinator', 'executive', 'secretary', 'treasurer',
@@ -336,7 +349,19 @@ const TITLE_WORDS = new RegExp('\\b(?:' + [
     'physician', 'doctor', 'dr\\.?', 'nurse', 'rn', 'dds', 'dentist', 'pharmacist', 'therapist', 'professor', 'teacher', 'instructor',
     'sales', 'marketing', 'account executive', 'recruiter', 'editor', 'writer', 'producer', 'photographer', 'artist', 'chef', 'pastor',
     'intern', 'assistant', 'clerk', 'estimator', 'inspector', 'foreman', 'contractor', 'electrician', 'plumber', 'mechanic'
-].join('|') + ')\\b', 'i');
+];
+const TITLE_WORDS = new RegExp('\\b(?:' + TITLE_TERMS.join('|') + ')\\b', 'i');
+// Words a job title is spelled with, for repairing OCR slips in them (see fixTitleSpelling): the plain title words
+// above plus the words around them ("General Manager", "Senior Vice President").
+const TITLE_SPELLING = new Set([...TITLE_TERMS.filter(t => /^[a-z]+$/.test(t)), ...[
+    'general', 'senior', 'junior', 'deputy', 'regional', 'national', 'global', 'international', 'district', 'branch', 'area',
+    'operations', 'office', 'technology', 'information', 'business', 'development', 'customer', 'service', 'services',
+    'project', 'product', 'program', 'account', 'human', 'resources', 'finance', 'financial', 'leader', 'member', 'staff',
+    'store', 'creative', 'technical', 'medical', 'legal', 'client', 'community', 'relations', 'communications', 'research',
+    'quality', 'safety', 'security', 'support', 'systems', 'network', 'software', 'hardware', 'field', 'education',
+    'public', 'affairs', 'digital', 'media', 'content', 'strategy', 'planning', 'events', 'managing', 'chairman',
+    'chairwoman', 'chairperson', 'owner', 'founder'
+]]);
 const COMPANY_SUFFIX = /\b(?:inc|incorporated|llc|l\.l\.c|llp|ltd|limited|corp|corporation|co|company|plc|gmbh|pllc|pc|group|holdings|associates|partners|enterprises|industries|solutions|systems|technologies|technology|consulting|services|agency|studio|labs?|bank|university|college|institute|clinic|hospital)\b\.?/i;
 const TAGLINE_START = /^(?:your|our|the|we|where|making|helping|serving|for all|since)\b/i;
 const SLOGAN_START = /^(?:your|our|we|where|making|helping|serving|for all|since)\b/i;   // "The ..." can be a company name
@@ -386,6 +411,64 @@ function endWithStateCode(text, state) {
     return text.replace(/(\/[A-Za-z-]{3,})([A-Za-z])([\\|!1])(?=\s|$)/, (m, path, letter, bar) => (normaliseState(letter + bar) === state ? path + state : m));
 }
 
+/** The "/" after a web ending read as a bar: "TeamLogicIT.comIKalamazoo" -> "TeamLogicIT.com/Kalamazoo" (bar before a capital). */
+function repairSlash(text) {
+    return text.replace(SLASH_AS_BAR, '$1/');
+}
+const SLASH_AS_BAR = new RegExp(`(?<=[A-Za-z0-9])(\\.(?:${TLDS}))[Il1|!\\\\](?=[A-Z][a-z])`, 'g');
+
+/**
+ * OCR slips in a job title's words, repaired against the title vocabulary (TITLE_SPELLING): vowels read as other vowels
+ * ("Ganaral" -> "General", at most 2) or one dropped letter ("Manger" -> "Manager"). Only words of 5+ letters, and only
+ * when exactly one title word fits; the word's capitals are kept.
+ */
+function fixTitleSpelling(text) {
+    const VOWEL = /[aeiou]/;
+    const fits = (read, word) => {
+        if (word.length === read.length) {
+            let diffs = 0;
+            for (let i = 0; i < word.length; i++) {
+                if (read[i] === word[i]) continue;
+                if (!VOWEL.test(read[i]) || !VOWEL.test(word[i]) || ++diffs > 2) return false;
+            }
+            return diffs > 0;
+        }
+        return word.length === read.length + 1 && [...word].some((_, i) => word.slice(0, i) + word.slice(i + 1) === read);
+    };
+    return text.replace(/[A-Za-z]{5,}/g, (read) => {
+        const lower = read.toLowerCase();
+        if (TITLE_SPELLING.has(lower)) return read;
+        const found = [...TITLE_SPELLING].filter(word => fits(lower, word));
+        if (found.length !== 1) return read;
+        const word = found[0];
+        if (read === read.toUpperCase()) return word.toUpperCase();
+        return /^[A-Z]/.test(read) ? word[0].toUpperCase() + word.slice(1) : word;
+    });
+}
+
+// First three digits of the ZIP codes each state uses (USPS ranges; a few areas are shared across a state line).
+const ZIP_PREFIXES = {
+    AL: [[350, 369]], AK: [[995, 999]], AZ: [[850, 865]], AR: [[716, 729], [755, 755]], CA: [[900, 961]], CO: [[800, 816]],
+    CT: [[60, 69]], DE: [[197, 199]], DC: [[200, 205], [569, 569]], FL: [[320, 349]], GA: [[300, 319], [398, 399]],
+    HI: [[967, 968]], ID: [[832, 838]], IL: [[600, 629]], IN: [[460, 479]], IA: [[500, 528]], KS: [[660, 679]],
+    KY: [[400, 427]], LA: [[700, 714]], ME: [[39, 49]], MD: [[206, 219]], MA: [[10, 27], [55, 55]], MI: [[480, 499]],
+    MN: [[550, 567]], MS: [[386, 397]], MO: [[630, 658]], MT: [[590, 599]], NE: [[680, 693]], NV: [[889, 898]],
+    NH: [[30, 38]], NJ: [[70, 89]], NM: [[870, 884]], NY: [[100, 149], [5, 5], [63, 63]], NC: [[270, 289]], ND: [[580, 588]],
+    OH: [[430, 459]], OK: [[730, 749]], OR: [[970, 979]], PA: [[150, 196]], RI: [[28, 29]], SC: [[290, 299]],
+    SD: [[570, 577]], TN: [[370, 385]], TX: [[733, 733], [750, 799], [885, 885]], UT: [[840, 847]], VT: [[50, 59]],
+    VA: [[201, 201], [220, 246]], WA: [[980, 994]], WV: [[247, 268]], WI: [[530, 549]], WY: [[820, 831]],
+    PR: [[6, 9]], VI: [[8, 8]], GU: [[969, 969]], AS: [[967, 967]], MP: [[969, 969]]
+};
+const REGION_NAME = Object.fromEntries(REGIONS['United States'].regions);
+
+/** Does this ZIP belong to the state? A state without a known range is not questioned. */
+function zipFitsState(zip, state) {
+    const ranges = ZIP_PREFIXES[state];
+    if (!ranges || !/^\d{5}/.test(String(zip || ''))) return true;
+    const prefix = Number(String(zip).slice(0, 3));
+    return ranges.some(([from, to]) => prefix >= from && prefix <= to);
+}
+
 /** What the review box shows for a classified line (see the end of classifyLines). */
 function reviewText({ text, body, label, role, icon }) {
     if (role === 'email') return findEmail(body) || findEmail(text) || repairAddressText(body);
@@ -396,16 +479,18 @@ function reviewText({ text, body, label, role, icon }) {
 const PHONE_ROLES = new Set(Object.values(PHONE_ROLE));
 
 /**
- * OCR slips in an email domain ("TeamlLogiciT.com") are fixed from the web address on the same card
+ * OCR slips in an email domain ("TeamlLogiciT.com", "TeamlogicIT.com") are fixed from the web address on the same card
  * ("TeamLogicIT.com"): same ending, a name of 6+ letters, at most 2 letters different. Anything further apart is
- * taken to be a different domain and left alone.
+ * taken to be a different domain and left alone. Capitals alone are changed only with `capitals` (the review box).
  */
-function matchEmailToWebsite(email, website) {
+function matchEmailToWebsite(email, website, capitals = false) {
     const at = String(email || '').lastIndexOf('@');
     const siteHost = String(website || '').replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0];
     if (at < 1 || !siteHost) return email;
     const mailHost = email.slice(at + 1);
-    if (mailHost.toLowerCase() === siteHost.toLowerCase()) return email;
+    // Same domain but for capitals ("TeamlogicIT.com"): in the review box, the web address's spelling when it has capitals
+    // of its own. Text the user typed (buildFields) keeps its capitals.
+    if (mailHost.toLowerCase() === siteHost.toLowerCase()) return capitals && /[A-Z]/.test(siteHost) ? email.slice(0, at + 1) + siteHost : email;
     const split = (host) => { const i = host.lastIndexOf('.'); return [host.slice(0, i).toLowerCase(), host.slice(i + 1).toLowerCase()]; };
     const [mailName, mailEnd] = split(mailHost), [siteName, siteEnd] = split(siteHost);
     if (mailEnd !== siteEnd || siteName.length < 6 || editDistance(mailName, siteName) > 2) return email;
@@ -455,7 +540,7 @@ function findEmail(text) {
  * On a labelled web line, one word after a bare domain is its path: OCR reads "example.com/Chicago" as "example.com Chicago".
  */
 function findWebsite(text, labelled, joinPath = labelled) {
-    const tokens = repairAddressText(text).split(' ');
+    const tokens = repairSlash(repairAddressText(text)).split(' ');
     for (let i = 0; i < tokens.length; i++) {
         const token = tokens[i].replace(/^[^A-Za-z0-9]+/, '').replace(/[\\|,;)\]]+$/, '').replace(/\.$/, '');
         if (token.includes('@') || token.length < 4) continue;

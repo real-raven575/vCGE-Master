@@ -3,9 +3,9 @@
  * Created by raven575, Gemini & Claude
  *
  * One memory-only store for everything the pipeline holds while a card is being made: the photo, the OCR text, the
- * review lines, the contact, the last scan and the Undo copy. Each module gets a handle that may read and write only
- * the slots it needs, so modules never hand data to each other directly. Values are copied in and out, so no module
- * holds a live reference into another's data. Change notices name the slot, never its contents.
+ * review lines, the contact, the last scan, the Undo copy and the logo Export hands to the card (wiped with the rest).
+ * Each module gets a handle that may read and write only the slots it needs, so modules never hand data to each other
+ * directly. Values are copied in and out, so no module holds a live reference into another's data. Change notices name the slot, never its contents.
  *
  * lock() seals every slot in the TemporaryVault (AES-GCM, a fresh key per lock) behind the session PIN; unlock(pin)
  * or unlockBiometric() puts them back. wipe() empties everything, the held copy, the PIN and the biometric enrolment.
@@ -16,16 +16,17 @@ import { TemporaryVault } from './vault.js';
 import { SessionPin } from './sessionPin.js';
 import { BiometricUnlock } from './biometric.js';
 
-export const SLOTS = Object.freeze(['photo', 'ocr', 'review', 'contact', 'lastScan', 'undo']);
+export const SLOTS = Object.freeze(['photo', 'ocr', 'review', 'contact', 'lastScan', 'undo', 'logo']);
 
 // What each module may touch. `share` slots are readable only during a user gesture (a tap on a share button).
 export const MODULE_RIGHTS = Object.freeze({
     mod03: { read: [], write: ['photo'] },                                  // camera / upload
     mod04: { read: ['photo'], write: ['ocr'] },                             // OCR
     mod05: { read: ['ocr', 'review'], write: ['review'] },                  // field mapping
-    mod06: { read: ['review', 'contact', 'undo'], write: ['contact', 'undo'] }, // card view
+    mod06: { read: ['review', 'contact', 'undo', 'logo'], write: ['contact', 'undo'] }, // card view (reads the logo Export put in)
     mod07: { read: ['contact'], write: [] },                                // vCard + QR
-    mod08: { read: [], write: [], share: ['contact'] }                      // egress, only when the user shares
+    mod08: { read: [], write: ['logo'], share: ['contact'] }                // egress: reads the contact only when the user shares; writes the QR centre logo
+                                                                            // ("Also use this logo on my card"), which the card view reads
 });
 
 const copy = (value) => (value === undefined || value === null ? null : structuredClone(value));

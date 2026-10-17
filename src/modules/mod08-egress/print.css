@@ -1,19 +1,22 @@
 /**
- * vCGE-MOD08: Physical Card Print & PDF Egress Stylesheet (print.css)
+ * vCGE-MOD08: Print / PDF stylesheet (print.css), redesign step 10
  * Created by raven575, Gemini & Claude
- * 
- * Formats physical 3.5" x 2" business cards for direct printing or PDF export.
+ *
+ * One 6 x 3.5 inch page (not letter size): the card front at true business-card size (3.5 x 2 in) on the left and the
+ * QR code (1.5 in) to its right, 0.3 in of padding around everything, centred vertically. Themed keeps the card's
+ * colours (the copy carries the theme variables, set by egressController); Black & White is white paper and dark ink.
+ * Text stays real text: the print dialog's "Save as PDF" makes the PDF, no PDF library is added.
  */
 
-/* The print sheet holds copies of the card front and back (QR), made when Print is pressed; hidden on screen. */
+/* The print sheet holds copies of the card front and the QR, made when Print is pressed; hidden on screen. */
 #printSheet {
     display: none;
 }
 
 @media print {
     @page {
-        size: letter portrait;
-        margin: 0.5in;
+        size: 6in 3.5in;
+        margin: 0.3in;
     }
 
     /* Only the print sheet is printed: everything else is removed from the layout (no blank pages). */
@@ -25,17 +28,25 @@
         background: #ffffff !important;
         min-height: 0 !important;
         display: block !important;
+        overflow: visible !important;
     }
 
+    /* The page inside its margins is 5.4 x 2.9 in: card, gap, QR in one row, centred */
     #printSheet {
         display: flex !important;
-        flex-direction: column;
-        gap: 0.25in;
+        flex-direction: row;
+        align-items: center;
+        justify-content: center;
+        gap: 0.3in;
+        width: 5.4in;
+        height: 2.9in;
+        box-sizing: border-box;
     }
 
-    /* Standard business card: 3.5 in x 2.0 in, white with dark text for ink economy */
+    /* Standard business card: 3.5 in x 2.0 in */
     .print-card {
         position: relative !important;
+        flex: 0 0 3.5in;
         width: 3.5in !important;
         height: 2.0in !important;
         min-height: 0 !important;
@@ -43,40 +54,66 @@
         padding: 0.2in !important;
         border: 1px solid #cbd5e1 !important;
         border-radius: 0.12in !important;
-        background: #ffffff !important;
-        color: #0f172a !important;
         box-shadow: none !important;
         transform: none !important;
         overflow: hidden !important;
         break-inside: avoid;
+        -webkit-print-color-adjust: exact;
+        print-color-adjust: exact;
     }
 
-    .print-card * {
+    /* Black & White: white paper, dark ink, for ink economy */
+    .print-card.print-bw {
+        background: #ffffff !important;
+        color: #0f172a !important;
+    }
+
+    .print-card.print-bw * {
         color: #0f172a !important;
         text-shadow: none !important;
     }
 
-    .print-back {
+    /* Themed: the card's own colours (the variables are copied onto the copy, which stands outside the card) */
+    .print-card.print-themed {
+        background: var(--card-bg, #ffffff) !important;
+        color: var(--card-ink, #0f172a) !important;
+        border-color: var(--card-ink, #0f172a) !important;
+    }
+
+    .print-card.print-themed * {
+        text-shadow: none !important;
+    }
+
+    .print-qr {
+        flex: 0 0 1.5in;
+        width: 1.5in;
         display: flex !important;
         flex-direction: column;
         align-items: center;
         justify-content: center;
         gap: 0.06in;
+        color: #0f172a;
     }
 
-    .print-back img {
-        width: 1.45in;
-        height: 1.45in;
+    .print-qr img {
+        width: 1.5in;
+        height: 1.5in;
     }
 
-    .print-back p {
+    .print-qr p {
         margin: 0;
-        font-size: 9pt;
+        font-size: 8pt;
         font-weight: 700;
+        text-align: center;
+        max-width: 1.5in;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
-    .print-back .print-qr-note {
+    .print-qr .print-qr-note {
         font-size: 7pt;
         font-weight: 400;
+        white-space: normal;
     }
 }

@@ -1,0 +1,42 @@
+/* vCGE-MOD05 Fields card (redesign step 7): the form on one card, the "Insert Fake Contact?" list, the pop-in on
+   arrival (all boxes at once, a small overshoot, 26 fps steps; instant under reduce motion) and the green
+   "Everything's correct" button in the lower corner on the dominant-hand side. No flashing, no sound. */
+
+:root {
+    --fields-green: #16a34a;
+    --fields-green-deep: #15803d;
+    --fields-pop-ms: 320ms;
+    --fields-pop-steps: 8;           /* 0.32 s at 26 fps */
+}
+
+/* ---- Head and tools ------------------------------------------------------------------------------------------ */
+.fields-head { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.fields-head h2 { font-size: 1.125rem; font-weight: 700; margin: 0; }
+.fields-tools { display: flex; align-items: center; justify-content: space-between; gap: var(--vcge-gap, 0.5rem); flex-wrap: wrap; }
+.fields-fake { flex: 1 1 12rem; min-width: 0; }
+.fields-fake select { width: 100%; min-height: var(--vcge-tap, 2.75rem); font-weight: 600; }
+
+/* ---- The form: pops in on arrival -------------------------------------------------------------------------- */
+.fields-form { transform-origin: 50% 20%; }
+.fields-form.is-popping { animation: fields-pop var(--fields-pop-ms) steps(var(--fields-pop-steps)) both; }
+@keyframes fields-pop {
+    0%   { transform: scale(0.92); opacity: 0; }
+    65%  { transform: scale(1.04); opacity: 1; }     /* the overshoot snap, about 4 percent */
+    100% { transform: scale(1); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+    .fields-form.is-popping { animation: none; }
+}
+
+/* ---- "Everything's correct": green, in the foot, on the side away from the trash button ------------------- */
+.fields-ok {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; padding: 0 1.25rem; min-width: 6rem;
+    margin-left: auto; border-radius: 0.875rem; font-size: 1rem; font-weight: 800; letter-spacing: 0.02em; cursor: pointer;
+    background: var(--fields-green); color: #020617; border-color: var(--fields-green-deep);
+}
+.fields-ok:hover { background: #22c55e; }
+.fields-ok .vcge-icon { width: 1.5rem; height: 1.5rem; }
+/* Left hand: the foot runs mirrored (deck.css), so the button sits on the left and the trash on the right */
+html[data-hand="left"] .fields-ok { margin-left: 0; margin-right: auto; }
+/* Colour-blind mode: blue, like every other OK */
+html[data-cb="1"] .fields-ok { background: #2563eb; border-color: #1d4ed8; color: #fff; }

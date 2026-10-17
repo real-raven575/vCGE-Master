@@ -236,7 +236,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const before = JSON.stringify(localStorage);
   let gesture = false;
   const s = new VaultStore({ isUserGesture: () => gesture });
-  ok('vault store has the pipeline slots and starts empty', SLOTS.join() === 'photo,ocr,review,contact,lastScan,undo' && s.isEmpty() && s.state() === 'open');
+  ok('vault store has the pipeline slots and starts empty', SLOTS.join() === 'photo,ocr,review,contact,lastScan,undo,logo' && s.isEmpty() && s.state() === 'open');
   const notices = []; s.onChange('contact', n => notices.push(n));
   const contact = { firstName: 'Jane', phones: [{ type: 'work', value: '555' }] };
   s.put('contact', contact);
@@ -259,6 +259,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('egress reads the contact only during a user gesture', egress.readForShare('contact') === null && ((gesture = true), egress.readForShare('contact').firstName === 'Jane'));
   gesture = false;
   ok('egress cannot share the photo', denied(() => egress.readForShare('photo')));
+  // Logo slot (redesign step 3): Export writes the QR centre logo the person wants on the card; the card view reads it.
+  const cardH = s.handle('mod06');
+  egress.put('logo', '<svg/>');
+  ok('egress writes the logo slot; the card view reads it', cardH.get('logo') === '<svg/>' && denied(() => egress.get('logo')) && denied(() => cardH.put('logo', 'x')));
+  ok('no other module reaches the logo', denied(() => cam.get('logo')) && denied(() => ocrH.get('logo')) && denied(() => qr.get('logo')));
   let unknownModule = false; try { s.handle('mod99'); } catch (e) { unknownModule = e.message.startsWith('VAULT_UNKNOWN_MODULE'); }
   ok('unknown modules get no handle', unknownModule);
   ok('every module right names a real slot', Object.values(MODULE_RIGHTS).every(r => [...r.read, ...r.write, ...(r.share || [])].every(x => SLOTS.includes(x))));
@@ -459,6 +464,23 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('a second guess without "I" changes nothing', fm.classifyLines([{ text: 'w shopiT.com', alts: [{ at: 6, chars: ['i', 'l'] }] }])[0].text === 'shopiT.com');
   const pathState = (site, place) => fm.buildFields(fm.classifyLines(`Jo Smith\nw ${site}\n${place}`)).fields.websites[0].value;
   ok('a web path ends in the card\'s state code only when its I was read as a bar', pathState('acme.com/Detroitm\\', 'Detroit, MI 48201') === 'acme.com/DetroitMI' && pathState('acme.com/Detroitm\\', 'Austin, TX 73301') === 'acme.com/Detroitm' && pathState('acme.com/email', 'Chicago, IL 60601') === 'acme.com/email', [pathState('acme.com/Detroitm\\', 'Detroit, MI 48201'), pathState('acme.com/Detroitm\\', 'Austin, TX 73301')].join(' | '));
+  // Camera reads of the TeamLogic card (2026-10-16): slash read as a bar, email capitals, title vowels, ZIP vs state
+  const camera = fm.classifyLines([{ text: 'Nick Zafer' }, { text: 'Owner & Ganaral Manager' }, { text: '7950 Moorsbridge Road, Suite 405' },
+    { text: 'Portage, Mi 42024' }, { text: 'E nzafer@TeamlogicIT.com' }, { text: 'W TeamLogicIT.comIKalamazohhy', unsure: ['TeamLogicIT.comIKalamazohhy'] }]);
+  const cameraText = (role) => (camera.find(l => l.role === role) || {}).text;
+  ok('a "/" read as a bar after the web ending is a "/" again', cameraText('website') === 'TeamLogicIT.com/Kalamazohhy' && fm.classifyLines('w acme.comlDetroit')[0].text === 'acme.com/Detroit' && fm.classifyLines('w acme.com/Detroit')[0].text === 'acme.com/Detroit', cameraText('website'));
+  ok('a bar before a lowercase word is left alone', fm.classifyLines('w acme.comIdetroit')[0].text !== 'acme.com/detroit');
+  ok('email domain that differs only in capitals takes the web address spelling', cameraText('email') === 'nzafer@TeamLogicIT.com' && fm.parseOCRText('Jo Smith\njo@Acme.com\nacme.com').emails[0].value === 'jo@Acme.com' && fm.buildFields([{ text: 'jo@acmetools.com', role: 'email' }, { text: 'AcmeTools.com', role: 'website' }]).fields.emails[0].value === 'jo@acmetools.com', cameraText('email'));
+  const titleOf = (t) => fm.classifyLines(`Jo Smith\n${t}`)[1].text;
+  ok('job-title vowels read wrong are repaired (Ganaral -> General)', cameraText('jobTitle') === 'Owner & General Manager' && titleOf('SALES DIRACTOR') === 'SALES DIRECTOR', cameraText('jobTitle'));
+  ok('a job-title word missing one letter is repaired (Manger -> Manager)', titleOf('Sales Manger') === 'Sales Manager', titleOf('Sales Manger'));
+  ok('other title words are left alone (Waiter, Painter, Owners)', titleOf('Head Waiter & Painter Manager') === 'Head Waiter & Painter Manager' && titleOf('Owners Manager') === 'Owners Manager', titleOf('Head Waiter & Painter Manager'));
+  ok('filled values are what the review box shows', JSON.stringify(fm.buildFields(camera).fields.websites) === JSON.stringify([{ type: 'work', value: 'TeamLogicIT.com/Kalamazohhy' }]) && fm.buildFields(camera).fields.jobTitle === 'Owner & General Manager');
+  const zipCheck = (place) => fm.classifyLines(`Jo Smith\n12 Main Street\n${place}`).find(l => l.role === 'cityStateZip').check;
+  ok('a ZIP code the state does not use is flagged for checking, not changed', camera.find(l => l.role === 'cityStateZip').check === '42024 is not a Michigan ZIP code. Please check it.' && fm.buildFields(camera).fields.zip === '42024', JSON.stringify(camera.find(l => l.role === 'cityStateZip')));
+  ok('a ZIP code that fits its state is not flagged', zipCheck('Portage, MI 49024') === undefined && zipCheck('Boston, MA 02108') === undefined && zipCheck('Austin, TX 73301') === undefined, zipCheck('Boston, MA 02108'));
+  ok('a line with words the reader was unsure of is flagged for checking', camera.find(l => l.role === 'website').check === 'The reader was not sure of some letters here. Please check them.');
+  ok('unsure phone numbers and ignored lines are not flagged', fm.classifyLines([{ text: 'Jo Smith' }, { text: 'T 269.492.7400', unsure: ['269.492.7400'] }, { text: 'ya O/', unsure: ['ya'] }]).every(l => !('check' in l)));
   ok('a short domain is not matched (too easy to confuse)', fm.parseOCRText('Jo Smith\njo@abd.com\nabc.com').emails[0].value === 'jo@abd.com');
   ok('review text, read again as plain lines, fills the same fields', JSON.stringify(fm.buildFields(slips).fields) === JSON.stringify(fm.parseOCRText(slips.map(l => l.text).join('\n'))));
   const slipFields = fm.buildFields(slips);
@@ -546,9 +568,67 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('collapsed corners are rejected', threw);
 }
 
+// Viewfinder geometry and the stepped tween (MOD03 Capture card)
+{
+  const { visibleSourceRect, cardFrameRect, easeSnap, tween, CARD_ASPECT, OVERSHOOT } = await import(`${R}/modules/mod03-camera/viewfinder.js`);
+  ok('visible window: a 16:9 view over a 16:9 feed at 1x is the whole frame', JSON.stringify(visibleSourceRect(1600, 900, 1920, 1080)) === JSON.stringify({ x: 0, y: 0, width: 1920, height: 1080 }));
+  ok('visible window: a tall phone view over a wide feed shows the middle band (cover crop)', JSON.stringify(visibleSourceRect(390, 520, 1920, 1080)) === JSON.stringify({ x: 555, y: 0, width: 810, height: 1080 }), JSON.stringify(visibleSourceRect(390, 520, 1920, 1080)));
+  ok('visible window: 2x digital zoom shows the centre quarter of that band', JSON.stringify(visibleSourceRect(390, 520, 1920, 1080, 2)) === JSON.stringify({ x: 758, y: 270, width: 405, height: 540 }), JSON.stringify(visibleSourceRect(390, 520, 1920, 1080, 2)));
+  ok('visible window: zoom below 1 and missing sizes are harmless', visibleSourceRect(390, 520, 1920, 1080, 0.5).width === 810 && visibleSourceRect(0, 0, 640, 360).width === 640);
+  const wide = cardFrameRect(800, 450), tall = cardFrameRect(390, 520);
+  ok('card frame: landscape in a wide view, upright in a tall one, 3.5:2 either way', wide.orientation === 'landscape' && Math.abs(wide.width / wide.height - CARD_ASPECT) < 1e-9 && tall.orientation === 'portrait' && Math.abs(tall.height / tall.width - CARD_ASPECT) < 1e-9);
+  ok('card frame: fills most of the view and sits centred', wide.width === 800 * 0.88 || wide.height === 450 * 0.88, JSON.stringify(wide));
+  ok('card frame: centred', Math.abs(wide.x * 2 + wide.width - 800) < 1e-9 && Math.abs(tall.y * 2 + tall.height - 520) < 1e-9);
+  ok('ease: starts at 0, ends at 1, overshoots a little late in the move', easeSnap(0) === 0 && Math.abs(easeSnap(1) - 1) < 1e-9 && easeSnap(0.8) > 1 && easeSnap(0.8) < 1 + OVERSHOOT + 1e-9 && Math.abs(easeSnap(0.5) - 0.5) < 1e-9, [easeSnap(0.5), easeSnap(0.8)].join());
+  // A fake clock: the tween steps at 26 fps and lands exactly on the target
+  let now = 0; const timers = [];
+  const schedule = (fn, ms) => { timers.push({ at: now + ms, fn }); return timers.length; };
+  const seen = [];
+  tween(1, 2, 260, (v) => seen.push(v), { now: () => now, schedule, cancel: () => {} });
+  while (timers.length) { const t = timers.shift(); now = t.at; t.fn(); }
+  ok('tween: stepped frames about 38 ms apart, ending exactly on the target', seen.length >= 6 && seen.length <= 8 && seen[seen.length - 1] === 2 && seen.slice(0, -1).every(v => v > 1 && v < 2.1), JSON.stringify(seen));
+  const instant = []; tween(1, 3, 260, (v) => instant.push(v), { instant: true, schedule, cancel: () => {} });
+  ok('tween: under reduce motion the end value applies at once', instant.length === 1 && instant[0] === 3 && timers.length === 0);
+}
+
+// Snap to card: the on-device edge finder (MOD03)
+{
+  const { findCardQuad, convexHull, orderCorners } = await import(`${R}/modules/mod03-camera/cardFinder.js`);
+  // A white 1050 x 600 card, rotated and sheared on a grey background, with dark "text" rows on it (the e2e crooked card)
+  const deg = Math.PI / 180;
+  const mul = (a, b) => [a[0] * b[0] + a[2] * b[1], a[1] * b[0] + a[3] * b[1], a[0] * b[2] + a[2] * b[3], a[1] * b[2] + a[3] * b[3], a[0] * b[4] + a[2] * b[5] + a[4], a[1] * b[4] + a[3] * b[5] + a[5]];
+  const apply = (m, x, y) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+  const invert = (m) => { const det = m[0] * m[3] - m[1] * m[2]; const a = m[3] / det, b = -m[1] / det, c = -m[2] / det, d = m[0] / det; return [a, b, c, d, -(a * m[4] + c * m[5]), -(b * m[4] + d * m[5])]; };
+  let m = [1, 0, 0, 1, 820, 600];
+  m = mul(m, [Math.cos(-24 * deg), Math.sin(-24 * deg), -Math.sin(-24 * deg), Math.cos(-24 * deg), 0, 0]);
+  m = mul(m, [1, 0, Math.tan(-12 * deg), 1, 0, 0]);
+  m = mul(m, [1, 0, 0, 1, -525, -300]);
+  const render = (W, H, bg, card, text = true) => {
+    const data = new Uint8ClampedArray(W * H * 4), inv = invert(m);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const [cx, cy] = apply(inv, x + 0.5, y + 0.5);
+      let v = bg;
+      if (cx >= 0 && cx < 1050 && cy >= 0 && cy < 600) v = text && cy > 40 && cy < 500 && cx > 70 && cx < 900 && Math.floor(cy / 60) % 2 === 0 && Math.floor(cx / 14) % 3 !== 2 ? 255 - card : card;
+      const o = (y * W + x) * 4; data[o] = data[o + 1] = data[o + 2] = v; data[o + 3] = 255;
+    }
+    return { data, width: W, height: H };
+  };
+  const corners = [[0, 0], [1050, 0], [1050, 600], [0, 600]].map(([x, y]) => apply(m, x, y));
+  const close = (q) => !!q && q.length === 4 && q.every((p, i) => Math.hypot(p.x - corners[i][0], p.y - corners[i][1]) < 12);
+  const light = findCardQuad(render(1600, 1200, 110, 255));
+  ok('finder: a white card on a grey table is found, corners within 12 px, top-left first', close(light), JSON.stringify(light));
+  ok('finder: a dark card on a light table is found too', close(findCardQuad(render(1600, 1200, 245, 40))));
+  ok('finder: nothing to find in a flat photo', findCardQuad(render(800, 600, 128, 128, false)) === null);
+  ok('finder: a photo that already is the card (edges off every side) gives null, so the handles stay at the full edge', findCardQuad({ data: new Uint8ClampedArray(400 * 240 * 4).fill(255), width: 400, height: 240 }) === null);
+  const smallBlob = (() => { const W = 400, H = 300, data = new Uint8ClampedArray(W * H * 4).fill(60); for (let y = 140; y < 160; y++) for (let x = 190; x < 210; x++) { const o = (y * W + x) * 4; data[o] = data[o + 1] = data[o + 2] = 255; } return { data, width: W, height: H }; })();
+  ok('finder: a patch too small to be a card gives null', findCardQuad(smallBlob) === null);
+  ok('convex hull drops inner points and keeps the corners', convexHull([[0, 0], [10, 0], [10, 10], [0, 10], [5, 5], [2, 3]]).length === 4);
+  ok('corners are ordered top-left, top-right, bottom-right, bottom-left', orderCorners([{ x: 9, y: 9 }, { x: 0, y: 10 }, { x: 10, y: 0 }, { x: 1, y: 1 }]).map(p => `${p.x},${p.y}`).join(' ') === '1,1 10,0 9,9 0,10');
+}
+
 // QR engine (ESM, delegates to shared formatter)
 {
-  const { VCGEQREngine } = await import(`${R}/modules/mod07-qr/qrGenerator.js`);
+  const { VCGEQREngine, qrPalette } = await import(`${R}/modules/mod07-qr/qrGenerator.js`);
   const q = new VCGEQREngine();
   const contact = { firstName: 'Jane', lastName: 'Doe', organization: 'Smith, Jones', birthday: '1990-01-02' };
   ok('MOD07 output identical to shared formatter', q.generateVCard30(contact) === share.formatVCard(contact));
@@ -557,20 +637,29 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   // Render with the bundled qrcode-generator onto an in-memory canvas, then decode with jsQR.
   const jsQR = require('jsqr');
   globalThis.qrcode = require('../src/vendor/qrcode-generator/qrcode.js');
+  // A tiny canvas: fillRect, arc + fill (round dots, circle frame) and drawImage (a grey block) paint real colours
+  // into an RGBA buffer, so jsQR decodes the same pixels a browser would. stroke draws nothing: a frame sits
+  // outside the quiet zone and must not matter to the decoder.
   const makeCanvas = () => {
     const c = { width: 0, height: 0, _px: null };
+    const rgb = (style) => { const h = style.replace('#', ''); const n = parseInt(h.length === 3 ? h.split('').map(x => x + x).join('') : h, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    const put = (x, y, [r, g, b]) => { if (x < 0 || y < 0 || x >= c.width || y >= c.height) return; const o = (y * c.width + x) * 4; c._px[o] = r; c._px[o + 1] = g; c._px[o + 2] = b; c._px[o + 3] = 255; };
+    const ensure = () => { if (!c._px || c._px.length !== c.width * c.height * 4) c._px = new Uint8ClampedArray(c.width * c.height * 4); };
+    let path = [];
     const ctx = {
-      fillStyle: '#000000', font: '', textAlign: '',
-      fillRect(x, y, w, h) {
-        if (!c._px || c._px.length !== c.width * c.height * 4) c._px = new Uint8ClampedArray(c.width * c.height * 4);
-        const v = this.fillStyle.toLowerCase() === '#ffffff' ? 255 : 0;
-        for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) { const o = (j * c.width + i) * 4; c._px[o] = c._px[o + 1] = c._px[o + 2] = v; c._px[o + 3] = 255; }
-      },
+      fillStyle: '#000000', strokeStyle: '#000000', lineWidth: 1, font: '', textAlign: '',
+      fillRect(x, y, w, h) { ensure(); const col = rgb(this.fillStyle); for (let j = Math.round(y); j < Math.round(y + h); j++) for (let i = Math.round(x); i < Math.round(x + w); i++) put(i, j, col); },
+      beginPath() { path = []; },
+      arc(cx, cy, r) { path.push({ cx, cy, r }); },
+      rect() {}, roundRect() {}, stroke() {},
+      fill() { ensure(); const col = rgb(this.fillStyle); for (const { cx, cy, r } of path) for (let j = Math.floor(cy - r); j <= Math.ceil(cy + r); j++) for (let i = Math.floor(cx - r); i <= Math.ceil(cx + r); i++) if ((i + 0.5 - cx) ** 2 + (j + 0.5 - cy) ** 2 <= r * r) put(i, j, col); },
+      drawImage(img, x, y, w, h) { const keep = this.fillStyle; this.fillStyle = '#777777'; this.fillRect(x, y, w, h); this.fillStyle = keep; },
       fillText() {}
     };
     c.getContext = () => ctx;
     return c;
   };
+  const decodes = (cv) => { const d = jsQR(cv._px, cv.width, cv.height); return d && d.data; };
   const utf8Contact = { firstName: 'José', lastName: 'Müller', organization: 'Café Zürich' };
   const canvas = makeCanvas();
   ok('QR renders with bundled library', q.renderQRCode(canvas, q.generateVCard30(utf8Contact), { size: 320 }) === true && canvas.width <= 320);
@@ -581,6 +670,43 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const hugeOk = q.renderQRCode(huge, 'x'.repeat(5000));
   console.warn = origWarn;
   ok('QR falls back (labelled) when data exceeds capacity', hugeOk === false);
+  const { createEmptyContact } = await import(`${R}/share/cardSchema.js`);
+  ok('MOD07 empty card has no details (default country and address type do not count)', q.hasDetails(createEmptyContact()) === false);
+  ok('MOD07 a name, company, phone or city counts as details', [{ firstName: 'A' }, { organization: 'B' }, { phones: [{ type: 'work', value: '555' }] }, { city: 'Boise' }].every(c => q.hasDetails(c)));
+  ok('MOD07 blank rows and spaces do not count', q.hasDetails({ firstName: '  ', phones: [{ type: 'work', value: '' }] }) === false);
+  const blank = makeCanvas();
+  q.renderPlaceholder(blank, 320);
+  const px = (x, y) => blank._px[(y * blank.width + x) * 4];
+  ok('MOD07 placeholder is a white square on a black square', blank.width === 320 && px(5, 5) === 0 && px(160, 160) === 255 && px(314, 314) === 0);
+  ok('MOD07 placeholder never decodes as a QR code', jsQR(blank._px, blank.width, blank.height) === null);
+
+  // Step 9: themed colours with a contrast check, and the export styles drawn from the same matrix.
+  const themes = { pumpkin: '#e8792b', maple: '#8f2318', harvest: '#dea52c', cranberry: '#6a1030', spruce: '#1f4b3a', sage: '#b9c6a8', slateblue: '#3e5572', twilight: '#2a2450' };
+  const text = q.generateVCard30(utf8Contact);
+  const themedAll = Object.values(themes).every((card) => { const p = qrPalette({ card }); return p.themed && p.ratio >= 4 && p.dark !== '#000000' && p.light !== '#ffffff'; });
+  ok('MOD07 every fall theme tints the QR (dark shade on a pale tint, contrast at least 4:1)', themedAll, JSON.stringify(Object.fromEntries(Object.entries(themes).map(([k, c]) => [k, qrPalette({ card: c }).ratio.toFixed(1)]))));
+  const weak = qrPalette({ card: '#808080' }, { darkMix: 0.1, lightMix: 0.1 });
+  ok('MOD07 a tint under 4:1 falls back to black on white', weak.themed === false && weak.dark === '#000000' && weak.light === '#ffffff' && weak.ratio < 4, weak.ratio);
+  ok('MOD07 a missing or malformed theme is black on white', qrPalette(null).themed === false && qrPalette({ card: 'teal' }).themed === false);
+  const themedOk = Object.values(themes).every((card) => { const cv = makeCanvas(); return q.renderQRCode(cv, text, { size: 320, theme: { card } }) && q.lastRender.themed && decodes(cv) === text; });
+  ok('MOD07 the themed QR decodes to the exact vCard for all eight themes', themedOk);
+  const plain = makeCanvas(); q.renderQRCode(plain, text, { size: 320, theme: null });
+  ok('MOD07 without a theme the QR is black on white and reports themed=false', q.lastRender.themed === false && q.lastRender.dark === '#000000' && decodes(plain) === text);
+  const round = makeCanvas();
+  ok('MOD07 round dots decode (finder squares stay square)', q.renderQRCode(round, text, { size: 320, dots: 'round', theme: { card: themes.spruce } }) && q.lastRender.dots === 'round' && decodes(round) === text);
+  const framed = ['square', 'rounded', 'circle'].every((frame) => { const cv = makeCanvas(); return q.renderQRCode(cv, text, { size: 320, frame, dots: 'round' }) && q.lastRender.frame === frame && cv.width > 0 && decodes(cv) === text; });
+  ok('MOD07 square, rounded and circle frames keep the code scannable', framed);
+  const circle = makeCanvas(); q.renderQRCode(circle, text, { size: 200, frame: 'circle' });
+  const square = makeCanvas(); q.renderQRCode(square, text, { size: 200, frame: 'square' });
+  ok('MOD07 a circle frame gets a larger canvas than a square one, so it clears the corners', circle.width > square.width);
+  const logoed = makeCanvas();
+  ok('MOD07 a centre logo forces level H and the code still decodes around it', q.renderQRCode(logoed, text, { size: 320, logo: {} }) && q.lastRender.level === 'H' && q.lastRender.logo === true && decodes(logoed) === text);
+  ok('MOD07 logo option is offered when the contact fits at level H', q.logoOption(text).ok === true && q.fits(text, 'H') === true);
+  const big = 'x'.repeat(1700); // fits at level M (2953 bytes max) but not at level H (1273 bytes max)
+  ok('MOD07 logo option is greyed out with a reason when the contact no longer fits at level H', q.fits(big, 'M') === true && q.fits(big, 'H') === false && q.logoOption(big).ok === false && /Too much/.test(q.logoOption(big).reason));
+  ok('MOD07 an unknown dots or frame value falls back to square and none', q.renderQRCode(makeCanvas(), text, { dots: 'hex', frame: 'oval' }) && q.lastRender.dots === 'square' && q.lastRender.frame === 'none');
+  q.renderPlaceholder(makeCanvas(), 320);
+  ok('MOD07 the placeholder clears lastRender, so nothing claims a themed code is on screen', q.lastRender === null);
   delete globalThis.qrcode;
 }
 
@@ -606,7 +732,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 // OCR worker (ESM): returns raw text, publishes on the shared bus, and fails loudly (never with made-up text)
 {
   globalThis.document = { baseURI: 'http://localhost/', createElement: () => ({ getContext: () => ({ drawImage() {}, getImageData: () => ({ data: new Uint8ClampedArray(4) }), putImageData() {} }), toDataURL: () => 'data:image/png;base64,' }) };
-  globalThis.Image = class { set src(v) { this.width = 10; this.height = 10; setTimeout(() => this.onload(), 0); } };
+  globalThis.Image = class { set src(v) { this.width = 10; this.height = 10; setTimeout(() => this.onload && this.onload(), 0); } };
   const origLog = console.log, origErr = console.error; console.log = () => {}; console.error = () => {};
   const ocr = await import(`${R}/modules/mod04-ocr/ocrWorker.js`);
   let evt = null; share.globalEventBus.subscribe(share.Events.OCR_TEXT_EXTRACTED, e => evt = e);
@@ -649,6 +775,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('photo with too few readable words rejected as unreadable', sparse && sparse.code === 'OCR_UNREADABLE' && sparse.readableWords === 2, sparse && sparse.message);
   ok('OCR worker is started once and reused after a failure', created === 1, String(created));
   ok('OCR asks the engine for second guesses', params && params.lstm_choice_mode === '2', JSON.stringify(params));
+  const word = (text, confidence) => ({ text, confidence, symbols: [] });
+  result = { text: 'W acme.comlKala\nJane Doe', confidence: 80, words: words(6, 90),
+    lines: [{ text: 'W acme.comlKala', words: [word('W', 10), word('acme.comlKala', 20)] }, { text: 'Jane Doe', words: [word('Jane', 95), word('Doe', 30)] }] };
+  const shaky = await ocr.executeOCRScan('data:image/png;base64,x');
+  ok('OCR passes on the words it was unsure of (2+ characters, below the limit)', JSON.stringify(shaky.lines.map(l => l.unsure)) === JSON.stringify([['acme.comlKala'], ['Doe']]) && ocr.OCR_UNSURE_WORD_CONFIDENCE === 50, JSON.stringify(shaky.lines));
 
   // "Preparing the reader…": reported only when the engine has to start first
   result = { text: 'Jane Doe\njane@example.com', confidence: 88, words: words(8, 90) };
@@ -675,7 +806,39 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const stopped = await running;
   ok('a wipe during a scan ends it with OCR_CANCELLED and publishes nothing', stopped && stopped.code === 'OCR_CANCELLED' && evt === null, stopped && stopped.message);
   hold = false;
+
+  // A read that never answers (a phone stopped the engine) times out, and the next scan gets a fresh engine
+  await ocr.executeOCRScan('data:image/png;base64,x');
+  const before = { created, terminated };
+  hold = true; evt = null;
+  const hung = await failure(ocr.executeOCRScan('data:image/png;base64,x', { readTimeoutMs: 50 }));
+  await new Promise(res => setTimeout(res, 0));
+  ok('a read that never finishes times out with OCR_TIMEOUT and stops the engine', hung && hung.code === 'OCR_TIMEOUT' && terminated === before.terminated + 1 && evt === null && ocr.OCR_READ_TIMEOUT_MS === 55000, hung && hung.message);
+  hold = false; statuses = [];
+  await ocr.executeOCRScan('data:image/png;base64,x', { onStatus: s => statuses.push(s) });
+  ok('the scan after a timeout starts a fresh engine', created === before.created + 1 && statuses.join() === 'starting,reading', `${created} ${statuses.join()}`);
+  const curve = [0, 2000, 10000, 27500, 50000, 55000, 90000].map(t => ocr.readProgress(t));
+  ok('the read wash fills fast, then slower than real time, full exactly at the 55 s read limit', curve[0] === 0 && curve[3] === 0.75 && curve[5] === 1 && curve[6] === 1 && curve.every((v, i) => i === 0 || v >= curve[i - 1]) && curve[2] > 10000 / 55000, curve.join());
   ok('OCR no longer exposes a duplicate parser', !('parseExtractedTextToSchema' in ocr));
+
+  // The Read card (readCard.js): stepped fades, the Looks right timings, the lane
+  const read = await import(`${R}/modules/mod04-ocr/readCard.js`);
+  ok('read card: motion stepped at 26 fps, blink-out and Looks right fade are quick (under 300 ms each)', read.STEP_FPS === 26 && read.BLINK_MS > 0 && read.BLINK_MS < 300 && read.CHECK_FADE_MS > 0 && read.CHECK_FADE_MS < 300 && read.CHECK_NOTE_AT > 0 && read.CHECK_NOTE_AT < 1);
+  ok('read card: ease in and out starts at 0, passes 0.5 halfway, lands at 1', read.easeInOut(0) === 0 && read.easeInOut(0.5) === 0.5 && read.easeInOut(1) === 1 && read.easeInOut(0.25) < 0.25 && read.easeInOut(0.75) > 0.75);
+  const steps = [0, 10, 40, 80, 120, 220, 500].map(t => read.fadeAt(1, 0, t, 220));
+  ok('read card: a fade moves in frame steps and lands exactly on its target', steps[0] === 1 && steps[1] === 1 && steps.every((v, i) => i === 0 || v <= steps[i - 1]) && steps[5] === 0 && steps[6] === 0, steps.join());
+  const faded = { style: {} };
+  await read.fade(faded, 1, 0, 220, { instant: true });
+  ok('read card: under reduce motion a fade is instant', faded.style.opacity === '0');
+  const quick = { style: {} }; let t = 0;
+  const p = read.fade(quick, 1, 0, 100, { instant: false, now: () => (t += 60) });
+  await p;
+  ok('read card: a fade lands on its target when its time is up', quick.style.opacity === '0');
+  ok('read card: the reader-files message says the files could not be reached and the form was not changed', /files couldn't be reached/.test(read.READER_UNAVAILABLE_MESSAGE) && /form was not changed/.test(read.READER_UNAVAILABLE_MESSAGE));
+  const readCode = (await import('node:fs')).readFileSync(`${R}/modules/mod04-ocr/readCard.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  ok('read card: stays in its lane (imports only the bus and its own reader, stores nothing, publishes nothing, no HTML strings, no fetch)',
+    (readCode.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ocrWorker.js'"))
+    && !/localStorage|sessionStorage|indexedDB|document\.cookie|innerHTML|fetch\(|publish\(/.test(readCode));
   console.log = origLog; console.error = origErr; delete globalThis.Tesseract;
 }
 
@@ -735,6 +898,247 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     && card.toneOf(image([10, 10, 10, 255], [10, 10, 10, 255]), 20, all) === 'dark'
     && card.toneOf(image([128, 128, 128, 255], [128, 128, 128, 255]), 20, all) === null
     && card.toneOf(image([0, 0, 0, 0], [0, 0, 0, 0]), 20, all) === null);
+
+  // Redesign step 8: the eight fall themes, each a card colour, an ink and an accent that read well together
+  const themes = Object.values(card.THEMES);
+  ok('eight fall palettes in the order of the plan', themes.map(t => t.label).join('|') === 'Pumpkin|Maple|Harvest Gold|Cranberry|Spruce|Sage|Slate Blue|Twilight');
+  ok('every theme: ink on the card reads at 4.5:1 or better, the initials (card colour on the accent) at 3:1 or better',
+    themes.every(t => card.contrastRatio(t.ink, t.card) >= 4.5 && card.contrastRatio(t.card, t.accent) >= 3), themes.map(t => `${t.label} ${card.contrastRatio(t.ink, t.card).toFixed(1)}/${card.contrastRatio(t.card, t.accent).toFixed(1)}`).join(', '));
+  ok('contrast ratio: white on black is 21, a colour on itself 1', Math.abs(card.contrastRatio('#fff', '#000') - 21) < 0.01 && card.contrastRatio('#e8792b', '#e8792b') === 1);
+  ok('an old palette key (a card held through a lock) and an unknown one land on a fall theme', card.themeKeyOf('ocean') === 'slateblue' && card.themeKeyOf('sunset') === 'pumpkin' && card.themeKeyOf('nope') === card.DEFAULT_THEME && card.themeKeyOf('maple') === 'maple' && card.THEMES[card.DEFAULT_THEME]);
+
+  // The nine pilots as sample contacts: fictional numbers and addresses only, a bundled animal logo each, licence kept
+  const fs6 = await import('node:fs');
+  ok('nine samples, one per pilot plus the PM, all at Team vCGE with a first and last name', card.PRESETS.length === 9 && card.PRESETS.every(p => p.organization === 'Team vCGE' && p.firstName && p.lastName)
+    && card.PRESETS.map(p => p.firstName).join(',') === 'Shutout,Ghost,Iris,Glyph,Pidge,Flipside,Checkers,Airlock,Cornerstone');
+  ok('samples use only the reserved 555-01xx numbers and example.com', card.PRESETS.every(p => p.phones.every(ph => /^\+1 \(202\) 555-01\d\d$/.test(ph.value))
+    && p.emails.every(e => /@example\.com$/.test(e.value)) && p.websites.every(w => /^https:\/\/(www\.)?(example\.com|instagram\.com\/example)/.test(w.value))), JSON.stringify(card.PRESETS.map(p => [p.phones, p.emails, p.websites])));
+  ok('every sample names a fall theme and a bundled animal logo that exists, with the Noto licence beside it',
+    card.PRESETS.every(p => card.THEMES[p.themePalette] && /^src\/vendor\/icons\/animals\/[a-z]+\.svg$/.test(p.logo) && fs6.existsSync(`${R}/../${p.logo}`))
+    && fs6.existsSync(`${R}/vendor/icons/animals/LICENSE-noto-emoji.txt`) && fs6.readFileSync(`${R}/vendor/icons/animals/LICENSE-noto-emoji.txt`, 'utf8').includes('Apache License'), card.PRESETS.map(p => p.logo).join(' '));
+  ok('the sample logo files are plain SVG drawings (no scripts, no links out)', card.PRESETS.every(p => { const t = fs6.readFileSync(`${R}/../${p.logo}`, 'utf8'); return t.startsWith('<svg') && !/<script|<a[\s>]|href=|on[a-z]+=|url\((?!#)|http(?!:\/\/www\.w3\.org\/)/i.test(t); }));
+
+  // White background removal: the white joined to the edge goes see-through, white inside the logo stays
+  const white = () => {
+    const px = new Uint8ClampedArray(8 * 8 * 4).fill(255);                         // all white, opaque
+    for (let y = 2; y < 6; y++) for (let x = 2; x < 6; x++) px.set([200, 0, 0, 255], (y * 8 + x) * 4);   // a red block
+    px.set([255, 255, 255, 255], (3 * 8 + 3) * 4);                                 // a white hole in it
+    px.set([230, 230, 230, 255], (0 * 8 + 7) * 4);                                 // a light grey corner pixel
+    return px;
+  };
+  const w8 = white();
+  const cleared = card.removeWhite(w8, 8, 8);
+  ok('the white around the logo is removed, with a soft edge for near-white', cleared === 48 && w8[3] === 0 && w8[(0 * 8 + 7) * 4 + 3] > 0 && w8[(0 * 8 + 7) * 4 + 3] < 255, `${cleared} ${w8[3]} ${w8[(0 * 8 + 7) * 4 + 3]}`);
+  ok('the logo and the white inside it are untouched', w8[(2 * 8 + 2) * 4 + 3] === 255 && w8[(3 * 8 + 3) * 4 + 3] === 255);
+  ok('isWhite reads an edge colour', card.isWhite('rgb(255,255,255)') && card.isWhite('rgb(240, 238, 236)') && !card.isWhite('rgb(200,0,0)') && !card.isWhite(''));
+
+  // The trace: outlines of a cell mask as closed loops, a hole as a second loop, touching corners kept apart
+  const one = new Uint8Array(9); one[4] = 1;
+  ok('one cell: one square loop', JSON.stringify(card.outlines(one, 3, 3)) === '[[[1,1],[2,1],[2,2],[1,2]]]');
+  const ring = new Uint8Array([1, 1, 1, 1, 0, 1, 1, 1, 1]);
+  ok('a ring: the outside and the hole, the hole the other way round', JSON.stringify(card.outlines(ring, 3, 3)) === '[[[0,0],[3,0],[3,3],[0,3]],[[2,1],[1,1],[1,2],[2,2]]]');
+  ok('two cells touching at a corner stay two loops', card.outlines(new Uint8Array([1, 0, 0, 1]), 2, 2).length === 2);
+  ok('soften cuts each corner back half a cell, so a long side stays straight', JSON.stringify(card.soften([[0, 0], [4, 0], [4, 4], [0, 4]])) === '[[0,0.5],[0.5,0],[3.5,0],[4,0.5],[4,3.5],[3.5,4],[0.5,4],[0,3.5]]');
+  const box = { x: 0, y: 0, w: 20, h: 10, transparent: false, edge: 'rgb(255,255,255)' };
+  const traced = card.traceLogo(image([255, 255, 255, 255], [20, 20, 20, 255]), 20, box);
+  ok('a dark mark on white traces to one path filled with currentColor, marked as the module\'s own', /^<svg [^>]*data-vcge-trace="1"[^>]*viewBox="0 0 20 10"><path fill="currentColor" fill-rule="evenodd" d="M[^"]+Z"\/><\/svg>$/.test(traced.svg || ''), traced.svg || traced.reason);
+  const mixed = image([255, 255, 255, 255], [20, 20, 20, 255]);
+  for (let x = 8; x < 10; x++) for (let y = 4; y < 6; y++) mixed.set([250, 240, 30, 255], (y * 20 + x) * 4);   // half the mark yellow
+  ok('a mark of two colours is not traced (kept as is)', card.traceLogo(mixed, 20, box).reason === 'colours');
+  ok('colour distance to the ink-to-background line: on it 0, off it the gap', card.distanceToSegment([128, 128, 128], [0, 0, 0], [255, 255, 255]) === 0 && Math.round(card.distanceToSegment([255, 0, 0], [0, 0, 0], [255, 255, 255])) === 208 && card.distanceToSegment([10, 10, 10], [0, 0, 0], [0, 0, 0]) > 17);
+  ok('a hold on a toast is 0.4 s or longer', card.TOAST_HOLD_MS === 400);
+  ok('a blank image is too faint to trace', card.traceLogo(image([255, 255, 255, 255], [255, 255, 255, 255]), 20, box).reason === 'faint');
+  const half = new Uint8ClampedArray(20 * 10 * 4).fill(255);
+  for (let y = 0; y < 10; y++) for (let x = 0; x < 10; x++) half.set([20, 20, 20, 255], (y * 20 + x) * 4);   // the left half black
+  const small = card.traceLogo(half, 20, box, { max: 4 });
+  ok('the trace is downscaled to the grid limit (a 20 x 10 mark on a 4 x 2 grid)', /viewBox="0 0 4 2"/.test(small.svg || '') && /M0 0\.5L0\.5 0L1\.5 0L2 0\.5L2 1\.5L1\.5 2L0\.5 2L0 1\.5Z/.test(small.svg || ''), small.svg || small.reason);
+  ok('the toast says what was done to the logo', card.logoMessage({ traced: true, whiteRemoved: true }).includes('white background removed') && card.logoMessage({ traced: false, whiteRemoved: false, reason: 'colours' }).includes('more than two colours'));
+
+  // Motion: the shared ease (26 fps steps, 5 percent snap), the spin and the toast timings
+  ok('ease starts at 0, ends at 1, snaps past 1 on the way', card.easeSnap(0) === 0 && card.easeSnap(1) === 1 && Math.max(...Array.from({ length: 101 }, (_, i) => card.easeSnap(i / 100))) > 1.03);
+  {
+    let t = 0; const frames = []; const timers = [];
+    const stop = card.tween(0, 180, 400, v => frames.push(v), { now: () => t, schedule: (fn, ms) => { timers.push([fn, ms]); return timers.length; }, cancel: () => {} });
+    while (timers.length) { const [fn, ms] = timers.shift(); t += ms; fn(); }
+    ok('a spin is stepped at 26 fps and lands exactly on the target', frames.length >= 9 && frames.length <= 12 && frames[frames.length - 1] === 180 && Math.max(...frames) > 180, JSON.stringify(frames.map(Math.round)));
+    stop();
+  }
+  ok('spin, edge and toast numbers follow the plan: 26 fps, 5 percent, 48 px edge, 3 s toast', card.STEP_FPS === 26 && card.OVERSHOOT === 0.05 && card.EDGE_PX === 48 && card.TOAST_MS === 3000 && card.PRINT_LINES_EACH === 2);
+}
+
+// MOD01 browser gate (browserGate.js, ES5): which missing feature blocks the app and which only warns
+{
+  const fs = await import('node:fs');
+  const gate = require(`${R}/modules/mod01-shell/browserGate.js`);
+  const lockedFetch = () => {}; lockedFetch[Symbol.for('vcge.netLock')] = true;
+  const env = (over = {}) => Object.assign({
+    document: { createElement: () => ({ noModule: false }) }, SecurityPolicyViolationEvent: function () {}, isSecureContext: true,
+    crypto: { subtle: {} }, WebAssembly: {}, Worker: function () {}, Symbol, fetch: lockedFetch,
+    navigator: { userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36', mediaDevices: { getUserMedia() {} } },
+    CSS: { supports: () => true }
+  }, over);
+  ok('gate: a current browser is neither blocked nor warned', gate.blockReasons(env()).length === 0 && gate.warnReasons(env()).length === 0);
+  const cases = [['modules', { document: { createElement: () => ({}) } }], ['csp', { SecurityPolicyViolationEvent: undefined }], ['https', { isSecureContext: false }],
+    ['crypto', { crypto: {} }], ['wasm', { WebAssembly: undefined }], ['worker', { Worker: undefined }], ['netlock', { fetch: () => {} }], ['netlock', { Symbol: undefined }]];
+  ok('gate: each missing protection blocks with its own reason', cases.every(([code, over]) => gate.blockReasons(env(over)).join() === code), cases.map(([c, o]) => c + '=' + gate.blockReasons(env(o)).join('+')).join(' '));
+  const ie11 = env({ document: { createElement: () => ({}) }, SecurityPolicyViolationEvent: undefined, crypto: undefined, WebAssembly: undefined, Symbol: undefined, fetch: undefined });
+  ok('gate: an Internet Explorer 11-like browser is blocked for every missing protection', gate.blockReasons(ie11).join() === 'modules,csp,crypto,wasm,netlock', gate.blockReasons(ie11).join());
+  const win7 = env({ navigator: { userAgent: 'Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36', mediaDevices: { getUserMedia() {} } } });
+  ok('gate: Windows 7 with Chromium 109 warns (system and engine) but is not blocked', gate.warnReasons(win7).join() === 'oldos,oldengine' && gate.blockReasons(win7).length === 0, gate.warnReasons(win7).join());
+  ok('gate: Firefox on Windows 8.1 warns about the system only', gate.warnReasons(env({ navigator: { userAgent: 'Mozilla/5.0 (Windows NT 6.3; Win64; x64; rv:115.0) Gecko/20100101 Firefox/115.0', mediaDevices: { getUserMedia() {} } } })).join() === 'oldos');
+  ok('gate: no camera or no 3D flip only warns', gate.warnReasons(env({ navigator: { userAgent: 'x' }, CSS: { supports: () => false } })).join() === 'nocamera,no3d');
+  ok('gate: every warning has its text', ['oldos', 'oldengine', 'nocamera', 'no3d'].every(k => typeof gate.WARNINGS[k] === 'string'));
+  // Both gate scripts must parse in very old browsers: no ES2015+ syntax (comments and strings stripped first)
+  const es5 = (file) => {
+    const code = fs.readFileSync(`${R}/modules/mod01-shell/${file}`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '').replace(/'(?:\\.|[^'\\])*'/g, "''");
+    return !/=>|`|\.\.\.|\?\.|\?\?|\b(?:const|let|class|async|await|of)\b/.test(code);
+  };
+  ok('gate scripts use ES5 syntax only (browserGate.js, unsupported/unsupported.js)', es5('browserGate.js') && es5('unsupported/unsupported.js'));
+}
+
+// MOD01 welcome pop-up and tour (welcome.js): six steps, the card placed beside or under the area, nothing stored
+{
+  const fs = await import('node:fs');
+  const welcome = await import(`${R}/modules/mod01-shell/welcome.js`);
+  ok('welcome: six tour steps, each with a title, text and an area (a card, the Vault page or the header)', welcome.TOUR_STEPS.length === 6 && welcome.TOUR_STEPS.every(s => s.title && s.body && (s.card || s.sheet || s.header)));
+  const deck = await import(`${R}/modules/mod01-shell/deck.js`);
+  ok('deck: six cards in step order, the Welcome card first', deck.CARDS.join('|') === 'welcome|capture|read|fields|card|share');
+  ok('deck: tour steps name real cards', welcome.TOUR_STEPS.every(s => !s.card || deck.CARDS.includes(s.card)));
+  ok('deck: a sideways swipe of 80 px closes a sheet; 48 px edge kept for the browser back gesture', deck.SWIPE_PX === 80 && deck.EDGE_PX === 48);
+  const deckCode = fs.readFileSync(`${R}/modules/mod01-shell/deck.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  ok('deck: stores nothing, imports only the bus, and publishes only CARD_CHANGED', !/localStorage|sessionStorage|indexedDB|document\.cookie|innerHTML|fetch\(/.test(deckCode)
+    && (deckCode.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js')) && (deckCode.match(/publish\(Events\.(\w+)/g) || []).every(m => m === 'publish(Events.CARD_CHANGED'));
+  ok('welcome: the tour gives no exact lock or wipe minutes (Vault owns the timers)', welcome.TOUR_STEPS.every(s => !/\d+\s*(min|minute|s\b|sec)/i.test(s.body)));
+  const area = { left: 100, top: 100, right: 500, bottom: 300 };
+  ok('welcome: on a wide screen the card goes beside the area', welcome.placeTip(area, 330, 200, 1440, 900).side === 'right' && welcome.placeTip({ left: 1000, top: 100, right: 1400, bottom: 300 }, 330, 200, 1440, 900).side === 'left');
+  const phone = welcome.placeTip({ left: 16, top: 80, right: 374, bottom: 300 }, 358, 220, 390, 844);
+  ok('welcome: on a phone the card goes under the area, inside the screen', phone.side === 'below' && phone.left >= 16 && phone.left + 358 <= 390 - 16 + 0.5 && phone.top === 316, JSON.stringify(phone));
+  ok('welcome: a tall area puts the card above it, or over it as a last resort', welcome.placeTip({ left: 16, top: 600, right: 374, bottom: 830 }, 358, 220, 390, 844).side === 'above'
+    && welcome.placeTip({ left: 16, top: 0, right: 374, bottom: 844 }, 358, 220, 390, 844).side === 'over');
+  const code = fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  ok('welcome: stores nothing and publishes nothing (no storage, cookies or bus)', !/localStorage|sessionStorage|indexedDB|document\.cookie|globalEventBus|innerHTML/.test(code));
+}
+
+// MOD01 shared look (ui.js / ui.css): breakpoints, the near-miss rim, bundled fonts and icons with their licences
+{
+  const fs = await import('node:fs');
+  const ui = await import(`${R}/modules/mod01-shell/ui.js`);
+  ok('ui: Settings font list is alphabetical with Inter as the default', JSON.stringify(ui.UI_FONTS) === JSON.stringify([...ui.UI_FONTS].sort((x, y) => x.localeCompare(y))) && ui.UI_FONTS.length === 7 && ui.DEFAULT_UI_FONT === 'Inter' && ui.UI_FONTS.includes('Inter'));
+  ok('ui: 599 px is a phone, 600-1199 a tablet, 1200 and up a desktop', ui.layoutFor(599) === 'phone' && ui.layoutFor(600) === 'tablet' && ui.layoutFor(1199) === 'tablet' && ui.layoutFor(1200) === 'desktop' && ui.layoutFor(3840) === 'desktop');
+  const box = { left: 100, top: 100, right: 200, bottom: 144 };
+  ok('ui: a tap within 4 px of a button edge is a near miss, the middle is not', ui.onRim(box, 101, 120) && ui.onRim(box, 150, 143) && !ui.onRim(box, 150, 122) && !ui.onRim(box, 104, 104) && !ui.onRim(box, 90, 120));
+  const css = fs.readFileSync(`${R}/modules/mod01-shell/ui.css`, 'utf8');
+  const fontUrls = [...css.matchAll(/url\('\.\.\/\.\.\/vendor\/fonts\/([^']+)'\)/g)].map(m => m[1]);
+  ok('ui: every declared font is bundled (Sixtyfour plus the Settings fonts)', fontUrls.length === 12 && fontUrls.every(f => fs.existsSync(`${R}/vendor/fonts/${f}`)), fontUrls.join(' '));
+  ok('ui: each new font ships with its SIL Open Font License', ['sixtyfour', 'atkinson-hyperlegible', 'lexend', 'opendyslexic', 'tinos', 'comic-neue', 'macondo'].every(n => /SIL OPEN FONT LICENSE/i.test(fs.readFileSync(`${R}/vendor/fonts/LICENSE-${n}.txt`, 'utf8'))));
+  const icons = ['aperture', 'radar-2', 'lock', 'forms', 'id', 'qrcode', 'send', 'settings', 'trash', 'camera', 'upload', 'circle-check'];
+  ok('ui: the twelve app icons are bundled as SVG with the Tabler MIT licence', icons.every(n => fs.readFileSync(`${R}/vendor/icons/app/${n}.svg`, 'utf8').includes('<svg')) && /MIT License/.test(fs.readFileSync(`${R}/vendor/icons/app/LICENSE-tabler.txt`, 'utf8')));
+  ok('ui: icon stroke 2.3 and buttons at least 44 px with a 2 px outline', /--vcge-icon-stroke:\s*2\.3;/.test(css) && /--vcge-tap:\s*2\.75rem;/.test(css) && /border-width:\s*2px/.test(css));
+  ok('ui: no font or icon comes from a host (only bundled files)', !/https?:/.test(css.replace(/\/\*[\s\S]*?\*\//g, '')));
+  const html = fs.readFileSync(`${R}/../index.html`, 'utf8');
+  const logos = [...html.matchAll(/(?:href|src)="(src\/assets\/brand\/[^"]+)"/g)].map(m => m[1]);
+  ok('logo: the tab icon, the header and the Thank You page use the bundled brand files, every one present', logos.length >= 5 && logos.every(f => fs.existsSync(`${R}/../${f}`))
+    && /rel="icon"[^>]*sizes="32x32"[^>]*href="src\/assets\/brand\/vcge-32\.png"/.test(html) && /class="deck-logo" src="src\/assets\/brand\/vcge-logo-192\.png" alt="vCGE"/.test(html));
+  ok('logo: the Welcome card draws the same bundled file', /vcge-welcome-logo.*src: 'src\/assets\/brand\/vcge-logo-192\.png', alt: 'vCGE'/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8')));
+  ok('logo: no icon link points at a host', ![...html.matchAll(/<link[^>]+rel="(?:icon|apple-touch-icon)"[^>]*>/g)].some(m => /https?:/.test(m[0])));
+}
+
+// MOD01 saved settings (settings.js): the one localStorage entry, `name=number` pairs, preferences only
+{
+  const fs = await import('node:fs');
+  const st = await import(`${R}/modules/mod01-shell/settings.js`);
+  const ui = await import(`${R}/modules/mod01-shell/ui.js`);
+  localStorage.clear();
+  ok('settings: one key, defaults right hand, colour-blind off, dark theme, Inter', st.SETTINGS_KEY === 'vcge_settings' && JSON.stringify(st.DEFAULTS) === '{"hand":0,"cb":0,"theme":0,"font":0}' && st.fontFor(0) === 'Inter');
+  ok('settings: every Settings font has its own fixed code, Inter 0, no code shared', ui.UI_FONTS.every(n => Number.isInteger(st.FONT_CODES[n])) && new Set(Object.values(st.FONT_CODES)).size === ui.UI_FONTS.length && Object.keys(st.FONT_CODES).length === ui.UI_FONTS.length);
+  ok('settings: a line of name=number pairs reads back', JSON.stringify(st.parseSettings('hand=1;cb=1;theme=1;font=3')) === '{"hand":1,"cb":1,"theme":1,"font":3}');
+  ok('settings: missing or unreadable means the defaults', JSON.stringify(st.parseSettings(null)) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('garbage')) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('')) === JSON.stringify(st.DEFAULTS));
+  ok('settings: an unknown name, an out-of-range or non-numeric value falls back to its default, the rest is kept', JSON.stringify(st.parseSettings('hand=1;name=Maria;cb=7;theme=x;font=99')) === '{"hand":1,"cb":0,"theme":0,"font":0}');
+  ok('settings: serialises every name in a fixed order and clamps', st.serializeSettings({ font: 2, hand: 1 }) === 'hand=1;cb=0;theme=0;font=2' && st.serializeSettings({ cb: 5 }) === 'hand=0;cb=0;theme=0;font=0');
+  st.saveSettings({ hand: 1, font: 2 });
+  ok('settings: save writes the one key and nothing else', localStorage.getItem('vcge_settings') === 'hand=1;cb=0;theme=0;font=2' && store.size === 1);
+  ok('settings: load reads it back', JSON.stringify(st.loadSettings()) === '{"hand":1,"cb":0,"theme":0,"font":2}');
+  st.clearSettings();
+  ok('settings: clear removes it', store.size === 0 && JSON.stringify(st.loadSettings()) === JSON.stringify(st.DEFAULTS));
+  localStorage.setItem('vcge_theme_preference', 'light');
+  ok('settings: the old theme key is carried over once and removed', JSON.stringify(st.loadSettings()) === '{"hand":0,"cb":0,"theme":1,"font":0}' && localStorage.getItem('vcge_theme_preference') === null && store.size === 0);
+  const code = fs.readFileSync(`${R}/modules/mod01-shell/settings.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  ok('settings: subscribes to SETTINGS_WIPE_REQUESTED, imports only the bus and ui.js, no network, cookies or markup', /subscribe\(Events\.SETTINGS_WIPE_REQUESTED/.test(code)
+    && (code.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ui.js'")) && !/fetch\(|document\.cookie|sessionStorage|indexedDB|innerHTML|publish\(/.test(code));
+  ok('settings: the only storage key named in the code is the settings key (plus the old theme key it removes)', [...code.matchAll(/(?:getItem|setItem|removeItem)\((\w+)/g)].every(m => m[1] === 'SETTINGS_KEY' || m[1] === 'OLD_THEME_KEY'));
+  ok('settings: the Settings sheet and the Welcome card carry the one-file disclaimer', fs.readFileSync(`${R}/../index.html`, 'utf8').includes('vCGE keeps one small settings file on this device (hand, colors, theme, font). Nothing you scan, upload or type is ever saved.')
+    && /remembers none of your sensitive data/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8')) && !fs.existsSync(`${R}/modules/mod01-shell/themeManager.js`));
+  localStorage.clear();
+}
+
+// MOD02 padlock hand-off: pure frame maths (the drawing itself is checked in the browser suite)
+{
+  const h = await import(`${R}/modules/mod02-vault/lockHandoff.js`);
+  ok('hand-off cycle is 1.25 to 1.5 s, stepped at 24 to 30 fps', h.HANDOFF_MS >= 1250 && h.HANDOFF_MS <= 1500 && h.HANDOFF_FPS >= 24 && h.HANDOFF_FPS <= 30);
+  ok('a hand-off is a move between step cards, never from or onto Welcome or at boot', h.isHandoff('read', 'fields') && h.isHandoff('card', 'share') && !h.isHandoff(null, 'capture') && !h.isHandoff('welcome', 'capture') && !h.isHandoff('share', 'welcome') && !h.isHandoff('read', 'read'));
+  let max = 0; for (let x = 0; x <= 1; x += 0.0005) max = Math.max(max, h.easeOvershoot(x));
+  ok('the shackle lands with a 4 to 6 percent overshoot and settles', h.easeOvershoot(0) === 0 && h.easeOvershoot(1) === 1 && max >= 1.04 && max <= 1.06, max.toFixed(4));
+  const start = h.frameAt(0), mid = h.frameAt(0.5), end = h.frameAt(1);
+  ok('starts unlocked and orange, invisible', !start.locked && start.colour === 0 && start.opacity === 0 && start.shackle < 0);
+  ok('mid-cycle it is locked and green: the shackle is down, the dial has turned', mid.locked && mid.colour === 1 && mid.shackle === 0 && mid.dial > 0 && mid.opacity === 1);
+  ok('ends unlocked and orange again, faded out', !end.locked && end.colour === 0 && end.opacity === 0 && end.shackle === start.shackle && end.dial > mid.dial);
+  ok('the shackle position changes with the colour, so colour is never the only cue', h.frameAt(0.2).locked === (h.frameAt(0.2).colour > 0) || h.frameAt(0.3).locked);
+  ok('frames snap to the grid', h.quantize(0.5) === Math.floor(0.5 * Math.round(h.HANDOFF_MS / 1000 * h.HANDOFF_FPS)) / Math.round(h.HANDOFF_MS / 1000 * h.HANDOFF_FPS) && h.quantize(1) === 1 && h.quantize(0) === 0);
+  ok('end state under reduce motion is the open orange lock, shown still', !h.END_STATE.locked && h.END_STATE.colour === 0 && h.END_STATE.opacity === 1);
+  ok('orange to green mix', h.mixColour(0) === 'rgb(249, 115, 22)' && h.mixColour(1) === 'rgb(34, 197, 94)');
+}
+
+// MOD02 hold-to-wipe: hold timing (the dialog itself is checked in the browser suite)
+{
+  const w = await import(`${R}/modules/mod02-vault/wipeDialog.js`);
+  ok('Yes must be held 1.5 s', w.HOLD_MS === 1500);
+  ok('hold progress runs 0 to 1 and clamps', w.holdProgress(0, 1000) === 0 && w.holdProgress(1000, 1000) === 0 && w.holdProgress(1000, 1750) === 0.5 && w.holdProgress(1000, 2500) === 1 && w.holdProgress(1000, 9000) === 1);
+  ok('the settings-wipe signal exists and carries no data by name', share.Events.SETTINGS_WIPE_REQUESTED === 'SETTINGS_WIPE_REQUESTED');
+}
+
+// MOD05 Fields card (fieldsCard.js): the pop-in timing and the "Insert Fake Contact?" labels
+{
+  const fc = await import(`${R}/modules/mod05-form/fieldsCard.js`);
+  ok('the pop-in is 320 ms stepped at 26 fps (8 steps), like the padlock and the shimmer', fc.POP_MS === 320 && fc.POP_FPS === 26 && fc.POP_STEPS === 8);
+  ok('the list prompt and the green button read as raven575 asked', fc.FAKE_CONTACT_PROMPT === 'Insert Fake Contact?' && fc.DONE_LABEL === "Everything's correct");
+  ok('a sample is listed by name and company, never by its emoji label', fc.sampleLabel({ label: '🤖 AI Research Lead', firstName: 'Elena', lastName: 'Rostova', organization: 'NeuralShift AI' }) === 'Elena Rostova, NeuralShift AI'
+    && fc.sampleLabel({ label: '🎨 Solo', firstName: 'Kai' }) === 'Kai' && fc.sampleLabel({ label: ' Plain label ' }) === 'Plain label' && fc.sampleLabel({}) === 'Sample contact');
+}
+
+// MOD08 Export (Airlock), redesign step 10: file names from the contact, the QR pop-up's choices, the logo through the Vault
+{
+  const { EgressController, safeFileName, FILE_NAME_MAX } = await import(`${R}/modules/mod08-egress/egressController.js`);
+  const { cleanChoices, defaultChoices, previewNote, QR_FRAMES, QR_DOTS } = await import(`${R}/modules/mod08-egress/exportDialogs.js`);
+  ok('MOD08 safe file names keep spaces and drop what Windows, macOS and Linux forbid', safeFileName('Jane Doe') === 'Jane Doe' && safeFileName(' Smith / Jones: "Co" <*?> |x| ') === 'Smith Jones Co x' && safeFileName('a\u0000b\u001fc') === 'abc');
+  ok('MOD08 leading and trailing dots and spaces go; an empty name gives the fallback', safeFileName('.. hidden ..') === 'hidden' && safeFileName('   ') === 'Contact' && safeFileName('///', 'Card') === 'Card');
+  ok('MOD08 very long names are cut', safeFileName('x'.repeat(200)).length === FILE_NAME_MAX);
+  const e = new EgressController();
+  e.setPayload('BEGIN:VCARD', { namePrefix: 'Dr.', firstName: 'Jane', middleName: 'Q.', lastName: 'Doe', nameSuffix: 'PhD', organization: 'Acme' }, { hasDetails: true });
+  ok('MOD08 files are named after the full name', e.baseName() === 'Dr. Jane Q. Doe, PhD' && e.fileName('.vcf') === 'Dr. Jane Q. Doe, PhD.vcf' && e.fileName(' QR.png') === 'Dr. Jane Q. Doe, PhD QR.png');
+  e.setPayload('BEGIN:VCARD', { organization: 'Smith, Jones & Co', firstName: '  ' }, { hasDetails: true });
+  ok('MOD08 without a name the company names the files', e.baseName() === 'Smith, Jones & Co' && e.fileName('.vcf') === 'Smith, Jones & Co.vcf');
+  e.setPayload('BEGIN:VCARD', { phones: [{ type: 'work', value: '555' }] }, { hasDetails: true });
+  ok('MOD08 with neither, "Contact"', e.baseName() === 'Contact' && e.fileName('.vcf') === 'Contact.vcf' && e.fileName(' QR.png') === 'Contact QR.png');
+  e.setPayload('BEGIN:VCARD', { firstName: 'A/B', lastName: 'C:D' }, { hasDetails: true });
+  ok('MOD08 a name with path characters still makes a safe file name', e.fileName('.vcf') === 'AB CD.vcf');
+  ok('MOD08 the share-sheet File carries the same name', typeof File === 'undefined' || e.vcfFile().name === 'AB CD.vcf');
+  // The logo for the card goes through the Vault's logo slot (mod08 writes, mod06 reads), never to the card view.
+  const { VaultStore } = await import(`${R}/modules/mod02-vault/vaultStore.js`);
+  const store = new VaultStore({ isUserGesture: () => false });
+  const seen = []; store.handle('mod06').onChange('logo', (n) => seen.push(n));
+  ok('MOD08 no Vault handle: the logo is not offered anywhere', e.offerLogoToCard({ photo: 'data:image/jpeg;base64,AAA', display: 'data:image/png;base64,BBB' }) === false);
+  e.setVault(store.handle('mod08'));
+  ok('MOD08 "Also use this logo on my card" writes the Vault logo slot; the card view sees the change by slot name only', e.offerLogoToCard({ photo: 'data:image/jpeg;base64,AAA', display: 'data:image/png;base64,BBB' }) === true
+    && JSON.stringify(seen) === '[{"slot":"logo"}]' && store.handle('mod06').get('logo').display === 'data:image/png;base64,BBB');
+  ok('MOD08 a logo without a photo is refused; the display falls back to the photo', e.offerLogoToCard({ display: 'x' }) === false && e.offerLogoToCard({ photo: 'p' }) === true && store.handle('mod06').get('logo').display === 'p');
+  store.clear('logo');
+  ok('MOD08 Export still has no standing read of the contact through its handle', (() => { try { store.handle('mod08').get('contact'); return false; } catch (err) { return err.message.startsWith('VAULT_DENIED'); } })());
+  // The pop-up's choices: themed, square, no frame, no logo by default; anything unknown falls back
+  ok('MOD08 QR pop-up defaults: Themed, square dots, no frame, no logo, not on the card', JSON.stringify(defaultChoices()) === '{"colour":"themed","dots":"square","frame":"none","logo":"none","useOnCard":false}');
+  ok('MOD08 QR pop-up: every frame and dot style MOD07 draws is offered', QR_FRAMES.join() === 'none,square,rounded,circle' && QR_DOTS.join() === 'square,round');
+  ok('MOD08 QR pop-up: unknown choices fall back to the defaults, known ones stay', JSON.stringify(cleanChoices({ colour: 'neon', dots: 'round', frame: 'circle', logo: 'upload', useOnCard: 'yes' })) === '{"colour":"themed","dots":"round","frame":"circle","logo":"upload","useOnCard":false}');
+  ok('MOD08 QR pop-up note: a code that does not fit, a theme that is not scannable, or nothing to say', /Too much contact data/.test(previewNote({ ok: false, themed: false }, defaultChoices()))
+    && /Black & White is used/.test(previewNote({ ok: true, themed: false }, defaultChoices())) && previewNote({ ok: true, themed: true }, defaultChoices()) === '' && previewNote({ ok: true, themed: false }, { ...defaultChoices(), colour: 'bw' }) === '');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

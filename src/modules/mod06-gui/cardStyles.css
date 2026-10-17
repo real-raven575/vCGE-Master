@@ -14,11 +14,21 @@ body { font-family: 'Inter', sans-serif; }
 .font-serif { font-family: 'Playfair Display', serif !important; }
 .font-mono { font-family: 'Fira Code', monospace !important; }
 
-/* 3D Card Flip & Motion */
+/* 3D Card spin: card3dView.js turns the card in JS (26 fps steps with a small snap, instant under reduce motion), so no
+   CSS transition. A sideways drag on the card spins it; the browser keeps vertical scrolling. */
 .perspective-1000 { perspective: 1000px; }
-.transform-style-3d { transform-style: preserve-3d; transition: transform 0.6s cubic-bezier(0.23, 1, 0.32, 1); }
+.transform-style-3d { transform-style: preserve-3d; touch-action: pan-y pinch-zoom; }
 .backface-hidden { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
 .rotate-y-180 { transform: rotateY(180deg); }
+
+/* The card face takes the theme (card3dView.js sets the variables on #card3DFlipper): card colour, ink, accent. */
+.card-face { background: var(--card-bg, #3e5572); color: var(--card-ink, #eef3f9); border: 1px solid rgba(0, 0, 0, 0.12); }
+.card-muted { opacity: 0.82; }
+.card-line { display: flex; gap: 0.5rem; align-items: baseline; }
+.card-line-label { flex: 0 0 auto; min-width: 3.5rem; font-size: 0.625rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.72; }
+.card-line-value { min-width: 0; }
+/* A traced logo is a drawing in the ink colour (currentColor); the plate, when there is one, is set inline. */
+.card-trace { display: block; fill: currentColor; }
 
 /* Scanning overlay animation */
 @keyframes laser-scan {

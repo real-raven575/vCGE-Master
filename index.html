@@ -5,121 +5,204 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <!-- Browser-enforced egress lock: only same-origin resources and connections, plus Tauri's local IPC endpoints (keep in sync with src-tauri/tauri.conf.json) -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
+    <!-- MOD01 logo (temporary mark approved by raven575, 2026-10-17), bundled: the tab icon and the home-screen icon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="src/assets/brand/vcge-32.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="src/assets/brand/vcge-logo-192.png">
+    <link rel="apple-touch-icon" sizes="192x192" href="src/assets/brand/vcge-logo-192.png">
     <!-- MOD01 network lock: a classic script, so it runs before the bundled libraries below and every module -->
     <script src="src/modules/mod01-shell/netLock.js"></script>
+    <!-- MOD01 browser gate (ES5): if a protection vCGE relies on is missing, the app never starts and a bundled
+         "cannot run in this browser" page opens; if only something outside the app is weak, the app runs with a banner -->
+    <script src="src/modules/mod01-shell/browserGate.js"></script>
+    <link rel="stylesheet" href="src/modules/mod01-shell/browserGate.css">
     <title>vCard Generator Engine (vCGE)</title>
     <!-- Tailwind CSS, compiled locally (npm run build:css) so the app makes no runtime CDN request -->
     <link rel="stylesheet" href="src/styles/tailwind.css">
     <link rel="stylesheet" href="src/modules/mod06-gui/cardStyles.css">
+    <!-- MOD08 Export: the Share card, the Export QR pop-up, the Print / PDF choice, and the 6 x 3.5 in print sheet -->
+    <link rel="stylesheet" href="src/modules/mod08-egress/export.css">
     <link rel="stylesheet" href="src/modules/mod08-egress/print.css">
+    <!-- MOD01 welcome pop-up and tour (opened by shell.js every time vCGE starts; nothing stored) -->
+    <link rel="stylesheet" href="src/modules/mod01-shell/welcome.css">
+    <!-- MOD01 shared look: size breakpoints, 44 px buttons with 2 px outlines, MOD-XX tags (Sixtyfour), bundled fonts -->
+    <link rel="stylesheet" href="src/modules/mod01-shell/ui.css">
+    <!-- MOD01 postcard deck: header icons, the card track, the Vault and Settings sheets, the Thank You page -->
+    <link rel="stylesheet" href="src/modules/mod01-shell/deck.css">
+    <!-- MOD02 Vault: the padlock hand-off, hold-to-wipe, the lock screen and the Vault page -->
+    <link rel="stylesheet" href="src/modules/mod02-vault/vault.css">
+    <!-- MOD03 Camera: the Capture card (viewfinder, zoom fader, shutter, crop step) -->
+    <link rel="stylesheet" href="src/modules/mod03-camera/camera.css">
+    <!-- MOD04 OCR: the Read card (the photo under a shimmer while it is read, the Looks right box) -->
+    <link rel="stylesheet" href="src/modules/mod04-ocr/read.css">
+    <!-- MOD05 Field mapping: the Fields card (the form, the fake-contact list, the pop-in, the green Everything's correct) -->
+    <link rel="stylesheet" href="src/modules/mod05-form/fields.css">
 </head>
-<body class="bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100 min-h-screen flex flex-col antialiased">
+<body class="bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100 h-screen flex flex-col antialiased overflow-hidden">
 
-    <!-- MASTER HEADER (MOD01) -->
-    <header class="border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur sticky top-0 z-40 px-4 py-3 flex items-center justify-between gap-3">
-        <div class="flex items-center gap-3">
-            <div class="bg-brand-500 text-slate-950 font-bold px-2.5 py-1 rounded-lg text-sm tracking-wider">vCGE</div>
-            <div>
-                <h1 class="font-bold text-base tracking-tight">vCard Generator Engine</h1>
-                <p class="text-xs text-slate-500 dark:text-slate-400">Created by raven575, Gemini &amp; Claude</p>
-            </div>
+    <!-- MASTER HEADER (MOD01): slim, one icon per card in order of use, then Vault and Settings -->
+    <header class="deck-header border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur sticky top-0 z-40 flex items-center justify-between relative">
+        <div class="deck-brand">
+            <img class="deck-logo" src="src/assets/brand/vcge-logo-192.png" alt="vCGE" width="28" height="28" decoding="async">
+            <span class="deck-brand-text text-xs text-slate-500 dark:text-slate-400">vCard Generator Engine</span>
         </div>
-        <div class="flex items-center gap-2">
+        <nav class="deck-nav" aria-label="Cards">
+            <button id="navCapture" type="button" data-card="capture" aria-label="Capture: take or upload a photo (Iris)" title="Capture: take or upload a photo (Iris)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#aperture"></use></svg><span>Iris</span></button>
+            <button id="navRead" type="button" data-card="read" aria-label="Read: check what was read (Glyph)" title="Read: check what was read (Glyph)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#radar-2"></use></svg><span>Glyph</span></button>
+            <button id="navFields" type="button" data-card="fields" aria-label="Fields: the contact details (Pidge)" title="Fields: the contact details (Pidge)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#forms"></use></svg><span>Pidge</span></button>
+            <button id="navCard" type="button" data-card="card" aria-label="3D card (Flipside)" title="3D card (Flipside)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#id"></use></svg><span>Flipside</span></button>
+            <button id="navQr" type="button" data-card="card" data-qr aria-label="QR code on the back of the card (Checkers)" title="QR code on the back of the card (Checkers)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#qrcode"></use></svg><span>Checkers</span></button>
+            <button id="navShare" type="button" data-card="share" aria-label="Share and export (Airlock)" title="Share and export (Airlock)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#send"></use></svg><span>Airlock</span></button>
+        </nav>
+        <div class="deck-tools">
             <span id="vaultBadge" class="flex text-xs px-2.5 py-1 rounded-full items-center gap-1.5 border bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
                 <span id="vaultBadgeDot" class="w-1.5 h-1.5 rounded-full bg-slate-400"></span><span id="vaultBadgeText">Vault: LOCKED</span>
             </span>
             <button id="lockVaultBtn" type="button" class="hidden px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition">🔒 Lock</button>
-            <button id="themeToggle" type="button" class="p-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition" aria-label="Toggle light or dark theme">🌙</button>
+            <button id="navVault" type="button" class="deck-icon-btn" data-open-sheet="vaultPage" aria-label="Vault: PIN and fingerprint (Ghost)" title="Vault: PIN and fingerprint (Ghost)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#lock"></use></svg></button>
+            <button id="navSettings" type="button" class="deck-icon-btn" data-open-sheet="settingsSheet" aria-label="Settings" title="Settings"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#settings"></use></svg></button>
+        </div>
+        <div id="vaultTimerStrip" class="hidden absolute left-0 right-0 top-full pointer-events-none">
+            <div id="vaultTimerBand" class="flex items-center gap-3 px-4 py-1.5 text-xs border-b backdrop-blur bg-white/90 text-slate-600 border-slate-200 dark:bg-slate-900/90 dark:text-slate-300 dark:border-slate-800">
+                <span aria-hidden="true">🔒</span><span id="vaultTimerLabel">Locks in</span>
+                <div class="flex-1 h-1.5 rounded-full overflow-hidden bg-slate-200 dark:bg-slate-700">
+                    <div id="vaultTimerBar" class="h-full w-full origin-left rounded-full bg-brand-500 motion-safe:transition-transform motion-safe:duration-1000 motion-safe:ease-linear"></div>
+                </div>
+                <span id="vaultTimerTime" class="font-mono font-semibold tabular-nums">2:00</span>
+            </div>
+            <div class="flex justify-center px-4 pt-2">
+                <p id="vaultTimerNote" role="status" class="invisible opacity-0 -translate-y-1 motion-safe:transition motion-safe:duration-500 pointer-events-auto flex items-center gap-3 px-4 py-2 rounded-xl border text-xs shadow-sm bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800/60">
+                    <span>Still there? Tap anywhere to keep working.</span>
+                    <button id="vaultTimerKeepBtn" type="button" class="font-semibold text-brand-700 dark:text-brand-400 hover:underline">Keep open</button>
+                </p>
+            </div>
         </div>
     </header>
 
-    <main class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-        <!-- LEFT: Intake (MOD03/04) & Security (MOD02/MOD08 audit) -->
-        <section class="space-y-6">
-            <div class="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+    <!-- THE DECK (MOD01): one card per step, swiped left and right like postcards. Only the card in view takes input. -->
+    <main id="deck" class="deck" aria-label="vCGE cards">
+        <section id="cardWelcome" class="deck-card mod-tag-host" data-card="welcome" aria-label="Welcome">
+            <div class="deck-card-body space-y-4">
+                <div id="welcomeBody" class="welcome-body"></div>
+            </div>
+            <div class="mod-tag" aria-hidden="true"><span>MOD-01</span></div>
+        </section>
+        <section id="cardCapture" class="deck-card mod-tag-host" data-card="capture" aria-label="Capture">
+            <div class="deck-card-body space-y-4">
                 <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Scan a business card</h2>
-                <div class="grid grid-cols-2 gap-2">
-                    <label class="cursor-pointer text-center py-2.5 px-3 bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold rounded-xl transition text-sm">
-                        Upload image
-                        <input id="imageUpload" type="file" accept="image/*" class="hidden">
+                <!-- Capture (MOD03, Iris): Take a photo first, Upload a photo second; the picker is the device's own -->
+                <div id="captureChoice" class="cap-choice">
+                    <button id="startCameraBtn" type="button" class="cap-btn cap-btn-primary"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#camera"></use></svg><span>Take a photo</span></button>
+                    <label id="uploadPhotoBtn" class="cap-btn">
+                        <svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#upload"></use></svg><span>Upload a photo</span>
+                        <input id="imageUpload" type="file" accept="image/*" class="hidden" aria-label="Upload a photo">
                     </label>
-                    <button id="startCameraBtn" type="button" class="py-2.5 px-3 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 font-semibold rounded-xl transition text-sm">Use camera</button>
                 </div>
                 <button id="reopenScanBtn" type="button" class="hidden w-full py-2 px-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/60 dark:hover:bg-slate-700 rounded-xl text-xs font-semibold transition">Reopen last scan (fix lines and fill again, no new OCR)</button>
-                <div id="cameraPanel" class="hidden space-y-3">
-                    <div id="viewfinderArea" class="relative rounded-xl overflow-hidden bg-black aspect-video cursor-crosshair">
-                        <video id="cameraStream" autoplay playsinline muted class="w-full h-full object-cover"></video>
-                        <div id="focusRing" class="hidden absolute w-12 h-12 -ml-6 -mt-6 border-2 border-brand-400 rounded-full pointer-events-none"></div>
+                <!-- Viewfinder: the live picture with thin corner brackets marking a card-shaped frame, the zoom fader on the
+                     left (48 px from the screen edge) and the round green shutter on the right; Settings can mirror them -->
+                <div id="cameraPanel" class="hidden cap-finder">
+                    <div id="viewfinderArea" class="cap-view">
+                        <video id="cameraStream" autoplay playsinline muted></video>
+                        <div id="cardFrame" class="cap-frame" aria-hidden="true">
+                            <span class="cap-corner tl"></span><span class="cap-corner tr"></span><span class="cap-corner br"></span><span class="cap-corner bl"></span>
+                        </div>
+                        <div class="cap-fader">
+                            <span id="zoomDisplay" class="cap-zoom" aria-live="off">1.0x</span>
+                            <div class="cap-fader-track"><input id="zoomSlider" type="range" min="1" max="4" step="0.1" value="1" aria-label="Zoom" aria-orientation="vertical" data-no-swipe></div>
+                        </div>
+                        <div class="cap-shutter-slot">
+                            <button id="captureBtn" type="button" class="cap-shutter" aria-label="Take the photo" title="Take the photo"><span class="cap-shutter-dot" aria-hidden="true"></span></button>
+                            <span class="cap-shutter-label" aria-hidden="true">Shutter</span>
+                        </div>
                     </div>
-                    <div class="flex items-center gap-2 text-xs">
-                        <label for="zoomSlider" class="text-slate-500 dark:text-slate-400">Zoom</label>
-                        <input id="zoomSlider" type="range" min="1" max="4" step="0.1" value="1" class="flex-1">
-                        <span id="zoomDisplay" class="font-mono w-10 text-right">1.0x</span>
+                    <div class="cap-finder-tools">
+                        <button id="switchCameraBtn" type="button">Switch camera</button>
+                        <button id="stopCameraBtn" type="button">Close camera</button>
                     </div>
-                    <div class="grid grid-cols-3 gap-2">
-                        <button id="captureBtn" type="button" class="py-2 bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold rounded-lg text-xs transition">Capture</button>
-                        <button id="switchCameraBtn" type="button" class="py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg text-xs transition">Switch</button>
-                        <button id="stopCameraBtn" type="button" class="py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg text-xs transition">Close</button>
+                </div>
+                <!-- Crop & straighten (MOD03): the handles start at the photo's full edge; Snap to card finds the edges on request -->
+                <div id="captureReview" class="hidden space-y-3">
+                    <p class="text-xs text-slate-500 dark:text-slate-400">The whole photo is read unless you move a corner. Drag the corners onto the card, or press Snap to card. The photo stays on this device.</p>
+                    <div id="cropStage" class="relative mx-auto w-fit max-w-full select-none">
+                        <img id="reviewImage" alt="Captured business card" class="block max-w-full max-h-80 rounded-lg bg-slate-100 dark:bg-slate-800">
+                        <svg id="cropOverlay" class="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none" aria-hidden="true">
+                            <polygon id="cropPolygon" class="crop-outline" points=""></polygon>
+                        </svg>
+                        <button type="button" class="crop-handle" data-corner="0"></button>
+                        <button type="button" class="crop-handle" data-corner="1"></button>
+                        <button type="button" class="crop-handle" data-corner="2"></button>
+                        <button type="button" class="crop-handle" data-corner="3"></button>
+                    </div>
+                    <p id="ocrRetakeNotice" class="hidden text-sm text-amber-600 dark:text-amber-400" role="alert">This photo is too blurry or unclear to read. Retake it closer, in good light, and hold steady.</p>
+                    <div id="captureActions" class="cap-review-actions">
+                        <button id="rotatePhotoBtn" type="button" class="cap-quiet mr-auto">Rotate 90°</button>
+                        <button id="snapCardBtn" type="button" class="cap-quiet">Snap to card</button>
+                        <button id="retakePhotoBtn" type="button" class="cap-quiet hidden">Retake photo</button>
+                        <button id="cancelReviewBtn" type="button" class="cap-quiet">Cancel</button>
+                        <button id="runOcrBtn" type="button" class="cap-ok"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#circle-check"></use></svg><span>OK</span></button>
                     </div>
                 </div>
                 <p id="eventLog" class="text-xs font-mono text-slate-500 dark:text-slate-400 break-words"></p>
                 <canvas id="captureCanvas" class="hidden"></canvas>
             </div>
-
-            <div class="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-3">
-                <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Security</h2>
-                <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 flex items-center justify-between text-sm">
-                    <span class="font-medium">MOD02 Vault</span>
-                    <span id="vaultStateIndicator" class="text-xs font-mono text-emerald-500">UNLOCKED / memory only</span>
-                </div>
-                <p id="purgeCountdown" class="text-[11px] font-mono text-slate-500 dark:text-slate-400">Auto-clear idle</p>
-                <div id="quickUnlockPanel" class="hidden space-y-2 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50">
-                    <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Quick unlock</h3>
-                    <div class="flex items-center justify-between gap-2 text-xs">
-                        <span id="sessionPinStatus">Session PIN: not set</span>
-                        <span class="flex gap-2">
-                            <button id="setSessionPinBtn" type="button" class="font-semibold text-brand-700 dark:text-brand-400 hover:underline">Set PIN</button>
-                            <button id="clearSessionPinBtn" type="button" class="hidden hover:text-rose-500">Remove</button>
-                        </span>
-                    </div>
-                    <div id="biometricRow" class="hidden flex items-center justify-between gap-2 text-xs">
-                        <span id="biometricStatus">Face ID / fingerprint: off</span>
-                        <span class="flex gap-2">
-                            <button id="addBiometricBtn" type="button" class="font-semibold text-brand-700 dark:text-brand-400 hover:underline">Add</button>
-                            <button id="clearBiometricBtn" type="button" class="hidden hover:text-rose-500">Remove</button>
-                        </span>
-                    </div>
-                    <p class="text-[11px] text-slate-500 dark:text-slate-400">Nothing is saved. Leaving or reloading the page, or 7 minutes without activity, wipes the card. With a 4-digit PIN set, the screen turning off or 2 idle minutes lock it instead. Without a PIN, 30 s out of view or 2 idle minutes wipe it.</p>
-                </div>
-                <button id="wipeVaultBtn" type="button" class="w-full py-2 px-4 bg-slate-100 hover:bg-rose-50 dark:bg-slate-800 dark:hover:bg-rose-950/50 border border-slate-200 dark:border-slate-700 hover:text-rose-600 dark:hover:text-rose-400 font-medium rounded-xl transition text-xs">Wipe card &amp; everything in memory</button>
-                <div>
-                    <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Egress &amp; vault audit log</h3>
-                    <ul id="auditLog" class="text-[11px] font-mono text-slate-500 dark:text-slate-400 space-y-0.5"></ul>
-                </div>
+            <div class="deck-card-foot">
+                <button type="button" class="vcge-trash" aria-label="Wipe everything and start over" title="Wipe everything and start over"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg></button>
             </div>
+            <div class="mod-tag" aria-hidden="true"><span>MOD-03</span></div>
         </section>
-
-        <!-- CENTER: Contact form (MOD05/MOD06) -->
-        <section class="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
-            <div class="flex items-center justify-between">
-                <h2 class="text-lg font-bold">Contact details</h2>
-                <div class="flex items-center gap-2">
-                    <div id="formAvatarPreview" class="w-14 h-14"></div>
-                    <div class="flex flex-col gap-1">
-                        <label class="cursor-pointer text-[11px] font-semibold px-2 py-1 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition text-center">
-                            Avatar<input id="avatarUpload" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" class="hidden">
-                        </label>
-                        <button id="removeAvatarBtn" type="button" class="hidden text-[11px] px-2 py-1 rounded-lg hover:text-rose-500 transition">Remove</button>
+        <section id="cardRead" class="deck-card mod-tag-host" data-card="read" aria-label="Read">
+            <div class="deck-card-body space-y-4">
+                <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Read the card</h2>
+                <!-- Review (MOD03 -> MOD04 -> MOD05): step 1 crop & straighten the photo, step 2 check the extracted text -->
+                <div id="cropReviewModal" class="hidden space-y-3">
+            <div id="ocrStepPhoto" class="space-y-3">
+                <h2 class="text-lg font-bold">Reading the card</h2>
+                <!-- Reading (MOD04): the photo under a shimmer; the wash is full at the 55 s limit, never a number. Cancel stops the reader and goes back to the photo -->
+                <div id="ocrProgress" class="hidden space-y-2">
+                    <div id="ocrProgressBar" class="read-frame" role="progressbar" aria-label="Reading the card" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="Reading the card">
+                        <img id="ocrReadPhoto" alt="" class="read-photo">
+                        <div id="ocrProgressFill" class="read-wash" aria-hidden="true"></div>
+                        <div class="read-shimmer" aria-hidden="true"></div>
+                    </div>
+                    <div class="flex items-center justify-between gap-3">
+                        <p id="ocrProgressLabel" class="text-xs text-slate-500 dark:text-slate-400" aria-live="polite">Extracting…</p>
+                        <button id="ocrStopBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Cancel</button>
                     </div>
                 </div>
             </div>
-            <div>
-                <div class="flex items-center justify-between mb-1">
-                    <p class="text-[11px] text-slate-500 dark:text-slate-400">Sample presets</p>
-                    <button id="clearFormBtn" type="button" class="text-[11px] font-semibold px-2 py-1 rounded-lg hover:text-rose-500 transition">Clear form</button>
+
+            <div id="ocrStepText" class="hidden space-y-3">
+                <h2 class="text-lg font-bold">Check the extracted text</h2>
+                <p class="text-xs text-slate-500 dark:text-slate-400">Fix any misread text and choose what each line is. Tick the box in a flagged line when it looks right. Nothing goes into the form until you press Proceed.</p>
+                <div id="ocrLines" class="space-y-1.5"></div>
+                <div>
+                    <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Will fill</h3>
+                    <dl id="ocrSummary" class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-0.5 text-sm"></dl>
                 </div>
-                <div id="presetButtonsContainer" class="flex flex-wrap gap-1.5"></div>
+                <div class="flex flex-wrap justify-end gap-2">
+                    <button id="ocrBackBtn" type="button" class="mr-auto px-3 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Back to photo</button>
+                    <button id="ocrCancelBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Cancel</button>
+                    <button id="applyOcrBtn" type="button" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Proceed</button>
+                </div>
+            </div>
+                </div>
+                <p id="readEmpty" class="text-sm text-slate-500 dark:text-slate-400">No photo yet. Take or upload one on the Capture card and it is read here, on this device.</p>
+            </div>
+            <div class="deck-card-foot">
+                <button type="button" class="vcge-trash" aria-label="Wipe everything and start over" title="Wipe everything and start over"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg></button>
+            </div>
+            <div class="mod-tag" aria-hidden="true"><span>MOD-04</span></div>
+        </section>
+        <section id="cardFields" class="deck-card mod-tag-host" data-card="fields" aria-label="Fields">
+            <div class="deck-card-body space-y-4">
+            <!-- Fields card (MOD05, Pidge): the details land here after the Read card's hand-off and pop in all at once -->
+            <div class="fields-head">
+                <h2>Contact details</h2>
+            </div>
+            <!-- "Insert Fake Contact?": the sample contacts (MOD06 supplies them as data; fieldsCard.js fills the list) -->
+            <div class="fields-tools">
+                <label class="fields-fake"><select id="fakeContactSelect" class="field-input" aria-label="Insert Fake Contact?"></select></label>
+                <button id="clearFormBtn" type="button" class="text-[11px] font-semibold px-3 py-1 rounded-lg hover:text-rose-500 transition">Clear form</button>
             </div>
 
             <!-- Option lists (prefixes, suffixes, unit types, countries, regions) are filled from share/contactOptions.js -->
@@ -127,7 +210,7 @@
             <datalist id="nameSuffixOptions"></datalist>
             <datalist id="unitTypeOptions"></datalist>
 
-            <div class="grid grid-cols-2 gap-3 text-sm">
+            <div id="fieldsForm" class="fields-form grid grid-cols-2 gap-3 text-sm">
                 <label class="block"><span class="field-label">Prefix</span><input id="namePrefix" type="text" list="namePrefixOptions" autocomplete="off" class="field-input" placeholder="Mr., Dr., ..."></label>
                 <label class="block"><span class="field-label">First name</span><input id="firstName" type="text" autocomplete="off" class="field-input"></label>
                 <label class="block"><span class="field-label">Middle name</span><input id="middleName" type="text" autocomplete="off" class="field-input"></label>
@@ -177,11 +260,16 @@
                 <label class="block"><span class="field-label">Birthday</span><input id="birthday" type="date" class="field-input"></label>
                 <label class="block col-span-2"><span class="field-label">Notes</span><textarea id="notes" rows="2" class="field-input"></textarea></label>
             </div>
+            </div>
+            <div class="deck-card-foot">
+                <button type="button" class="vcge-trash" aria-label="Wipe everything and start over" title="Wipe everything and start over"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg></button>
+                <!-- Green "Everything's correct" (fieldsCard.js fills it): the details go on to the 3D Card -->
+                <button id="fieldsDoneBtn" type="button" class="fields-ok">Everything's correct</button>
+            </div>
+            <div class="mod-tag" aria-hidden="true"><span>MOD-05</span></div>
         </section>
-
-        <!-- RIGHT: Card preview (MOD06/MOD07) & outbound actions (MOD08) -->
-        <section class="space-y-4">
-            <div class="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+        <section id="cardCard" class="deck-card mod-tag-host" data-card="card" aria-label="3D card">
+            <div class="deck-card-body space-y-4">
                 <div class="flex flex-wrap items-center gap-2">
                     <div class="relative">
                         <button id="paletteDropdownBtn" type="button" class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition">
@@ -198,109 +286,287 @@
                     </select>
                     <button id="flipCardBtn" type="button" class="ml-auto px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition">Flip card</button>
                 </div>
+                <!-- Logo (MOD06): upload sits on the right with the preview; Remove on the far left, away from it -->
+                <div class="flex flex-wrap items-center gap-2">
+                    <button id="removeAvatarBtn" type="button" class="hidden px-3 py-1.5 rounded-lg text-xs font-semibold hover:text-rose-500 transition">Remove logo</button>
+                    <div class="ml-auto flex items-center gap-2">
+                        <div id="formAvatarPreview" class="w-11 h-11"></div>
+                        <label class="cursor-pointer text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition text-center">
+                            Logo<input id="avatarUpload" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" class="hidden">
+                        </label>
+                    </div>
+                </div>
 
                 <div class="perspective-1000">
                     <div id="card3DFlipper" class="relative transform-style-3d cursor-pointer">
-                        <div id="cardFront" class="w-full min-h-64 rounded-3xl p-6 shadow-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-4 relative overflow-hidden backface-hidden font-sans">
+                        <div id="cardFront" class="card-face w-full min-h-64 rounded-3xl p-6 shadow-xl space-y-4 relative overflow-hidden backface-hidden font-sans">
                             <div class="flex flex-wrap items-center gap-4">
                                 <div id="previewLogoStrip" class="hidden"></div>
                                 <div id="previewAvatar" class="w-16 h-16"></div>
                                 <div class="min-w-0 flex-1">
                                     <h3 id="previewFullName" class="text-xl font-bold tracking-tight truncate">New Contact</h3>
-                                    <p id="previewTitle" class="text-sm text-slate-500 dark:text-slate-400 truncate">Job Title</p>
+                                    <p id="previewTitle" class="card-muted text-sm truncate">Job Title</p>
                                     <p id="previewOrg" class="text-sm font-semibold truncate">Company Name</p>
                                 </div>
                             </div>
-                            <div class="text-xs space-y-1 text-slate-600 dark:text-slate-300">
-                                <p id="previewPhone">No phone number</p>
-                                <p id="previewEmail" class="break-all">No email address</p>
-                                <p id="previewWebsite" class="break-all">No website</p>
-                                <p id="previewAddress">No address provided</p>
+                            <div class="card-lines text-xs space-y-1">
+                                <div id="previewPhones"></div>
+                                <div id="previewEmails" class="break-all"></div>
+                                <div id="previewWebsites" class="break-all"></div>
+                                <p id="previewAddress" class="card-line">No address provided</p>
                             </div>
                         </div>
-                        <div id="cardBack" class="absolute inset-0 w-full rounded-3xl p-6 shadow-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col justify-center items-center text-center gap-2 rotate-y-180 backface-hidden font-sans">
-                            <canvas id="qrCanvas" width="320" height="320" class="w-40 h-40 rounded-lg bg-white"></canvas>
+                        <div id="cardBack" class="card-face absolute inset-0 w-full rounded-3xl p-6 shadow-xl flex flex-col justify-center items-center text-center gap-2 rotate-y-180 backface-hidden font-sans">
+                            <canvas id="qrCanvas" width="320" height="320" class="w-40 h-40 rounded-xl shadow-xl bg-white"></canvas>
                             <p id="backCardName" class="text-sm font-bold">New Contact</p>
                             <p id="qrNotice" class="hidden text-[10px] text-amber-600 dark:text-amber-400">QR code unavailable: see the message above</p>
                         </div>
                     </div>
                 </div>
             </div>
-
-            <div class="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-2">
-                <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Share &amp; export (MOD08)</h2>
-                <div class="grid grid-cols-3 gap-2 text-xs font-semibold">
-                    <button id="downloadVcfBtn" type="button" class="py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 transition">.vcf</button>
-                    <button id="shareNativeBtn" type="button" class="py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition">Share</button>
-                    <button id="exportQrBtn" type="button" class="py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition">QR PNG</button>
-                    <button id="emailBtn" type="button" class="py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition">Email</button>
-                    <button id="smsBtn" type="button" class="py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition">SMS</button>
-                    <button id="printCardBtn" type="button" class="py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition">Print</button>
-                </div>
-                <button id="copyVcardBtn" type="button" class="w-full py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition text-xs font-semibold">Copy vCard text</button>
+            <div class="deck-card-foot">
+                <button type="button" class="vcge-trash" aria-label="Wipe everything and start over" title="Wipe everything and start over"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg></button>
+                <button id="readyToShareBtn" type="button" class="share-ready">Ready to share</button>
             </div>
+            <div class="mod-tag" aria-hidden="true"><span>MOD-06</span><span>MOD-07</span></div>
+        </section>
+        <section id="cardShare" class="deck-card mod-tag-host" data-card="share" aria-label="Share">
+            <div class="deck-card-body space-y-4">
+                <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Share &amp; export</h2>
+                <p class="share-lead">Nothing leaves vCGE until you press one of these.</p>
+                <div class="share-grid">
+                    <button id="downloadVcfBtn" type="button" class="share-btn share-primary">Save .vcf file</button>
+                    <button id="shareNativeBtn" type="button" class="share-btn">Share</button>
+                    <button id="copyVcardBtn" type="button" class="share-btn">Copy</button>
+                    <button id="exportQrBtn" type="button" class="share-btn">QR PNG</button>
+                    <button id="printCardBtn" type="button" class="share-btn">Print / PDF</button>
+                    <button id="emailBtn" type="button" class="share-btn">Email</button>
+                    <button id="smsBtn" type="button" class="share-btn">SMS</button>
+                </div>
+                <p class="share-note">Files are named after the contact: <span id="shareFileExample">Contact.vcf, Contact QR.png</span></p>
+            </div>
+            <div class="deck-card-foot">
+                <button type="button" class="vcge-trash" aria-label="Wipe everything and start over" title="Wipe everything and start over"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg></button>
+            </div>
+            <div class="mod-tag" aria-hidden="true"><span>MOD-08</span></div>
         </section>
     </main>
 
-    <footer class="border-t border-slate-200 dark:border-slate-800 px-4 py-4 text-center text-xs text-slate-500">
-        vCard Generator Engine (vCGE) &bull; Created by raven575, Gemini &amp; Claude &bull; MIT License
-    </footer>
-
-    <!-- OCR review modal (MOD03 -> MOD04 -> MOD05): step 1 crop & straighten the photo, step 2 check the extracted text -->
-    <div id="cropReviewModal" class="hidden fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4">
-        <div class="bg-white dark:bg-slate-900 rounded-2xl p-5 max-w-2xl w-full max-h-[92vh] overflow-y-auto space-y-3 shadow-2xl">
-            <div id="ocrStepPhoto" class="space-y-3">
-                <h2 class="text-lg font-bold">Review captured image</h2>
-                <p class="text-xs text-slate-500 dark:text-slate-400">Drag the four corners onto the card's corners to straighten it, or leave them to read the whole photo. The image stays on this device.</p>
-                <div id="cropStage" class="relative mx-auto w-fit max-w-full select-none">
-                    <img id="reviewImage" alt="Captured business card" class="block max-w-full max-h-80 rounded-lg bg-slate-100 dark:bg-slate-800">
-                    <svg id="cropOverlay" class="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none" aria-hidden="true">
-                        <polygon id="cropPolygon" class="crop-outline" points=""></polygon>
-                    </svg>
-                    <button type="button" class="crop-handle" data-corner="0"></button>
-                    <button type="button" class="crop-handle" data-corner="1"></button>
-                    <button type="button" class="crop-handle" data-corner="2"></button>
-                    <button type="button" class="crop-handle" data-corner="3"></button>
+    <!-- Vault page (MOD02 content, opened by the header lock icon or the Welcome card): PIN, fingerprint, wipe, audit log -->
+    <!-- Vault page (MOD02, Ghost): set, change or remove the PIN and the fingerprint or face unlock. Fresh every visit, never saved. -->
+    <div id="vaultPage" class="vcge-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="vaultPageTitle">
+        <div class="vcge-sheet-panel mod-tag-host space-y-3">
+            <div class="vcge-sheet-head">
+                <h2 id="vaultPageTitle">Vault</h2>
+                <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close">&#x2715;</button>
+            </div>
+            <p class="vault-lead">Your card is held in memory only and is never saved. Set a PIN, and a fingerprint or face if your device has one, so the card locks instead of being wiped when you step away. Both are set up fresh every visit and forgotten when you leave.</p>
+            <div class="vault-row">
+                <span class="font-medium">MOD02 Vault</span>
+                <span id="vaultStateIndicator" class="text-xs font-mono text-emerald-500">UNLOCKED / memory only</span>
+            </div>
+            <p id="purgeCountdown" class="text-[11px] font-mono text-slate-500 dark:text-slate-400">Auto-clear idle</p>
+            <div id="quickUnlockPanel" class="vault-section hidden">
+                <h3>PIN and fingerprint</h3>
+                <div class="vault-row">
+                    <span id="sessionPinStatus">Session PIN: not set</span>
+                    <span>
+                        <button id="setSessionPinBtn" type="button" class="vault-btn">Set PIN</button>
+                        <button id="clearSessionPinBtn" type="button" class="vault-btn-quiet hidden">Remove</button>
+                        <button id="vaultLockNowBtn" type="button" class="vault-btn-quiet hidden">Lock now</button>
+                    </span>
                 </div>
-                <p class="text-xs text-slate-500 dark:text-slate-400">Focus point <span id="priorityCoord" class="font-mono">(0.5, 0.5)</span>.</p>
-                <p id="ocrRetakeNotice" class="hidden text-sm text-amber-600 dark:text-amber-400" role="alert">This photo is too blurry or unclear to read. Retake it closer, in good light, and hold steady.</p>
-                <div class="flex flex-wrap justify-end gap-2">
-                    <button id="rotatePhotoBtn" type="button" class="mr-auto px-3 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Rotate 90°</button>
-                    <button id="retakePhotoBtn" type="button" class="hidden px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Retake photo</button>
-                    <button id="cancelReviewBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Cancel</button>
-                    <button id="runOcrBtn" type="button" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Extract fields</button>
+                <div id="biometricRow" class="vault-row hidden">
+                    <span id="biometricStatus">Face ID / fingerprint: off</span>
+                    <span>
+                        <button id="addBiometricBtn" type="button" class="vault-btn">Turn on</button>
+                        <button id="clearBiometricBtn" type="button" class="vault-btn-quiet hidden">Turn off</button>
+                    </span>
+                </div>
+                <p class="vault-note">Nothing is saved. Leaving or reloading the page wipes the card. With a 4-digit PIN set, the screen turning off or 2 idle minutes lock it instead, and 7 minutes after the lock it is wiped. Without a PIN, 30 s out of view or 2 idle minutes wipe it.</p>
+            </div>
+            <div class="vault-row">
+                <span><button id="wipeVaultBtn" type="button" class="vault-btn-quiet vault-btn-danger">Wipe everything and start over</button></span>
+                <span><button id="vaultSettingsBtn" type="button" class="vault-btn-quiet" data-open-sheet="settingsSheet">Settings</button></span>
+            </div>
+            <div>
+                <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Egress &amp; vault audit log</h3>
+                <ul id="auditLog" class="text-[11px] font-mono text-slate-500 dark:text-slate-400 space-y-0.5"></ul>
+            </div>
+            <div class="mod-tag" aria-hidden="true"><span>MOD-02</span></div>
+        </div>
+    </div>
+
+    <!-- Settings (MOD01): theme today; hand, colour-blind mode and font come with the settings step -->
+    <div id="settingsSheet" class="vcge-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
+        <div class="vcge-sheet-panel mod-tag-host">
+            <div class="vcge-sheet-head">
+                <h2 id="settingsTitle">Settings</h2>
+                <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close">&#x2715;</button>
+            </div>
+            <div class="vcge-sheet-row">
+                <span id="handLabel">Hand</span>
+                <div class="vcge-seg" role="group" aria-labelledby="handLabel">
+                    <button id="handRightBtn" type="button" aria-pressed="true">Right</button>
+                    <button id="handLeftBtn" type="button" aria-pressed="false">Left</button>
                 </div>
             </div>
+            <div class="vcge-sheet-row">
+                <label for="cbToggle">Colour-blind mode</label>
+                <input id="cbToggle" type="checkbox" role="switch" class="vcge-switch" aria-describedby="cbHint">
+            </div>
+            <p id="cbHint" class="vcge-sheet-hint">Words and marks next to every colour cue.</p>
+            <div class="vcge-sheet-row">
+                <span>App theme</span>
+                <button id="themeToggle" type="button" class="p-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition" aria-label="Toggle light or dark theme" aria-pressed="false">🌙</button>
+            </div>
+            <div class="vcge-sheet-row">
+                <label for="fontSelect">UI font</label>
+                <select id="fontSelect" class="vcge-select" aria-label="UI font"></select>
+            </div>
+            <div class="vcge-sheet-row">
+                <span>Language</span>
+                <span class="vcge-sheet-soon">English (more coming later)</span>
+            </div>
+            <div class="vcge-sheet-row">
+                <span>PIN and fingerprint</span>
+                <button id="settingsVaultBtn" type="button" class="px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition" data-open-sheet="vaultPage">Open the Vault</button>
+            </div>
+            <p id="settingsNote" class="vcge-sheet-note">vCGE keeps one small settings file on this device (hand, colors, theme, font). Nothing you scan, upload or type is ever saved.</p>
+            <div class="mod-tag mod-tag-inset" aria-hidden="true"><span>MOD-01</span></div>
+        </div>
+    </div>
 
-            <div id="ocrStepText" class="hidden space-y-3">
-                <h2 class="text-lg font-bold">Check the extracted text</h2>
-                <p class="text-xs text-slate-500 dark:text-slate-400">Fix any misread text and choose what each line is. Nothing goes into the form until you select Fill form.</p>
-                <div id="ocrLines" class="space-y-1.5"></div>
-                <div>
-                    <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Will fill</h3>
-                    <dl id="ocrSummary" class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-0.5 text-sm"></dl>
+    <!-- Export QR pop-up (MOD08, Airlock): colours, dots, frame and centre logo for the saved PNG, with a live preview.
+         A Shell sheet: a sideways swipe, Esc or the X is Cancel. The code is drawn by MOD07; a logo is only ever drawn as an image. -->
+    <div id="exportQrSheet" class="vcge-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="exportQrTitle">
+        <div class="vcge-sheet-panel mod-tag-host">
+            <div class="vcge-sheet-head">
+                <h2 id="exportQrTitle">Export QR</h2>
+                <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close">&#x2715;</button>
+            </div>
+            <div class="export-qr-body">
+                <div class="export-qr-preview">
+                    <canvas id="exportQrPreview" width="0" height="0" aria-label="QR code preview" role="img"></canvas>
+                    <p id="exportQrNote" class="export-qr-note" aria-live="polite"></p>
                 </div>
-                <div class="flex flex-wrap justify-end gap-2">
-                    <button id="ocrBackBtn" type="button" class="mr-auto px-3 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Back to photo</button>
-                    <button id="ocrCancelBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Cancel</button>
-                    <button id="applyOcrBtn" type="button" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Fill form</button>
+                <div class="export-qr-options">
+                    <div class="export-qr-group" role="radiogroup" aria-labelledby="qrColourLabel">
+                        <span id="qrColourLabel">Colours</span>
+                        <div class="export-qr-choices">
+                            <label><input type="radio" name="qrColour" value="themed" checked>Themed</label>
+                            <label><input type="radio" name="qrColour" value="bw">Black &amp; White</label>
+                        </div>
+                    </div>
+                    <div class="export-qr-group" role="radiogroup" aria-labelledby="qrDotsLabel">
+                        <span id="qrDotsLabel">Dots</span>
+                        <div class="export-qr-choices">
+                            <label><input type="radio" name="qrDots" value="square" checked>Square</label>
+                            <label><input type="radio" name="qrDots" value="round">Round</label>
+                        </div>
+                    </div>
+                    <div class="export-qr-group" role="radiogroup" aria-labelledby="qrFrameLabel">
+                        <span id="qrFrameLabel">Frame</span>
+                        <div class="export-qr-choices">
+                            <label><input type="radio" name="qrFrame" value="none" checked>None</label>
+                            <label><input type="radio" name="qrFrame" value="square">Square</label>
+                            <label><input type="radio" name="qrFrame" value="rounded">Rounded</label>
+                            <label><input type="radio" name="qrFrame" value="circle">Circle</label>
+                        </div>
+                    </div>
+                    <div class="export-qr-group" role="radiogroup" aria-labelledby="qrLogoLabel">
+                        <span id="qrLogoLabel">Centre logo</span>
+                        <div class="export-qr-choices">
+                            <label><input type="radio" name="qrLogo" value="none" checked>Nothing</label>
+                            <label><input type="radio" name="qrLogo" value="scanned">Scanned logo</label>
+                            <label><input type="radio" name="qrLogo" value="upload">Upload</label>
+                        </div>
+                        <input id="exportQrLogoFile" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" class="hidden" aria-label="Upload a logo for the QR centre">
+                        <p id="exportQrLogoReason" class="export-qr-reason" aria-live="polite"></p>
+                    </div>
+                    <label id="exportQrUseOnCardRow" class="export-qr-use hidden"><input id="exportQrUseOnCard" type="checkbox"> <span>Also use this logo on my card</span></label>
                 </div>
+            </div>
+            <div class="export-qr-actions">
+                <button id="exportQrCancelBtn" type="button" class="export-qr-cancel">Cancel</button>
+                <button id="exportQrSaveBtn" type="button" class="export-qr-save" disabled>Save PNG</button>
+            </div>
+            <p class="export-qr-file">Saved exactly as previewed, as <span id="exportQrFileName">Contact QR.png</span>.</p>
+            <div class="mod-tag mod-tag-inset" aria-hidden="true"><span>MOD-08</span></div>
+        </div>
+    </div>
+
+    <!-- Print / PDF choice (MOD08): Themed or Black &amp; White, then the browser's print dialog (Save as PDF lives there) -->
+    <div id="printChoiceSheet" class="vcge-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="printChoiceTitle">
+        <div class="vcge-sheet-panel mod-tag-host">
+            <div class="vcge-sheet-head">
+                <h2 id="printChoiceTitle">Print / PDF</h2>
+                <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close">&#x2715;</button>
+            </div>
+            <p class="print-choice-lead">One 6 &times; 3.5 inch page: the card at business-card size with its QR code beside it. Choose Save as PDF in the print dialog for a file.</p>
+            <div class="print-choice-actions">
+                <button id="printThemedBtn" type="button" class="print-choice print-choice-themed">Themed</button>
+                <button id="printBwBtn" type="button" class="print-choice print-choice-bw">Black &amp; White</button>
+                <button id="printCancelBtn" type="button" class="print-choice-cancel">Cancel</button>
+            </div>
+            <p class="print-choice-note">Themed keeps the card's colours. If the theme's QR would not scan, the code is printed in black and white and a message says so.</p>
+            <div class="mod-tag mod-tag-inset" aria-hidden="true"><span>MOD-08</span></div>
+        </div>
+    </div>
+
+    <!-- Thank You page (MOD01): after CANCEL on the Welcome card, once the session is wiped -->
+    <div id="thankYouPage" class="thank-you hidden" role="dialog" aria-modal="true" aria-labelledby="thankYouTitle">
+        <div class="thank-you-box">
+            <img class="vcge-welcome-logo" src="src/assets/brand/vcge-logo-192.png" alt="vCGE" width="72" height="72" decoding="async">
+            <h2 id="thankYouTitle">Thanks for visiting.</h2>
+            <p>We'll be here the next time you need us!</p>
+            <div class="thank-you-actions">
+                <button id="thankYouStartOverBtn" type="button" class="thank-you-go">START OVER</button>
+                <button id="thankYouCloseBtn" type="button" class="thank-you-alt">CLOSE WINDOW</button>
+            </div>
+            <p id="thankYouNote" class="thank-you-note" role="status"></p>
+        </div>
+    </div>
+
+    <!-- Reading ran out of time (MOD04): try the same photo again with a fresh reader, or go back to the photo -->
+    <div id="ocrTimeoutModal" class="hidden fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4">
+        <div role="alertdialog" aria-labelledby="ocrTimeoutTitle" aria-describedby="ocrTimeoutText" class="bg-white dark:bg-slate-900 rounded-2xl p-5 max-w-sm w-full space-y-3 shadow-2xl">
+            <h2 id="ocrTimeoutTitle" class="text-lg font-bold">The reader didn't finish</h2>
+            <p id="ocrTimeoutText" class="text-sm text-slate-600 dark:text-slate-300">Reading this photo took longer than 55 seconds, so the reader was restarted. A closer, well-lit photo helps.</p>
+            <div class="flex justify-end gap-2">
+                <button id="ocrTimeoutCancelBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Cancel</button>
+                <button id="ocrTryAgainBtn" type="button" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Try Again</button>
             </div>
         </div>
     </div>
 
-    <!-- Quick lock (MOD02): the card is held in the temporary vault until the session PIN or biometric brings it back -->
-    <div id="vaultModal" class="hidden fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-        <form id="vaultForm" class="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-sm w-full space-y-3 shadow-2xl">
+    <!-- Lock screen (MOD02): the card is held in the temporary vault until the fingerprint, face or session PIN brings it back.
+         Fingerprint first and big, the PIN under it; no Unlock button (the 4th digit unlocks); the keyboard never covers a control. -->
+    <div id="vaultModal" class="hidden fixed inset-0 z-50 bg-black/70 flex justify-center p-4">
+        <form id="vaultForm" class="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-sm w-full space-y-3 shadow-2xl" aria-labelledby="vaultModalTitle" aria-describedby="vaultModalHint">
             <h2 id="vaultModalTitle" class="text-lg font-bold">Locked</h2>
             <p id="vaultModalHint" class="text-xs text-slate-500 dark:text-slate-400"></p>
-            <label id="vaultPinRow" class="block"><span class="field-label">4-digit PIN</span><input id="vaultPin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-bwignore data-form-type="other" class="field-input"></label>
-            <p id="quickUnlockCountdown" class="text-[11px] font-mono text-slate-500 dark:text-slate-400"></p>
+            <button id="vaultBiometricBtn" type="button" class="vault-bio-btn hidden">
+                <svg class="vcge-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18.9 7a8 8 0 0 1 1.1 5v1a6 6 0 0 0 .8 3"/><path d="M8 11a4 4 0 0 1 8 0v1a10 10 0 0 0 2 6"/><path d="M12 11v2a14 14 0 0 0 2.5 8"/><path d="M8 15a18 18 0 0 0 1.8 6"/><path d="M4.9 19a22 22 0 0 1-.9-7v-1a8 8 0 0 1 12-6.95"/></svg>
+                <span>Use fingerprint or face</span>
+            </button>
+            <p id="vaultOr" class="vault-or hidden">or</p>
+            <label id="vaultPinRow" class="block"><span class="field-label">Type your 4-digit PIN</span><input id="vaultPin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-bwignore data-form-type="other" class="field-input"></label>
             <p id="vaultError" class="text-xs text-rose-600 dark:text-rose-400 min-h-4" role="alert"></p>
-            <button id="vaultBiometricBtn" type="button" class="hidden w-full py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Use Face ID / fingerprint</button>
-            <div class="flex justify-between gap-2">
-                <button id="vaultStartOverBtn" type="button" class="px-3 py-2 rounded-lg text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white transition">Wipe and start over</button>
-                <button id="vaultUnlockBtn" type="submit" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Unlock</button>
+            <!-- Calm ring: time left before the 7-minute reset wipes the held card -->
+            <div class="vault-ring relative mx-auto">
+                <svg viewBox="0 0 120 120" class="w-full h-full -rotate-90" aria-hidden="true">
+                    <circle cx="60" cy="60" r="52" fill="none" stroke-width="8" class="stroke-slate-200 dark:stroke-slate-700"></circle>
+                    <circle id="vaultLockRing" cx="60" cy="60" r="52" fill="none" stroke-width="8" stroke-linecap="round" stroke-dasharray="326.73" stroke-dashoffset="0" class="stroke-brand-500"></circle>
+                </svg>
+                <div class="absolute inset-0 flex flex-col items-center justify-center">
+                    <span id="vaultLockRingTime" class="text-2xl font-bold font-mono tabular-nums">7:00</span>
+                    <span class="text-[11px] text-slate-500 dark:text-slate-400">until it's cleared</span>
+                </div>
+            </div>
+            <p id="quickUnlockCountdown" class="text-[11px] text-center text-slate-500 dark:text-slate-400"></p>
+            <div class="flex justify-center">
+                <button id="vaultStartOverBtn" type="button" class="vault-btn-quiet vault-btn-danger">Wipe and start over</button>
             </div>
         </form>
     </div>
@@ -332,12 +598,13 @@
     </div>
 
     <!-- Toast -->
-    <div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 translate-y-20 opacity-0 pointer-events-none transition-all duration-300 z-50 px-4 py-2.5 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-sm shadow-xl flex items-center gap-3" role="status">
+    <!-- Toast (MOD06): at the top under the header, 3 s; a tap dismisses it, a hold keeps it -->
+    <div id="toast" class="fixed top-14 left-1/2 -translate-x-1/2 -translate-y-24 opacity-0 pointer-events-none transition-all duration-300 z-50 max-w-[calc(100vw-2rem)] px-4 py-2.5 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-sm shadow-xl flex items-center gap-3 cursor-pointer select-none" role="status">
         <span id="toastMessage"></span>
         <button id="toastAction" type="button" class="hidden font-semibold text-brand-400 dark:text-brand-700 hover:underline">Undo</button>
     </div>
 
-    <!-- Print sheet (MOD08): filled just before printing with the card front and back at 3.5" x 2"; emptied on idle purge and lock -->
+    <!-- Print sheet (MOD08): filled just before printing with the card front (3.5 x 2 in) and the QR beside it on a 6 x 3.5 in page; emptied on idle purge and lock -->
     <div id="printSheet" class="hidden" aria-hidden="true"></div>
 
     <!-- Bundled third-party libraries (pinned, MIT / Apache-2.0; see THIRD_PARTY_NOTICES.md) -->

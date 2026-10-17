@@ -28,6 +28,20 @@ let cancelRunning = null;
 // How long the engine may take to start (core + English model, ~7 MB from local files) before we give up.
 export const OCR_INIT_TIMEOUT_MS = 60000;
 
+// How long reading one photo may take before the engine is restarted (a desktop reads a card in about 2 s). A phone
+// can stop the engine mid-read when memory runs low; Tesseract.js then never answers, so without a limit the scan hangs.
+// 55 s (raven575, 2026-10-17): the shimmer's wash on the Read card is full exactly when this runs out.
+export const OCR_READ_TIMEOUT_MS = 55000;
+
+/**
+ * How far the read has come (0..1) `elapsedMs` into reading a photo, for the Read card's wash: fast at first, then
+ * slower than real time, full exactly when the time limit runs out. Never shown as a number.
+ */
+export function readProgress(elapsedMs, limitMs = OCR_READ_TIMEOUT_MS) {
+    const t = Math.min(1, Math.max(0, elapsedMs / limitMs));
+    return 1 - (1 - t) * (1 - t);
+}
+
 // Page segmentation mode: 11 = sparse text (short lines scattered over the card), see setParameters below.
 export const OCR_PAGE_SEG_MODE = '11';
 
@@ -37,6 +51,8 @@ export const OCR_PAGE_SEG_MODE = '11';
 export const OCR_MIN_CONFIDENCE = 55;
 // Kept low on purpose: a sharp minimal card (name, phone, email) has only 3-4 words; blur shows in the confidence.
 export const OCR_MIN_READABLE_WORDS = 3;
+// A word read with confidence below this is passed on as unsure, so the review step can ask the user to check it.
+export const OCR_UNSURE_WORD_CONFIDENCE = 50;
 
 /** Thrown when the photo is too blurry or unclear to read; the caller should ask for a new photo. */
 export class OcrUnreadableError extends Error {
@@ -55,6 +71,15 @@ export class OcrCancelledError extends Error {
         super('OCR stopped by a wipe');
         this.name = 'OcrCancelledError';
         this.code = 'OCR_CANCELLED';
+    }
+}
+
+/** Thrown when reading a photo took too long; the engine has been restarted and the caller should offer a retry. */
+export class OcrTimeoutError extends Error {
+    constructor(timeoutMs) {
+        super(`Reading the photo took longer than ${Math.round(timeoutMs / 1000)} s`);
+        this.name = 'OcrTimeoutError';
+        this.code = 'OCR_TIMEOUT';
     }
 }
 
@@ -195,13 +220,16 @@ export function preProcessImageBuffer(imageSrc) {
 
 /**
  * Icons in front of each OCR line (phone handset, envelope, social logo...). Best effort: any failure means no icons,
- * never a failed scan. Returns [{ text, icon, alts }] in card order (lines that were only an icon are dropped); `alts`
- * are the engine's close second guesses for letters of `text` ([{ at, chars }], see glyphChoices.js).
+ * never a failed scan. Returns [{ text, icon, alts, unsure }] in card order (lines that were only an icon are dropped);
+ * `alts` are the engine's close second guesses for letters of `text` ([{ at, chars }], see glyphChoices.js), `unsure`
+ * the words of 2+ characters it read with confidence below OCR_UNSURE_WORD_CONFIDENCE.
  */
 async function linesWithIcons(processedImage, data) {
     const lines = refineLines(data.lines || []);
-    if (!lines.length) return String(data.text || '').split('\n').map(text => ({ text: text.trim(), icon: null, alts: [] })).filter(l => l.text);
-    const withAlts = (found) => found.map((l, i) => ({ text: l.text, icon: l.icon, alts: altsForText(l.text, lines[i].words) })).filter(l => l.text);
+    if (!lines.length) return String(data.text || '').split('\n').map(text => ({ text: text.trim(), icon: null, alts: [], unsure: [] })).filter(l => l.text);
+    // Only words still in the line: icon debris dropped from the text does not count.
+    const unsure = (text, words) => (words || []).filter(w => w.text.length > 1 && w.confidence < OCR_UNSURE_WORD_CONFIDENCE && text.split(' ').includes(w.text)).map(w => w.text);
+    const withAlts = (found) => found.map((l, i) => ({ text: l.text, icon: l.icon, alts: altsForText(l.text, lines[i].words), unsure: unsure(l.text, lines[i].words) })).filter(l => l.text);
     try {
         const [templates, image] = await Promise.all([loadIconTemplates(), grayFromDataUrl(processedImage)]);
         return withAlts(detectLineIcons(image.gray, image.width, image.height, lines, templates));
@@ -217,10 +245,10 @@ async function linesWithIcons(processedImage, data) {
  * MOD05's job. `onStatus('starting')` is called when the engine has to start first (the first scan, or after a wipe:
  * about 7 MB of bundled files to load), then `onStatus('reading')`.
  * Rejects with OcrUnavailableError when the engine cannot start, with OcrUnreadableError when the photo is too
- * blurry or unclear, so neither made-up nor garbage text ever reaches the form, and with OcrCancelledError when a
- * wipe stopped it.
+ * blurry or unclear, so neither made-up nor garbage text ever reaches the form, with OcrTimeoutError when reading took
+ * longer than `readTimeoutMs` (the engine is restarted), and with OcrCancelledError when a wipe stopped it.
  */
-export async function executeOCRScan(imageSrc, { initTimeoutMs = OCR_INIT_TIMEOUT_MS, onStatus = () => {} } = {}) {
+export async function executeOCRScan(imageSrc, { initTimeoutMs = OCR_INIT_TIMEOUT_MS, readTimeoutMs = OCR_READ_TIMEOUT_MS, onStatus = () => {} } = {}) {
     console.log(`[${MODULE_ID}] Starting OCR extraction pipeline...`);
     const started = generation;
     let cancel;
@@ -228,18 +256,18 @@ export async function executeOCRScan(imageSrc, { initTimeoutMs = OCR_INIT_TIMEOU
     cancelled.catch(() => {});
     cancelRunning = cancel;
     try {
-        return await Promise.race([scan(imageSrc, initTimeoutMs, onStatus, started), cancelled]);
+        return await Promise.race([scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started), cancelled]);
     } finally {
         if (cancelRunning === cancel) cancelRunning = null;
     }
 }
 
-async function scan(imageSrc, initTimeoutMs, onStatus, started) {
+async function scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started) {
     const processedImage = await preProcessImageBuffer(imageSrc);
     if (!tesseractWorker) onStatus('starting');
     const worker = await initOCREngine(initTimeoutMs);
     onStatus('reading');
-    const result = await worker.recognize(processedImage);
+    const result = await readWithin(worker, processedImage, readTimeoutMs);
     if (generation !== started) throw new OcrCancelledError();
     const text = result.data.text || '';
     const confidence = Math.round(result.data.confidence || 0);
@@ -254,6 +282,24 @@ async function scan(imageSrc, initTimeoutMs, onStatus, started) {
     // A signal only: the text itself is contact data and goes back to the caller, never onto the bus.
     globalEventBus.publish(Events.OCR_TEXT_EXTRACTED, { sourceModule: MODULE_ID, confidence, icons: lines.filter(l => l.icon).length, timestamp: Date.now() });
     return { text, confidence, lines };
+}
+
+/** worker.recognize, or OcrTimeoutError after `timeoutMs`; a worker that ran out of time is stopped, so the next scan starts a fresh one. */
+async function readWithin(worker, image, timeoutMs) {
+    let timer;
+    const late = new Promise((_, reject) => { timer = setTimeout(() => reject(new OcrTimeoutError(timeoutMs)), timeoutMs); });
+    try {
+        return await Promise.race([worker.recognize(image), late]);
+    } catch (error) {
+        if (error instanceof OcrTimeoutError) {
+            console.error(`[${MODULE_ID}] ${error.message}: restarting the engine`);
+            if (tesseractWorker === worker) tesseractWorker = null;
+            Promise.resolve().then(() => worker.terminate()).catch(() => {});
+        }
+        throw error;
+    } finally {
+        clearTimeout(timer);
+    }
 }
 
 export const getModuleName = () => MODULE_NAME;

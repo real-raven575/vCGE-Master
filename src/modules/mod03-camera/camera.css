@@ -1,0 +1,111 @@
+/* vCGE-MOD03 Capture card (redesign step 5): Take a photo / Upload a photo, the clean viewfinder with thin corner
+   brackets, the vertical zoom fader (kept 48 px from the screen edge, so a drag never triggers the browser's back
+   gesture), the round green shutter, and the crop step with its green OK. Right-handed by default: shutter on the
+   right, fader on the left; html[data-hand="left"] (Settings) mirrors them. No flashing, no sound. */
+
+:root {
+    --cap-green: #16a34a;
+    --cap-green-deep: #15803d;
+    --cap-edge-inset: 2rem;          /* 32 px from the viewfinder's edge; the card adds 20 px, so 52 px from the screen edge */
+}
+
+/* ---- Take a photo / Upload a photo: two medium buttons side by side, Take first ---------------------------- */
+.cap-choice { display: grid; grid-template-columns: 1fr 1fr; gap: var(--vcge-gap, 0.5rem); }
+.cap-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+    min-height: 3.5rem; padding: 0.5rem 0.75rem; border-radius: 0.875rem; cursor: pointer;
+    font-size: 0.95rem; font-weight: 700; background: #f1f5f9; color: #0f172a; border-color: #cbd5e1;
+    transition: background-color 0.15s;
+}
+.cap-btn:hover { background: #e2e8f0; }
+.cap-btn-primary { background: var(--cap-green); color: #020617; border-color: var(--cap-green-deep); }
+.cap-btn-primary:hover { background: #22c55e; }
+.dark .cap-btn:not(.cap-btn-primary) { background: #1e293b; color: #f1f5f9; border-color: #334155; }
+.dark .cap-btn:not(.cap-btn-primary):hover { background: #334155; }
+.cap-btn .vcge-icon { width: 1.5rem; height: 1.5rem; }
+/* The upload button is a file-picker label: it keeps the shared button look (ui.css) with this card's size */
+label.cap-btn { min-height: 3.5rem; }
+
+/* ---- Viewfinder ---------------------------------------------------------------------------------------------- */
+.cap-finder { position: relative; }
+.cap-view {
+    position: relative; overflow: hidden; border-radius: 1rem; background: #000;
+    aspect-ratio: 4 / 3; max-height: 60vh; max-height: 60dvh; width: 100%;
+}
+@media (orientation: portrait) { .cap-view { aspect-ratio: 3 / 4; } }
+.cap-view video { width: 100%; height: 100%; object-fit: cover; display: block; transform-origin: center center; }
+/* Thin corner brackets just inside the card frame's edge; nothing else over the picture */
+.cap-frame { position: absolute; pointer-events: none; }
+.cap-corner { position: absolute; width: 1.5rem; height: 1.5rem; border: 2px solid rgba(255, 255, 255, 0.85); }
+.cap-corner.tl { left: 0; top: 0; border-right: 0; border-bottom: 0; border-top-left-radius: 0.375rem; }
+.cap-corner.tr { right: 0; top: 0; border-left: 0; border-bottom: 0; border-top-right-radius: 0.375rem; }
+.cap-corner.br { right: 0; bottom: 0; border-left: 0; border-top: 0; border-bottom-right-radius: 0.375rem; }
+.cap-corner.bl { left: 0; bottom: 0; border-right: 0; border-top: 0; border-bottom-left-radius: 0.375rem; }
+
+/* The zoom fader: a vertical mixer-style slider on the left, inside the viewfinder, with tick marks and a readout */
+.cap-fader {
+    position: absolute; top: 50%; left: var(--cap-edge-inset); transform: translateY(-50%);
+    display: flex; flex-direction: column; align-items: center; gap: 0.375rem;
+    padding: 0.5rem 0.25rem; border-radius: 999px; background: rgba(2, 6, 23, 0.45); backdrop-filter: blur(4px);
+}
+.cap-fader-track { position: relative; height: 9rem; width: 2.75rem; display: flex; align-items: center; justify-content: center; }
+/* Tick marks beside the track: one every 1/6 of the way */
+.cap-fader-track::before {
+    content: ''; position: absolute; left: 0.3rem; top: 0.5rem; bottom: 0.5rem; width: 0.5rem;
+    background: repeating-linear-gradient(to bottom, rgba(255, 255, 255, 0.7) 0 2px, transparent 2px calc((100% - 2px) / 6));
+}
+.cap-fader input[type="range"] {
+    writing-mode: vertical-lr; direction: rtl; -webkit-appearance: slider-vertical; appearance: slider-vertical;
+    width: 1.5rem; height: 8rem; margin: 0; background: transparent; accent-color: var(--cap-green); cursor: grab; touch-action: none;
+}
+.cap-fader .cap-zoom { font-size: 0.75rem; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; min-width: 2.5rem; text-align: center; }
+
+/* The shutter: a round green button on the right, in the middle of the viewfinder, that sinks when pressed (camera.js
+   pops it back with the shared overshoot). A little ring and a brighter top make it feel like a real button. */
+.cap-shutter {
+    position: static; transform: none;
+    width: 4.5rem; height: 4.5rem; min-width: 4.5rem; min-height: 4.5rem; border-radius: 999px; padding: 0; cursor: pointer;
+    background: radial-gradient(circle at 50% 35%, #4ade80 0, var(--cap-green) 55%, var(--cap-green-deep) 100%);
+    border: 3px solid rgba(255, 255, 255, 0.9); box-shadow: 0 0 0 4px rgba(2, 6, 23, 0.35), 0 10px 20px -8px rgba(0, 0, 0, 0.7);
+    transform-origin: 50% 50%;
+}
+/* camera.js scales the shutter; the vertical centring sits on the slot around it, so the two transforms never fight */
+.cap-shutter-slot { position: absolute; top: 50%; right: var(--cap-edge-inset); transform: translateY(-50%); width: 4.5rem; height: 4.5rem; }
+.cap-shutter:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
+.cap-shutter .cap-shutter-dot { display: block; width: 1.75rem; height: 1.75rem; margin: 0 auto; border-radius: 999px; background: rgba(255, 255, 255, 0.92); }
+.cap-finder-tools { display: flex; justify-content: space-between; gap: var(--vcge-gap, 0.5rem); margin-top: 0.5rem; }
+.cap-finder-tools button { flex: 1 1 0; border-radius: 0.75rem; font-size: 0.85rem; font-weight: 600; background: #f1f5f9; color: #0f172a; border-color: #cbd5e1; cursor: pointer; }
+.dark .cap-finder-tools button { background: #1e293b; color: #f1f5f9; border-color: #334155; }
+
+/* Left hand (Settings): shutter on the left, fader on the right */
+html[data-hand="left"] .cap-fader { left: auto; right: var(--cap-edge-inset); }
+html[data-hand="left"] .cap-shutter-slot { right: auto; left: var(--cap-edge-inset); }
+
+/* Colour-blind mode: the shutter also carries a thick dark ring and a label */
+html[data-cb="1"] .cap-shutter { border-color: #0f172a; }
+html[data-cb="1"] .cap-shutter-label { display: block; }
+.cap-shutter-label { display: none; position: absolute; left: 50%; top: 100%; transform: translate(-50%, 0.25rem); font-size: 0.7rem; font-weight: 700; color: #fff; white-space: nowrap; }
+
+/* ---- Crop step: the photo with its handles at the full edge, then Rotate, Snap to card, Retake, Cancel, OK ---- */
+.cap-review-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--vcge-gap, 0.5rem); }
+.cap-review-actions .cap-quiet { padding: 0 0.75rem; border-radius: 0.75rem; font-size: 0.85rem; font-weight: 600; background: #f1f5f9; color: #0f172a; border-color: #cbd5e1; cursor: pointer; }
+.dark .cap-review-actions .cap-quiet { background: #1e293b; color: #f1f5f9; border-color: #334155; }
+.cap-ok {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; padding: 0 1.25rem; min-width: 6rem;
+    border-radius: 0.875rem; font-size: 1rem; font-weight: 800; letter-spacing: 0.04em; cursor: pointer;
+    background: var(--cap-green); color: #020617; border-color: var(--cap-green-deep);
+}
+.cap-ok:hover { background: #22c55e; }
+.cap-ok:disabled { opacity: 0.6; cursor: default; }
+html[data-cb="1"] .cap-ok, html[data-cb="1"] .cap-btn-primary { background: #2563eb; border-color: #1d4ed8; color: #fff; }
+
+/* These classes set display, and this sheet loads after the shared one, so the shared .hidden must still win */
+.cap-choice.hidden, .cap-btn.hidden, .cap-fader.hidden, .cap-shutter-slot.hidden, .cap-finder-tools.hidden,
+.cap-review-actions.hidden, .cap-quiet.hidden, .cap-ok.hidden, .cap-shutter-label.hidden { display: none; }
+
+/* The crop stage: the handles sit on the very edge, so the stage leaves room for their outer half */
+#captureReview #cropStage { margin: 0.75rem auto; }
+
+@media (prefers-reduced-motion: reduce) {
+    .cap-btn, .cap-shutter { transition: none; }
+}

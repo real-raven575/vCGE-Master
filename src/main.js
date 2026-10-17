@@ -5,13 +5,17 @@
  * Wires the modules together over the shared event bus:
  *   MOD03 camera / upload -> MOD04 OCR -> MOD05 mapper -> MOD06 card view -> MOD07 vCard + QR
  *   -> MOD02 temporary vault (memory only) and MOD08 egress (every outbound action).
- * MOD01's network lock (netLock.js) is loaded by index.html before every other script; shell.js, imported first, reports its blocks.
+ * MOD01's network lock (netLock.js) is loaded by index.html before every other script; shell.js, imported first, reports its blocks
+ * and starts the postcard deck (deck.js): this controller moves the deck to the card a step lands on and hands the deck its
+ * hooks (toast, wipe, cancel, QR flip) so MOD01 never imports another module.
  * Nothing is stored: leaving or reloading the page, or 7 minutes without activity, wipes it. With a session PIN set,
- * the screen turning off or 2 idle minutes lock the card (PIN or biometric brings it back); without one, 30 s out of
- * view or 2 idle minutes wipe it.
+ * the screen turning off or 2 idle minutes lock the card (fingerprint, face or PIN brings it back) and 7 minutes after
+ * the lock it is wiped; without one, 30 s out of view or 2 idle minutes wipe it. MOD02's padlock plays at every
+ * hand-off between cards and its hold-to-wipe dialog sits behind every red trash button.
  */
 import './modules/mod01-shell/shell.js';
-import { initTheme } from './modules/mod01-shell/themeManager.js';
+import { initSettings } from './modules/mod01-shell/settings.js';
+import { go as showCard, use as useDeck, onBeforeChange as beforeCardChange, closeSheet, toast as deckToast } from './modules/mod01-shell/deck.js';
 import { globalEventBus, Events } from './share/eventBus.js';
 import { CONTACT_FIELDS, CONTACT_LIST_FIELDS, createEmptyContact } from './share/cardSchema.js';
 import { temporaryVault, deleteLegacyVault } from './modules/mod02-vault/vault.js';
@@ -20,15 +24,21 @@ import { deleteDeviceSecret } from './modules/mod02-vault/keychain.js';
 import { SessionPin, RESET_SECONDS, PIN_LENGTH, MAX_PIN_ATTEMPTS, isValidPin } from './modules/mod02-vault/sessionPin.js';
 import { BiometricUnlock, biometricAvailable } from './modules/mod02-vault/biometric.js';
 import { maskSecretInputs } from './modules/mod02-vault/secretInputs.js';
+import { LockHandoff } from './modules/mod02-vault/lockHandoff.js';
+import { WipeDialog } from './modules/mod02-vault/wipeDialog.js';
 import { VCGEActiveCamera } from './modules/mod03-camera/camera.js';
 import { CropEditor } from './modules/mod03-camera/cropEditor.js';
-import { executeOCRScan } from './modules/mod04-ocr/ocrWorker.js';
+import { executeOCRScan, shutdownOCREngine } from './modules/mod04-ocr/ocrWorker.js';
+import { readIndicator, renderReviewRows, initReadCard, resetBlink, READER_UNAVAILABLE_MESSAGE } from './modules/mod04-ocr/readCard.js';
 import { ContactFormMapper, LINE_ROLES } from './modules/mod05-form/formMapper.js';
 import { PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES } from './share/contactOptions.js';
 import { AddressAutocompleteEngine } from './modules/mod05-form/addressAutocomplete.js';
-import { CardView } from './modules/mod06-gui/card3dView.js';
+import { initFieldsCard } from './modules/mod05-form/fieldsCard.js';
+import { CardView, PRESETS, THEMES, themeKeyOf, prepareLogo } from './modules/mod06-gui/card3dView.js';
 import { vcgeQREngine } from './modules/mod07-qr/qrGenerator.js';
-import { egressController } from './modules/mod08-egress/egressController.js';
+import { egressController, PRINT_QR_PX } from './modules/mod08-egress/egressController.js';
+import { exportQrDialog, printChoiceDialog } from './modules/mod08-egress/exportDialogs.js';
+import { VaultStore } from './modules/mod02-vault/vaultStore.js';
 
 const $ = (id) => document.getElementById(id);
 const IDLE_PURGE_SECONDS = 120;
@@ -43,7 +53,8 @@ const LEGACY_PLAINTEXT_KEYS = ['vcge_contact_state', 'vcge_state', 'vcge_prefs']
 
 const formMapper = new ContactFormMapper();
 const cardView = new CardView({ onChange: refresh, addressEngine: new AddressAutocompleteEngine(), formMapper });
-const camera = new VCGEActiveCamera();
+// MOD03 speaks to the person through Shell's toast (deck.js hands the call to the hook set in boot), never by importing another module.
+const camera = new VCGEActiveCamera({ toast: deckToast });
 const cropEditor = new CropEditor();
 
 // 'open': the card is on the page. 'quick': hidden after a lock and held in the temporary vault until the session PIN
@@ -60,6 +71,13 @@ let leaving = false;
 const idleTtl = new TTLMemoryStreamManager(IDLE_PURGE_SECONDS, () => purgeVolatileState('idle'));
 const sessionPin = new SessionPin();
 const biometric = new BiometricUnlock();
+const lockHandoff = new LockHandoff();
+// The vault hub (MOD02, Phase 2 in progress): today it carries the logo slot, which Export writes ("Also use this logo
+// on my card") and the card view reads, so no module hands data to another. The contact itself still goes through refresh().
+const vaultStore = new VaultStore({ vault: temporaryVault, pin: sessionPin, biometric });
+// Every red trash button, the Vault page's wipe button and "Wipe and start over" on the lock screen: hold Yes 1.5 s, then wipe and reload.
+// Saying No counts as activity. Deleting the saved settings is a signal the dialog publishes; Shell clears its own entry.
+const wipeDialog = new WipeDialog({ onWipe: () => wipeSession('wipe button'), onCancel: () => { markActivity(); updateTimerStrip(); } });
 let biometricSupported = false;
 
 // ---- Contact pipeline ------------------------------------------------------------------------------------------
@@ -67,10 +85,15 @@ let biometricSupported = false;
 function refresh(contact = cardView.getContact()) {
     const vcard = vcgeQREngine.generateVCard30(contact);
     cardView.render(contact);
+    // An empty card shows the blank placeholder (never a scannable code) until a field has something in it.
     // The QR payload omits the photo: base64 images exceed QR capacity.
-    const qrOk = vcgeQREngine.renderQRCode($('qrCanvas'), vcgeQREngine.generateVCard30({ ...contact, avatarBase64: null }), { size: 320 });
-    $('qrNotice').classList.toggle('hidden', qrOk);
-    egressController.setPayload(vcard, contact, { qrReal: qrOk });
+    const hasDetails = vcgeQREngine.hasDetails(contact);
+    if (!hasDetails) vcgeQREngine.renderPlaceholder($('qrCanvas'), 320);
+    // The QR is tinted to the card's theme (MOD07 checks the contrast and falls back to black on white itself).
+    const theme = THEMES[themeKeyOf(contact.themePalette)];
+    const qrOk = hasDetails && vcgeQREngine.renderQRCode($('qrCanvas'), vcgeQREngine.generateVCard30({ ...contact, avatarBase64: null }), { size: 320, theme });
+    $('qrNotice').classList.toggle('hidden', qrOk || !hasDetails);
+    egressController.setPayload(vcard, contact, { qrReal: qrOk, hasDetails });
     globalEventBus.publish(Events.CONTACT_UPDATED, { timestamp: Date.now() });
 }
 
@@ -89,6 +112,7 @@ function setVaultIndicator() {
     setVaultBadge();
     $('lockVaultBtn').classList.toggle('hidden', vaultMode !== 'open' || !sessionPin.isSet());
     renderQuickUnlockPanel();
+    updateTimerStrip();
 }
 
 // Header badge: UNLOCKED while the card is on the page, LOCKED while it is held behind the session PIN.
@@ -107,6 +131,7 @@ function renderQuickUnlockPanel() {
     $('sessionPinStatus').textContent = sessionPin.isSet() ? 'Session PIN: set' : 'Session PIN: not set';
     $('setSessionPinBtn').textContent = sessionPin.isSet() ? 'Change' : 'Set PIN';
     $('clearSessionPinBtn').classList.toggle('hidden', !sessionPin.isSet());
+    $('vaultLockNowBtn').classList.toggle('hidden', !sessionPin.isSet());
     // Biometric is offered once a PIN is set (the PIN stays the fallback) and only where the device can check it.
     $('biometricRow').classList.toggle('hidden', !biometricSupported || !sessionPin.isSet());
     $('biometricStatus').textContent = biometric.isEnrolled() ? 'Face ID / fingerprint: on' : 'Face ID / fingerprint: off';
@@ -115,14 +140,22 @@ function renderQuickUnlockPanel() {
 }
 
 function openPinModal(reason) {
+    const bio = biometric.isEnrolled();
     $('vaultModalHint').textContent = `${reason === 'out of view' ? 'Locked while the screen was off or another app was in front.'
-        : `Locked after ${IDLE_PURGE_SECONDS / 60} minutes without activity.`} Enter your ${PIN_LENGTH}-digit PIN to continue, or start over to wipe it.`;
+        : `Locked after ${IDLE_PURGE_SECONDS / 60} minutes without activity.`} ${bio ? 'Use your fingerprint or face, or type your PIN.' : `Enter your ${PIN_LENGTH}-digit PIN to continue, or start over to wipe it.`}`;
     $('vaultError').textContent = '';
     $('vaultPin').value = '';
-    $('vaultBiometricBtn').classList.toggle('hidden', !biometric.isEnrolled());
+    // Fingerprint or face first and big when it is on; then no keyboard pops up on its own. Without it the PIN box takes focus.
+    $('vaultBiometricBtn').classList.toggle('hidden', !bio);
+    $('vaultOr').classList.toggle('hidden', !bio);
     $('vaultModal').classList.remove('hidden');
     updateQuickUnlockCountdown();
-    $('vaultPin').focus();
+    if (bio) $('vaultBiometricBtn').focus(); else $('vaultPin').focus();
+}
+
+// A phone keyboard can cover the lower half of the lock screen: the PIN box it opened for stays in view.
+function keepPinInView() {
+    requestAnimationFrame(() => $('vaultPin').scrollIntoView({ block: 'center', behavior: 'smooth' }));
 }
 
 function closePinModal() {
@@ -130,9 +163,36 @@ function closePinModal() {
     $('vaultModal').classList.add('hidden');
 }
 
+// Lock screen: a calm green ring empties toward the 7-minute reset, with the time left in its middle.
+const LOCK_RING_LENGTH = 2 * Math.PI * 52;   // circumference of #vaultLockRing (r = 52)
 function updateQuickUnlockCountdown() {
     if (vaultMode !== 'quick') return;
-    $('quickUnlockCountdown').textContent = `Without activity, everything resets in ${minutes(resetRemaining())}; then the card is wiped.`;
+    const left = resetRemaining();
+    $('vaultLockRingTime').textContent = minutes(left);
+    $('vaultLockRing').setAttribute('stroke-dashoffset', (LOCK_RING_LENGTH * (1 - left / RESET_SECONDS)).toFixed(2));
+    $('quickUnlockCountdown').textContent = `Your card is safe. Without activity, everything resets in ${minutes(left)}; then the card is wiped.`;
+}
+
+// Strip under the header: time until the open card locks (PIN set) or is cleared (no PIN). Any tap refills it. The
+// last 20 seconds turn it amber (never red) and show one quiet note; it never flashes or makes a sound.
+const TIMER_WARN_SECONDS = 20;
+const TIMER_CALM = ['bg-white/90', 'text-slate-600', 'border-slate-200', 'dark:bg-slate-900/90', 'dark:text-slate-300', 'dark:border-slate-800'];
+const TIMER_WARN = ['bg-amber-50/95', 'text-amber-800', 'border-amber-200', 'dark:bg-amber-950/90', 'dark:text-amber-300', 'dark:border-amber-800/60'];
+const NOTE_HIDDEN = ['invisible', 'opacity-0', '-translate-y-1'];
+function updateTimerStrip() {
+    const remaining = idleTtl.getRemainingTime();
+    const show = vaultMode === 'open' && remaining > 0 && hasWork();
+    $('vaultTimerStrip').classList.toggle('hidden', !show);
+    const warn = show && remaining <= TIMER_WARN_SECONDS;
+    NOTE_HIDDEN.forEach(c => $('vaultTimerNote').classList.toggle(c, !warn));
+    if (!show) return;
+    $('vaultTimerLabel').textContent = sessionPin.isSet() ? 'Locks in' : 'Clears in';
+    $('vaultTimerTime').textContent = minutes(remaining);
+    $('vaultTimerBar').style.transform = `scaleX(${remaining / IDLE_PURGE_SECONDS})`;
+    TIMER_CALM.forEach(c => $('vaultTimerBand').classList.toggle(c, !warn));
+    TIMER_WARN.forEach(c => $('vaultTimerBand').classList.toggle(c, warn));
+    $('vaultTimerBar').classList.toggle('bg-brand-500', !warn);
+    $('vaultTimerBar').classList.toggle('bg-amber-500', warn);
 }
 
 let checkingPin = false;
@@ -160,6 +220,7 @@ function quickLock(reason = 'idle') {
     if (vaultMode !== 'open') return;
     const payload = { contact: cardView.getContact(), scan: scanSnapshot() };
     idleTtl.stop();
+    resetDeadline = Date.now() + RESET_SECONDS * 1000;   // the 7 minutes run from the lock (raven575, 2026-10-17)
     closeQuickUnlockDialogs();
     clearCapturedImages();
     holding = temporaryVault.hold(payload).catch(e => { console.error('[vCGE] Could not hold the card:', e); return false; });
@@ -230,11 +291,11 @@ function wipeSession(reason, message = null) {
     setVaultIndicator();
     globalEventBus.publish(Events.VAULT_WIPED, { reason, timestamp: Date.now() });
     if (message) cardView.showToast(message);
+    if (reason !== 'cancel' && reason !== 'left the page') showCard('capture');
 }
 
 function wipeVault() {
-    if (!confirm('Wipe the card, the photo and everything held in memory? This cannot be undone.')) return;
-    wipeSession('wipe button', 'Wiped. Nothing is kept.');
+    wipeDialog.open();
 }
 
 // ---- Session PIN setup -----------------------------------------------------------------------------------------
@@ -279,11 +340,15 @@ async function addBiometric() {
     expectExternalApp();   // the device's own face or fingerprint sheet comes to the front
     try {
         await biometric.enroll();
+        // Only a check that passes right now turns it on: a device that enrols but cannot sign is not "on".
+        expectExternalApp();
+        if (!(await biometric.verify())) { biometric.clear(); throw new Error('BIOMETRIC_CHECK_FAILED'); }
         globalEventBus.publish(Events.VAULT_UNLOCK_METHOD_CHANGED, { change: 'Face ID / fingerprint added', timestamp: Date.now() });
         cardView.showToast('Face ID / fingerprint added for this session.');
     } catch (e) {
-        console.warn('[vCGE] Biometric not added:', e && e.name);
-        cardView.showToast('Face ID / fingerprint was not added. The PIN still works.');
+        const why = e && e.name && e.name !== 'Error' ? e.name : (e && e.message) || 'unknown error';
+        console.warn('[vCGE] Biometric not added:', why);
+        cardView.showToast(`Face ID / fingerprint was not added (${why}). The PIN still works.`);
     }
     setVaultIndicator();
 }
@@ -321,10 +386,12 @@ function clearCapturedImages() {
     forgetLastScan();
     cardView.forgetUndo();
     egressController.clearPrintSheet();
-    camera.stopCamera();
-    camera.capturedImageDataUrl = null;
-    $('cameraPanel').classList.add('hidden');
-    $('reviewImage').removeAttribute('src');
+    exportQrDialog.reset();       // an uploaded QR logo and the preview
+    printChoiceDialog.close();
+    vaultStore.clear('logo');
+    camera.closeCamera();
+    camera.discardPhoto();
+    showRetakePrompt(false);
     closeReviewDialog();
     const capture = $('captureCanvas');
     capture.width = 0;
@@ -349,6 +416,8 @@ function updatePurgeCountdown() {
     if (vaultMode === 'quick') {
         setVaultIndicator();
         updateQuickUnlockCountdown();
+    } else {
+        updateTimerStrip();
     }
 }
 
@@ -430,7 +499,7 @@ function checkHiddenDeadline() {
     wipeSession(`out of view for ${HIDDEN_WIPE_SECONDS} s`, `Wiped: the app was out of view for more than ${HIDDEN_WIPE_SECONDS} seconds.`);
 }
 
-// 7 minutes without activity, whether the card is open, locked or out of view: everything is wiped.
+// 7 minutes without activity while the card is open, or 7 minutes after a lock: everything is wiped.
 function checkResetDeadline() {
     if (!resetDeadline || Date.now() < resetDeadline) return;
     resetDeadline = 0;
@@ -452,11 +521,12 @@ function expectExternalApp() {
 function onActivity() {
     markActivity();
     armLeaveGuard();
+    if (vaultMode === 'open') updateTimerStrip();
 }
 
 // ---- Intake: camera / upload (MOD03) -> OCR (MOD04) -> mapper (MOD05) -----------------------------------------
 
-// Retake prompt in the review dialog (shown when a photo is too blurry or unclear to read).
+// Retake prompt on the Capture card's crop step (shown when a photo is too blurry or unclear to read).
 function showRetakePrompt(show) {
     $('ocrRetakeNotice').classList.toggle('hidden', !show);
     $('retakePhotoBtn').classList.toggle('hidden', !show);
@@ -483,11 +553,14 @@ let lastScan = null;    // the reviewed lines of the last filled scan, for "Reop
 function showReviewStep(step) {
     $('ocrStepPhoto').classList.toggle('hidden', step !== 'photo');
     $('ocrStepText').classList.toggle('hidden', step !== 'text');
+    if (step === 'text') resetBlink();
 }
 
 // Closes the dialog and drops the extracted text (it is contact data, so it is not kept around).
 function closeReviewDialog() {
     $('cropReviewModal').classList.add('hidden');
+    $('ocrTimeoutModal').classList.add('hidden');
+    readIndicator.hide();
     showReviewStep('photo');
     ocrReview = null;
     $('ocrLines').replaceChildren();
@@ -526,75 +599,103 @@ function renderOcrSummary() {
     $('ocrSummary').replaceChildren(...items);
 }
 
-// One row per OCR line: editable text + role picker. Built with DOM nodes, never HTML strings (OCR text is untrusted).
+// One row per OCR line: editable text, role picker, and the "please check" note with its Looks right box (drawn by MOD04).
 function renderOcrLines() {
-    const rows = ocrReview.lines.map((line, i) => {
-        const row = document.createElement('div');
-        row.className = 'flex gap-2 items-center';
-        const text = document.createElement('input');
-        text.type = 'text';
-        text.id = `ocrLineText${i}`;
-        text.className = 'field-input flex-1 min-w-0';
-        text.value = line.text;
-        text.setAttribute('aria-label', `Line ${i + 1} text`);
-        text.addEventListener('input', () => { line.text = text.value; renderOcrSummary(); });
-        const role = document.createElement('select');
-        role.id = `ocrLineRole${i}`;
-        role.className = 'field-input w-44 shrink-0';
-        role.setAttribute('aria-label', `Line ${i + 1} is`);
-        LINE_ROLES.forEach(([value, label]) => role.add(new Option(label, value, false, value === line.role)));
-        role.addEventListener('change', () => { line.role = role.value; renderOcrSummary(); });
-        if (line.icon && ICON_NAMES[line.icon]) {
-            const chip = document.createElement('span');
-            chip.id = `ocrLineIcon${i}`;
-            chip.className = 'shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400';
-            chip.textContent = ICON_NAMES[line.icon];
-            chip.title = 'Icon seen in front of this line';
-            row.append(chip);
-        }
-        row.append(text, role);
-        return row;
-    });
+    const rows = renderReviewRows(ocrReview.lines, { roles: LINE_ROLES, iconNames: ICON_NAMES, onEdit: renderOcrSummary, onRole: renderOcrSummary });
     $('ocrLines').replaceChildren(...rows);
     renderOcrSummary();
 }
 
+let ocrStoppedByUser = false;
+
+// OK on the Capture card: the deck moves to the Read card, where the photo is read; the crop step stays behind on
+// the Capture card for Back, Cancel and Retake.
 async function runOcr() {
-    if (!$('reviewImage').src) return;
+    if (!$('reviewImage').getAttribute('src')) return;
     showRetakePrompt(false);
+    ocrStoppedByUser = false;
     $('runOcrBtn').disabled = true;
-    $('runOcrBtn').textContent = 'Extracting…';
+    showReviewStep('photo');
+    $('cropReviewModal').classList.remove('hidden');
+    showCard('read');
+    const photo = cropEditor.getCroppedImage();
+    readIndicator.show(photo);
     try {
         // The first scan (and the first after a wipe) starts the reader from ~7 MB of bundled files: say so.
-        const onStatus = (status) => { $('runOcrBtn').textContent = status === 'starting' ? 'Preparing the reader…' : 'Extracting…'; };
-        const { text, lines } = await executeOCRScan(cropEditor.getCroppedImage(), { onStatus });
+        const onStatus = (status) => readIndicator.status(status);
+        const { text, lines } = await executeOCRScan(photo, { onStatus });
+        // Finished early: the wash fills up before the review step opens.
+        readIndicator.stop(); readIndicator.set(1);
+        await new Promise(res => setTimeout(res, 250));
+        if ($('cropReviewModal').classList.contains('hidden')) return;   // closed by a wipe meanwhile
         ocrReview = { lines: formMapper.classifyLines(lines && lines.length ? lines : text), fields: null };
         renderOcrLines();
         showReviewStep('text');
     } catch (e) {
-        if (e && e.code === 'OCR_CANCELLED') return;   // a wipe stopped it; the wipe already cleared the dialog
+        if (e && e.code === 'OCR_CANCELLED') {
+            // Cancel: back to the photo on the Capture card, ready for OK again or a new one. A wipe already cleared everything.
+            if (!$('cropReviewModal').classList.contains('hidden')) backToPhoto();
+            if (ocrStoppedByUser) $('retakePhotoBtn').classList.remove('hidden');
+            return;
+        }
         console.error('[vCGE] OCR failed:', e);
         if (e && e.code === 'OCR_UNREADABLE') {
+            backToPhoto();
             showRetakePrompt(true);
+        } else if (e && e.code === 'OCR_TIMEOUT') {
+            // The reader was restarted; the photo stays for Try Again.
+            readIndicator.stop(); readIndicator.set(1);
+            $('ocrTimeoutModal').classList.remove('hidden');
+            $('ocrTryAgainBtn').focus();
         } else if (e && e.code === 'OCR_UNAVAILABLE') {
-            closeReviewDialog();
-            cardView.showToast('The OCR engine could not start, so your form was not changed. Type the details in, or try again.');
+            backToPhoto();
+            cardView.showToast(READER_UNAVAILABLE_MESSAGE);
         } else {
+            backToPhoto();
             cardView.showToast('Could not read that image.');
         }
     } finally {
+        readIndicator.hide();
         $('runOcrBtn').disabled = false;
-        $('runOcrBtn').textContent = 'Extract fields';
     }
 }
 
-function applyOcrReview() {
-    if (!ocrReview) return;
-    const { fields, lines } = ocrReview;
-    lastScan = lines.map(line => ({ ...line }));
-    $('reopenScanBtn').classList.remove('hidden');
+// Cancel while reading: the reader is stopped at once (MOD04 drops it and anything it read).
+function stopOcr() {
+    ocrStoppedByUser = true;
+    shutdownOCREngine();
+}
+
+// After a timeout: Try Again reads the same photo with a fresh reader; Cancel goes back to the photo step.
+function closeTimeoutPrompt(retry) {
+    $('ocrTimeoutModal').classList.add('hidden');
+    if (retry) runOcr();
+    else { backToPhoto(); $('retakePhotoBtn').classList.remove('hidden'); }
+}
+
+// Back to the photo on the Capture card (its crop step is still there); the Read card's review closes.
+function backToPhoto() {
     closeReviewDialog();
-    cardView.changeWithUndo('Form filled. Please check the details.', () => cardView.mergeContact(fields));
+    showCard('capture');
+}
+
+// Proceed: the review text blinks out (MOD04's deck hook), the deck moves to Fields (MOD02's padlock follows the
+// CARD_CHANGED signal), then the details go into the form. A wipe during the blink-out ends it with nothing filled.
+let applying = false;
+async function applyOcrReview() {
+    if (!ocrReview || applying) return;
+    applying = true;
+    try {
+        const { fields, lines } = ocrReview;
+        lastScan = lines.map(line => ({ ...line }));
+        $('reopenScanBtn').classList.remove('hidden');
+        await showCard('fields');
+        if (!ocrReview) return;
+        closeReviewDialog();
+        cardView.changeWithUndo('Form filled. Please check the details.', () => cardView.mergeContact(fields));
+    } finally {
+        applying = false;
+    }
 }
 
 // Opens the review step again with the last scan's lines (as last edited), without running OCR again.
@@ -605,6 +706,7 @@ function reopenLastScan() {
     $('ocrBackBtn').classList.toggle('hidden', !$('reviewImage').getAttribute('src'));
     showReviewStep('text');
     $('cropReviewModal').classList.remove('hidden');
+    showCard('read');
 }
 
 function forgetLastScan() {
@@ -612,37 +714,36 @@ function forgetLastScan() {
     $('reopenScanBtn').classList.add('hidden');
 }
 
-// What a quick lock keeps of the scan in progress: the photo, the open review step and the last scan.
+// What a quick lock keeps of the scan in progress: the photo, the open review step (the crop step on the Capture card
+// or the text step on the Read card) and the last scan.
 function scanSnapshot() {
     const photo = $('reviewImage').getAttribute('src') || null;
-    const open = !$('cropReviewModal').classList.contains('hidden');
+    const open = !$('cropReviewModal').classList.contains('hidden') || !$('captureReview').classList.contains('hidden');
     const review = open ? { lines: ocrReview && !$('ocrStepText').classList.contains('hidden') ? ocrReview.lines.map(line => ({ ...line })) : null } : null;
     if (!review && !lastScan) return null;
     return { photo, review, lastScan };
 }
 
 
-// Puts a scan held through a quick lock back: the review dialog at the step it was on, and "Reopen last scan".
+// Puts a scan held through a quick lock back: the review at the step it was on, and "Reopen last scan".
 function restoreScan(scan) {
     if (!scan) return;
     if (scan.photo) {
         camera.capturedImageDataUrl = scan.photo;
-        $('reviewImage').src = scan.photo;
+        camera.openReview(scan.photo);
     }
     if (scan.lastScan) {
         lastScan = scan.lastScan;
         $('reopenScanBtn').classList.remove('hidden');
     }
     if (!scan.review) return;
-    if (scan.review.lines) {
-        ocrReview = { lines: scan.review.lines, fields: null };
-        renderOcrLines();
-        showReviewStep('text');
-    } else {
-        showReviewStep('photo');
-    }
+    if (!scan.review.lines) { showCard('capture'); return; }
+    ocrReview = { lines: scan.review.lines, fields: null };
+    renderOcrLines();
+    showReviewStep('text');
     $('ocrBackBtn').classList.toggle('hidden', !scan.photo);
     $('cropReviewModal').classList.remove('hidden');
+    showCard('read');
 }
 
 function wireIntake() {
@@ -651,47 +752,95 @@ function wireIntake() {
         camera.handleGalleryUpload(e.target.files[0]);
         e.target.value = '';
     });
-    $('startCameraBtn').addEventListener('click', async () => {
-        $('cameraPanel').classList.remove('hidden');
-        await camera.initCamera();
-    });
+    $('startCameraBtn').addEventListener('click', () => { camera.discardPhoto(); showRetakePrompt(false); camera.initCamera(); });
     $('captureBtn').addEventListener('click', () => camera.captureFrame());
     $('switchCameraBtn').addEventListener('click', () => camera.switchCamera());
-    $('stopCameraBtn').addEventListener('click', () => {
-        camera.stopCamera();
-        $('cameraPanel').classList.add('hidden');
-    });
+    $('stopCameraBtn').addEventListener('click', () => camera.closeCamera());
     $('runOcrBtn').addEventListener('click', runOcr);
+    $('ocrStopBtn').addEventListener('click', stopOcr);
+    $('ocrTryAgainBtn').addEventListener('click', () => closeTimeoutPrompt(true));
+    $('ocrTimeoutCancelBtn').addEventListener('click', () => closeTimeoutPrompt(false));
     $('rotatePhotoBtn').addEventListener('click', () => { showRetakePrompt(false); cropEditor.rotate(); });
-    $('cancelReviewBtn').addEventListener('click', closeReviewDialog);
-    $('ocrCancelBtn').addEventListener('click', closeReviewDialog);
-    $('ocrBackBtn').addEventListener('click', () => showReviewStep('photo'));
+    // Snap to card moves the handles only when it finds a card; otherwise it says so and leaves them alone.
+    $('snapCardBtn').addEventListener('click', () => { if (!cropEditor.snapToCard()) deckToast('No card edges found. Drag the corners onto the card yourself.'); });
+    // Cancel on the crop step drops the photo: back to Take a photo or Upload a photo.
+    $('cancelReviewBtn').addEventListener('click', () => { showRetakePrompt(false); camera.discardPhoto(); });
+    $('ocrCancelBtn').addEventListener('click', backToPhoto);
+    $('ocrBackBtn').addEventListener('click', backToPhoto);
     $('applyOcrBtn').addEventListener('click', applyOcrReview);
+    initReadCard({ onBeforeChange: beforeCardChange });
+    // Fields card (MOD05): the sample list (MOD06's data), the pop-in on arrival, and "Everything's correct" on to the
+    // 3D Card (the padlock hand-off follows the deck's signal; the card view already holds the details in memory).
+    initFieldsCard({ samples: PRESETS, onSample: (preset) => cardView.loadSample(preset), onDone: () => showCard('card'), onBeforeChange: beforeCardChange });
     $('reopenScanBtn').addEventListener('click', reopenLastScan);
-    // Retake: with the camera open, close the dialog so the user can capture again; otherwise pick another photo
-    // (on phones the picker also offers the camera).
+    // Retake: a camera shot opens the camera again; an upload opens the picker again (on phones it also offers the camera).
     $('retakePhotoBtn').addEventListener('click', () => {
-        closeReviewDialog();
-        if ($('cameraPanel').classList.contains('hidden')) $('imageUpload').click();
-        else cardView.showToast('Hold the card steady and capture again.');
+        showRetakePrompt(false);
+        backToPhoto();
+        if (camera.lastSource === 'camera') { camera.discardPhoto(); camera.initCamera(); }
+        else $('imageUpload').click();
     });
-    // A new photo starts over at step 1 and drops any text extracted from the previous one (the camera reopens the dialog).
-    globalEventBus.subscribe(Events.IMAGE_CAPTURED, () => { showRetakePrompt(false); closeReviewDialog(); forgetLastScan(); $('ocrBackBtn').classList.remove('hidden'); });
+    // A new photo starts over at the crop step on the Capture card and drops any text extracted from the previous one.
+    globalEventBus.subscribe(Events.IMAGE_CAPTURED, () => { showRetakePrompt(false); closeReviewDialog(); forgetLastScan(); $('ocrBackBtn').classList.remove('hidden'); showCard('capture'); });
 }
 
 // ---- Egress (MOD08 only) ---------------------------------------------------------------------------------------
 
+// The QR for an export, drawn by MOD07 from the current contact in the chosen style. Returns what was drawn.
+function renderExportQr(canvas, { themed = true, dots = 'square', frame = 'none', logo = null, size = 320 } = {}) {
+    const contact = cardView.getContact();
+    if (!vcgeQREngine.hasDetails(contact)) return { ok: false, themed: false };
+    const text = vcgeQREngine.generateVCard30({ ...contact, avatarBase64: null });
+    const theme = themed ? THEMES[themeKeyOf(contact.themePalette)] : null;
+    const ok = vcgeQREngine.renderQRCode(canvas, text, { size, theme, dots, frame, logo });
+    return { ok, themed: !!(ok && vcgeQREngine.lastRender && vcgeQREngine.lastRender.themed) };
+}
+
 function wireEgress() {
     // A share or download may bring another app to the front: the 2-minute idle rule applies, not the screen-off lock or 30 s wipe.
-    ['downloadVcfBtn', 'exportQrBtn', 'emailBtn', 'smsBtn', 'printCardBtn', 'shareNativeBtn', 'copyVcardBtn']
+    ['downloadVcfBtn', 'emailBtn', 'smsBtn', 'shareNativeBtn', 'copyVcardBtn']
         .forEach(id => $(id).addEventListener('click', expectExternalApp, true));
     $('downloadVcfBtn').addEventListener('click', () => egressController.downloadVcf());
+    // QR PNG: the Export QR pop-up (colours, dots, frame, centre logo) with a live preview; Save PNG downloads it as previewed.
     $('exportQrBtn').addEventListener('click', () => {
-        if (!egressController.exportQRPNG($('qrCanvas'))) cardView.showToast('Too much information for one QR code: use .vcf or Share instead.');
+        if (egressController.isEmpty()) { cardView.showToast('Add a contact first.'); return; }
+        exportQrDialog.open();
+    });
+    exportQrDialog.init({
+        render: renderExportQr,
+        logoOption: () => vcgeQREngine.logoOption(vcgeQREngine.generateVCard30({ ...cardView.getContact(), avatarBase64: null })),
+        scannedLogo: () => cardView.logoDisplay || null,
+        prepareLogo: (source) => prepareLogo(source),
+        toast: (message) => cardView.showToast(message),
+        beforeExternal: expectExternalApp
+    });
+    // "Also use this logo on my card": Export wrote the Vault's logo slot; the card view reads it through its own handle.
+    egressController.setVault(vaultStore.handle('mod08'));
+    const cardVault = vaultStore.handle('mod06');
+    cardVault.onChange('logo', () => {
+        const logo = cardVault.get('logo');
+        if (!logo || vaultMode !== 'open') return;
+        cardView.setAvatar(logo.photo, logo.display);
+        refresh();
+        markActivity();
     });
     $('emailBtn').addEventListener('click', () => egressController.triggerEmailShare());
     $('smsBtn').addEventListener('click', () => egressController.triggerSmsShare());
-    $('printCardBtn').addEventListener('click', () => egressController.triggerPhysicalPrint($('qrCanvas')));
+    // Print / PDF: Themed or Black & White, then one 6 x 3.5 in page through the browser's print dialog.
+    $('printCardBtn').addEventListener('click', () => {
+        if (egressController.isEmpty()) { cardView.showToast('Add a contact first.'); return; }
+        printChoiceDialog.open();
+    });
+    printChoiceDialog.init({
+        onChoose: (themed) => {
+            expectExternalApp();
+            const qr = document.createElement('canvas');
+            const drawn = renderExportQr(qr, { themed, size: PRINT_QR_PX });
+            if (themed && drawn.ok && !drawn.themed) cardView.showToast('The theme colours are not scannable, so the QR is printed in black and white.');
+            egressController.triggerPhysicalPrint({ themed, qrCanvas: drawn.ok ? qr : null });
+            qr.width = qr.height = 0;
+        }
+    });
     $('shareNativeBtn').addEventListener('click', async () => {
         const result = await egressController.triggerQuickShare();
         if (result && result.reason === 'share_unavailable') cardView.showToast('Sharing is not available here: use .vcf, Email or Copy.');
@@ -701,8 +850,11 @@ function wireEgress() {
     $('copyVcardBtn').addEventListener('click', async () => {
         const result = await egressController.copyVCard();
         if (result.success) cardView.showToast('vCard copied. The clipboard is not cleared when vCGE wipes.');
+        else if (result.reason === 'empty') cardView.showToast('Add a contact first.');
         else if (result.reason === 'clipboard_unavailable') cardView.showToast('Copying is not available on this device.');
     });
+    // Ready to share, on the 3D Card: on to the Share card (the padlock hand-off follows the deck's signal).
+    $('readyToShareBtn').addEventListener('click', () => showCard('share'));
 }
 
 // ---- Audit trail (telemetry visibility) ------------------------------------------------------------------------
@@ -733,8 +885,17 @@ function wireAuditLog() {
 
 function boot() {
     maskSecretInputs();
-    initTheme($('themeToggle'));
+    initSettings();          // the one saved entry: hand, colour-blind mode, theme, font
+    // MOD01's deck talks to the other modules only through these hooks (and the CARD_CHANGED signal on the bus).
+    useDeck({
+        toast: (message) => cardView.showToast(message),
+        wipe: () => wipeVault(),
+        cancel: () => wipeSession('cancel'),
+        showQr: () => cardView.setFlipped(true)
+    });
     cardView.init();
+    lockHandoff.init();      // follows the deck's CARD_CHANGED signal
+    wipeDialog.init();
     wireAuditLog();
     purgeStartupResidue();
     wireIntake();
@@ -742,8 +903,10 @@ function boot() {
     $('vaultForm').addEventListener('submit', submitPin);
     $('vaultPin').addEventListener('input', onPinInput);
     $('vaultBiometricBtn').addEventListener('click', unlockWithBiometric);
-    $('vaultStartOverBtn').addEventListener('click', () => wipeSession('start over', 'Wiped. Starting over.'));
+    $('vaultPin').addEventListener('focus', keepPinInView);
+    $('vaultStartOverBtn').addEventListener('click', wipeVault);
     $('lockVaultBtn').addEventListener('click', () => { if (sessionPin.isSet()) quickLock('Lock button'); });
+    $('vaultLockNowBtn').addEventListener('click', () => { if (sessionPin.isSet()) { closeSheet('vaultPage'); quickLock('Lock button'); } });
     $('quickSetupForm').addEventListener('submit', saveSessionPin);
     $('quickSetupSkipBtn').addEventListener('click', closeQuickSetup);
     $('setSessionPinBtn').addEventListener('click', openQuickSetup);
@@ -751,6 +914,7 @@ function boot() {
     $('addBiometricBtn').addEventListener('click', addBiometric);
     $('clearBiometricBtn').addEventListener('click', clearBiometric);
     $('wipeVaultBtn').addEventListener('click', wipeVault);
+    $('vaultTimerKeepBtn').addEventListener('click', () => { markActivity(); updateTimerStrip(); });
     $('leaveStayBtn').addEventListener('click', stayOnPage);
     $('leaveConfirmBtn').addEventListener('click', leavePage);
     $('clearFormBtn').addEventListener('click', () => cardView.changeWithUndo('Form cleared.', () => cardView.clear()));

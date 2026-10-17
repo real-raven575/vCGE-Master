@@ -1,0 +1,32 @@
+/* vCGE-MOD01 "cannot run in this browser" page. Plain CSS (no variables, no grid) so very old browsers draw it too. */
+html { background: #f5ecd7; }
+body { margin: 0; color: #1f2a16; font-family: "Segoe UI", Roboto, Helvetica, Arial, sans-serif; font-size: 17px; line-height: 1.5; }
+.page { max-width: 720px; margin: 0 auto; padding: 24px 16px 40px; }
+.hero { overflow: hidden; margin-bottom: 8px; }
+.hero img { float: left; margin: 4px 16px 0 0; }
+.eyebrow { margin: 0; font-size: 13px; font-weight: bold; letter-spacing: 0.08em; text-transform: uppercase; color: #556b2f; }
+h1 { margin: 2px 0 0; font-size: 28px; line-height: 1.2; }
+.lead { margin: 16px 0 20px; font-size: 18px; }
+.card { background: #ffffff; border: 2px solid #556b2f; border-radius: 14px; padding: 16px 18px; margin-bottom: 16px; }
+.card h2 { margin: 0 0 10px; font-size: 19px; }
+.card h2 img { vertical-align: middle; margin-right: 6px; }
+.hidden { display: none; }
+#reasons { border-color: #b45309; background: #fff8e6; }
+#reasonList { margin: 0; padding-left: 22px; }
+.links { list-style: none; margin: 0; padding: 0; }
+.links li { padding: 10px 0; border-top: 1px solid #e7dcc2; }
+.links li:first-child { border-top: 0; }
+.links a { display: inline-block; font-weight: bold; font-size: 18px; color: #3d5a1e; margin-right: 8px; }
+.links a:focus { outline: 3px solid #d4a017; outline-offset: 2px; }
+.links span { display: block; font-size: 15px; color: #4a4a3a; }
+.note { font-size: 14px; color: #4a4a3a; }
+@media (prefers-color-scheme: dark) {
+    html { background: #11160c; }
+    body { color: #f5ecd7; }
+    .eyebrow { color: #d4a017; }
+    .card { background: #1c2414; border-color: #6b8a3a; }
+    #reasons { background: #2a2110; border-color: #d4a017; }
+    .links li { border-top-color: #33402a; }
+    .links a { color: #f0c94a; }
+    .links span, .note { color: #d6cdb4; }
+}

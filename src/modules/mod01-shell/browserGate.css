@@ -1,0 +1,7 @@
+/* vCGE-MOD01 browser gate banner: shown when vCGE runs but something outside its own protections is weak or missing. */
+.vcge-gate-banner { position: relative; z-index: 45; margin: 0; padding: 10px 56px 10px 16px; background: #fff8e6; color: #3b2a05; border-bottom: 2px solid #d4a017; font-size: 14px; line-height: 1.4; }
+.vcge-gate-banner-title { margin: 0 0 4px; font-weight: 600; }
+.vcge-gate-banner ul { margin: 0; padding-left: 20px; list-style: disc; }
+.vcge-gate-banner-dismiss { position: absolute; top: 8px; right: 12px; padding: 4px 12px; border: 1px solid #b45309; border-radius: 8px; background: #ffffff; color: #3b2a05; font-weight: 600; cursor: pointer; }
+.dark .vcge-gate-banner { background: #2a2110; color: #f5ecd7; border-bottom-color: #d4a017; }
+.dark .vcge-gate-banner-dismiss { background: #1c2414; color: #f5ecd7; border-color: #d4a017; }

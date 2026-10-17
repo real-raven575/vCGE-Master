@@ -1,0 +1,85 @@
+/* vCGE-MOD08 Export (Airlock), redesign step 10: the Share card, the Export QR pop-up and the Print / PDF choice.
+   Plain CSS on the shared sizes (ui.css: 44 px buttons, 8 px gaps); the sheets use Shell's .vcge-sheet frame. */
+
+/* ---- Share card: every way out on one card, .vcf first ---------------------------------------------------------- */
+.share-lead { font-size: 0.85rem; color: #475569; margin: 0; }
+.dark .share-lead { color: #cbd5e1; }
+.share-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--vcge-gap, 0.5rem); }
+button.share-btn {
+    min-height: 3.25rem; padding: 0 0.5rem; border-radius: 0.875rem; font-size: 0.85rem; font-weight: 700; cursor: pointer;
+    background: #f1f5f9; color: #0f172a; border-color: #cbd5e1; transition: background-color 0.15s;
+}
+button.share-btn:hover { background: #e2e8f0; }
+.dark button.share-btn { background: #1e293b; color: #f1f5f9; border-color: #334155; }
+.dark button.share-btn:hover { background: #334155; }
+button.share-btn.share-primary { grid-column: 1 / -1; min-height: 3.5rem; font-size: 1rem; background: #16a34a; color: #020617; border-color: #15803d; }
+button.share-btn.share-primary:hover { background: #22c55e; }
+.share-note { font-size: 0.75rem; color: #64748b; margin: 0; }
+.dark .share-note { color: #94a3b8; }
+.share-note span { font-weight: 600; }
+/* Phones in portrait: the buttons sit in thumb reach of the dominant hand (right by default; Settings can flip it) */
+@media (max-width: 599.98px) and (orientation: portrait) {
+    .share-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); margin-left: 20%; }
+    html[data-hand="left"] .share-grid { margin-left: 0; margin-right: 20%; }
+}
+/* "Ready to share" on the 3D Card's foot takes the person to this card */
+button.share-ready {
+    min-height: 3rem; padding: 0 1.25rem; border-radius: 0.875rem; font-size: 0.95rem; font-weight: 700; cursor: pointer;
+    background: #16a34a; color: #020617; border-color: #15803d;
+}
+button.share-ready:hover { background: #22c55e; }
+
+/* ---- Export QR pop-up ------------------------------------------------------------------------------------------- */
+.export-qr-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; align-items: start; }
+@media (max-width: 599.98px) { .export-qr-body { grid-template-columns: minmax(0, 1fr); } }
+.export-qr-preview { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
+.export-qr-preview canvas { width: 100%; max-width: 14rem; height: auto; border-radius: 0.5rem; background: #ffffff; box-shadow: 0 10px 20px -10px rgba(2, 6, 23, 0.5); }
+.export-qr-preview canvas[width="0"] { display: none; }
+.export-qr-note { font-size: 0.75rem; color: #b45309; margin: 0; min-height: 1rem; text-align: center; }
+.dark .export-qr-note { color: #fbbf24; }
+.export-qr-options { display: flex; flex-direction: column; gap: 0.5rem; }
+.export-qr-group { display: flex; flex-direction: column; gap: 0.25rem; }
+.export-qr-group > span:first-child { font-size: 0.7rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #64748b; }
+.dark .export-qr-group > span:first-child { color: #94a3b8; }
+.export-qr-choices { display: flex; flex-wrap: wrap; gap: var(--vcge-gap, 0.5rem); }
+/* Each choice is a labelled radio drawn as a 44 px button; the chosen one is green (blue with a check mark in colour-blind mode) */
+.export-qr-choices label {
+    position: relative; display: inline-flex; align-items: center; justify-content: center; min-height: var(--vcge-tap, 2.75rem); min-width: var(--vcge-tap, 2.75rem);
+    padding: 0 0.8rem; border-radius: 0.75rem; border: 2px solid #cbd5e1; background: #f1f5f9; color: #0f172a; font-size: 0.85rem; font-weight: 600; cursor: pointer;
+}
+.dark .export-qr-choices label { background: #1e293b; color: #f1f5f9; border-color: #334155; }
+.export-qr-choices input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
+.export-qr-choices label:has(input:checked) { background: #16a34a; color: #020617; border-color: #15803d; }
+.export-qr-choices label:has(input:focus-visible) { outline: 2px solid #16a34a; outline-offset: 2px; }
+.export-qr-choices label:has(input:disabled) { opacity: 0.45; cursor: not-allowed; }
+html[data-cb="1"] .export-qr-choices label:has(input:checked) { background: #2563eb; color: #ffffff; border-color: #1d4ed8; }
+html[data-cb="1"] .export-qr-choices label:has(input:checked)::before { content: '\2713\00a0'; }
+.export-qr-reason { font-size: 0.75rem; color: #64748b; margin: 0; min-height: 1rem; }
+.dark .export-qr-reason { color: #94a3b8; }
+.export-qr-use { display: flex; align-items: center; gap: 0.6rem; font-size: 0.85rem; min-height: var(--vcge-tap, 2.75rem); cursor: pointer; }
+.export-qr-use.hidden { display: none; }
+.export-qr-use input { width: 1.25rem; height: 1.25rem; accent-color: #16a34a; }
+.export-qr-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--vcge-gap, 0.5rem); margin-top: 0.75rem; }
+button.export-qr-save { min-height: 3.5rem; border-radius: 1rem; font-size: 1rem; font-weight: 700; background: #16a34a; color: #020617; border-color: #15803d; cursor: pointer; }
+button.export-qr-save:hover { background: #22c55e; }
+button.export-qr-save:disabled { opacity: 0.45; cursor: not-allowed; }
+button.export-qr-cancel { min-height: 3.5rem; border-radius: 1rem; font-size: 1rem; font-weight: 600; background: transparent; color: inherit; border-color: #cbd5e1; cursor: pointer; }
+.dark button.export-qr-cancel { border-color: #475569; }
+.export-qr-file { font-size: 0.75rem; color: #64748b; margin: 0.5rem 0 0; }
+.dark .export-qr-file { color: #94a3b8; }
+.export-qr-file span { font-weight: 600; }
+
+/* ---- Print / PDF: Themed or Black & White ------------------------------------------------------------------------- */
+.print-choice-lead { font-size: 0.85rem; color: #475569; margin: 0 0 0.75rem; }
+.dark .print-choice-lead { color: #cbd5e1; }
+.print-choice-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--vcge-gap, 0.5rem); }
+button.print-choice { min-height: 3.5rem; border-radius: 1rem; font-size: 1rem; font-weight: 700; cursor: pointer; }
+button.print-choice-themed { background: #16a34a; color: #020617; border-color: #15803d; }
+button.print-choice-themed:hover { background: #22c55e; }
+button.print-choice-bw { background: #ffffff; color: #0f172a; border-color: #0f172a; }
+button.print-choice-bw:hover { background: #f1f5f9; }
+.dark button.print-choice-bw { background: #f8fafc; color: #0f172a; border-color: #e2e8f0; }
+button.print-choice-cancel { grid-column: 1 / -1; min-height: var(--vcge-tap, 2.75rem); border-radius: 0.75rem; font-size: 0.9rem; font-weight: 600; background: transparent; color: inherit; border-color: #cbd5e1; cursor: pointer; }
+.dark button.print-choice-cancel { border-color: #475569; }
+.print-choice-note { font-size: 0.75rem; color: #64748b; margin: 0.75rem 0 0; }
+.dark .print-choice-note { color: #94a3b8; }

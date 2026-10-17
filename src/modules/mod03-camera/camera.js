@@ -1,9 +1,16 @@
 /**
- * vCGE-MOD03: Active Camera & Acquisition Subsystem
+ * vCGE-MOD03: Active Camera & Acquisition Subsystem (Iris)
  * Created by raven575, Gemini & Claude
  * Target: camera.js (Modular ES Implementation)
+ *
+ * The Capture card (redesign step 5): Take a photo or Upload a photo; a clean viewfinder with thin corner brackets
+ * marking a business-card frame that turns with the phone; a vertical zoom fader that eases into each change; a
+ * round green shutter that sinks when pressed. The shot is exactly what the viewfinder showed (the visible window of
+ * the sensor frame, zoom included), never the whole frame. The photo is handed to the crop editor on this card; the
+ * bus only ever gets a signal. Messages to the person go through the `toast` hook main.js hands in (Shell's toast).
  */
 import { globalEventBus, Events } from '../../share/eventBus.js';
+import { visibleSourceRect, cardFrameRect, tween } from './viewfinder.js';
 
 // A web page cannot claim the camera for itself, so the camera is turned off and the user told whenever another app
 // shows up: it holds the camera (start fails), takes it away mid-scan (the feed ends or stays muted), or sits in front of
@@ -12,6 +19,10 @@ const CAMERA_IN_USE_ERRORS = ['NotReadableError', 'TrackStartError'];
 const VIRTUAL_CAMERA = /\b(obs|manycam|snap camera|xsplit|virtual|droidcam|camo|mmhmm|ndi|splitcam|vcam|youcam|e2esoft)\b/i;
 const MUTE_GRACE_MS = 1000;   // a feed muted this long while the app is in view counts as cut off
 const IN_USE_MESSAGE = 'Another app is using or watching your camera, so vCGE turned it off. Close the other app and try again, or upload a photo instead.';
+export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+export const ZOOM_EASE_MS = 320;      // the fader eases into each change rather than snapping
+export const SHUTTER_POP_MS = 260;    // the shutter pops back up after a press
+export const CSS_ZOOM_MAX = 4;        // digital zoom range when the camera has no zoom of its own
 
 export class VCGEActiveCamera {
     constructor(config = {}) {
@@ -19,26 +30,38 @@ export class VCGEActiveCamera {
         this.canvasEl = config.canvasEl || document.getElementById('captureCanvas');
         this.zoomSlider = config.zoomSlider || document.getElementById('zoomSlider');
         this.zoomDisplay = config.zoomDisplay || document.getElementById('zoomDisplay');
-        this.focusRing = config.focusRing || document.getElementById('focusRing');
         this.viewfinderArea = config.viewfinderArea || document.getElementById('viewfinderArea');
-        this.cropReviewModal = config.cropReviewModal || document.getElementById('cropReviewModal');
+        this.cardFrame = config.cardFrame || document.getElementById('cardFrame');
+        this.shutter = config.shutter || document.getElementById('captureBtn');
+        this.reviewPanel = config.reviewPanel || document.getElementById('captureReview');
         this.reviewImage = config.reviewImage || document.getElementById('reviewImage');
         this.eventLog = config.eventLog || document.getElementById('eventLog');
         this.cameraPanel = config.cameraPanel || document.getElementById('cameraPanel');
+        this.toast = typeof config.toast === 'function' ? config.toast : () => {};
 
         this.currentFacingMode = config.facingMode || 'environment';
         this.activeStream = null;
-        this.currentZoom = 1.0;
-        this.focusPoint = { x: 0.50, y: 0.50 };
+        this.zoomMode = 'css';        // 'hardware' when the camera zooms itself, else a CSS scale of the preview
+        this.currentZoom = 1.0;       // the zoom in effect right now (eases towards targetZoom)
+        this.targetZoom = 1.0;
+        this.stopZoomTween = null;
+        this.stopShutterTween = null;
         this.capturedImageDataUrl = null;
+        this.lastSource = null;       // 'camera' or 'upload': what Retake goes back to
 
         this.initListeners();
+    }
+
+    reducedMotion() {
+        return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
     }
 
     async initCamera() {
         if (this.activeStream) {
             this.activeStream.getTracks().forEach(track => track.stop());
         }
+        if (this.cameraPanel) this.cameraPanel.classList.remove('hidden');
+        this.layoutFrame();
 
         try {
             const constraints = {
@@ -62,16 +85,33 @@ export class VCGEActiveCamera {
                 return;
             }
             this.watchTrack(track);
-            const capabilities = track.getCapabilities ? track.getCapabilities() : {};
-            if (capabilities.zoom && this.zoomSlider) {
-                this.zoomSlider.min = capabilities.zoom.min;
-                this.zoomSlider.max = capabilities.zoom.max;
-                this.zoomSlider.step = capabilities.zoom.step;
-            }
+            this.setupZoom(track);
         } catch (err) {
             if (err && CAMERA_IN_USE_ERRORS.includes(err.name)) this.blockCamera('the camera is held by another app');
-            else this.logEvent(`Camera access unavailable: ${err.message}. Use "Upload card image" instead.`);
+            else {
+                this.stopCamera();
+                if (this.cameraPanel) this.cameraPanel.classList.add('hidden');
+                this.logEvent(`Camera access unavailable: ${err.message}. Use "Upload a photo" instead.`);
+                this.toast('The camera is not available here. Upload a photo instead.');
+            }
         }
+    }
+
+    // The camera's own zoom when it has one (the fader takes its range), otherwise a digital zoom of the preview.
+    setupZoom(track) {
+        const capabilities = track && track.getCapabilities ? track.getCapabilities() : {};
+        const zoom = capabilities && capabilities.zoom;
+        this.zoomMode = zoom && zoom.max > zoom.min && 'applyConstraints' in track ? 'hardware' : 'css';
+        if (this.zoomSlider) {
+            if (this.zoomMode === 'hardware') {
+                this.zoomSlider.min = zoom.min; this.zoomSlider.max = zoom.max; this.zoomSlider.step = zoom.step || 0.1;
+            } else {
+                this.zoomSlider.min = 1; this.zoomSlider.max = CSS_ZOOM_MAX; this.zoomSlider.step = 0.1;
+            }
+            this.zoomSlider.value = this.zoomSlider.min;
+        }
+        this.currentZoom = this.targetZoom = Number(this.zoomSlider ? this.zoomSlider.min : 1) || 1;
+        this.applyZoom(this.currentZoom);
     }
 
     // Another app taking the camera ends our feed (or mutes it, on some phones); stopping it ourselves fires neither.
@@ -133,54 +173,81 @@ export class VCGEActiveCamera {
     }
 
     initListeners() {
-        if (this.viewfinderArea) {
-            this.viewfinderArea.addEventListener('click', (e) => {
-                const rect = this.viewfinderArea.getBoundingClientRect();
-                const x = e.clientX - rect.left;
-                const y = e.clientY - rect.top;
-
-                this.focusPoint = {
-                    x: (x / rect.width).toFixed(2),
-                    y: (y / rect.height).toFixed(2)
-                };
-
-                if (this.focusRing) {
-                    this.focusRing.style.left = `${x}px`;
-                    this.focusRing.style.top = `${y}px`;
-                    this.focusRing.classList.remove('hidden');
-
-                    setTimeout(() => {
-                        this.focusRing.classList.add('hidden');
-                    }, 800);
-                }
-
-                this.logEvent(`Focus region prioritized at relative coords (${this.focusPoint.x}, ${this.focusPoint.y}) for OCR weighting.`);
-            });
-        }
-
         if (this.zoomSlider) {
-            this.zoomSlider.addEventListener('input', (e) => {
-                this.currentZoom = parseFloat(e.target.value);
-                if (this.zoomDisplay) this.zoomDisplay.innerText = `${this.currentZoom.toFixed(1)}x`;
+            this.zoomSlider.addEventListener('input', (e) => this.zoomTo(parseFloat(e.target.value)));
+        }
+        if (this.shutter) {
+            // Sinks on the press, pops back (with the shared overshoot) on the release; the shot is taken on the click.
+            this.shutter.addEventListener('pointerdown', () => this.pressShutter(true));
+            ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => this.shutter.addEventListener(t, () => this.pressShutter(false)));
+        }
+        if (this.viewfinderArea && typeof ResizeObserver !== 'undefined') {
+            new ResizeObserver(() => this.layoutFrame()).observe(this.viewfinderArea);
+        }
+        window.addEventListener('resize', () => this.layoutFrame());
+    }
 
-                const track = this.activeStream ? this.activeStream.getVideoTracks()[0] : null;
-                if (track && 'applyConstraints' in track) {
-                    track.applyConstraints({ advanced: [{ zoom: this.currentZoom }] }).catch(() => {
-                        if (this.videoEl) this.videoEl.style.transform = `scale(${this.currentZoom})`;
-                    });
-                } else if (this.videoEl) {
-                    this.videoEl.style.transform = `scale(${this.currentZoom})`;
-                }
-            });
+    // The card frame: a 3.5 : 2 guide that fills most of the viewfinder, landscape or upright to match it.
+    layoutFrame() {
+        if (!this.viewfinderArea || !this.cardFrame) return;
+        const w = this.viewfinderArea.clientWidth, h = this.viewfinderArea.clientHeight;
+        const r = cardFrameRect(w, h);
+        if (!r.width) return;
+        this.cardFrame.style.left = `${r.x}px`;
+        this.cardFrame.style.top = `${r.y}px`;
+        this.cardFrame.style.width = `${r.width}px`;
+        this.cardFrame.style.height = `${r.height}px`;
+        this.cardFrame.dataset.orientation = r.orientation;
+    }
+
+    // The fader sets a target; the zoom in effect eases there over ZOOM_EASE_MS (at once under reduce motion).
+    zoomTo(value) {
+        const target = Number(value);
+        if (!Number.isFinite(target)) return;
+        this.targetZoom = target;
+        if (this.stopZoomTween) this.stopZoomTween();
+        this.stopZoomTween = tween(this.currentZoom, target, ZOOM_EASE_MS, (z) => this.applyZoom(z), { instant: this.reducedMotion() });
+    }
+
+    applyZoom(z) {
+        this.currentZoom = z;
+        if (this.zoomDisplay) this.zoomDisplay.textContent = `${z.toFixed(1)}x`;
+        const track = this.activeStream ? this.activeStream.getVideoTracks()[0] : null;
+        if (this.zoomMode === 'hardware' && track) {
+            track.applyConstraints({ advanced: [{ zoom: z }] }).catch(() => { this.zoomMode = 'css'; this.applyZoom(z); });
+            if (this.videoEl) this.videoEl.style.transform = '';
+        } else if (this.videoEl) {
+            this.videoEl.style.transform = z > 1 ? `scale(${z})` : '';
         }
     }
 
+    pressShutter(down) {
+        if (!this.shutter) return;
+        if (down) {
+            if (this.stopShutterTween) this.stopShutterTween();
+            this.shutter.dataset.pressed = '1';
+            this.shutter.style.transform = 'scale(0.9)';
+            return;
+        }
+        // A release while pressed starts the pop; a later pointerleave (the viewfinder closing) must not cut it short.
+        if (this.shutter.dataset.pressed !== '1') return;
+        delete this.shutter.dataset.pressed;
+        if (this.stopShutterTween) this.stopShutterTween();
+        this.stopShutterTween = tween(0.9, 1, SHUTTER_POP_MS, (s) => { this.shutter.style.transform = s === 1 ? '' : `scale(${s})`; }, { instant: this.reducedMotion() });
+    }
+
     stopCamera() {
+        if (this.stopZoomTween) { this.stopZoomTween(); this.stopZoomTween = null; }
         if (this.activeStream) {
             this.activeStream.getTracks().forEach(track => track.stop());
             this.activeStream = null;
         }
-        if (this.videoEl) this.videoEl.srcObject = null;
+        if (this.videoEl) { this.videoEl.srcObject = null; this.videoEl.style.transform = ''; }
+    }
+
+    closeCamera() {
+        this.stopCamera();
+        if (this.cameraPanel) this.cameraPanel.classList.add('hidden');
     }
 
     switchCamera() {
@@ -188,43 +255,63 @@ export class VCGEActiveCamera {
         this.initCamera();
     }
 
+    // Upload: the standard image picker; anything that is not an image, or is over 10 MB, is turned away with a toast.
     handleGalleryUpload(file) {
         if (!file) return;
-        if (file.size > 10 * 1024 * 1024) {
-            alert('Error: File size exceeds the strict 10MB payload limit.');
+        if (!/^image\//.test(file.type || '')) {
+            this.toast('That file is not a photo. Choose an image file.');
+            return;
+        }
+        if (file.size > MAX_UPLOAD_BYTES) {
+            this.toast('That photo is over 10 MB. Choose a smaller one.');
             return;
         }
         const reader = new FileReader();
         reader.onload = (event) => {
             this.capturedImageDataUrl = event.target.result;
+            this.lastSource = 'upload';
             this.publishCapture(this.capturedImageDataUrl, 'GALLERY_IMPORT');
         };
         reader.readAsDataURL(file);
     }
 
+    // The shot is the window of the sensor frame the viewfinder showed (object-fit: cover plus the digital zoom), so
+    // what is on the screen is what is read. With the camera's own zoom the frame already is the zoomed view.
     captureFrame() {
         if (!this.canvasEl || !this.videoEl) return;
+        const videoW = this.videoEl.videoWidth || 1280, videoH = this.videoEl.videoHeight || 720;
+        const viewW = this.viewfinderArea ? this.viewfinderArea.clientWidth : videoW;
+        const viewH = this.viewfinderArea ? this.viewfinderArea.clientHeight : videoH;
+        const r = visibleSourceRect(viewW, viewH, videoW, videoH, this.zoomMode === 'css' ? this.currentZoom : 1);
         const ctx = this.canvasEl.getContext('2d');
-        this.canvasEl.width = this.videoEl.videoWidth || 1280;
-        this.canvasEl.height = this.videoEl.videoHeight || 720;
-
-        ctx.drawImage(this.videoEl, 0, 0, this.canvasEl.width, this.canvasEl.height);
+        this.canvasEl.width = r.width;
+        this.canvasEl.height = r.height;
+        ctx.drawImage(this.videoEl, r.x, r.y, r.width, r.height, 0, 0, r.width, r.height);
         this.capturedImageDataUrl = this.canvasEl.toDataURL('image/png');
+        this.canvasEl.width = this.canvasEl.height = 0;     // no second copy of the photo left in the canvas
+        this.lastSource = 'camera';
+        this.closeCamera();                                 // the shot is taken; Retake opens the camera again
         this.publishCapture(this.capturedImageDataUrl, 'HARDWARE_STREAM_SNAP');
     }
 
-    // The captured image stays in memory and is handed only to the review modal; the bus gets a signal, never the photo.
+    // The captured image stays in memory and is handed only to the crop editor; the bus gets a signal, never the photo.
     publishCapture(dataUrl, sourceMode) {
-        this.logEvent(`Image captured (${sourceMode}). Review it, then run OCR.`);
+        this.logEvent(`Image captured (${sourceMode}). Check the crop, then press OK.`);
         globalEventBus.publish(Events.IMAGE_CAPTURED, { sourceMode, timestamp: Date.now() });
-        this.openCropReviewModal(dataUrl);
+        this.openReview(dataUrl);
     }
 
-    openCropReviewModal(dataUrl) {
+    openReview(dataUrl) {
         if (this.reviewImage) this.reviewImage.src = dataUrl;
-        const priorityCoord = document.getElementById('priorityCoord');
-        if (priorityCoord) priorityCoord.innerText = `(${this.focusPoint.x}, ${this.focusPoint.y})`;
-        if (this.cropReviewModal) this.cropReviewModal.classList.remove('hidden');
+        if (this.reviewPanel) this.reviewPanel.classList.remove('hidden');
+    }
+
+    // Drops the photo: the review closes and the card goes back to Take or Upload.
+    discardPhoto() {
+        this.capturedImageDataUrl = null;
+        this.lastSource = null;
+        if (this.reviewImage) this.reviewImage.removeAttribute('src');
+        if (this.reviewPanel) this.reviewPanel.classList.add('hidden');
     }
 
     logEvent(msg) {

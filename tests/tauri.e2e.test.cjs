@@ -26,8 +26,18 @@ function keyringHasDeviceKey() {
   catch (e) { return false; }
 }
 
+/** Stops tauri-driver and everything it started (its process group): SIGTERM, then SIGKILL after 3 s. */
+async function stopDriver(driver) {
+  const signalGroup = (sig) => { try { process.kill(-driver.pid, sig); } catch (e) { /* already gone */ } };
+  const exited = new Promise(r => (driver.exitCode !== null || driver.signalCode !== null) ? r() : driver.once('exit', r));
+  signalGroup('SIGTERM');
+  await Promise.race([exited, sleep(3000)]);
+  signalGroup('SIGKILL');
+}
+
 (async () => {
-  const driver = spawn('tauri-driver', ['--native-driver', '/usr/bin/WebKitWebDriver'], { stdio: ['ignore', 'pipe', 'pipe'] });
+  // Own process group and no pipes: nothing the driver starts (WebKitWebDriver, the app) can keep this process alive.
+  const driver = spawn('tauri-driver', ['--native-driver', '/usr/bin/WebKitWebDriver'], { stdio: 'ignore', detached: true });
   for (let i = 0; i < 50; i++) { try { await fetch(DRIVER + '/status'); break; } catch (e) { await sleep(200); } }
 
   const session = await wd('POST', '/session', { capabilities: { alwaysMatch: { 'tauri:options': { application: APP } } } });
@@ -36,24 +46,86 @@ function keyringHasDeviceKey() {
   const js = (script, ...args) => wd('POST', S('/execute/sync'), { script, args });
   const jsAsync = (script, ...args) => wd('POST', S('/execute/async'), { script, args });
   const el = async (css) => (await wd('POST', S('/element'), { using: 'css selector', value: css }))[ELEMENT];
-  const click = async (css) => wd('POST', S(`/element/${await el(css)}/click`), {});
-  const type = async (css, text) => { const id = await el(css); await wd('POST', S(`/element/${id}/clear`), {}); await wd('POST', S(`/element/${id}/value`), { text }); };
+  // The deck settles on a card a moment after any scroll (a smooth move, an element scrolled into view); a WebDriver
+  // click computes its point first and lands on whatever is there, so every click and keystroke waits for a still deck.
+  const deckState = () => js(`const t = document.getElementById('deck'), c = document.querySelector('.deck-card.is-current');
+    return JSON.stringify({ card: document.documentElement.dataset.card, deck: t && t.dataset.deck, scrollLeft: t && t.scrollLeft, centre: c && c.offsetLeft + c.offsetWidth / 2 - t.clientWidth / 2 });`);
+  const deckSettled = async () => {
+    const still = await until(() => js(`const t = document.getElementById('deck'), c = document.querySelector('.deck-card.is-current');
+      if (!t || !c) return true; const left = c.offsetLeft + c.offsetWidth / 2 - t.clientWidth / 2;
+      if (t.dataset.deck === 'moving' || Math.abs(t.scrollLeft - left) > 1.5 || t.scrollLeft !== t.__lastSeen) { t.__lastSeen = t.scrollLeft; return false; } return true;`), 5000);
+    if (!still) console.log('deck did not settle:', await deckState());
+    return still;
+  };
+  // Brings the card that holds an element into view first: WebDriver scrolls an element in and acts at once, before
+  // the deck has settled on that card and lifted its cover.
+  const onCard = async (css) => {
+    const wanted = await js(`const el = document.querySelector(arguments[0]), card = el && el.closest('.deck-card');
+      return card ? card.dataset.card : null;`, css);
+    const current = () => js(`return document.documentElement.dataset.card;`);
+    // The header icon brings the card in, as a person would. A move that a late scroll (a focus, a closing dialog)
+    // undid is asked for once more.
+    for (let attempt = 0; wanted && attempt < 3 && (await current()) !== wanted; attempt++) {
+      await deckSettled();
+      await wd('POST', S(`/element/${await el(`.deck-nav [data-card="${wanted}"]:not([data-qr])`)}/click`), {});
+      await deckSettled();
+      await until(async () => (await current()) === wanted, 3000);
+    }
+    await deckSettled();
+    // The Vault's padlock plays in the middle of the screen for 1.4 s after a hand-off; WebDriver acts once it has gone.
+    await until(() => js(`const h = document.getElementById('vaultHandoff'); return !h || h.classList.contains('hidden');`), 3000);
+    if (wanted && (await current()) !== wanted) console.log('onCard: still not on', wanted, await deckState());
+  };
+  const click = async (css) => {
+    await onCard(css);
+    try { return await wd('POST', S(`/element/${await el(css)}/click`), {}); } catch (e) {
+      // Say what sat in the way (the card in view, the deck position, the element under the target's centre).
+      const where = await jsAsync(`const done = arguments[arguments.length - 1], css = arguments[0];
+        const el = document.querySelector(css), r = el && el.getBoundingClientRect(), t = document.getElementById('deck');
+        const hit = r && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        const out = { card: document.documentElement.dataset.card, scrollLeft: t && t.scrollLeft, rect: r && [r.left, r.top, r.width, r.height],
+          hit: hit && (hit.id || hit.className || hit.tagName), hitParent: hit && hit.parentElement && (hit.parentElement.id || hit.parentElement.className),
+          hidden: document.hidden, inner: [innerWidth, innerHeight], cards: Array.from(document.querySelectorAll('.deck-card')).map(c => c.offsetLeft + '/' + c.offsetWidth).join(' ') };
+        // Does the deck settle at all? (a) after a synthetic release, (b) after a nudge of the track
+        document.dispatchEvent(new Event('pointerup', { bubbles: true }));
+        setTimeout(() => { out.afterRelease = document.documentElement.dataset.card + '@' + t.scrollLeft;
+          let n = 0; const count = () => n++; t.addEventListener('scroll', count); t.scrollLeft += 3;
+          setTimeout(() => { t.removeEventListener('scroll', count); out.afterNudge = document.documentElement.dataset.card + '@' + t.scrollLeft + ' scrollEvents=' + n; done(JSON.stringify(out)); }, 600); }, 400);`, css).catch(() => '?');
+      e.message += ` (${css}: ${where})`;
+      throw e;
+    }
+  };
+  const type = async (css, text) => { await onCard(css); const id = await el(css); await wd('POST', S(`/element/${id}/clear`), {}); await wd('POST', S(`/element/${id}/value`), { text }); };
   const val = (id) => js(`return document.getElementById(arguments[0]).value;`, id);
   const txt = (id) => js(`return document.getElementById(arguments[0]).textContent.trim();`, id);
   const visible = (id) => js(`const e = document.getElementById(arguments[0]); return !e.classList.contains('hidden');`, id);
   const until = async (fn, ms = 20000) => { const end = Date.now() + ms; while (Date.now() < end) { if (await fn()) return true; await sleep(250); } return false; };
+  // The deck opens on the Welcome card every start: press START to reach the Capture card.
+  const startNow = async () => {
+    await until(() => js(`return !!document.getElementById('welcomeStartBtn');`), 5000);
+    await js(`const b = document.getElementById('welcomeStartBtn'); if (b) b.click();`);
+  };
+  // The Security panel is the Vault page, a sheet over the deck: open it from the header, close it with its X.
+  const openVaultPage = async () => { await click('#navVault'); await until(() => visible('vaultPage'), 5000); };
+  const closeVaultPage = async () => { await click('#vaultPage [data-sheet-close]'); await until(async () => !(await visible('vaultPage')), 5000); };
 
   try {
     await until(() => js(`return document.readyState === 'complete' && !!document.getElementById('vaultModal');`));
+    ok('desktop app opens on the Welcome card (START / Take a Tour)', await until(() => js(`return document.getElementById('cardWelcome').classList.contains('is-current') && !!document.getElementById('welcomeTourBtn');`), 5000));
+    await click('#welcomeStartBtn');
+    ok('START moves the deck to the Capture card', await until(() => js(`return document.documentElement.dataset.card === 'capture' && document.getElementById('cardCapture').classList.contains('is-current');`), 5000));
     ok('desktop app opens straight to an empty card (no passphrase dialog)', !(await visible('vaultModal')) && (await val('firstName')) === '' && (await txt('vaultStateIndicator')) === 'UNLOCKED / memory only');
     ok('Tauri IPC is available (withGlobalTauri)', await js(`return !!(window.__TAURI__ && window.__TAURI__.core);`));
     ok('page is served from the Tauri asset protocol', /^(tauri:|http:\/\/tauri\.localhost)/.test(await js('return location.href;')), await js('return location.href;'));
+    ok('desktop: the header logo loads from the bundled file', await until(() => js(`const i = document.querySelector('.deck-logo'); return !!i && i.complete && i.naturalWidth > 0;`), 5000));
     ok('keyring starts empty', !keyringHasDeviceKey());
 
-    // Session PIN from the Security panel
+    // Session PIN from the Security panel (the Vault page)
+    await openVaultPage();
     await click('#setSessionPinBtn');
     await type('#sessionPinInput', '2468'); await click('#quickSetupSaveBtn');
     ok('session PIN set in the desktop app', await until(async () => !(await visible('quickSetupModal')) && (await txt('sessionPinStatus')) === 'Session PIN: set', 10000));
+    await closeVaultPage();
 
     await type('#firstName', 'Desk'); await type('#lastName', 'Top'); await type('#organization', 'Tauri, Inc');
     await sleep(900);
@@ -76,7 +148,7 @@ function keyringHasDeviceKey() {
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
       const dt = new DataTransfer(); dt.items.add(new File([bytes], 'card.png', { type: 'image/png' }));
       const input = document.getElementById('imageUpload'); input.files = dt.files; input.dispatchEvent(new Event('change'));`);
-    ok('upload opens review modal', await until(() => visible('cropReviewModal'), 5000));
+    ok('upload opens the crop step on the Capture card', await until(() => visible('captureReview'), 5000));
     await click('#runOcrBtn');
     ok('real OCR runs in the desktop webview and opens the review step', await until(() => visible('ocrStepText'), 90000), await txt('toastMessage'));
     await click('#applyOcrBtn');
@@ -109,7 +181,8 @@ function keyringHasDeviceKey() {
       const dt = new DataTransfer(); dt.items.add(new File([bytes], 'crooked.png', { type: 'image/png' }));
       const input = document.getElementById('imageUpload'); input.files = dt.files; input.dispatchEvent(new Event('change'));
       return [[0, 0], [1050, 0], [1050, 600], [0, 600]].map(([px, py]) => { const p = m.transformPoint({ x: px, y: py }); return [p.x, p.y]; });`);
-    await until(() => js(`const i = document.getElementById('reviewImage'); return i.naturalWidth === 1600 && !document.getElementById('cropReviewModal').classList.contains('hidden');`), 5000);
+    await until(() => js(`const i = document.getElementById('reviewImage'); return i.naturalWidth === 1600 && !document.getElementById('captureReview').classList.contains('hidden');`), 5000);
+    await onCard('#reviewImage');
     for (let i = 0; i < 4; i++) {
       const g = await js(`const i = document.getElementById('reviewImage').getBoundingClientRect(), h = document.querySelector('[data-corner="${i}"]').getBoundingClientRect();
         return { hx: h.left + h.width / 2, hy: h.top + h.height / 2, ix: i.left, iy: i.top, iw: i.width, ih: i.height };`);
@@ -141,7 +214,7 @@ function keyringHasDeviceKey() {
       const dt = new DataTransfer(); dt.items.add(new File([bytes], 'icons.png', { type: 'image/png' }));
       const input = document.getElementById('imageUpload'); input.files = dt.files; input.dispatchEvent(new Event('change'));
       done(true); })();`, mobileIcon);
-    await until(() => visible('cropReviewModal'), 5000);
+    await until(() => visible('captureReview'), 5000);
     await click('#runOcrBtn');
     await until(async () => (await visible('ocrStepText')) || (await visible('ocrRetakeNotice')), 90000);
     const iconSummary = (await visible('ocrStepText')) ? await txt('ocrSummary') : `review step not shown (retake prompt: ${await visible('ocrRetakeNotice')})`;
@@ -159,27 +232,37 @@ function keyringHasDeviceKey() {
     // Restart the page: nothing was saved, so it starts empty
     await wd('POST', S('/refresh'), {});
     await until(() => js(`return document.readyState === 'complete' && !!document.getElementById('vaultModal');`));
+    await startNow();
     ok('after reload: empty card, no unlock dialog', await until(async () => (await val('firstName')) === '' && !(await visible('vaultModal')), 5000));
 
     // A keychain-bound vault saved by an older build is deleted at startup, with its keychain device key
     await js(`localStorage.setItem('vCGE_secure_vault.dat', JSON.stringify({ v: 2, kdf: 'pbkdf2-sha256+hkdf-device-key', ciphertext: [1, 2, 3] }));`);
     await wd('POST', S('/refresh'), {});
     await until(() => js(`return document.readyState === 'complete' && !!document.getElementById('auditLog');`));
+    await startNow();
     ok('old keychain-bound vault deleted at startup', await until(async () => (await js(`return localStorage.getItem('vCGE_secure_vault.dat');`)) === null
       && (await txt('auditLog')).includes('copy saved by an older build'), 5000), await txt('auditLog'));
     const ipc = await jsAsync(`const done = arguments[arguments.length - 1]; const inv = window.__TAURI__.core.invoke;
       inv('delete_device_secret').then(() => inv('device_secret', { create: true }).then(() => done('created'), () => done('ok')), e => done('delete failed: ' + e));`);
     ok('desktop: deleting the old device key works and no key can be created any more', ipc === 'ok' && !keyringHasDeviceKey(), ipc);
 
-    // Wipe button
-    await js('window.confirm = () => true;');
+    // Hold-to-wipe: the Vault page's wipe button opens the question; Yes held 1.5 s wipes and reloads
     await type('#firstName', 'Wipe me');
+    await openVaultPage();
     await click('#wipeVaultBtn');
-    ok('desktop: Wipe empties the card', await until(async () => (await val('firstName')) === '' && (await txt('auditLog')).includes('Vault wiped'), 5000));
+    ok('desktop: the wipe button asks the hold-to-wipe question', await until(async () => visible('wipeDialog'), 5000));
+    await js(`document.getElementById('wipeYesBtn').dispatchEvent(new PointerEvent('pointerdown', { button: 0, pointerId: 1, pointerType: 'mouse', bubbles: true }));`);
+    await new Promise(r => setTimeout(r, 400));
+    await js(`document.getElementById('wipeYesBtn').dispatchEvent(new PointerEvent('pointerup', { button: 0, pointerId: 1, pointerType: 'mouse', bubbles: true }));`);
+    ok('desktop: letting go of Yes early keeps the card', (await val('firstName')) === 'Wipe me' && await visible('wipeDialog'));
+    await js(`document.getElementById('wipeYesBtn').dispatchEvent(new PointerEvent('pointerdown', { button: 0, pointerId: 1, pointerType: 'mouse', bubbles: true }));`);
+    await new Promise(r => setTimeout(r, 1700));
+    await js(`document.getElementById('wipeYesBtn').dispatchEvent(new PointerEvent('pointerup', { button: 0, pointerId: 1, pointerType: 'mouse', bubbles: true }));`);
+    ok('desktop: Yes held 1.5 s wipes the card and the app starts fresh', await until(async () => (await val('firstName')) === '' && !(await visible('wipeDialog')) && !(await visible('vaultModal')), 8000));
   } finally {
     await wd('DELETE', S('')).catch(() => {});
-    driver.kill();
+    await stopDriver(driver);
   }
   console.log(`\n${pass} passed, ${fail} failed`);
-  process.exitCode = fail ? 1 : 0;
+  process.exit(fail ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });
