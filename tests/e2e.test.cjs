@@ -1,8 +1,10 @@
-// vCGE end-to-end tests in headless Chromium (`npm run test:e2e`).
-// Needs devDependencies (`npm install`) and a Chromium for Playwright (`npx playwright install chromium`).
+// vCGE end-to-end tests in a headless browser (`npm run test:e2e`).
+// Needs devDependencies (`npm install`) and the browser for Playwright (`npx playwright install chromium`).
 // SERVE_DIR=dist runs the same suite against the Vite build (`npm run build` first).
+// VCGE_BROWSER picks the browser: chromium (default), firefox, webkit, or the branded chrome / msedge.
+// VCGE_DEVICE makes it a phone, by Playwright device name (e.g. "iPhone 15" with webkit, "Galaxy S24" with chromium).
 const path = require('path'), fs = require('fs'), { spawn } = require('child_process');
-const { chromium } = require('playwright');
+const playwright = require('playwright');
 const jsQR = require('jsqr');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -10,16 +12,41 @@ const PORT = String(18000 + Math.floor(Math.random() * 2000));
 const ORIGIN = `http://localhost:${PORT}/`;
 
 // Renders a business card image in the page so OCR runs on real pixels.
-// `blur` (px) simulates a shaky or out-of-focus photo.
+// `blur` (px, the Gaussian's standard deviation) simulates a shaky or out-of-focus photo. The blur is computed here
+// (three box blurs) rather than with the canvas `filter`, which WebKit ignores, so every engine gets the same photo.
 async function renderCardImage(page, blur = 0) {
   const dataUrl = await page.evaluate((blur) => {
     const c = document.createElement('canvas'); c.width = 1050; c.height = 600;
     const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111';
-    if (blur) x.filter = `blur(${blur}px)`;
     const lines = [['bold 56px Arial', 'Maria Gonzalez'], ['34px Arial', 'Director of Engineering'], ['34px Arial', 'Northwind Systems'],
       ['30px Arial', '+1 (312) 555-0147'], ['30px Arial', 'maria.gonzalez@northwind.com'], ['30px Arial', 'https://northwind.com'],
       ['30px Arial', '233 South Wacker Drive'], ['30px Arial', 'Chicago, IL 60606']];
     let y = 80; for (const [f, t] of lines) { x.font = f; x.fillText(t, 70, y); y += f.startsWith('bold') ? 80 : 62; }
+    if (blur) {
+      const w = c.width, h = c.height, img = x.getImageData(0, 0, w, h);
+      let g = new Float32Array(w * h).map((_, i) => img.data[i * 4]);
+      const at = (a, i, n) => a[Math.min(n - 1, Math.max(0, i))];
+      const box = (a, r) => {   // separable running-sum box blur, edges clamped
+        const t = new Float32Array(a.length), o = new Float32Array(a.length), n = 2 * r + 1;
+        for (let yy = 0; yy < h; yy++) {
+          const row = a.subarray(yy * w, yy * w + w); let s = 0;
+          for (let k = -r; k <= r; k++) s += at(row, k, w);
+          for (let xx = 0; xx < w; xx++) { t[yy * w + xx] = s / n; s += at(row, xx + r + 1, w) - at(row, xx - r, w); }
+        }
+        for (let xx = 0; xx < w; xx++) {
+          const col = (i) => t[Math.min(h - 1, Math.max(0, i)) * w + xx]; let s = 0;
+          for (let k = -r; k <= r; k++) s += col(k);
+          for (let yy = 0; yy < h; yy++) { o[yy * w + xx] = s / n; s += col(yy + r + 1) - col(yy - r); }
+        }
+        return o;
+      };
+      // Box widths whose three passes approximate a Gaussian of this standard deviation.
+      let wl = Math.floor(Math.sqrt(4 * blur * blur + 1)); if (wl % 2 === 0) wl--;
+      const m = Math.round((12 * blur * blur - 3 * wl * wl - 12 * wl - 9) / (-4 * wl - 4));
+      for (let i = 0; i < 3; i++) g = box(g, ((i < m ? wl : wl + 2) - 1) / 2);
+      for (let i = 0; i < w * h; i++) img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = g[i];
+      x.putImageData(img, 0, 0);
+    }
     return c.toDataURL('image/png');
   }, blur);
   return { name: 'card.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') };
@@ -82,6 +109,25 @@ const vaultOpen = (page) => page.isVisible('#vaultPage');
 async function openVault(page) { if (!(await vaultOpen(page))) { await page.click('#navVault'); await page.waitForSelector('#vaultPage', { state: 'visible' }); } }
 async function closeVault(page) { if (await vaultOpen(page)) { await page.click('#vaultPage [data-sheet-close]'); await page.waitForSelector('#vaultPage', { state: 'hidden' }); } }
 
+// On phones the header has no room for the Lock button, so Lock lives on the Vault page ("Lock now") instead.
+const isPhone = () => !!(deviceOptions.viewport && deviceOptions.viewport.width < 600);
+// Presses the lock control this layout shows (on a phone: on the Vault page, which closes itself on Lock now).
+async function pressLock(page) {
+  if (!isPhone()) return page.click('#lockVaultBtn');
+  await openVault(page);
+  await page.click('#vaultLockNowBtn');
+  await page.waitForSelector('#vaultPage', { state: 'hidden' });
+}
+// Whether a lock control is offered: the header button, or on a phone the Vault page's Lock now (looked at and closed again).
+async function lockOffered(page) {
+  if (!isPhone()) return page.isVisible('#lockVaultBtn');
+  const wasOpen = await vaultOpen(page);
+  await openVault(page);
+  const offered = await page.isVisible('#vaultLockNowBtn');
+  if (!wasOpen) await closeVault(page);
+  return offered;
+}
+
 // Sets a session PIN from the Security panel (opens the Vault page, and closes it again if it was closed).
 async function setPin(page, pin) {
   const wasOpen = await vaultOpen(page);
@@ -95,14 +141,31 @@ async function setPin(page, pin) {
 // Holds the green Yes of the hold-to-wipe dialog for `ms` (real time, or fake-clock time when `clock` is given).
 // A full hold (1.5 s or more) wipes and reloads the page: the call returns once the new page has loaded.
 async function holdYes(page, ms, clock = null) {
+  const t0 = Date.now(), took = [];   // diagnostic: how long each step took (temporary, for the WebKit runs)
+  const mark = (what) => took.push(`${what} ${Date.now() - t0}ms`);
   await page.evaluate(() => { window.__vcgeOldPage = true; });
   const box = await page.locator('#wipeYesBtn').boundingBox();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down();
-  if (clock) await clock.runFor(ms); else await page.waitForTimeout(ms);
-  await page.mouse.up();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down(); mark('down');
+  if (clock) await clock.runFor(ms);
+  else if (ms < 1500) await page.waitForTimeout(ms);
+  // A full hold: let go as soon as the dialog says the hold is complete (data-hold="done"), as a person does when the
+  // sweep shows. Letting go later would race the page reload that follows the sweep (WebKit stalls on a mouse event
+  // sent while the page is replaced). If the hold never completes the wait fails, so nothing is loosened.
+  else await page.waitForFunction(() => document.getElementById('wipeDialog').dataset.hold === 'done', null, { timeout: ms + 1500 });
+  mark('held');
+  await page.mouse.up(); mark('up');
   if (ms < 1500) return;
   if (clock) await clock.runFor(600);
-  await page.waitForFunction(() => !window.__vcgeOldPage, null, { timeout: 5000 });
+  try {
+    await page.waitForFunction(() => !window.__vcgeOldPage, null, { timeout: 5000 });
+  } catch (e) {
+    const state = await page.evaluate(() => ({ url: location.href, ready: document.readyState, oldPage: !!window.__vcgeOldPage,
+      hold: document.getElementById('wipeDialog') && document.getElementById('wipeDialog').dataset.hold,
+      p: document.getElementById('wipeDialog') && document.getElementById('wipeDialog').style.getPropertyValue('--wipe-p') })).catch(err => String(err));
+    console.log('holdYes diag:', took.join(', '), JSON.stringify(state));
+    throw e;
+  }
+  mark('reloaded');
   await page.waitForLoadState('load');
 }
 
@@ -113,27 +176,42 @@ const setVisibility = (page, state) => page.evaluate((state) => {
   document.dispatchEvent(new Event('visibilitychange'));
 }, state);
 
-let pass = 0, fail = 0;
+const BROWSER = process.env.VCGE_BROWSER || 'chromium';
+const CHANNELS = { chrome: 'chrome', msedge: 'msedge' };
+const ENGINE = CHANNELS[BROWSER] ? 'chromium' : BROWSER;
+if (!['chromium', 'firefox', 'webkit'].includes(ENGINE)) throw new Error(`unknown VCGE_BROWSER "${BROWSER}"`);
+const DEVICE = process.env.VCGE_DEVICE ? playwright.devices[process.env.VCGE_DEVICE] : {};
+if (!DEVICE) throw new Error(`unknown VCGE_DEVICE "${process.env.VCGE_DEVICE}"`);
+const { defaultBrowserType, ...deviceOptions } = DEVICE;
+const RUN = BROWSER + (process.env.VCGE_DEVICE ? ` (${process.env.VCGE_DEVICE})` : '');
+
+let pass = 0, fail = 0, notRun = 0;
 const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, console.log('FAIL', n, d)); };
+// A check whose test tool exists only in some engines: reported and counted, never silently dropped.
+const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`); };
 
 (async () => {
   const server = spawn(process.execPath, [path.join(ROOT, 'scripts/serve.mjs')], { env: { ...process.env, PORT } });
   await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('exit', c => reject(new Error(`server exited ${c}`))); });
-  const browser = await chromium.launch();
-  // The welcome pop-up opens on every start; every test page presses START NOW at once, except the welcome tests below.
+  console.log(`Browser: ${RUN}`);
+  const browser = await playwright[ENGINE].launch(CHANNELS[BROWSER] ? { channel: CHANNELS[BROWSER] } : {});
+  // Every context takes the chosen device (if any), and the welcome pop-up that opens on every start is pressed
+  // through (START NOW) at once, except in the welcome tests below.
   const plainContext = browser.newContext.bind(browser);
   const pressStartNow = () => new MutationObserver((_, o) => {
     const b = document.getElementById('welcomeStartBtn');
     if (b) { o.disconnect(); b.click(); }
   }).observe(document, { childList: true, subtree: true });
-  browser.newContext = async (opts) => { const c = await plainContext(opts); await c.addInitScript(pressStartNow); return c; };
-  const context = await browser.newContext({ acceptDownloads: true });
+  browser.newContext = async (opts = {}) => { const c = await plainContext({ ...deviceOptions, ...opts }); await c.addInitScript(pressStartNow); return c; };
+  const newContext = (options) => browser.newContext(options);
+  const context = await newContext({ acceptDownloads: true });
   const page = await context.newPage();
   const external = [], errors = [], notFound = [];
   page.on('request', r => { if (!r.url().startsWith(ORIGIN) && !/^(data|blob):/.test(r.url())) external.push(r.url()); });
   page.on('response', r => { if (r.status() >= 400) notFound.push(`${r.status()} ${r.url()}`); });
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
+  page.on('crash', () => console.log('diag: the page crashed at', new Date().toISOString()));   // temporary (WebKit runs)
   page.on('dialog', d => d.accept());
   const base = ORIGIN;
   const val = id => page.$eval('#' + id, el => el.value);
@@ -148,7 +226,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   ok('the header shows the logo (bundled, loaded, named vCGE for screen readers)', await page.$eval('.deck-logo', i => i.complete && i.naturalWidth > 0 && i.alt === 'vCGE' && i.src.startsWith(location.origin)));
   ok('opens straight to an empty card (no passphrase dialog)', !(await visible('vaultModal')) && (await val('firstName')) === '');
   ok('header badge reads "Vault: UNLOCKED" and the indicator says memory only', (await text('vaultBadge')) === 'Vault: UNLOCKED' && (await text('vaultStateIndicator')) === 'UNLOCKED / memory only');
-  ok('Lock button hidden until a session PIN is set', !(await visible('lockVaultBtn')));
+  ok('Lock button hidden until a session PIN is set', !(await lockOffered(page)));
   ok('timer strip hidden while the card is empty', !(await visible('vaultTimerStrip')));
   const secretBoxes = await page.$$eval('#vaultPin, #sessionPinInput',
     els => els.map(el => ({ type: el.type, masked: getComputedStyle(el).webkitTextSecurity, ac: el.getAttribute('autocomplete'), caps: el.getAttribute('autocapitalize') })));
@@ -382,18 +460,27 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   ok('wiping with the settings box ticked deletes the settings entry too: storage empty, right hand again', (await page.evaluate(() => localStorage.length + sessionStorage.length)) === 0
     && (await page.evaluate(() => document.documentElement.dataset.hand)) === 'right' && (await val('firstName')) === '' && !(await visible('wipeDialog')));
   await page.fill('#firstName', nameBefore); await page.waitForTimeout(300);
+  // VCGE_EXP is a temporary diagnostic for the WebKit page crash on the reload after the next full wipe (extra CI rows):
+  // "novault" skips the Vault-page wipe button and Esc, "blur" drops keyboard focus before the hold, "nocb" skips the
+  // colour-blind dialog. Unset, the test runs as written.
+  const EXP = process.env.VCGE_EXP || '';
+  if (EXP !== 'novault') {
   await openVault(page);
   await page.click('#wipeVaultBtn');
   ok('the Vault page wipe button opens the same question, above the page', await visible('wipeDialog') && (await page.evaluate(() => { const a = document.elementFromPoint(innerWidth / 2, innerHeight / 2); return !!a && !!a.closest('#wipeDialog'); })));
   await page.keyboard.press('Escape');
   ok('Esc is No', !(await visible('wipeDialog')) && await vaultOpen(page));
   await closeVault(page);
+  }
   // Colour-blind mode (Shell's settings set html[data-cb="1"]): words and a bar say what the colours say
-  await page.evaluate(() => { document.documentElement.dataset.cb = '1'; });
-  await page.click('.deck-card.is-current .vcge-trash');
-  ok('colour-blind mode: Yes reads "Hold to wipe" and a fill bar shows', (await text('wipeYesText')) === 'Hold to wipe' && await visible('wipeHoldBar'));
-  await page.click('#wipeNoBtn');
-  await page.evaluate(() => { delete document.documentElement.dataset.cb; });
+  if (EXP !== 'nocb') {
+    await page.evaluate(() => { document.documentElement.dataset.cb = '1'; });
+    await page.click('.deck-card.is-current .vcge-trash');
+    ok('colour-blind mode: Yes reads "Hold to wipe" and a fill bar shows', (await text('wipeYesText')) === 'Hold to wipe' && await visible('wipeHoldBar'));
+    await page.click('#wipeNoBtn');
+    await page.evaluate(() => { delete document.documentElement.dataset.cb; });
+  }
+  if (EXP === 'blur') await page.evaluate(() => { if (document.activeElement) document.activeElement.blur(); });
   await page.click('.deck-card.is-current .vcge-trash');
   await holdYes(page, 1700); await page.waitForTimeout(600);
   ok('holding Yes 1.5 s wipes everything and the page starts fresh', (await val('firstName')) === '' && !(await visible('reopenScanBtn')) && !(await visible('wipeDialog')) && !(await visible('vaultModal')) && (await text('vaultBadge')) === 'Vault: UNLOCKED');
@@ -418,7 +505,9 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   ok('no page errors', errors.length === 0, errors.join(' | '));
   // Startup residue check + 120 s idle purge (fresh context with a controllable clock)
   {
-    const ctx2 = await browser.newContext();
+    // No file is saved from this context: the one download in it (a share) only has to be dispatched. Edge keeps a
+    // blank helper page open for every saved download, and the fake clock, which ticks every page, stalls on it.
+    const ctx2 = await newContext({ acceptDownloads: false });
     await ctx2.addInitScript(() => {
       if (!sessionStorage.getItem('seeded')) {
         sessionStorage.setItem('seeded', '1');
@@ -471,7 +560,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   // Quick unlock: 4-digit session PIN after a lock (idle, screen off, Lock button); the card is held in memory only,
   // and 7 minutes without activity wipe it
   {
-    const ctx8 = await browser.newContext();
+    const ctx8 = await newContext();
     const p8 = await ctx8.newPage();
     const errors8 = [];
     p8.on('pageerror', e => errors8.push(e.message));
@@ -490,7 +579,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('session PIN: too-short PIN refused', (await t8('quickSetupError')) === 'Use exactly 4 digits.', await t8('quickSetupError'));
     await p8.fill('#sessionPinInput', '2468'); await p8.click('#quickSetupSaveBtn');
     await p8.waitForSelector('#quickSetupModal', { state: 'hidden' });
-    ok('session PIN set: Security panel shows it and Lock appears', (await t8('sessionPinStatus')) === 'Session PIN: set' && await p8.isVisible('#lockVaultBtn'));
+    ok('session PIN set: Security panel shows it and Lock appears', (await t8('sessionPinStatus')) === 'Session PIN: set' && await lockOffered(p8));
     await closeVault(p8);
     await p8.fill('#firstName', 'Quick'); await p8.fill('#lastName', 'Unlock');
     await p8.clock.fastForward(1000);
@@ -550,7 +639,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
     await setPin(p8, '4321');
     await p8.fill('#firstName', 'Locked');
-    await p8.click('#lockVaultBtn');
+    await pressLock(p8);
     ok('Lock button hides the card behind the PIN', await p8.isVisible('#vaultPin') && (await p8.inputValue('#firstName')) === '');
     await p8.click('#vaultStartOverBtn');
     ok('"Wipe and start over" on the lock screen asks the hold-to-wipe question above it', await p8.isVisible('#wipeDialog') && await p8.isVisible('#vaultModal'));
@@ -561,14 +650,16 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await openVault(p8);
     ok('Security panel: Change and Remove offered', (await t8('setSessionPinBtn')) === 'Change' && await p8.isVisible('#clearSessionPinBtn'));
     await p8.click('#clearSessionPinBtn');
-    ok('Security panel: Remove forgets the PIN and hides Lock', (await t8('sessionPinStatus')) === 'Session PIN: not set' && (await t8('auditLog')).includes('Session PIN removed') && !(await p8.isVisible('#lockVaultBtn')));
+    ok('Security panel: Remove forgets the PIN and hides Lock', (await t8('sessionPinStatus')) === 'Session PIN: not set' && (await t8('auditLog')).includes('Session PIN removed') && !(await lockOffered(p8)));
     ok('quick unlock: no page errors', errors8.length === 0, errors8.join(' | '));
     await ctx8.close();
   }
 
-  // Biometric unlock (Face ID / fingerprint / Windows Hello) through a virtual platform authenticator: on-device only
-  {
-    const ctxB = await browser.newContext();
+  // Biometric unlock (Face ID / fingerprint / Windows Hello) through a virtual platform authenticator: on-device only.
+  // The virtual authenticator is a Chromium DevTools tool; Firefox and WebKit have none.
+  if (ENGINE !== 'chromium') notRunHere('biometric unlock (11 checks)', 'the virtual authenticator exists only in Chromium');
+  else {
+    const ctxB = await newContext();
     const pB = await ctxB.newPage();
     const errorsB = [], externalB = [];
     pB.on('pageerror', e => errorsB.push(e.message));
@@ -591,7 +682,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await pB.click('#addBiometricBtn'); await pB.waitForTimeout(500);
     ok('biometric added for this session, after a check that passed', (await tB('biometricStatus')) === 'Face ID / fingerprint: on' && (await tB('auditLog')).includes('Face ID / fingerprint added'), await tB('toastMessage'));
     await closeVault(pB);
-    await pB.fill('#firstName', 'Bio'); await pB.click('#lockVaultBtn');
+    await pB.fill('#firstName', 'Bio'); await pressLock(pB);
     ok('lock screen offers Face ID / fingerprint', await pB.isVisible('#vaultBiometricBtn') && (await pB.inputValue('#firstName')) === '');
     const bioBox = await pB.locator('#vaultBiometricBtn').boundingBox(), pinBox = await pB.locator('#vaultPin').boundingBox();
     ok('lock screen leads with a big fingerprint button above the PIN, focused (no keyboard pops up), no Unlock button', bioBox.height >= 52 && bioBox.y < pinBox.y && (await pB.evaluate(() => document.activeElement && document.activeElement.id)) === 'vaultBiometricBtn' && !(await pB.$('#vaultUnlockBtn')) && await pB.isVisible('#vaultOr'));
@@ -599,7 +690,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await pB.waitForSelector('#vaultModal', { state: 'hidden', timeout: 5000 }).catch(() => {});
     ok('biometric unlocks the card', !(await pB.isVisible('#vaultModal')) && (await pB.inputValue('#firstName')) === 'Bio' && (await tB('auditLog')).includes('Vault unlocked (biometric)'));
     await cdp.send('WebAuthn.setUserVerified', { authenticatorId, isUserVerified: false });
-    await pB.click('#lockVaultBtn');
+    await pressLock(pB);
     await pB.click('#vaultBiometricBtn'); await pB.waitForTimeout(800);
     ok('face or fingerprint not confirmed: stays locked, PIN offered', await pB.isVisible('#vaultModal') && (await tB('vaultError')).includes('Use your PIN') && (await pB.inputValue('#firstName')) === '', await tB('vaultError'));
     await pB.fill('#vaultPin', '2468');
@@ -607,7 +698,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('the PIN still works as the fallback', (await pB.inputValue('#firstName')) === 'Bio');
     await openVault(pB);
     await pB.click('#clearSessionPinBtn');
-    ok('removing the PIN removes biometric too', !(await pB.isVisible('#biometricRow')) && !(await pB.isVisible('#lockVaultBtn')));
+    ok('removing the PIN removes biometric too', !(await pB.isVisible('#biometricRow')) && !(await lockOffered(pB)));
     ok('biometric: nothing saved to browser storage', !(await pB.evaluate(() => JSON.stringify(localStorage) + JSON.stringify(sessionStorage))).includes('Bio'));
     ok('biometric: no network requests', externalB.length === 0, externalB.join(', '));
     ok('biometric: no page errors', errorsB.length === 0, errorsB.join(' | '));
@@ -660,11 +751,13 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // Back (button or swipe): asks before wiping, Stay keeps the card, leaving wipes it; an empty card just leaves
   {
-    const ctx11 = await browser.newContext();
+    const ctx11 = await newContext();
     const p11 = await ctx11.newPage();
     const errors11 = [];
     p11.on('pageerror', e => errors11.push(e.message));
-    await p11.goto('about:blank');
+    // Start from a page of our own, not about:blank: in Firefox, Back from the app found no page to go back to.
+    const START = ORIGIN + '?start';
+    await p11.goto(START);
     await p11.goto(ORIGIN); await p11.waitForTimeout(300);
     await p11.click('#firstName'); await p11.keyboard.type('Swiped');
     await p11.goBack(); await p11.waitForTimeout(300);
@@ -673,20 +766,20 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('Stay keeps the card', !(await p11.isVisible('#leaveModal')) && (await p11.inputValue('#firstName')) === 'Swiped');
     await p11.goBack(); await p11.waitForTimeout(300);
     ok('Back asks again after Stay', await p11.isVisible('#leaveModal'));
-    await Promise.all([p11.waitForURL('about:blank'), p11.click('#leaveConfirmBtn')]);
-    ok('"Wipe and leave" goes back', p11.url() === 'about:blank', p11.url());
+    await Promise.all([p11.waitForURL(START), p11.click('#leaveConfirmBtn')]);
+    ok('"Wipe and leave" goes back', p11.url() === START, p11.url());
     await p11.goForward(); await p11.waitForTimeout(500);
     ok('coming back forward: the card is gone', (await p11.inputValue('#firstName')) === '');
     await p11.click('#clearFormBtn');
     await p11.goBack(); await p11.waitForTimeout(500);
-    ok('Back with an empty card leaves without asking', p11.url() === 'about:blank', p11.url());
+    ok('Back with an empty card leaves without asking', p11.url() === START, p11.url());
     ok('Back guard: no page errors', errors11.length === 0, errors11.join(' | '));
     await ctx11.close();
   }
 
   // Quick lock keeps the scan in progress: the open review comes back with the session PIN, sealed while locked
   {
-    const ctx10 = await browser.newContext();
+    const ctx10 = await newContext();
     const p10 = await ctx10.newPage();
     const errors10 = [];
     p10.on('pageerror', e => errors10.push(e.message));
@@ -728,7 +821,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // Tester feedback round 3: logos fitted square on an opaque background, and a JPEG vCard photo
   {
-    const ctx11 = await browser.newContext();
+    const ctx11 = await newContext();
     const p11 = await ctx11.newPage();
     const errors11 = [];
     p11.on('pageerror', e => errors11.push(e.message));
@@ -759,9 +852,12 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     // Uploads a logo; returns the vCard PHOTO (from the .vcf), what the card shows and what the toast said.
     const upload = async (kind, name) => {
       const url = await logo(kind);
-      const before = await p11.evaluate(() => { const i = document.querySelector('#formAvatarPreview img, #formAvatarPreview svg'); return i ? i.outerHTML : ''; });
+      // The preview is rebuilt from new nodes on every upload, so the old node is marked and the wait is for a node
+      // without the mark. (Comparing the markup was not enough: two logos that trace to the same drawing, as the
+      // viewBox-only SVG and the sized one do in Firefox, give the same markup twice.)
+      await p11.evaluate(() => { const i = document.querySelector('#formAvatarPreview img, #formAvatarPreview svg'); if (i) i.__vcgeSeen = true; });
       await p11.setInputFiles('#avatarUpload', { name, mimeType: url.slice(5, url.indexOf(';')), buffer: Buffer.from(url.split(',')[1], 'base64') });
-      await p11.waitForFunction((before) => { const i = document.querySelector('#formAvatarPreview img, #formAvatarPreview svg'); return i && i.outerHTML !== before && (i.tagName === 'svg' || i.complete); }, before);
+      await p11.waitForFunction(() => { const i = document.querySelector('#formAvatarPreview img, #formAvatarPreview svg'); return i && !i.__vcgeSeen && (i.tagName === 'svg' || i.complete); });
       await p11.waitForTimeout(300);   // the logo's shape and tone are read, then the card is drawn again
       const toast = await p11.textContent('#toastMessage');
       const [dl] = await Promise.all([p11.waitForEvent('download'), p11.click('#downloadVcfBtn')]);
@@ -936,7 +1032,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // Tester feedback round 1: Undo after a sample / clear / scan fill, reopen the last scan, readable SMS and email, one-page print
   {
-    const ctx9 = await browser.newContext();
+    const ctx9 = await newContext();
     const p9 = await ctx9.newPage();
     const errors9 = [];
     p9.on('pageerror', e => errors9.push(e.message));
@@ -1004,10 +1100,13 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('printed card is 3.5 x 2 inches with the 1.5 in QR to its right', size.card[0] === 336 && size.card[1] === 192 && size.qr[0] === 144 && size.qr[1] === 144 && size.qrRight, JSON.stringify(size));
     ok('themed print keeps the card\'s own colours', size.bg === size.cardBg && size.bg !== 'rgb(255, 255, 255)', JSON.stringify(size));
     await p9.emulateMedia({ media: null });
-    const pdf = (await p9.pdf({ preferCSSPageSize: true, printBackground: true })).toString('latin1');
-    const pages = (pdf.match(/\/Type\s*\/Page[^s]/g) || []).length;
-    const box = /\/MediaBox\s*\[\s*0\s+0\s+(\d+)\s+(\d+)\s*\]/.exec(pdf);
-    ok('print is one 6 x 3.5 in page (no blank pages) and the card is still on the sheet', pages === 1 && box && box[1] === '432' && box[2] === '252' && (await p9.evaluate(() => document.getElementById('printSheet').children.length)) === 2, `${pages} pages, box ${box && box.slice(1)}`);
+    if (ENGINE !== 'chromium') notRunHere('print is one 6 x 3.5 in page (no blank pages)', 'saving a page as PDF exists only in Chromium');
+    else {
+      const pdf = (await p9.pdf({ preferCSSPageSize: true, printBackground: true })).toString('latin1');
+      const pages = (pdf.match(/\/Type\s*\/Page[^s]/g) || []).length;
+      const box = /\/MediaBox\s*\[\s*0\s+0\s+(\d+)\s+(\d+)\s*\]/.exec(pdf);
+      ok('print is one 6 x 3.5 in page (no blank pages) and the card is still on the sheet', pages === 1 && box && box[1] === '432' && box[2] === '252' && (await p9.evaluate(() => document.getElementById('printSheet').children.length)) === 2, `${pages} pages, box ${box && box.slice(1)}`);
+    }
     await p9.evaluate(() => window.dispatchEvent(new Event('afterprint')));
     ok('print copies stay until the next print (afterprint can fire before the PDF is drawn)', (await p9.evaluate(() => document.getElementById('printSheet').children.length)) === 2);
     await p9.click('#printCardBtn'); await p9.click('#printBwBtn');
@@ -1032,7 +1131,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // Icons instead of labels: unlabelled numbers typed by their icons, a bare handle next to a social logo
   {
-    const ctx7 = await browser.newContext();
+    const ctx7 = await newContext();
     const p7 = await ctx7.newPage();
     await p7.goto(ORIGIN); await p7.waitForTimeout(300);
     const icon = (f) => fs.readFileSync(path.join(ROOT, 'node_modules/@tabler/icons/icons/outline', f), 'utf8').replace(/currentColor/g, '#111');
@@ -1160,7 +1259,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // Blurry photo: OCR runs but the result is unreadable -> retake prompt, form untouched
   {
-    const ctx4 = await browser.newContext();
+    const ctx4 = await newContext();
     const p4 = await ctx4.newPage();
     await p4.goto(ORIGIN); await p4.waitForTimeout(300);
     await p4.fill('#firstName', 'Typed');
@@ -1184,7 +1283,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // Crooked photo: drag the corners onto the card, extract, fix a line, change a picker, fill the form
   {
-    const ctx5 = await browser.newContext();
+    const ctx5 = await newContext();
     const p5 = await ctx5.newPage();
     await p5.goto(ORIGIN); await p5.waitForTimeout(300);
     const crooked = await renderSkewedCard(p5);
@@ -1235,7 +1334,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // OCR engine cannot start (language model missing, as on a host that refuses .gz): no hang, clear message, form untouched
   {
-    const ctx3 = await browser.newContext();
+    const ctx3 = await newContext();
     await ctx3.route('**/eng.traineddata.gz', r => r.fulfill({ status: 404, body: 'not found' }));
     const p3 = await ctx3.newPage();
     await p3.goto(ORIGIN); await p3.waitForTimeout(300);
@@ -1254,6 +1353,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   // handles at the full edge, Snap to card, bad uploads turned away with a toast, the left-hand mirror
   {
     const ctxV = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
+    // temporary diagnostic (Firefox): every pointer, mouse and touch event the page sees, read when a press-based check fails
+    await ctxV.addInitScript(() => { window.__pev = []; ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'touchcancel', 'click'].forEach(t => document.addEventListener(t, (e) => { window.__pev.push(`${t}:${e.pointerType || ''}:${e.pointerId === undefined ? '' : e.pointerId}:${(e.target && e.target.id) || (e.target && e.target.className && String(e.target.className).slice(0, 20)) || ''}`); if (window.__pev.length > 40) window.__pev.shift(); }, true)); });
     await ctxV.addInitScript(() => {
       // A 640 x 360 test feed: four colours, so the shot can be checked against the window the viewfinder showed
       navigator.mediaDevices.getUserMedia = async () => {
@@ -1303,7 +1404,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     const sunk = await pV.$eval('#captureBtn', b => b.style.transform);
     await pV.mouse.up(); await pV.waitForTimeout(500);
     const popped = await pV.$eval('#captureBtn', b => b.style.transform);
-    ok('shutter: sinks while pressed and pops back on release', sunk === 'scale(0.9)' && popped === '', `${sunk} -> ${popped}`);
+    ok('shutter: sinks while pressed and pops back on release', sunk === 'scale(0.9)' && popped === '', `${sunk} -> ${popped} | events: ${await pV.evaluate(() => window.__pev.slice(-10).join(' '))}`);
     ok('shutter: the shot opens the crop step and the camera closes', await pV.isVisible('#captureReview') && (await pV.evaluate(() => document.getElementById('cameraPanel').classList.contains('hidden') && document.getElementById('cameraStream').srcObject === null)) && (await card()) === 'capture');
     // The 390 x 464-ish portrait view covers the 640 x 360 feed (scale by height), zoomed 2x: the window is the middle of it
     const shot = await pV.evaluate(() => new Promise(resolve => {
@@ -1352,7 +1453,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // Camera in use by another app: busy at start, a virtual camera, the feed taken or muted mid-scan -> camera off + pop-up
   {
-    const ctxC = await browser.newContext();
+    const ctxC = await newContext();
     await ctxC.addInitScript(() => {
       window.__camMode = 'normal';
       navigator.mediaDevices.getUserMedia = async () => {
@@ -1370,35 +1471,40 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     const popup = () => pC.isVisible('#cameraInUseModal');
     const cameraOff = () => pC.evaluate(() => document.getElementById('cameraStream').srcObject === null && document.getElementById('cameraPanel').classList.contains('hidden'));
     const start = async (mode) => { await pC.evaluate(m => { window.__camMode = m; }, mode); await pC.click('#startCameraBtn'); await pC.waitForTimeout(300); };
+    // What the camera module logged, and whether the test's fake track is the one the app is showing (failure details).
+    const camState = () => pC.evaluate(() => { const s = document.getElementById('cameraStream').srcObject;
+      return `${document.getElementById('eventLog').textContent.trim()} | app shows test track: ${!!s && s.getVideoTracks()[0] === window.__camTrack}`; });
+    // A missing pop-up is reported by the check before it; closing it must not stop the rest of the section.
+    const closePopup = () => pC.click('#cameraInUseOkBtn', { timeout: 2000 }).catch(() => {});
 
     await start('normal');
     ok('ordinary camera starts with no pop-up', await pC.isVisible('#cameraPanel') && !(await popup()) && await pC.evaluate(() => !!document.getElementById('cameraStream').srcObject));
     await pC.click('#stopCameraBtn');
 
     await start('busy');
-    ok('camera held by another app: pop-up shown, camera off', await popup() && await cameraOff());
-    ok('pop-up tells the user to close the other app or upload', (await pC.textContent('#cameraInUseMessage')).includes('Another app is using or watching your camera'));
+    ok('camera held by another app: pop-up shown, camera off', await popup() && await cameraOff(), await camState());
+    ok('pop-up tells the user to close the other app or upload', ((await pC.textContent('#cameraInUseMessage', { timeout: 2000 }).catch(() => '')) || '').includes('Another app is using or watching your camera'));
     ok('OK is focused and closes the pop-up', await pC.evaluate(() => document.activeElement && document.activeElement.id === 'cameraInUseOkBtn'));
-    await pC.click('#cameraInUseOkBtn');
+    await closePopup();
     ok('pop-up closed after OK', !(await popup()));
 
     await start('virtual');
-    ok('virtual camera: pop-up shown, camera off', await popup() && await cameraOff());
-    await pC.click('#cameraInUseOkBtn');
+    ok('virtual camera: pop-up shown, camera off', await popup() && await cameraOff(), await camState());
+    await closePopup();
 
     await start('normal');
     await pC.evaluate(() => window.__camTrack.dispatchEvent(new Event('ended')));
-    await pC.waitForTimeout(100);
-    ok('feed taken by another app mid-scan: pop-up shown, camera off', await popup() && await cameraOff());
-    await pC.click('#cameraInUseOkBtn');
+    await pC.waitForSelector('#cameraInUseModal', { state: 'visible', timeout: 2000 }).catch(() => {});
+    ok('feed taken by another app mid-scan: pop-up shown, camera off', await popup() && await cameraOff(), await camState());
+    await closePopup();
 
     await start('normal');
     await pC.evaluate(() => { const t = window.__camTrack; Object.defineProperty(t, 'muted', { get: () => true }); t.dispatchEvent(new Event('mute')); });
     await pC.waitForTimeout(300);
     ok('brief mute does not trigger the pop-up', !(await popup()));
-    await pC.waitForTimeout(1000);
-    ok('feed muted while in view: pop-up shown, camera off', await popup() && await cameraOff());
-    await pC.click('#cameraInUseOkBtn');
+    await pC.waitForSelector('#cameraInUseModal', { state: 'visible', timeout: 3000 }).catch(() => {});   // MUTE_GRACE_MS after the mute
+    ok('feed muted while in view: pop-up shown, camera off', await popup() && await cameraOff(), await camState());
+    await closePopup();
 
     await start('normal');
     await pC.click('#stopCameraBtn');
@@ -1592,6 +1698,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   // MOD01 shared look: MOD-XX tags in Sixtyfour on every panel, 44 px buttons with 2 px outlines, the near-miss rim for taps
   {
     const ctxU = await browser.newContext({ hasTouch: true, viewport: { width: 1280, height: 800 } });
+    // temporary diagnostic (Firefox): every pointer, mouse and touch event the page sees, read when a press-based check fails
+    await ctxU.addInitScript(() => { window.__pev = []; ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'touchcancel', 'click'].forEach(t => document.addEventListener(t, (e) => { window.__pev.push(`${t}:${e.pointerType || ''}:${e.pointerId === undefined ? '' : e.pointerId}:${(e.target && e.target.id) || (e.target && e.target.className && String(e.target.className).slice(0, 20)) || ''}`); if (window.__pev.length > 40) window.__pev.shift(); }, true)); });
     const pU = await ctxU.newPage();
     const errorsU = [], missingU = [];
     pU.on('pageerror', e => errorsU.push(e.message));
@@ -1626,7 +1734,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await pU.touchscreen.tap(flip.x + flip.width / 2, flip.y + flip.height / 2); await settled(pU);
     ok('a tap in the middle of the button works', (await turned()) === 'rotateY(180deg)', await turned());
     await pU.mouse.click(flip.x + flip.width / 2, flip.y + 1.5); await settled(pU);
-    ok('a mouse click on the edge still works (only fingers get the near-miss guard)', (await turned()) === 'rotateY(0deg)', await turned());
+    ok('a mouse click on the edge still works (only fingers get the near-miss guard)', (await turned()) === 'rotateY(0deg)', `${await turned()} | events: ${await pU.evaluate(() => window.__pev.slice(-12).join(' '))}`);
     await pU.setViewportSize({ width: 390, height: 844 });
     ok('phone width: the app reports the phone layout and nothing scrolls sideways', await pU.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--vcge-layout').trim() === 'phone' && document.documentElement.scrollWidth <= innerWidth));
     ok('shared look: no missing files, no page errors', missingU.length === 0 && errorsU.length === 0, missingU.concat(errorsU).join(' | '));
@@ -1637,6 +1745,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   // at the top, the pilots as samples with their animal logos, the Logo controls on this card
   {
     const ctx6 = await browser.newContext({ hasTouch: true });
+    // temporary diagnostic (Firefox): every pointer, mouse and touch event the page sees, read when a press-based check fails
+    await ctx6.addInitScript(() => { window.__pev = []; ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'touchcancel', 'click'].forEach(t => document.addEventListener(t, (e) => { window.__pev.push(`${t}:${e.pointerType || ''}:${e.pointerId === undefined ? '' : e.pointerId}:${(e.target && e.target.id) || (e.target && e.target.className && String(e.target.className).slice(0, 20)) || ''}`); if (window.__pev.length > 40) window.__pev.shift(); }, true)); });
     const p6 = await ctx6.newPage();
     const errors6 = [], external6 = [], missing6 = [];
     p6.on('pageerror', e => errors6.push(e.message));
@@ -1683,7 +1793,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     for (let i = 1; i <= 8; i++) await p6.mouse.move(cx - flipper.width * 0.3 + flipper.width * 0.6 * i / 8, cy);
     const midway = await angle();
     await p6.mouse.up(); await settled(p6);
-    ok('card: a sideways drag across the card turns it with the finger and it settles on the front', /rotateY\(2[5-9]\d|rotateY\(3[0-5]\d/.test(midway) && (await angle()) === 'rotateY(0deg)', `${midway} -> ${await angle()}`);
+    ok('card: a sideways drag across the card turns it with the finger and it settles on the front', /rotateY\(2[5-9]\d|rotateY\(3[0-5]\d/.test(midway) && (await angle()) === 'rotateY(0deg)', `${midway} -> ${await angle()} | events: ${await p6.evaluate(() => window.__pev.slice(-16).join(' '))}`);
     await p6.mouse.move(cx, cy); await p6.mouse.down(); await p6.mouse.move(cx + 3, cy); await p6.mouse.up(); await settled(p6);
     ok('card: a drag shorter than a tap still counts as a tap (flips)', (await angle()) === 'rotateY(180deg)', await angle());
     const cardName = () => p6.evaluate(() => document.documentElement.dataset.card);
@@ -1709,13 +1819,13 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('toast: gone after 3 s', await p6.$eval('#toast', t => t.classList.contains('opacity-0')));
     await p6.click('#paletteDropdownBtn'); await p6.click('#paletteListContainer [data-theme="maple"]');
     await p6.click('#toastMessage');
-    ok('toast: a tap dismisses it at once', await p6.$eval('#toast', t => t.classList.contains('opacity-0')));
+    ok('toast: a tap dismisses it at once', await p6.$eval('#toast', t => t.classList.contains('opacity-0')), `events: ${await p6.evaluate(() => window.__pev.slice(-8).join(' '))}`);
     await p6.click('#paletteDropdownBtn'); await p6.click('#paletteListContainer [data-theme="spruce"]');
     await p6.waitForTimeout(400);   // measured after the slide-in, or the press lands where the toast was, not where it is
     const tb = await p6.locator('#toast').boundingBox();
     await p6.mouse.move(tb.x + tb.width / 2, tb.y + tb.height / 2); await p6.mouse.down();
     await p6.waitForTimeout(3600);
-    ok('toast: held, it stays past 3 s', !(await p6.$eval('#toast', t => t.classList.contains('opacity-0'))));
+    ok('toast: held, it stays past 3 s', !(await p6.$eval('#toast', t => t.classList.contains('opacity-0'))), `events: ${await p6.evaluate(() => window.__pev.slice(-8).join(' '))}`);
     await p6.mouse.up();
     await p6.waitForTimeout(2500);
     ok('toast: still there 2.5 s after the release', !(await p6.$eval('#toast', t => t.classList.contains('opacity-0'))));
@@ -1857,7 +1967,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await ctxA.close();
   }
 
-  console.log(`\n${pass} passed, ${fail} failed`);
+  console.log(`\n${RUN}: ${pass} passed, ${fail} failed` + (notRun ? `, ${notRun} not run in this engine` : ''));
   await browser.close(); server.kill();
   process.exitCode = fail ? 1 : 0;
 })().catch(e => { console.error(e); process.exit(1); });
