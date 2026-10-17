@@ -67,6 +67,8 @@ async function stopDriver(driver) {
       await wd('POST', S(`/element/${await el(`.deck-nav [data-card="${name}"]:not([data-qr])`)}/click`), {});
     }
     await deckSettled();
+    // The Vault's padlock plays over the middle of the screen for 1.4 s after a hand-off; WebDriver acts once it has gone.
+    await until(() => js(`const h = document.getElementById('vaultHandoff'); return !h || h.classList.contains('hidden');`), 5000);
   };
   const click = async (css) => {
     await onCard(css);

@@ -6,7 +6,8 @@
 
 /* ---- Padlock hand-off: a small lock in the middle of the screen; cannot be tapped, says nothing ------------------ */
 .vault-handoff {
-    position: fixed; inset: 0; z-index: 48; display: flex; align-items: center; justify-content: center;
+    /* Only the lock's own box sits over the page (never a full-screen layer), and nothing can press it */
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 48; display: flex; align-items: center; justify-content: center;
     pointer-events: none; opacity: 0;
     --vh-glow: rgb(249, 115, 22);
 }
