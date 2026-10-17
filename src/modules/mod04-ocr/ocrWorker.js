@@ -30,11 +30,12 @@ export const OCR_INIT_TIMEOUT_MS = 60000;
 
 // How long reading one photo may take before the engine is restarted (a desktop reads a card in about 2 s). A phone
 // can stop the engine mid-read when memory runs low; Tesseract.js then never answers, so without a limit the scan hangs.
-export const OCR_READ_TIMEOUT_MS = 60000;
+// 55 s (raven575, 2026-10-17): the shimmer's wash on the Read card is full exactly when this runs out.
+export const OCR_READ_TIMEOUT_MS = 55000;
 
 /**
- * How full the progress bar is (0..1) `elapsedMs` into reading a photo: fast at first, then slower than real time, full
- * exactly when the time limit runs out.
+ * How far the read has come (0..1) `elapsedMs` into reading a photo, for the Read card's wash: fast at first, then
+ * slower than real time, full exactly when the time limit runs out. Never shown as a number.
  */
 export function readProgress(elapsedMs, limitMs = OCR_READ_TIMEOUT_MS) {
     const t = Math.min(1, Math.max(0, elapsedMs / limitMs));

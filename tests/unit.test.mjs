@@ -776,13 +776,32 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   hold = true; evt = null;
   const hung = await failure(ocr.executeOCRScan('data:image/png;base64,x', { readTimeoutMs: 50 }));
   await new Promise(res => setTimeout(res, 0));
-  ok('a read that never finishes times out with OCR_TIMEOUT and stops the engine', hung && hung.code === 'OCR_TIMEOUT' && terminated === before.terminated + 1 && evt === null && ocr.OCR_READ_TIMEOUT_MS === 60000, hung && hung.message);
+  ok('a read that never finishes times out with OCR_TIMEOUT and stops the engine', hung && hung.code === 'OCR_TIMEOUT' && terminated === before.terminated + 1 && evt === null && ocr.OCR_READ_TIMEOUT_MS === 55000, hung && hung.message);
   hold = false; statuses = [];
   await ocr.executeOCRScan('data:image/png;base64,x', { onStatus: s => statuses.push(s) });
   ok('the scan after a timeout starts a fresh engine', created === before.created + 1 && statuses.join() === 'starting,reading', `${created} ${statuses.join()}`);
-  const curve = [0, 2000, 10000, 30000, 50000, 60000, 90000].map(t => ocr.readProgress(t));
-  ok('the progress bar fills fast, then slower than real time, full exactly at the read limit', curve[0] === 0 && curve[3] === 0.75 && curve[5] === 1 && curve[6] === 1 && curve.every((v, i) => i === 0 || v >= curve[i - 1]) && curve[2] > 10000 / 60000, curve.join());
+  const curve = [0, 2000, 10000, 27500, 50000, 55000, 90000].map(t => ocr.readProgress(t));
+  ok('the read wash fills fast, then slower than real time, full exactly at the 55 s read limit', curve[0] === 0 && curve[3] === 0.75 && curve[5] === 1 && curve[6] === 1 && curve.every((v, i) => i === 0 || v >= curve[i - 1]) && curve[2] > 10000 / 55000, curve.join());
   ok('OCR no longer exposes a duplicate parser', !('parseExtractedTextToSchema' in ocr));
+
+  // The Read card (readCard.js): stepped fades, the Looks right timings, the lane
+  const read = await import(`${R}/modules/mod04-ocr/readCard.js`);
+  ok('read card: motion stepped at 26 fps, blink-out and Looks right fade are quick (under 300 ms each)', read.STEP_FPS === 26 && read.BLINK_MS > 0 && read.BLINK_MS < 300 && read.CHECK_FADE_MS > 0 && read.CHECK_FADE_MS < 300 && read.CHECK_NOTE_AT > 0 && read.CHECK_NOTE_AT < 1);
+  ok('read card: ease in and out starts at 0, passes 0.5 halfway, lands at 1', read.easeInOut(0) === 0 && read.easeInOut(0.5) === 0.5 && read.easeInOut(1) === 1 && read.easeInOut(0.25) < 0.25 && read.easeInOut(0.75) > 0.75);
+  const steps = [0, 10, 40, 80, 120, 220, 500].map(t => read.fadeAt(1, 0, t, 220));
+  ok('read card: a fade moves in frame steps and lands exactly on its target', steps[0] === 1 && steps[1] === 1 && steps.every((v, i) => i === 0 || v <= steps[i - 1]) && steps[5] === 0 && steps[6] === 0, steps.join());
+  const faded = { style: {} };
+  await read.fade(faded, 1, 0, 220, { instant: true });
+  ok('read card: under reduce motion a fade is instant', faded.style.opacity === '0');
+  const quick = { style: {} }; let t = 0;
+  const p = read.fade(quick, 1, 0, 100, { instant: false, now: () => (t += 60) });
+  await p;
+  ok('read card: a fade lands on its target when its time is up', quick.style.opacity === '0');
+  ok('read card: the reader-files message says the files could not be reached and the form was not changed', /files couldn't be reached/.test(read.READER_UNAVAILABLE_MESSAGE) && /form was not changed/.test(read.READER_UNAVAILABLE_MESSAGE));
+  const readCode = (await import('node:fs')).readFileSync(`${R}/modules/mod04-ocr/readCard.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  ok('read card: stays in its lane (imports only the bus and its own reader, stores nothing, publishes nothing, no HTML strings, no fetch)',
+    (readCode.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ocrWorker.js'"))
+    && !/localStorage|sessionStorage|indexedDB|document\.cookie|innerHTML|fetch\(|publish\(/.test(readCode));
   console.log = origLog; console.error = origErr; delete globalThis.Tesseract;
 }
 

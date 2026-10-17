@@ -15,7 +15,7 @@
  */
 import './modules/mod01-shell/shell.js';
 import { initSettings } from './modules/mod01-shell/settings.js';
-import { go as showCard, use as useDeck, closeSheet, toast as deckToast } from './modules/mod01-shell/deck.js';
+import { go as showCard, use as useDeck, onBeforeChange as beforeCardChange, closeSheet, toast as deckToast } from './modules/mod01-shell/deck.js';
 import { globalEventBus, Events } from './share/eventBus.js';
 import { CONTACT_FIELDS, CONTACT_LIST_FIELDS, createEmptyContact } from './share/cardSchema.js';
 import { temporaryVault, deleteLegacyVault } from './modules/mod02-vault/vault.js';
@@ -28,7 +28,8 @@ import { LockHandoff } from './modules/mod02-vault/lockHandoff.js';
 import { WipeDialog } from './modules/mod02-vault/wipeDialog.js';
 import { VCGEActiveCamera } from './modules/mod03-camera/camera.js';
 import { CropEditor } from './modules/mod03-camera/cropEditor.js';
-import { executeOCRScan, shutdownOCREngine, readProgress } from './modules/mod04-ocr/ocrWorker.js';
+import { executeOCRScan, shutdownOCREngine } from './modules/mod04-ocr/ocrWorker.js';
+import { readIndicator, renderReviewRows, initReadCard, resetBlink, READER_UNAVAILABLE_MESSAGE } from './modules/mod04-ocr/readCard.js';
 import { ContactFormMapper, LINE_ROLES } from './modules/mod05-form/formMapper.js';
 import { PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES } from './share/contactOptions.js';
 import { AddressAutocompleteEngine } from './modules/mod05-form/addressAutocomplete.js';
@@ -541,12 +542,14 @@ let lastScan = null;    // the reviewed lines of the last filled scan, for "Reop
 function showReviewStep(step) {
     $('ocrStepPhoto').classList.toggle('hidden', step !== 'photo');
     $('ocrStepText').classList.toggle('hidden', step !== 'text');
+    if (step === 'text') resetBlink();
 }
 
 // Closes the dialog and drops the extracted text (it is contact data, so it is not kept around).
 function closeReviewDialog() {
     $('cropReviewModal').classList.add('hidden');
     $('ocrTimeoutModal').classList.add('hidden');
+    readIndicator.hide();
     showReviewStep('photo');
     ocrReview = null;
     $('ocrLines').replaceChildren();
@@ -585,81 +588,13 @@ function renderOcrSummary() {
     $('ocrSummary').replaceChildren(...items);
 }
 
-// One row per OCR line: editable text + role picker. Built with DOM nodes, never HTML strings (OCR text is untrusted).
+// One row per OCR line: editable text, role picker, and the "please check" note with its Looks right box (drawn by MOD04).
 function renderOcrLines() {
-    const rows = ocrReview.lines.map((line, i) => {
-        const row = document.createElement('div');
-        row.className = 'flex gap-2 items-center';
-        const text = document.createElement('input');
-        text.type = 'text';
-        text.id = `ocrLineText${i}`;
-        text.className = 'field-input flex-1 min-w-0';
-        text.value = line.text;
-        text.setAttribute('aria-label', `Line ${i + 1} text`);
-        // MOD05 asks for a check: a ZIP the state doesn't use, or letters the reader was unsure of.
-        const note = document.createElement('p');
-        text.addEventListener('input', () => {
-            line.text = text.value;
-            // Edited means checked: the note to check this line goes away.
-            if (line.check) { delete line.check; text.classList.remove('border-amber-500', 'dark:border-amber-400'); text.removeAttribute('aria-describedby'); note.remove(); }
-            renderOcrSummary();
-        });
-        const role = document.createElement('select');
-        role.id = `ocrLineRole${i}`;
-        role.className = 'field-input w-44 shrink-0';
-        role.setAttribute('aria-label', `Line ${i + 1} is`);
-        LINE_ROLES.forEach(([value, label]) => role.add(new Option(label, value, false, value === line.role)));
-        role.addEventListener('change', () => { line.role = role.value; renderOcrSummary(); });
-        if (line.icon && ICON_NAMES[line.icon]) {
-            const chip = document.createElement('span');
-            chip.id = `ocrLineIcon${i}`;
-            chip.className = 'shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400';
-            chip.textContent = ICON_NAMES[line.icon];
-            chip.title = 'Icon seen in front of this line';
-            row.append(chip);
-        }
-        row.append(text, role);
-        if (!line.check) return row;
-        note.id = `ocrLineCheck${i}`;
-        note.className = 'text-xs text-amber-600 dark:text-amber-400 pl-1';
-        note.textContent = line.check;
-        text.classList.add('border-amber-500', 'dark:border-amber-400');
-        text.setAttribute('aria-describedby', note.id);
-        const wrap = document.createElement('div');
-        wrap.className = 'space-y-0.5';
-        wrap.append(row, note);
-        return wrap;
-    });
+    const rows = renderReviewRows(ocrReview.lines, { roles: LINE_ROLES, iconNames: ICON_NAMES, onEdit: renderOcrSummary, onRole: renderOcrSummary });
     $('ocrLines').replaceChildren(...rows);
     renderOcrSummary();
 }
 
-// Reading progress: the bar fills fast, then slower than real time, and is full when the 60 s read limit runs out.
-const ocrProgress = {
-    timer: null,
-    set(fraction) {
-        const pct = Math.round(fraction * 100);
-        $('ocrProgressFill').style.width = `${pct}%`;
-        $('ocrProgressBar').setAttribute('aria-valuenow', String(pct));
-    },
-    show() {
-        this.stop(); this.set(0);
-        $('ocrProgressLabel').textContent = 'Extracting…';
-        $('ocrProgress').classList.remove('hidden');
-    },
-    // 'starting': the bar waits at 0 while the reader loads; 'reading': it starts filling.
-    status(status) {
-        $('ocrProgressLabel').textContent = status === 'starting' ? 'Preparing the reader…' : 'Extracting…';
-        if (status !== 'reading' || this.timer) return;
-        const started = Date.now();
-        this.timer = setInterval(() => this.set(readProgress(Date.now() - started)), 100);
-    },
-    stop() { clearInterval(this.timer); this.timer = null; },
-    hide() {
-        this.stop();
-        $('ocrProgress').classList.add('hidden');
-    }
-};
 let ocrStoppedByUser = false;
 
 // OK on the Capture card: the deck moves to the Read card, where the photo is read; the crop step stays behind on
@@ -672,13 +607,14 @@ async function runOcr() {
     showReviewStep('photo');
     $('cropReviewModal').classList.remove('hidden');
     showCard('read');
-    ocrProgress.show();
+    const photo = cropEditor.getCroppedImage();
+    readIndicator.show(photo);
     try {
         // The first scan (and the first after a wipe) starts the reader from ~7 MB of bundled files: say so.
-        const onStatus = (status) => ocrProgress.status(status);
-        const { text, lines } = await executeOCRScan(cropEditor.getCroppedImage(), { onStatus });
-        // Finished early: the bar fills up before the review step opens.
-        ocrProgress.stop(); ocrProgress.set(1);
+        const onStatus = (status) => readIndicator.status(status);
+        const { text, lines } = await executeOCRScan(photo, { onStatus });
+        // Finished early: the wash fills up before the review step opens.
+        readIndicator.stop(); readIndicator.set(1);
         await new Promise(res => setTimeout(res, 250));
         if ($('cropReviewModal').classList.contains('hidden')) return;   // closed by a wipe meanwhile
         ocrReview = { lines: formMapper.classifyLines(lines && lines.length ? lines : text), fields: null };
@@ -697,18 +633,18 @@ async function runOcr() {
             showRetakePrompt(true);
         } else if (e && e.code === 'OCR_TIMEOUT') {
             // The reader was restarted; the photo stays for Try Again.
-            ocrProgress.stop(); ocrProgress.set(1);
+            readIndicator.stop(); readIndicator.set(1);
             $('ocrTimeoutModal').classList.remove('hidden');
             $('ocrTryAgainBtn').focus();
         } else if (e && e.code === 'OCR_UNAVAILABLE') {
             backToPhoto();
-            cardView.showToast('The OCR engine could not start, so your form was not changed. Type the details in, or try again.');
+            cardView.showToast(READER_UNAVAILABLE_MESSAGE);
         } else {
             backToPhoto();
             cardView.showToast('Could not read that image.');
         }
     } finally {
-        ocrProgress.hide();
+        readIndicator.hide();
         $('runOcrBtn').disabled = false;
     }
 }
@@ -732,14 +668,23 @@ function backToPhoto() {
     showCard('capture');
 }
 
-function applyOcrReview() {
-    if (!ocrReview) return;
-    const { fields, lines } = ocrReview;
-    lastScan = lines.map(line => ({ ...line }));
-    $('reopenScanBtn').classList.remove('hidden');
-    closeReviewDialog();
-    cardView.changeWithUndo('Form filled. Please check the details.', () => cardView.mergeContact(fields));
-    showCard('fields');
+// Proceed: the review text blinks out (MOD04's deck hook), the deck moves to Fields (MOD02's padlock follows the
+// CARD_CHANGED signal), then the details go into the form. A wipe during the blink-out ends it with nothing filled.
+let applying = false;
+async function applyOcrReview() {
+    if (!ocrReview || applying) return;
+    applying = true;
+    try {
+        const { fields, lines } = ocrReview;
+        lastScan = lines.map(line => ({ ...line }));
+        $('reopenScanBtn').classList.remove('hidden');
+        await showCard('fields');
+        if (!ocrReview) return;
+        closeReviewDialog();
+        cardView.changeWithUndo('Form filled. Please check the details.', () => cardView.mergeContact(fields));
+    } finally {
+        applying = false;
+    }
 }
 
 // Opens the review step again with the last scan's lines (as last edited), without running OCR again.
@@ -812,6 +757,7 @@ function wireIntake() {
     $('ocrCancelBtn').addEventListener('click', backToPhoto);
     $('ocrBackBtn').addEventListener('click', backToPhoto);
     $('applyOcrBtn').addEventListener('click', applyOcrReview);
+    initReadCard({ onBeforeChange: beforeCardChange });
     $('reopenScanBtn').addEventListener('click', reopenLastScan);
     // Retake: a camera shot opens the camera again; an upload opens the picker again (on phones it also offers the camera).
     $('retakePhotoBtn').addEventListener('click', () => {

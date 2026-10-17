@@ -26,6 +26,8 @@
     <link rel="stylesheet" href="src/modules/mod02-vault/vault.css">
     <!-- MOD03 Camera: the Capture card (viewfinder, zoom fader, shutter, crop step) -->
     <link rel="stylesheet" href="src/modules/mod03-camera/camera.css">
+    <!-- MOD04 OCR: the Read card (the photo under a shimmer while it is read, the Looks right box) -->
+    <link rel="stylesheet" href="src/modules/mod04-ocr/read.css">
 </head>
 <body class="bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100 h-screen flex flex-col antialiased overflow-hidden">
 
@@ -147,21 +149,23 @@
                 <div id="cropReviewModal" class="hidden space-y-3">
             <div id="ocrStepPhoto" class="space-y-3">
                 <h2 class="text-lg font-bold">Reading the card</h2>
-                <!-- Reading progress (MOD04): full at the 60 s limit; Cancel stops the reader and goes back to the photo -->
-                <div id="ocrProgress" class="hidden space-y-1">
-                    <div class="flex items-center gap-3">
-                        <div id="ocrProgressBar" role="progressbar" aria-label="Reading the card" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" class="flex-1 h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
-                            <div id="ocrProgressFill" class="h-full w-0 rounded-full bg-brand-500"></div>
-                        </div>
+                <!-- Reading (MOD04): the photo under a shimmer; the wash is full at the 55 s limit, never a number. Cancel stops the reader and goes back to the photo -->
+                <div id="ocrProgress" class="hidden space-y-2">
+                    <div id="ocrProgressBar" class="read-frame" role="progressbar" aria-label="Reading the card" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="Reading the card">
+                        <img id="ocrReadPhoto" alt="" class="read-photo">
+                        <div id="ocrProgressFill" class="read-wash" aria-hidden="true"></div>
+                        <div class="read-shimmer" aria-hidden="true"></div>
+                    </div>
+                    <div class="flex items-center justify-between gap-3">
+                        <p id="ocrProgressLabel" class="text-xs text-slate-500 dark:text-slate-400" aria-live="polite">Extracting…</p>
                         <button id="ocrStopBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Cancel</button>
                     </div>
-                    <p id="ocrProgressLabel" class="text-xs text-slate-500 dark:text-slate-400" aria-live="polite">Extracting…</p>
                 </div>
             </div>
 
             <div id="ocrStepText" class="hidden space-y-3">
                 <h2 class="text-lg font-bold">Check the extracted text</h2>
-                <p class="text-xs text-slate-500 dark:text-slate-400">Fix any misread text and choose what each line is. Nothing goes into the form until you select Fill form.</p>
+                <p class="text-xs text-slate-500 dark:text-slate-400">Fix any misread text and choose what each line is. Tick the box in a flagged line when it looks right. Nothing goes into the form until you press Proceed.</p>
                 <div id="ocrLines" class="space-y-1.5"></div>
                 <div>
                     <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Will fill</h3>
@@ -170,7 +174,7 @@
                 <div class="flex flex-wrap justify-end gap-2">
                     <button id="ocrBackBtn" type="button" class="mr-auto px-3 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Back to photo</button>
                     <button id="ocrCancelBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Cancel</button>
-                    <button id="applyOcrBtn" type="button" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Fill form</button>
+                    <button id="applyOcrBtn" type="button" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Proceed</button>
                 </div>
             </div>
                 </div>
@@ -438,7 +442,7 @@
     <div id="ocrTimeoutModal" class="hidden fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4">
         <div role="alertdialog" aria-labelledby="ocrTimeoutTitle" aria-describedby="ocrTimeoutText" class="bg-white dark:bg-slate-900 rounded-2xl p-5 max-w-sm w-full space-y-3 shadow-2xl">
             <h2 id="ocrTimeoutTitle" class="text-lg font-bold">The reader didn't finish</h2>
-            <p id="ocrTimeoutText" class="text-sm text-slate-600 dark:text-slate-300">Reading this photo took longer than a minute, so the reader was restarted. A closer, well-lit photo helps.</p>
+            <p id="ocrTimeoutText" class="text-sm text-slate-600 dark:text-slate-300">Reading this photo took longer than 55 seconds, so the reader was restarted. A closer, well-lit photo helps.</p>
             <div class="flex justify-end gap-2">
                 <button id="ocrTimeoutCancelBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Cancel</button>
                 <button id="ocrTryAgainBtn" type="button" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Try Again</button>

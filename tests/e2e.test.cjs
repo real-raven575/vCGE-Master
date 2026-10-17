@@ -66,6 +66,8 @@ async function dragCorners(page, corners) {
 const rows = (page, id) => page.evaluate((id) => Array.from(document.getElementById(`${id}List`).children)
   .map((_, i) => ({ type: document.getElementById(`${id}Type${i}`).value, value: document.getElementById(`${id}Value${i}`).value })), id);
 const rowValue = async (page, id, type) => ((await rows(page, id)).find(r => r.type === type) || {}).value;
+// Proceed on the Read card: the review text blinks out first (MOD04), then the deck moves to Fields and the form fills.
+const proceed = async (page) => { await page.click('#applyOcrBtn'); await page.waitForSelector('#cropReviewModal', { state: 'hidden', timeout: 5000 }); };
 
 async function decodeQr(page) {
   const qr = await page.evaluate(() => { const c = document.getElementById('qrCanvas'); return { w: c.width, h: c.height, data: Array.from(c.getContext('2d').getImageData(0, 0, c.width, c.height).data) }; });
@@ -218,21 +220,34 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   await page.setInputFiles('#imageUpload', await renderCardImage(page)); await page.waitForTimeout(300);
   ok('upload opens the crop step on the Capture card', await visible('captureReview') && (await page.evaluate(() => document.documentElement.dataset.card)) === 'capture' && !(await visible('cropReviewModal')));
   await page.evaluate(() => {
-    window.__ocrBar = { shown: false, values: [], labels: [] };
-    const bar = document.getElementById('ocrProgressBar'), box = document.getElementById('ocrProgress'), label = document.getElementById('ocrProgressLabel');
-    new MutationObserver(() => { if (!box.classList.contains('hidden')) window.__ocrBar.shown = true; window.__ocrBar.values.push(Number(bar.getAttribute('aria-valuenow'))); window.__ocrBar.labels.push(label.textContent); })
-      .observe(box, { attributes: true, subtree: true, childList: true, characterData: true });
+    window.__ocrBar = { shown: false, shimmer: false, photo: false, values: [], labels: [] };
+    const bar = document.getElementById('ocrProgressBar'), box = document.getElementById('ocrProgress'), label = document.getElementById('ocrProgressLabel'), photo = document.getElementById('ocrReadPhoto');
+    new MutationObserver(() => {
+      if (!box.classList.contains('hidden')) window.__ocrBar.shown = true;
+      if (bar.classList.contains('is-reading') && getComputedStyle(bar.querySelector('.read-shimmer')).animationName === 'read-shimmer') window.__ocrBar.shimmer = true;
+      if ((photo.getAttribute('src') || '').startsWith('data:image')) window.__ocrBar.photo = true;
+      window.__ocrBar.values.push(Number(bar.getAttribute('aria-valuenow'))); window.__ocrBar.labels.push(label.textContent);
+    }).observe(box, { attributes: true, subtree: true, childList: true, characterData: true });
   });
   await page.click('#runOcrBtn');
   await page.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
   const bar = await page.evaluate(() => window.__ocrBar);
-  ok('OK moves to the Read card, where a progress bar shows while reading, says the reader is being prepared, and fills to 100% before the review opens', bar.shown && bar.values.includes(100) && bar.labels.includes('Preparing the reader…') && !(await visible('ocrProgress')) && (await visible('ocrStepText')) && (await page.evaluate(() => document.documentElement.dataset.card)) === 'read', JSON.stringify({ shown: bar.shown, max: Math.max(...bar.values), labels: [...new Set(bar.labels)] }));
+  ok('OK moves to the Read card, where the photo shimmers while it is read, the label says the reader is being prepared, and the wash is full before the review opens', bar.shown && bar.shimmer && bar.photo && bar.values.includes(100) && bar.labels.includes('Preparing the reader…') && !(await visible('ocrProgress')) && (await visible('ocrStepText')) && (await page.evaluate(() => document.documentElement.dataset.card)) === 'read', JSON.stringify({ shown: bar.shown, shimmer: bar.shimmer, photo: bar.photo, max: Math.max(...bar.values), labels: [...new Set(bar.labels)] }));
+  ok('the reading indicator shows no number (no visible digits, screen readers hear text)', !/\d/.test(await page.$eval('#ocrProgress', el => el.innerText)) && (await page.getAttribute('#ocrProgressBar', 'aria-valuetext')) === 'Reading the card', await page.$eval('#ocrProgress', el => el.innerText));
+  ok('after the read the photo under the shimmer is dropped', !(await page.getAttribute('#ocrReadPhoto', 'src')));
   ok('first scan says the reader is being prepared, then extracting', bar.labels.indexOf('Preparing the reader…') >= 0 && bar.labels.indexOf('Extracting…', bar.labels.indexOf('Preparing the reader…')) > 0, [...new Set(bar.labels)].join(' | '));
   ok('review step lists the OCR lines with a field picker each', (await page.$$('#ocrLines select')).length >= 8 && (await page.inputValue('#ocrLineRole0')) === 'name', String((await page.$$('#ocrLines select')).length));
   ok('nothing reaches the form before Fill form', !(await rows(page, 'email')).some(r => r.value.includes('northwind')));
   ok('"Will fill" summary shows the mapped fields', (await text('ocrSummary')).includes('maria.gonzalez@northwind.com') && (await text('ocrSummary')).includes('Northwind Systems'));
-  await page.click('#applyOcrBtn');
-  await page.waitForSelector('#cropReviewModal', { state: 'hidden' });
+  await page.evaluate(() => {
+    window.__blink = { opacities: [], cardAtClear: null };
+    const step = document.getElementById('ocrStepText');
+    new MutationObserver(() => { window.__blink.opacities.push(step.style.opacity); if (step.classList.contains('hidden') && window.__blink.cardAtClear === null) window.__blink.cardAtClear = document.documentElement.dataset.card; })
+      .observe(step, { attributes: true, attributeFilter: ['style', 'class'] });
+  });
+  await proceed(page);
+  const blink = await page.evaluate(() => window.__blink);
+  ok('Proceed: the review text blinks out (opacity steps down to 0) before the deck moves to Fields, then it is cleared', blink.opacities.some(o => o !== '' && Number(o) < 1) && blink.opacities.includes('0') && blink.cardAtClear === 'fields' && (await page.evaluate(() => document.documentElement.dataset.card)) === 'fields', JSON.stringify(blink));
   const got = {}; for (const f of ['firstName', 'lastName', 'jobTitle', 'organization', 'street', 'city', 'state', 'zip']) got[f] = await val(f);
   got.phoneWork = await rowValue(page, 'phone', 'work'); got.email = await rowValue(page, 'email', 'work'); got.website = await rowValue(page, 'website', 'work');
   ok('real OCR extracts name, title, organization', got.firstName === 'Maria' && got.lastName === 'Gonzalez' && got.jobTitle === 'Director of Engineering' && got.organization === 'Northwind Systems', JSON.stringify(got));
@@ -680,7 +695,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await unlockPin();
     ok('session PIN brings the review back as edited', await p10.isVisible('#cropReviewModal') && await p10.isVisible('#ocrStepText') && (await p10.inputValue(`#ocrLineText${roles10.indexOf('name')}`)) === 'Mariah Gonzalez' && (await p10.textContent('#ocrSummary')).includes('maria.gonzalez@northwind.com'));
     ok('restored review keeps the photo (Back to photo offered)', await p10.isVisible('#ocrBackBtn') && (await p10.getAttribute('#reviewImage', 'src') || '').startsWith('data:image/'));
-    await p10.click('#applyOcrBtn');
+    await proceed(p10);
     ok('restored review fills the form', (await p10.inputValue('#firstName')) === 'Mariah' && await p10.isVisible('#reopenScanBtn'));
 
     await idle();
@@ -810,7 +825,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await pS.setInputFiles('#imageUpload', await renderCardImage(pS)); await pS.waitForTimeout(300);
     await pS.click('#runOcrBtn');
     await pS.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
-    await pS.click('#applyOcrBtn');
+    await proceed(pS);
     const card = async () => ({ first: await pS.inputValue('#firstName'), middle: await pS.inputValue('#middleName'), suffix: await pS.inputValue('#nameSuffix'),
       unit: await pS.inputValue('#unitNumber'), phones: await rows(pS, 'phone'), front: await pS.textContent('#previewPhone') });
     const filled = await card();
@@ -819,7 +834,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await pS.click('#toastAction');
     ok('Undo brings the sample back', (await pS.inputValue('#firstName')) === 'Marcus' && (await rows(pS, 'phone')).length === 3);
     await pS.click('#reopenScanBtn');
-    await pS.click('#applyOcrBtn');
+    await proceed(pS);
     const again = await card();
     ok('filling the sample again replaces it again', again.first === 'Maria' && again.phones.length === 1, JSON.stringify(again));
     ok('sample then scan: no page errors', errorsS.length === 0, errorsS.join(' | '));
@@ -849,13 +864,13 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p9.setInputFiles('#imageUpload', await renderCardImage(p9)); await p9.waitForTimeout(300);
     await p9.click('#runOcrBtn');
     await p9.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
-    await p9.click('#applyOcrBtn');
+    await proceed(p9);
     ok('Fill form offers Undo and "Reopen last scan"', (await p9.inputValue('#firstName')) === 'Maria' && await p9.isVisible('#toastAction') && await p9.isVisible('#reopenScanBtn'));
     await p9.click('#toastAction');
     ok('Undo after Fill form restores the card from before the scan', (await p9.inputValue('#firstName')) === 'Typed');
     await p9.click('#reopenScanBtn');
     ok('Reopen last scan shows the review step again (no OCR run)', await p9.isVisible('#ocrStepText') && (await p9.$$('#ocrLines select')).length >= 8 && (await p9.textContent('#ocrSummary')).includes('maria.gonzalez@northwind.com'));
-    await p9.click('#applyOcrBtn');
+    await proceed(p9);
     ok('reopened scan fills the form again', (await p9.inputValue('#firstName')) === 'Maria' && (await rowValue(p9, 'email', 'work')) === 'maria.gonzalez@northwind.com');
 
     // SMS and email carry a readable summary (source tree only: the module instance is imported directly)
@@ -916,7 +931,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('review shows the icons seen in front of lines', chips.includes('Mobile icon') && chips.includes('Instagram logo'), chips.join(', '));
     const summary = await p7.textContent('#ocrSummary');
     ok('icons type unlabelled numbers (Mobile vs Work) in the summary', summary.includes('Phone (Mobile)+1 (206) 555-9876') && summary.includes('Phone (Work)+1 (206) 555-3400'), summary);
-    await p7.click('#applyOcrBtn');
+    await proceed(p7);
     ok('social logo + handle fills the Instagram profile link', (await rowValue(p7, 'website', 'instagram')) === 'https://instagram.com/studiocraft', JSON.stringify(await rows(p7, 'website')));
     ok('typed phone rows reach the form', (await rowValue(p7, 'phone', 'mobile')) === '+1 (206) 555-9876' && (await rowValue(p7, 'phone', 'work')) === '+1 (206) 555-3400', JSON.stringify(await rows(p7, 'phone')));
     ok('audit log notes recognised icons', /icons? recognised/.test(await p7.textContent('#auditLog')), await p7.textContent('#auditLog'));
@@ -942,8 +957,33 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     const row = roles.indexOf('cityStateZip');
     const note = row >= 0 && await pZ.$(`#ocrLineCheck${row}`);
     ok('a ZIP code the state does not use is flagged under its line', !!note && (await note.textContent()) === '42024 is not a Michigan ZIP code. Please check it.' && (await pZ.getAttribute(`#ocrLineText${row}`, 'aria-describedby')) === `ocrLineCheck${row}`, roles.join());
-    await pZ.fill(`#ocrLineText${row}`, 'Portage, MI 49024');
-    ok('editing a flagged line clears its note', !(await pZ.$(`#ocrLineCheck${row}`)) && (await pZ.textContent('#ocrSummary')).includes('49024'));
+    const okBox = await pZ.$(`#ocrLineOk${row}`);
+    const okRect = okBox && await okBox.boundingBox(), fieldRect = await (await pZ.$(`#ocrLineText${row}`)).boundingBox();
+    ok('a flagged line carries a "Looks right" box inside its text field, on the right, vertically centred, 44 px to tap', !!okBox && (await okBox.getAttribute('aria-label')).includes('looks right') && okRect.width >= 44 && okRect.height >= 44
+      && okRect.x + okRect.width <= fieldRect.x + fieldRect.width + 1 && okRect.x > fieldRect.x + fieldRect.width / 2 && Math.abs((okRect.y + okRect.height / 2) - (fieldRect.y + fieldRect.height / 2)) < 2, JSON.stringify({ okRect, fieldRect }));
+    ok('an unflagged line has no box', !(await pZ.$(`#ocrLineOk${roles.indexOf('name')}`)));
+    const lineBefore = await pZ.inputValue(`#ocrLineText${row}`);
+    await pZ.evaluate((row) => {
+      window.__ok = { green: false, noteWentFirst: null, amberAtNoteFade: null };
+      const box = document.getElementById(`ocrLineOk${row}`), note = document.getElementById(`ocrLineCheck${row}`), text = document.getElementById(`ocrLineText${row}`);
+      new MutationObserver(() => {
+        if (box.classList.contains('is-ok') && getComputedStyle(box, '::before').backgroundColor === 'rgb(22, 163, 74)') window.__ok.green = true;
+        if (note.style.opacity && Number(note.style.opacity) < 1 && window.__ok.noteWentFirst === null) { window.__ok.noteWentFirst = Number(box.style.opacity) > 0; window.__ok.amberAtNoteFade = text.classList.contains('border-amber-500'); }
+      }).observe(document.getElementById('ocrLines'), { attributes: true, subtree: true, attributeFilter: ['style', 'class'] });
+    }, row);
+    await okBox.click();
+    await pZ.waitForSelector(`#ocrLineCheck${row}`, { state: 'detached', timeout: 5000 });
+    const okSeen = await pZ.evaluate(() => window.__ok);
+    ok('ticking Looks right turns the box green, fades the note out a few frames before the box goes, and the field returns to normal with its text unchanged',
+      okSeen.green && okSeen.noteWentFirst === true && okSeen.amberAtNoteFade === false && !(await pZ.$(`#ocrLineOk${row}`)) && !(await pZ.getAttribute(`#ocrLineText${row}`, 'aria-describedby'))
+      && !(await pZ.$eval(`#ocrLineText${row}`, el => el.classList.contains('border-amber-500'))) && (await pZ.inputValue(`#ocrLineText${row}`)) === lineBefore && (await pZ.textContent('#ocrSummary')).includes('42024'), JSON.stringify(okSeen));
+    // Editing a flagged line still clears its note at once (a fresh read of the same photo)
+    await pZ.click('#ocrBackBtn');
+    await pZ.click('#runOcrBtn');
+    await pZ.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
+    const row2 = (await pZ.$$eval('#ocrLines select', s => s.map(x => x.value))).indexOf('cityStateZip');
+    await pZ.fill(`#ocrLineText${row2}`, 'Portage, MI 49024');
+    ok('editing a flagged line clears its note and box at once', !(await pZ.$(`#ocrLineCheck${row2}`)) && !(await pZ.$(`#ocrLineOk${row2}`)) && (await pZ.textContent('#ocrSummary')).includes('49024'));
     await ctxZ.close();
   }
 
@@ -955,9 +995,10 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await pS.goto(ORIGIN); await pS.waitForTimeout(300);
     await pS.setInputFiles('#imageUpload', await renderCardImage(pS)); await pS.waitForTimeout(300);
     await pS.click('#runOcrBtn');
-    ok('reading shows the progress bar with a Cancel button on the Read card, OK held back', await pS.isVisible('#ocrProgress') && await pS.isVisible('#ocrStopBtn') && (await pS.evaluate(() => document.documentElement.dataset.card)) === 'read' && await pS.isDisabled('#runOcrBtn'));
+    ok('reading shows the photo under the shimmer with a Cancel button on the Read card, OK held back', await pS.isVisible('#ocrProgress') && (await pS.getAttribute('#ocrReadPhoto', 'src') || '').startsWith('data:image') && await pS.isVisible('#ocrStopBtn') && (await pS.evaluate(() => document.documentElement.dataset.card)) === 'read' && await pS.isDisabled('#runOcrBtn'));
     await pS.click('#ocrStopBtn');
     await pS.waitForSelector('#ocrProgress', { state: 'hidden', timeout: 10000 });
+    ok('Cancel drops the photo from the Read card', !(await pS.getAttribute('#ocrReadPhoto', 'src')));
     await pS.waitForFunction(() => document.documentElement.dataset.card === 'capture', null, { timeout: 5000 }).catch(() => {});
     ok('Cancel stops reading and goes back to the photo on the Capture card (Retake or OK again)', (await pS.evaluate(() => document.documentElement.dataset.card)) === 'capture' && await pS.isVisible('#captureReview') && !(await pS.isVisible('#cropReviewModal')) && await pS.isVisible('#retakePhotoBtn') && await pS.isVisible('#runOcrBtn') && !(await pS.isDisabled('#runOcrBtn')));
     await pS.click('#runOcrBtn');
@@ -967,7 +1008,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await ctxS.close();
   }
 
-  // Reading that never finishes (a phone stopped the engine): the bar is full at 60 s, then Try Again or Cancel
+  // Reading that never finishes (a phone stopped the engine): the wash is full at 55 s, then Try Again or Cancel
   {
     const ctxT = await browser.newContext();
     const pT = await ctxT.newPage();
@@ -979,14 +1020,14 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await pT.waitForFunction(() => document.getElementById('ocrProgressLabel').textContent === 'Extracting…' && !document.getElementById('ocrProgress').classList.contains('hidden'));
     await pT.clock.runFor(30000);
     const half = Number(await pT.getAttribute('#ocrProgressBar', 'aria-valuenow'));
-    ok('the bar fills faster than real time at first (75% at 30 s)', half >= 70 && half <= 80, String(half));
-    await pT.clock.runFor(31000);
+    ok('the wash fills faster than real time at first (about 79% at 30 s of 55)', half >= 75 && half <= 83, String(half));
+    await pT.clock.runFor(26000);
     await pT.waitForSelector('#ocrTimeoutModal', { state: 'visible', timeout: 10000 });
-    ok('at 60 s the bar is full and Try Again / Cancel pops up; the stuck reader is stopped', (await pT.getAttribute('#ocrProgressBar', 'aria-valuenow')) === '100' && await pT.isVisible('#ocrTryAgainBtn') && await pT.isVisible('#ocrTimeoutCancelBtn') && (await pT.evaluate(() => window.__terminated)) === 1);
+    ok('at 55 s the wash is full and Try Again / Cancel pops up; the stuck reader is stopped', (await pT.getAttribute('#ocrProgressBar', 'aria-valuenow')) === '100' && await pT.isVisible('#ocrTryAgainBtn') && await pT.isVisible('#ocrTimeoutCancelBtn') && (await pT.evaluate(() => window.__terminated)) === 1 && /55 seconds/.test(await pT.textContent('#ocrTimeoutText')));
     await pT.click('#ocrTryAgainBtn');
     ok('Try Again reads the same photo again', !(await pT.isVisible('#ocrTimeoutModal')) && await pT.isVisible('#ocrProgress'));
     await pT.waitForFunction(() => document.getElementById('ocrProgressLabel').textContent === 'Extracting…');
-    await pT.clock.runFor(61000);
+    await pT.clock.runFor(56000);
     await pT.waitForSelector('#ocrTimeoutModal', { state: 'visible', timeout: 10000 });
     await pT.click('#ocrTimeoutCancelBtn');
     ok('Cancel after a timeout goes back to the photo on the Capture card', !(await pT.isVisible('#ocrTimeoutModal')) && (await pT.evaluate(() => document.documentElement.dataset.card)) === 'capture' && await pT.isVisible('#captureReview') && await pT.isVisible('#retakePhotoBtn') && !(await pT.isVisible('#ocrProgress')));
@@ -1012,7 +1053,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('new photo resets the crop step (OK back, prompt hidden)', await p4.isVisible('#runOcrBtn') && !(await p4.isVisible('#ocrRetakeNotice')));
     await p4.click('#runOcrBtn');
     await p4.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
-    await p4.click('#applyOcrBtn');
+    await proceed(p4);
     ok('sharp retake is read normally', (await rowValue(p4, 'email', 'work')) === 'maria.gonzalez@northwind.com', JSON.stringify(await rows(p4, 'email')));
     await ctx4.close();
   }
@@ -1055,7 +1096,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     const roles2 = await p5.$$eval('#ocrLines select', s => s.map(x => x.value));
     await p5.fill(`#ocrLineText${roles2.indexOf('name')}`, 'Mariah Gonzalez');
     await p5.selectOption(`#ocrLineRole${roles2.indexOf('website')}`, 'notes');
-    await p5.click('#applyOcrBtn');
+    await proceed(p5);
     ok('Fill form applies the edited review', (await p5.inputValue('#firstName')) === 'Mariah' && (await rows(p5, 'website')).every(r => !r.value) && (await p5.inputValue('#notes')).includes('northwind.com') && (await rowValue(p5, 'email', 'work')) === 'maria.gonzalez@northwind.com',
       [await p5.inputValue('#firstName'), JSON.stringify(await rows(p5, 'website')), await p5.inputValue('#notes')].join(' | '));
     ok('review text cleared from the page after Fill form', (await p5.$$('#ocrLines input')).length === 0 && !(await p5.isVisible('#cropReviewModal')));
@@ -1079,7 +1120,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p3.click('#runOcrBtn');
     const settled = await p3.waitForSelector('#cropReviewModal', { state: 'hidden', timeout: 30000 }).then(() => true, () => false);
     ok('missing OCR model: extraction ends instead of hanging', settled && (await p3.textContent('#runOcrBtn')).trim() === 'OK' && !(await p3.isDisabled('#runOcrBtn')));
-    ok('missing OCR model: user told the engine could not start', (await p3.textContent('#toastMessage')).includes('OCR engine could not start'), await p3.textContent('#toastMessage'));
+    ok("missing OCR model: user told the reader's files could not be reached", (await p3.textContent('#toastMessage')).includes("reader's files couldn't be reached"), await p3.textContent('#toastMessage'));
     ok('missing OCR model: form left unchanged (no sample text)', (await p3.inputValue('#firstName')) === 'Typed' && (await p3.inputValue('#emailValue0')) === 'typed@example.com' && (await p3.inputValue('#lastName')) === '');
     await ctx3.close();
   }
