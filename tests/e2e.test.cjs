@@ -415,7 +415,11 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await setPin(p8, '2468');
     await p8.fill('#firstName', 'Seven');
     await idle();
+    // The lock finishes its (real-time) async work before the clock moves on, and the wipe gets a moment to land.
+    await p8.waitForSelector('#vaultModal', { state: 'visible' });
+    await p8.waitForFunction(() => document.getElementById('toastMessage').textContent.startsWith('Hidden after'), null, { timeout: 5000 }).catch(() => {});
     await p8.clock.fastForward(301000);
+    await p8.waitForFunction(() => document.getElementById('toastMessage').textContent.startsWith('Reset: 7 minutes'), null, { timeout: 5000 }).catch(() => {});
     ok('idle lock, then 7 minutes since the last activity: card and PIN wiped, no dialog', !(await p8.isVisible('#vaultModal')) && (await p8.inputValue('#firstName')) === '' && (await t8('toastMessage')).startsWith('Reset: 7 minutes without activity') && (await t8('sessionPinStatus')) === 'Session PIN: not set', await t8('toastMessage'));
 
     await setPin(p8, '1357');
