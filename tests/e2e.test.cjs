@@ -560,12 +560,18 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('the cycle takes about 1.25 to 1.5 s', took >= 900 && took <= 2000, String(took));
     ok('it cannot be tapped, has no words and is announced once', first.pe === 'none' && first.live === 'Details locked in the vault, moving on.' && (await padlock()).live === '' && (await pL.$eval('#vaultHandoff', r => r.textContent.trim())) === '' && (await pL.getAttribute('#vaultHandoff', 'aria-hidden')) === 'true');
     const padlockGone = () => pL.waitForFunction(() => document.getElementById('vaultHandoff').classList.contains('hidden'), null, { timeout: 3000 });
-    await pL.click('#navFields');
-    await pL.waitForSelector('#vaultHandoff[data-state="locked"]', { timeout: 2000 });
-    const open0 = await pL.$eval('.vh-shackle', s => s.style.transform);
-    await pL.waitForTimeout(320);
-    const mid = await pL.evaluate(() => ({ fill: getComputedStyle(document.querySelector('.vh-body')).fill, shackle: document.querySelector('.vh-shackle').style.transform, dial: document.querySelector('.vh-dial').style.transform }));
-    ok('locked is green with the shackle down and the dial turned (the shackle moves, so colour is never the only cue)', mid.fill === 'rgb(34, 197, 94)' && mid.shackle === 'translateY(0px)' && /rotate\(150/.test(mid.dial), JSON.stringify({ open0, mid }));
+    // Every frame of one cycle, recorded as it is drawn (a slow runner must not miss the locked middle of it).
+    const frames = await pL.evaluate(() => new Promise(resolve => {
+      const r = document.getElementById('vaultHandoff'), seen = [];
+      const sample = () => seen.push({ fill: getComputedStyle(r.querySelector('.vh-body')).fill, shackle: r.querySelector('.vh-shackle').style.transform, dial: r.querySelector('.vh-dial').style.transform, state: r.dataset.state });
+      const o = new MutationObserver(() => { if (r.classList.contains('hidden')) { o.disconnect(); resolve(seen); } else sample(); });
+      o.observe(r, { attributes: true, subtree: true });
+      setTimeout(() => { o.disconnect(); resolve(seen); }, 4000);
+      document.getElementById('navFields').click();
+    }));
+    const lockedFrame = frames.find(f => f.fill === 'rgb(34, 197, 94)' && f.shackle === 'translateY(0px)' && /rotate\(150/.test(f.dial) && f.state === 'locked');
+    const openFrame = frames.find(f => f.state === 'unlocked' && f.shackle === 'translateY(-7px)');
+    ok('locked is green with the shackle down and the dial turned; unlocked has the shackle up (colour is never the only cue)', !!lockedFrame && !!openFrame, JSON.stringify(frames.slice(0, 6)) + ` of ${frames.length}`);
     await padlockGone();
     await pL.emulateMedia({ reducedMotion: 'reduce' });
     await pL.click('#navCard');
