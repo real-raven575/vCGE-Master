@@ -48,14 +48,24 @@ async function stopDriver(driver) {
   const el = async (css) => (await wd('POST', S('/element'), { using: 'css selector', value: css }))[ELEMENT];
   // The deck settles on a card a moment after any scroll (a smooth move, an element scrolled into view); a WebDriver
   // click computes its point first and lands on whatever is there, so every click and keystroke waits for a still deck.
-  const deckSettled = () => until(() => js(`const t = document.getElementById('deck'), c = document.querySelector('.deck-card.is-current');
-    if (!t || !c) return true; const left = c.offsetLeft + c.offsetWidth / 2 - t.clientWidth / 2;
-    if (Math.abs(t.scrollLeft - left) > 1.5 || t.scrollLeft !== t.__lastSeen) { t.__lastSeen = t.scrollLeft; return false; } return true;`), 5000);
+  const deckState = () => js(`const t = document.getElementById('deck'), c = document.querySelector('.deck-card.is-current');
+    return JSON.stringify({ card: document.documentElement.dataset.card, deck: t && t.dataset.deck, scrollLeft: t && t.scrollLeft, centre: c && c.offsetLeft + c.offsetWidth / 2 - t.clientWidth / 2 });`);
+  const deckSettled = async () => {
+    const still = await until(() => js(`const t = document.getElementById('deck'), c = document.querySelector('.deck-card.is-current');
+      if (!t || !c) return true; const left = c.offsetLeft + c.offsetWidth / 2 - t.clientWidth / 2;
+      if (t.dataset.deck === 'moving' || Math.abs(t.scrollLeft - left) > 1.5 || t.scrollLeft !== t.__lastSeen) { t.__lastSeen = t.scrollLeft; return false; } return true;`), 5000);
+    if (!still) console.log('deck did not settle:', await deckState());
+    return still;
+  };
   // Brings the card that holds an element into view first: WebDriver scrolls an element in and acts at once, before
   // the deck has settled on that card and lifted its cover.
   const onCard = async (css) => {
-    await js(`const el = document.querySelector(arguments[0]), card = el && el.closest('.deck-card');
-      if (card && !card.classList.contains('is-current')) card.scrollIntoView({ inline: 'center', block: 'nearest' });`, css);
+    const name = await js(`const el = document.querySelector(arguments[0]), card = el && el.closest('.deck-card');
+      return card && !card.classList.contains('is-current') ? card.dataset.card : null;`, css);
+    if (name) {   // the header icon brings the card in, as a person would
+      await deckSettled();
+      await wd('POST', S(`/element/${await el(`.deck-nav [data-card="${name}"]:not([data-qr])`)}/click`), {});
+    }
     await deckSettled();
   };
   const click = async (css) => {

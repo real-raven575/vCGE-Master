@@ -163,7 +163,8 @@ export function initDeck() {
     let pointerHeld = false, holdTimer = null;
     const settle = () => {
         // A press still down after a second and a half is a hold, not a tap: the deck settles anyway.
-        if (pointerHeld) { settlePending = true; clearTimeout(holdTimer); holdTimer = setTimeout(release, 1500); return; }
+        if (pointerHeld) { settlePending = true; track.dataset.deck = 'held'; clearTimeout(holdTimer); holdTimer = setTimeout(release, 1500); return; }
+        track.dataset.deck = 'still';
         if (goTarget !== null) {
             // A move of the deck's own: arrived, or its animation stalled (a slow frame, a headless webview) and the
             // deck sat between cards. Either way it ends where it was heading.
@@ -179,6 +180,7 @@ export function initDeck() {
     const onScroll = () => {
         // A move of the deck's own that reaches its target is over at once, so a scroll that follows it is read as new.
         if (goTarget !== null && Math.abs(track.scrollLeft - goTarget) <= 2) { settledLeft = goTarget; goTarget = null; }
+        track.dataset.deck = 'moving';      // read by the tests: moving, held (a press is down) or still
         clearTimeout(settleTimer); settleTimer = setTimeout(settle, 80);
     };
     const release = () => { clearTimeout(holdTimer); pointerHeld = false; if (settlePending) { settlePending = false; settle(); } };
