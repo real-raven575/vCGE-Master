@@ -278,16 +278,54 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   }));
   ok('OCR worker lock refuses a script from another host', guardRefuses === 'refused', guardRefuses);
 
-  // Flip & theme (the theme switch lives in the Settings sheet, behind the header cog)
+  // Flip, and the Settings sheet (MOD01 step 4): hand, colour-blind mode, theme and font, saved as one small entry
   await page.click('#flipCardBtn');
   ok('card flips', (await page.$eval('#card3DFlipper', el => el.style.transform)) === 'rotateY(180deg)');
+  const settingsKeys = () => page.evaluate(() => Object.keys(localStorage));
+  const htmlState = () => page.evaluate(() => ({ hand: document.documentElement.dataset.hand, cb: document.documentElement.dataset.cb, font: document.documentElement.dataset.font,
+    dark: document.documentElement.classList.contains('dark'), body: getComputedStyle(document.body).fontFamily, entry: localStorage.getItem('vcge_settings') }));
+  ok('before any change: nothing is stored, right hand, Inter, dark', (await settingsKeys()).length === 0 && (await htmlState()).hand === 'right' && (await htmlState()).dark && /Inter/.test((await htmlState()).body), JSON.stringify(await htmlState()));
   await page.click('#navSettings');
-  ok('the cog opens Settings with the theme switch', await page.isVisible('#settingsSheet') && await page.isVisible('#themeToggle'));
+  ok('the cog opens Settings: hand, colour-blind switch, theme, font, language "coming later", PIN button and the disclaimer', await page.isVisible('#settingsSheet') && await page.isVisible('#handRightBtn') && await page.isVisible('#cbToggle') && await page.isVisible('#themeToggle')
+    && await page.isVisible('#fontSelect') && /coming later/.test(await page.textContent('#settingsSheet')) && await page.isVisible('#settingsVaultBtn')
+    && (await text('settingsNote')) === 'vCGE keeps one small settings file on this device (hand, colors, theme, font). Nothing you scan, upload or type is ever saved.');
+  ok('the font list is the seven fonts, alphabetical, Inter chosen', (await page.$$eval('#fontSelect option', os => os.map(o => o.textContent).join('|'))) === 'Atkinson Hyperlegible|Comic Neue|Inter|Lexend|Macondo|OpenDyslexic|Tinos'
+    && (await page.$eval('#fontSelect', s => s.selectedOptions[0].textContent)) === 'Inter');
+  ok('every settings control is at least 44 px tall', (await page.$$eval('#handRightBtn, #handLeftBtn, #cbToggle, #themeToggle, #fontSelect', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44));
   await page.click('#themeToggle');
-  ok('theme toggles to light', !(await page.evaluate(() => document.documentElement.classList.contains('dark'))));
-  await page.click('#themeToggle');
+  ok('theme toggles to light and the entry appears, one key, name=number pairs', !(await htmlState()).dark && (await settingsKeys()).join() === 'vcge_settings' && (await htmlState()).entry === 'hand=0;cb=0;theme=1;font=0');
+  await page.click('#handLeftBtn');
+  const headerOrder = () => page.evaluate(() => ['navSettings', 'navVault', 'navCapture', 'navShare'].map(id => document.getElementById(id).getBoundingClientRect().left));
+  const [xSettings, xVault, xCapture, xShare] = await headerOrder();
+  const trashSide = () => page.evaluate(() => { const c = document.querySelector('.deck-card.is-current'), t = c.querySelector('.vcge-trash').getBoundingClientRect(), r = c.getBoundingClientRect(); return t.left + t.width / 2 > r.left + r.width / 2 ? 'right' : 'left'; });
+  ok('Left hand mirrors the header (Settings far left, Vault beside it, Airlock before Iris) and moves the trash button to the lower right',
+    (await htmlState()).hand === 'left' && xSettings < xVault && xVault < xShare && xShare < xCapture && (await trashSide()) === 'right' && (await htmlState()).entry === 'hand=1;cb=0;theme=1;font=0', JSON.stringify([xSettings, xVault, xShare, xCapture, await trashSide()]));
+  await page.click('#handRightBtn');
+  const [rSettings, rVault, rCapture] = await headerOrder();
+  ok('Right hand puts it back: Iris first, Vault then Settings at the far right, trash lower left', rCapture < rVault && rVault < rSettings && (await trashSide()) === 'left' && (await htmlState()).hand === 'right');
+  await page.check('#cbToggle');
+  ok('colour-blind mode sets html[data-cb="1"] (MOD02 reads it) and the lit icon shows a white bar under it', (await htmlState()).cb === '1' && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=0'
+    && /inset/.test(await page.$eval('.deck-nav button.is-on', b => getComputedStyle(b).boxShadow)));
+  await page.selectOption('#fontSelect', { label: 'Lexend' });
+  ok('the UI font follows the drop-down (Lexend) and its fixed code is saved', /Lexend/.test((await htmlState()).body) && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2');
   await page.click('#settingsSheet [data-sheet-close]');
-  await page.waitForTimeout(600);
+  // A fresh start in the same browser (a second tab) comes back with the saved choices; the scan in this tab is untouched
+  const pS = await context.newPage();
+  await pS.goto(base); await pS.waitForTimeout(600);
+  const after = await pS.evaluate(() => ({ hand: document.documentElement.dataset.hand, cb: document.documentElement.dataset.cb, dark: document.documentElement.classList.contains('dark'),
+    body: getComputedStyle(document.body).fontFamily, entry: localStorage.getItem('vcge_settings'), keys: Object.keys(localStorage).join() }));
+  ok('next start: light theme, colour-blind mode and Lexend come back from the one entry; still exactly one key', !after.dark && after.cb === '1' && /Lexend/.test(after.body) && after.hand === 'right' && after.keys === 'vcge_settings', JSON.stringify(after));
+  ok('the entry holds four numbers and no text', /^hand=\d;cb=\d;theme=\d;font=\d$/.test(after.entry), after.entry);
+  await pS.click('#navSettings');
+  ok('the sheet shows the saved choices', await pS.$eval('#cbToggle', c => c.checked) && (await pS.$eval('#fontSelect', s => s.selectedOptions[0].textContent)) === 'Lexend' && (await pS.$eval('#themeToggle', b => b.getAttribute('aria-pressed'))) === 'true');
+  await pS.click('#themeToggle'); await pS.uncheck('#cbToggle'); await pS.selectOption('#fontSelect', { label: 'Inter' });
+  await pS.waitForTimeout(300);
+  ok('back to dark, colour-blind off, Inter', await pS.evaluate(() => document.documentElement.classList.contains('dark') && !document.documentElement.dataset.cb && /Inter/.test(getComputedStyle(document.body).fontFamily) && localStorage.getItem('vcge_settings') === 'hand=0;cb=0;theme=0;font=0'));
+  await pS.close();
+  await page.bringToFront();
+  await page.click('#navSettings'); await page.click('#themeToggle'); await page.uncheck('#cbToggle'); await page.selectOption('#fontSelect', { label: 'Inter' }); await page.click('#settingsSheet [data-sheet-close]');
+  await page.waitForTimeout(300);
+  ok('this tab follows too once its own controls are used: dark, Inter, scan still here', (await htmlState()).dark && /Inter/.test((await htmlState()).body) && await visible('reopenScanBtn'));
 
   // Hold-to-wipe (MOD02): the red trash button on the card in view, and the Vault page's wipe button, open the same question
   const nameBefore = await val('firstName');
@@ -308,6 +346,15 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   ok('"Yes, delete them" keeps the box ticked and closes the question', await page.isChecked('#wipeSettingsBox') && !(await visible('wipeSettingsConfirm')));
   await page.click('#wipeNoBtn');
   ok('No closes the dialog and keeps everything', !(await visible('wipeDialog')) && (await val('firstName')) === nameBefore && await visible('reopenScanBtn'));
+  // "Also delete my saved settings" for real: Vault publishes the signal, Shell clears its one entry (MOD01 step 4)
+  await page.click('#navSettings'); await page.click('#handLeftBtn'); await page.click('#settingsSheet [data-sheet-close]');
+  ok('a saved setting is in place before the wipe', (await page.evaluate(() => localStorage.getItem('vcge_settings'))) === 'hand=1;cb=0;theme=0;font=0');
+  await page.click('.deck-card.is-current .vcge-trash');
+  await page.check('#wipeSettingsBox'); await page.click('#wipeSettingsYesBtn');
+  await holdYes(page, 1700); await page.waitForTimeout(700);
+  ok('wiping with the settings box ticked deletes the settings entry too: storage empty, right hand again', (await page.evaluate(() => localStorage.length + sessionStorage.length)) === 0
+    && (await page.evaluate(() => document.documentElement.dataset.hand)) === 'right' && (await val('firstName')) === '' && !(await visible('wipeDialog')));
+  await page.fill('#firstName', nameBefore); await page.waitForTimeout(300);
   await openVault(page);
   await page.click('#wipeVaultBtn');
   ok('the Vault page wipe button opens the same question, above the page', await visible('wipeDialog') && (await page.evaluate(() => { const a = document.elementFromPoint(innerWidth / 2, innerHeight / 2); return !!a && !!a.closest('#wipeDialog'); })));

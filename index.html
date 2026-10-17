@@ -376,15 +376,35 @@
                 <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close">&#x2715;</button>
             </div>
             <div class="vcge-sheet-row">
+                <span id="handLabel">Hand</span>
+                <div class="vcge-seg" role="group" aria-labelledby="handLabel">
+                    <button id="handRightBtn" type="button" aria-pressed="true">Right</button>
+                    <button id="handLeftBtn" type="button" aria-pressed="false">Left</button>
+                </div>
+            </div>
+            <div class="vcge-sheet-row">
+                <label for="cbToggle">Colour-blind mode</label>
+                <input id="cbToggle" type="checkbox" role="switch" class="vcge-switch" aria-describedby="cbHint">
+            </div>
+            <p id="cbHint" class="vcge-sheet-hint">Words and marks next to every colour cue.</p>
+            <div class="vcge-sheet-row">
                 <span>App theme</span>
-                <button id="themeToggle" type="button" class="p-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition" aria-label="Toggle light or dark theme">🌙</button>
+                <button id="themeToggle" type="button" class="p-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition" aria-label="Toggle light or dark theme" aria-pressed="false">🌙</button>
+            </div>
+            <div class="vcge-sheet-row">
+                <label for="fontSelect">UI font</label>
+                <select id="fontSelect" class="vcge-select" aria-label="UI font"></select>
+            </div>
+            <div class="vcge-sheet-row">
+                <span>Language</span>
+                <span class="vcge-sheet-soon">English (more coming later)</span>
             </div>
             <div class="vcge-sheet-row">
                 <span>PIN and fingerprint</span>
                 <button id="settingsVaultBtn" type="button" class="px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition" data-open-sheet="vaultPage">Open the Vault</button>
             </div>
-            <p class="vcge-sheet-note">Right or left hand, colour-blind mode, the UI font and language come with the settings step. Nothing you scan, upload or type is ever saved.</p>
-            <div class="mod-tag" aria-hidden="true"><span>MOD-01</span></div>
+            <p id="settingsNote" class="vcge-sheet-note">vCGE keeps one small settings file on this device (hand, colors, theme, font). Nothing you scan, upload or type is ever saved.</p>
+            <div class="mod-tag mod-tag-inset" aria-hidden="true"><span>MOD-01</span></div>
         </div>
     </div>
 

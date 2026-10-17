@@ -14,7 +14,7 @@
  * hand-off between cards and its hold-to-wipe dialog sits behind every red trash button.
  */
 import './modules/mod01-shell/shell.js';
-import { initTheme } from './modules/mod01-shell/themeManager.js';
+import { initSettings } from './modules/mod01-shell/settings.js';
 import { go as showCard, use as useDeck, closeSheet } from './modules/mod01-shell/deck.js';
 import { globalEventBus, Events } from './share/eventBus.js';
 import { CONTACT_FIELDS, CONTACT_LIST_FIELDS, createEmptyContact } from './share/cardSchema.js';
@@ -881,7 +881,7 @@ function wireAuditLog() {
 
 function boot() {
     maskSecretInputs();
-    initTheme($('themeToggle'));
+    initSettings();          // the one saved entry: hand, colour-blind mode, theme, font
     // MOD01's deck talks to the other modules only through these hooks (and the CARD_CHANGED signal on the bus).
     useDeck({
         toast: (message) => cardView.showToast(message),

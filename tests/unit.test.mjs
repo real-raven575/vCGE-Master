@@ -857,6 +857,34 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('ui: no font or icon comes from a host (only bundled files)', !/https?:/.test(css.replace(/\/\*[\s\S]*?\*\//g, '')));
 }
 
+// MOD01 saved settings (settings.js): the one localStorage entry, `name=number` pairs, preferences only
+{
+  const fs = await import('node:fs');
+  const st = await import(`${R}/modules/mod01-shell/settings.js`);
+  const ui = await import(`${R}/modules/mod01-shell/ui.js`);
+  localStorage.clear();
+  ok('settings: one key, defaults right hand, colour-blind off, dark theme, Inter', st.SETTINGS_KEY === 'vcge_settings' && JSON.stringify(st.DEFAULTS) === '{"hand":0,"cb":0,"theme":0,"font":0}' && st.fontFor(0) === 'Inter');
+  ok('settings: every Settings font has its own fixed code, Inter 0, no code shared', ui.UI_FONTS.every(n => Number.isInteger(st.FONT_CODES[n])) && new Set(Object.values(st.FONT_CODES)).size === ui.UI_FONTS.length && Object.keys(st.FONT_CODES).length === ui.UI_FONTS.length);
+  ok('settings: a line of name=number pairs reads back', JSON.stringify(st.parseSettings('hand=1;cb=1;theme=1;font=3')) === '{"hand":1,"cb":1,"theme":1,"font":3}');
+  ok('settings: missing or unreadable means the defaults', JSON.stringify(st.parseSettings(null)) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('garbage')) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('')) === JSON.stringify(st.DEFAULTS));
+  ok('settings: an unknown name, an out-of-range or non-numeric value falls back to its default, the rest is kept', JSON.stringify(st.parseSettings('hand=1;name=Maria;cb=7;theme=x;font=99')) === '{"hand":1,"cb":0,"theme":0,"font":0}');
+  ok('settings: serialises every name in a fixed order and clamps', st.serializeSettings({ font: 2, hand: 1 }) === 'hand=1;cb=0;theme=0;font=2' && st.serializeSettings({ cb: 5 }) === 'hand=0;cb=0;theme=0;font=0');
+  st.saveSettings({ hand: 1, font: 2 });
+  ok('settings: save writes the one key and nothing else', localStorage.getItem('vcge_settings') === 'hand=1;cb=0;theme=0;font=2' && store.size === 1);
+  ok('settings: load reads it back', JSON.stringify(st.loadSettings()) === '{"hand":1,"cb":0,"theme":0,"font":2}');
+  st.clearSettings();
+  ok('settings: clear removes it', store.size === 0 && JSON.stringify(st.loadSettings()) === JSON.stringify(st.DEFAULTS));
+  localStorage.setItem('vcge_theme_preference', 'light');
+  ok('settings: the old theme key is carried over once and removed', JSON.stringify(st.loadSettings()) === '{"hand":0,"cb":0,"theme":1,"font":0}' && localStorage.getItem('vcge_theme_preference') === null && store.size === 0);
+  const code = fs.readFileSync(`${R}/modules/mod01-shell/settings.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+  ok('settings: subscribes to SETTINGS_WIPE_REQUESTED, imports only the bus and ui.js, no network, cookies or markup', /subscribe\(Events\.SETTINGS_WIPE_REQUESTED/.test(code)
+    && (code.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ui.js'")) && !/fetch\(|document\.cookie|sessionStorage|indexedDB|innerHTML|publish\(/.test(code));
+  ok('settings: the only storage key named in the code is the settings key (plus the old theme key it removes)', [...code.matchAll(/(?:getItem|setItem|removeItem)\((\w+)/g)].every(m => m[1] === 'SETTINGS_KEY' || m[1] === 'OLD_THEME_KEY'));
+  ok('settings: the Settings sheet and the Welcome card carry the one-file disclaimer', fs.readFileSync(`${R}/../index.html`, 'utf8').includes('vCGE keeps one small settings file on this device (hand, colors, theme, font). Nothing you scan, upload or type is ever saved.')
+    && /remembers none of your sensitive data/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8')) && !fs.existsSync(`${R}/modules/mod01-shell/themeManager.js`));
+  localStorage.clear();
+}
+
 // MOD02 padlock hand-off: pure frame maths (the drawing itself is checked in the browser suite)
 {
   const h = await import(`${R}/modules/mod02-vault/lockHandoff.js`);

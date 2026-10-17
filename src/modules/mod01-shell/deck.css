@@ -127,7 +127,41 @@
 .vcge-sheet-close:hover { background: rgba(100, 116, 139, 0.15); }
 .vcge-sheet-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.5rem 0; font-size: 0.9rem; }
 .vcge-sheet-note { font-size: 0.75rem; color: #64748b; margin: 0.5rem 0 0; }
-.dark .vcge-sheet-note { color: #94a3b8; }
+.vcge-sheet-hint { font-size: 0.7rem; color: #64748b; margin: -0.25rem 0 0.25rem; }
+.vcge-sheet-soon { font-size: 0.8rem; color: #64748b; }
+.dark .vcge-sheet-note, .dark .vcge-sheet-hint, .dark .vcge-sheet-soon { color: #94a3b8; }
+/* Settings controls: a two-button group (Right / Left), a switch and a drop-down, each at least 44 px tall */
+.vcge-seg { display: inline-flex; gap: var(--vcge-gap); }
+.vcge-seg button { padding: 0 0.9rem; border-radius: 0.75rem; background: #f1f5f9; color: #0f172a; border-color: #cbd5e1; font-size: 0.85rem; font-weight: 600; cursor: pointer; }
+.vcge-seg button[aria-pressed="true"] { background: #16a34a; color: #020617; border-color: #15803d; }
+.vcge-seg button[aria-pressed="true"]::before { content: '\2713\00a0'; }
+.dark .vcge-seg button { background: #1e293b; color: #f1f5f9; border-color: #334155; }
+.dark .vcge-seg button[aria-pressed="true"] { background: #16a34a; color: #020617; border-color: #15803d; }
+.vcge-switch { appearance: none; -webkit-appearance: none; width: 3.5rem; height: 2.75rem; margin: 0; cursor: pointer; position: relative; background: transparent; }
+.vcge-switch::before { content: ''; position: absolute; left: 0; top: 0.75rem; width: 3.5rem; height: 1.25rem; border-radius: 999px; background: #cbd5e1; transition: background-color 0.15s; }
+.vcge-switch::after { content: ''; position: absolute; left: 0; top: 0.5rem; width: 1.75rem; height: 1.75rem; border-radius: 999px; background: #ffffff; border: 2px solid #94a3b8; box-sizing: border-box; transition: transform 0.15s, border-color 0.15s; }
+.vcge-switch:checked::before { background: #16a34a; }
+.vcge-switch:checked::after { transform: translateX(1.75rem); border-color: #15803d; content: '\2713'; color: #15803d; font-size: 1rem; line-height: 1.5rem; text-align: center; }
+.vcge-switch:focus-visible { outline: 2px solid #16a34a; outline-offset: 2px; border-radius: 999px; }
+.dark .vcge-switch::before { background: #334155; }
+.dark .vcge-switch::after { background: #0f172a; border-color: #64748b; }
+.vcge-select { min-height: var(--vcge-tap); padding: 0 0.75rem; border-radius: 0.75rem; border: 2px solid #cbd5e1; background: #f1f5f9; color: #0f172a; font: inherit; font-size: 0.9rem; max-width: 60%; }
+.dark .vcge-select { background: #1e293b; color: #f1f5f9; border-color: #334155; }
+#fontSelect { font-family: var(--vcge-ui-font, 'Inter'), sans-serif; }
+
+/* ---- Left hand (html[data-hand="left"], Settings): the header runs mirrored (Settings far left, Vault beside it), the
+   trash button moves to the lower right, and on phones the Welcome buttons sit on the left thumb line. ------------- */
+html[data-hand="left"] .deck-header { flex-direction: row-reverse; }
+html[data-hand="left"] .deck-nav, html[data-hand="left"] .deck-tools, html[data-hand="left"] .deck-card-foot { flex-direction: row-reverse; }
+@media (max-width: 599.98px) and (orientation: portrait) {
+    html[data-hand="left"] .welcome-actions { margin-left: 0; margin-right: 33%; }
+}
+/* ---- Colour-blind mode (html[data-cb="1"]): the lit header icon is marked by a bar under it as well as its colour,
+   in blue rather than green; the trash button carries a thick dark outline. Each module adds its own cues. ---------- */
+html[data-cb="1"] .deck-nav button.is-on { background: #2563eb; border-color: #1d4ed8; color: #ffffff; box-shadow: inset 0 -4px 0 #ffffff; }
+html[data-cb="1"] .vcge-trash { border-color: #0f172a; border-width: 3px; }
+html[data-cb="1"] .vcge-seg button[aria-pressed="true"], html[data-cb="1"] .vcge-switch:checked::before { background: #2563eb; border-color: #1d4ed8; }
+html[data-cb="1"] .vcge-seg button[aria-pressed="true"] { color: #ffffff; }
 
 .thank-you { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; padding: 1rem; background: #f1f5f9; color: #0f172a; }
 .thank-you.hidden { display: none; }

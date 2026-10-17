@@ -24,6 +24,9 @@
     --vcge-icon-stroke: 2.3;      /* Tabler icons: set by raven575 against the preview (stroke 3), 2026-10-17 */
 }
 @media (max-width: 599.98px) { :root { --vcge-layout: phone; } }
+/* The UI font chosen in Settings (settings.js sets html[data-font] and --vcge-ui-font); Inter until then. The card
+   preview keeps its own typeface (MOD06 cardStyles.css). */
+html[data-font] body { font-family: var(--vcge-ui-font, 'Inter'), 'Inter', ui-sans-serif, system-ui, sans-serif; }
 @media (min-width: 600px) and (max-width: 1199.98px) { :root { --vcge-layout: tablet; } }
 /* 4K: the same desktop layout, scaled up instead of shrinking */
 @media (min-width: 2400px) { html { font-size: 125%; } }

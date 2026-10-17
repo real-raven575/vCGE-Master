@@ -72,7 +72,7 @@ export function renderWelcomeCard() {
         list,
         el('div', { className: 'welcome-actions' }, pin, start, tour, cancel),
         sample,
-        el('p', { className: 'welcome-fine' }, 'This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data.'));
+        el('p', { className: 'welcome-fine' }, 'This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data: it keeps one small settings file on this device (hand, colors, theme, font), and nothing you scan, upload or type is ever saved.'));
     const thanks = document.getElementById('thankYouPage');
     if (thanks) {
         document.getElementById('thankYouStartOverBtn').addEventListener('click', () => location.reload());
