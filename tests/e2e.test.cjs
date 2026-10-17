@@ -141,14 +141,31 @@ async function setPin(page, pin) {
 // Holds the green Yes of the hold-to-wipe dialog for `ms` (real time, or fake-clock time when `clock` is given).
 // A full hold (1.5 s or more) wipes and reloads the page: the call returns once the new page has loaded.
 async function holdYes(page, ms, clock = null) {
+  const t0 = Date.now(), took = [];   // diagnostic: how long each step took (temporary, for the WebKit runs)
+  const mark = (what) => took.push(`${what} ${Date.now() - t0}ms`);
   await page.evaluate(() => { window.__vcgeOldPage = true; });
   const box = await page.locator('#wipeYesBtn').boundingBox();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down();
-  if (clock) await clock.runFor(ms); else await page.waitForTimeout(ms);
-  await page.mouse.up();
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down(); mark('down');
+  if (clock) await clock.runFor(ms);
+  else if (ms < 1500) await page.waitForTimeout(ms);
+  // A full hold: let go as soon as the dialog says the hold is complete (data-hold="done"), as a person does when the
+  // sweep shows. Letting go later would race the page reload that follows the sweep (WebKit stalls on a mouse event
+  // sent while the page is replaced). If the hold never completes the wait fails, so nothing is loosened.
+  else await page.waitForFunction(() => document.getElementById('wipeDialog').dataset.hold === 'done', null, { timeout: ms + 1500 });
+  mark('held');
+  await page.mouse.up(); mark('up');
   if (ms < 1500) return;
   if (clock) await clock.runFor(600);
-  await page.waitForFunction(() => !window.__vcgeOldPage, null, { timeout: 5000 });
+  try {
+    await page.waitForFunction(() => !window.__vcgeOldPage, null, { timeout: 5000 });
+  } catch (e) {
+    const state = await page.evaluate(() => ({ url: location.href, ready: document.readyState, oldPage: !!window.__vcgeOldPage,
+      hold: document.getElementById('wipeDialog') && document.getElementById('wipeDialog').dataset.hold,
+      p: document.getElementById('wipeDialog') && document.getElementById('wipeDialog').style.getPropertyValue('--wipe-p') })).catch(err => String(err));
+    console.log('holdYes diag:', took.join(', '), JSON.stringify(state));
+    throw e;
+  }
+  mark('reloaded');
   await page.waitForLoadState('load');
 }
 
@@ -797,6 +814,8 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     const errors11 = [];
     p11.on('pageerror', e => errors11.push(e.message));
     p11.on('console', m => { if (m.type() === 'error') errors11.push('console: ' + m.text()); });
+    const warnings11 = [];   // diagnostic (temporary): the app's own warnings, read when a logo upload stalls
+    p11.on('console', m => { if (m.type() === 'warning') warnings11.push(m.text()); });
     await p11.goto(ORIGIN); await p11.waitForTimeout(300);
     await p11.fill('#firstName', 'Logo'); await p11.fill('#lastName', 'Tester');
     // Logos as uploaded (redesign step 8): a one-colour logo is traced into the card's ink colour; one of many colours
@@ -825,7 +844,13 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
       const url = await logo(kind);
       const before = await p11.evaluate(() => { const i = document.querySelector('#formAvatarPreview img, #formAvatarPreview svg'); return i ? i.outerHTML : ''; });
       await p11.setInputFiles('#avatarUpload', { name, mimeType: url.slice(5, url.indexOf(';')), buffer: Buffer.from(url.split(',')[1], 'base64') });
-      await p11.waitForFunction((before) => { const i = document.querySelector('#formAvatarPreview img, #formAvatarPreview svg'); return i && i.outerHTML !== before && (i.tagName === 'svg' || i.complete); }, before);
+      try {
+        await p11.waitForFunction((before) => { const i = document.querySelector('#formAvatarPreview img, #formAvatarPreview svg'); return i && i.outerHTML !== before && (i.tagName === 'svg' || i.complete); }, before);
+      } catch (e) {   // diagnostic (temporary, for the Firefox run): what the page shows instead of the new logo
+        console.log('upload diag:', name, JSON.stringify({ toast: await p11.textContent('#toastMessage').catch(String), warnings: warnings11.slice(-5),
+          preview: await p11.evaluate(() => { const i = document.querySelector('#formAvatarPreview img, #formAvatarPreview svg'); return i ? { tag: i.tagName, complete: i.complete, w: i.naturalWidth, h: i.naturalHeight, src: (i.getAttribute('src') || '').slice(0, 60) } : null; }) }));
+        throw e;
+      }
       await p11.waitForTimeout(300);   // the logo's shape and tone are read, then the card is drawn again
       const toast = await p11.textContent('#toastMessage');
       const [dl] = await Promise.all([p11.waitForEvent('download'), p11.click('#downloadVcfBtn')]);
