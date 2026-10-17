@@ -46,8 +46,24 @@ async function stopDriver(driver) {
   const js = (script, ...args) => wd('POST', S('/execute/sync'), { script, args });
   const jsAsync = (script, ...args) => wd('POST', S('/execute/async'), { script, args });
   const el = async (css) => (await wd('POST', S('/element'), { using: 'css selector', value: css }))[ELEMENT];
-  const click = async (css) => wd('POST', S(`/element/${await el(css)}/click`), {});
-  const type = async (css, text) => { const id = await el(css); await wd('POST', S(`/element/${id}/clear`), {}); await wd('POST', S(`/element/${id}/value`), { text }); };
+  // The deck settles on a card a moment after any scroll (a smooth move, an element scrolled into view); a WebDriver
+  // click computes its point first and lands on whatever is there, so every click and keystroke waits for a still deck.
+  const deckSettled = () => until(() => js(`const t = document.getElementById('deck'), c = document.querySelector('.deck-card.is-current');
+    if (!t || !c) return true; const left = c.offsetLeft + c.offsetWidth / 2 - t.clientWidth / 2;
+    if (Math.abs(t.scrollLeft - left) > 1.5 || t.scrollLeft !== t.__lastSeen) { t.__lastSeen = t.scrollLeft; return false; } return true;`), 5000);
+  const click = async (css) => {
+    await deckSettled();
+    try { return await wd('POST', S(`/element/${await el(css)}/click`), {}); } catch (e) {
+      // Say what sat in the way (the card in view, the deck position, the element under the target's centre).
+      const where = await js(`const el = document.querySelector(arguments[0]), r = el && el.getBoundingClientRect(), t = document.getElementById('deck');
+        const hit = r && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+        return JSON.stringify({ card: document.documentElement.dataset.card, scrollLeft: t && t.scrollLeft, rect: r && [r.left, r.top, r.width, r.height],
+          hit: hit && (hit.id || hit.className || hit.tagName), hitParent: hit && hit.parentElement && (hit.parentElement.id || hit.parentElement.className) });`, css).catch(() => '?');
+      e.message += ` (${css}: ${where})`;
+      throw e;
+    }
+  };
+  const type = async (css, text) => { await deckSettled(); const id = await el(css); await wd('POST', S(`/element/${id}/clear`), {}); await wd('POST', S(`/element/${id}/value`), { text }); };
   const val = (id) => js(`return document.getElementById(arguments[0]).value;`, id);
   const txt = (id) => js(`return document.getElementById(arguments[0]).textContent.trim();`, id);
   const visible = (id) => js(`const e = document.getElementById(arguments[0]); return !e.classList.contains('hidden');`, id);
