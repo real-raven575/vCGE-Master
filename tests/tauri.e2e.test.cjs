@@ -117,6 +117,7 @@ async function stopDriver(driver) {
     ok('desktop app opens straight to an empty card (no passphrase dialog)', !(await visible('vaultModal')) && (await val('firstName')) === '' && (await txt('vaultStateIndicator')) === 'UNLOCKED / memory only');
     ok('Tauri IPC is available (withGlobalTauri)', await js(`return !!(window.__TAURI__ && window.__TAURI__.core);`));
     ok('page is served from the Tauri asset protocol', /^(tauri:|http:\/\/tauri\.localhost)/.test(await js('return location.href;')), await js('return location.href;'));
+    ok('desktop: the header logo loads from the bundled file', await until(() => js(`const i = document.querySelector('.deck-logo'); return !!i && i.complete && i.naturalWidth > 0;`), 5000));
     ok('keyring starts empty', !keyringHasDeviceKey());
 
     // Session PIN from the Security panel (the Vault page)

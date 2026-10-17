@@ -20,6 +20,8 @@ const copyVendor = {
         ['netLock.js', 'workerGuard.js', 'browserGate.js'].forEach(file => fs.copyFileSync(
             path.resolve('src/modules/mod01-shell', file), path.resolve('dist/src/modules/mod01-shell', file)));
         fs.cpSync(path.resolve('src/modules/mod01-shell/unsupported'), path.resolve('dist/src/modules/mod01-shell/unsupported'), { recursive: true });
+        // The logo (src/assets/brand): the Welcome card and the Thank You page draw it by URL at runtime, so it keeps its path.
+        fs.cpSync(path.resolve('src/assets'), path.resolve('dist/src/assets'), { recursive: true });
     }
 };
 

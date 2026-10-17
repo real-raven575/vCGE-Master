@@ -1035,6 +1035,12 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('ui: the twelve app icons are bundled as SVG with the Tabler MIT licence', icons.every(n => fs.readFileSync(`${R}/vendor/icons/app/${n}.svg`, 'utf8').includes('<svg')) && /MIT License/.test(fs.readFileSync(`${R}/vendor/icons/app/LICENSE-tabler.txt`, 'utf8')));
   ok('ui: icon stroke 2.3 and buttons at least 44 px with a 2 px outline', /--vcge-icon-stroke:\s*2\.3;/.test(css) && /--vcge-tap:\s*2\.75rem;/.test(css) && /border-width:\s*2px/.test(css));
   ok('ui: no font or icon comes from a host (only bundled files)', !/https?:/.test(css.replace(/\/\*[\s\S]*?\*\//g, '')));
+  const html = fs.readFileSync(`${R}/../index.html`, 'utf8');
+  const logos = [...html.matchAll(/(?:href|src)="(src\/assets\/brand\/[^"]+)"/g)].map(m => m[1]);
+  ok('logo: the tab icon, the header and the Thank You page use the bundled brand files, every one present', logos.length >= 5 && logos.every(f => fs.existsSync(`${R}/../${f}`))
+    && /rel="icon"[^>]*sizes="32x32"[^>]*href="src\/assets\/brand\/vcge-32\.png"/.test(html) && /class="deck-logo" src="src\/assets\/brand\/vcge-logo-192\.png" alt="vCGE"/.test(html));
+  ok('logo: the Welcome card draws the same bundled file', /vcge-welcome-logo.*src: 'src\/assets\/brand\/vcge-logo-192\.png', alt: 'vCGE'/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8')));
+  ok('logo: no icon link points at a host', ![...html.matchAll(/<link[^>]+rel="(?:icon|apple-touch-icon)"[^>]*>/g)].some(m => /https?:/.test(m[0])));
 }
 
 // MOD01 saved settings (settings.js): the one localStorage entry, `name=number` pairs, preferences only

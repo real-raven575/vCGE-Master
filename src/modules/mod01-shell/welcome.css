@@ -3,6 +3,8 @@
 .vcge-welcome { position: fixed; inset: 0; z-index: 70; }
 .vcge-tour-blocker { position: fixed; inset: 0; }
 .vcge-welcome-tag { display: inline-block; background: #22c55e; color: #020617; font-weight: 700; font-size: 13px; letter-spacing: 0.08em; padding: 3px 10px; border-radius: 8px; }
+/* The logo (src/assets/brand, bundled): a rounded square on the Welcome card and the Thank You page */
+.vcge-welcome-logo { display: block; width: 72px; height: 72px; border-radius: 14px; margin: 0 auto 4px; object-fit: cover; }
 .vcge-welcome-tagline { font-size: 13px; font-weight: 600; color: #15803d; margin: 0 0 14px; }
 .vcge-welcome-points { margin: 0 0 16px; padding-left: 22px; list-style: decimal; font-size: 14px; line-height: 1.5; text-align: left; max-width: 26rem; }
 .vcge-welcome-points li { margin: 8px 0; padding-left: 4px; }

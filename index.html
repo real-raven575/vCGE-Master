@@ -5,6 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <!-- Browser-enforced egress lock: only same-origin resources and connections, plus Tauri's local IPC endpoints (keep in sync with src-tauri/tauri.conf.json) -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
+    <!-- MOD01 logo (temporary mark approved by raven575, 2026-10-17), bundled: the tab icon and the home-screen icon -->
+    <link rel="icon" type="image/png" sizes="32x32" href="src/assets/brand/vcge-32.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="src/assets/brand/vcge-logo-192.png">
+    <link rel="apple-touch-icon" sizes="192x192" href="src/assets/brand/vcge-logo-192.png">
     <!-- MOD01 network lock: a classic script, so it runs before the bundled libraries below and every module -->
     <script src="src/modules/mod01-shell/netLock.js"></script>
     <!-- MOD01 browser gate (ES5): if a protection vCGE relies on is missing, the app never starts and a bundled
@@ -38,7 +42,7 @@
     <!-- MASTER HEADER (MOD01): slim, one icon per card in order of use, then Vault and Settings -->
     <header class="deck-header border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur sticky top-0 z-40 flex items-center justify-between relative">
         <div class="deck-brand">
-            <span class="vcge-tag">vCGE</span>
+            <img class="deck-logo" src="src/assets/brand/vcge-logo-192.png" alt="vCGE" width="28" height="28" decoding="async">
             <span class="deck-brand-text text-xs text-slate-500 dark:text-slate-400">vCard Generator Engine</span>
         </div>
         <nav class="deck-nav" aria-label="Cards">
@@ -513,7 +517,7 @@
     <!-- Thank You page (MOD01): after CANCEL on the Welcome card, once the session is wiped -->
     <div id="thankYouPage" class="thank-you hidden" role="dialog" aria-modal="true" aria-labelledby="thankYouTitle">
         <div class="thank-you-box">
-            <span class="vcge-welcome-tag">vCGE</span>
+            <img class="vcge-welcome-logo" src="src/assets/brand/vcge-logo-192.png" alt="vCGE" width="72" height="72" decoding="async">
             <h2 id="thankYouTitle">Thanks for visiting.</h2>
             <p>We'll be here the next time you need us!</p>
             <div class="thank-you-actions">

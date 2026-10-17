@@ -66,7 +66,7 @@ export function renderWelcomeCard() {
     sample.addEventListener('click', () => go('fields'));
     const list = el('ol', { className: 'vcge-welcome-points' }, ...WELCOME_POINTS.map(t => el('li', {}, t)));
     host.replaceChildren(
-        el('span', { className: 'vcge-welcome-tag' }, 'vCGE'),
+        el('img', { className: 'vcge-welcome-logo', src: 'src/assets/brand/vcge-logo-192.png', alt: 'vCGE', width: 72, height: 72, decoding: 'async' }),
         el('h2', { id: 'welcomeTitle' }, 'Welcome to vCGE'),
         el('p', { id: 'welcomeTagline', className: 'vcge-welcome-tagline' }, 'Operation: Never Lose Contact'),
         list,
