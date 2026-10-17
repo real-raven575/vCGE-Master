@@ -67,6 +67,8 @@ const rows = (page, id) => page.evaluate((id) => Array.from(document.getElementB
   .map((_, i) => ({ type: document.getElementById(`${id}Type${i}`).value, value: document.getElementById(`${id}Value${i}`).value })), id);
 const rowValue = async (page, id, type) => ((await rows(page, id)).find(r => r.type === type) || {}).value;
 // Proceed on the Read card: the review text blinks out first (MOD04), then the deck moves to Fields and the form fills.
+// The card's spin runs in JS (26 fps steps); waits for it to settle on a face.
+const settled = (page) => page.waitForFunction(() => !/moving|drag/.test(document.getElementById('card3DFlipper').dataset.spin || ''), null, { timeout: 3000 });
 const proceed = async (page) => { await page.click('#applyOcrBtn'); await page.waitForSelector('#cropReviewModal', { state: 'hidden', timeout: 5000 }); };
 
 async function decodeQr(page) {
@@ -293,7 +295,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   ok('OCR worker lock refuses a script from another host', guardRefuses === 'refused', guardRefuses);
 
   // Flip, and the Settings sheet (MOD01 step 4): hand, colour-blind mode, theme and font, saved as one small entry
-  await page.click('#flipCardBtn');
+  await page.click('#flipCardBtn'); await settled(page);
   ok('card flips', (await page.$eval('#card3DFlipper', el => el.style.transform)) === 'rotateY(180deg)');
   const settingsKeys = () => page.evaluate(() => Object.keys(localStorage));
   const htmlState = () => page.evaluate(() => ({ hand: document.documentElement.dataset.hand, cb: document.documentElement.dataset.cb, font: document.documentElement.dataset.font,
@@ -722,8 +724,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     p11.on('console', m => { if (m.type() === 'error') errors11.push('console: ' + m.text()); });
     await p11.goto(ORIGIN); await p11.waitForTimeout(300);
     await p11.fill('#firstName', 'Logo'); await p11.fill('#lastName', 'Tester');
-    // Wide logos: dark text on a transparent background, a light one, an opaque red banner, an SVG with a size and one
-    // with only a viewBox; and a small round logo with a wide transparent margin.
+    // Logos as uploaded (redesign step 8): a one-colour logo is traced into the card's ink colour; one of many colours
+    // is kept as a picture; a white background is removed first. Wide ones get the strip, small ones the badge.
     const logo = (kind) => p11.evaluate((kind) => {
       const text = '<text x="10" y="70" font-size="60" fill="#0a6">TeamLogic</text>';
       if (kind === 'svg') return 'data:image/svg+xml;base64,' + btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="100">${text}</svg>`);
@@ -732,56 +734,76 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
       const x = c.getContext('2d');
       if (kind === 'round') { x.fillStyle = '#e11'; x.beginPath(); x.arc(150, 150, 40, 0, 7); x.fill(); return c.toDataURL('image/png'); }
       if (kind === 'opaque') { x.fillStyle = '#c00'; x.fillRect(0, 0, 400, 100); }
+      if (kind === 'whitebg' || kind === 'whitebg-colour') { x.fillStyle = '#fff'; x.fillRect(0, 0, 400, 100); }
+      x.font = 'bold 60px Arial';
+      if (kind === 'rainbow' || kind === 'pastel' || kind === 'whitebg-colour') {
+        const colours = kind === 'pastel' ? ['#ffa0a0', '#a0ffa0', '#a0a0ff'] : ['#d00', '#07c', '#fc0'];
+        'TeamLogic'.split('').forEach((ch, i) => { x.fillStyle = colours[i % 3]; x.fillText(ch, 10 + i * 40, 70); });
+        return c.toDataURL(kind === 'whitebg-colour' ? 'image/jpeg' : 'image/png');
+      }
       x.fillStyle = kind === 'light' ? '#f5f5f5' : kind === 'opaque' ? '#fff' : '#123';
-      x.font = 'bold 60px Arial'; x.fillText('TeamLogic', 10, 70);
-      return c.toDataURL('image/png');
+      x.fillText('TeamLogic', 10, 70);
+      return c.toDataURL(kind === 'whitebg' ? 'image/jpeg' : 'image/png');
     }, kind);
-    // Uploads a logo; returns the vCard PHOTO (from the .vcf) and what the card shows.
+    // Uploads a logo; returns the vCard PHOTO (from the .vcf), what the card shows and what the toast said.
     const upload = async (kind, name) => {
       const url = await logo(kind);
-      const before = await p11.evaluate(() => { const i = document.querySelector('#formAvatarPreview img'); return i ? i.src : ''; });
+      const before = await p11.evaluate(() => { const i = document.querySelector('#formAvatarPreview img, #formAvatarPreview svg'); return i ? i.outerHTML : ''; });
       await p11.setInputFiles('#avatarUpload', { name, mimeType: url.slice(5, url.indexOf(';')), buffer: Buffer.from(url.split(',')[1], 'base64') });
-      await p11.waitForFunction((before) => { const i = document.querySelector('#formAvatarPreview img'); return i && i.src !== before && i.complete; }, before);
+      await p11.waitForFunction((before) => { const i = document.querySelector('#formAvatarPreview img, #formAvatarPreview svg'); return i && i.outerHTML !== before && (i.tagName === 'svg' || i.complete); }, before);
       await p11.waitForTimeout(300);   // the logo's shape and tone are read, then the card is drawn again
+      const toast = await p11.textContent('#toastMessage');
       const [dl] = await Promise.all([p11.waitForEvent('download'), p11.click('#downloadVcfBtn')]);
       const vcf = fs.readFileSync(await dl.path(), 'utf8').replace(/\r\n[ \t]/g, '');
       const m = /\r\nPHOTO;TYPE=(\w+);ENCODING=b:([A-Za-z0-9+/=]+)/.exec(vcf);
-      return p11.evaluate(async ([type, b64]) => {
+      const shown = await p11.evaluate(async ([type, b64]) => {
         const img = new Image(); img.src = `data:image/${type.toLowerCase()};base64,${b64}`; await img.decode();
         const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
         const x = c.getContext('2d'); x.drawImage(img, 0, 0);
         const at = (px, py) => Array.from(x.getImageData(px, py, 1, 1).data.slice(0, 3));
-        const strip = document.getElementById('previewLogoStrip'), plate = strip.firstElementChild;
-        const shown = (strip.querySelector('img') || document.querySelector('#previewAvatar img'));
+        const strip = document.getElementById('previewLogoStrip'), plate = strip.firstElementChild, badge = document.getElementById('previewAvatar');
+        const el = strip.querySelector('img, svg') || badge.querySelector('img, svg');
+        const traced = el.tagName === 'svg';
+        const vb = traced ? el.getAttribute('viewBox').split(' ').map(Number) : null;
         return {
           // Fitted, not cropped: the wide logo leaves the top and bottom bands as background.
           photo: { type, w: img.naturalWidth, h: img.naturalHeight, corner: at(2, 2), band: at(128, 40) },
-          display: { png: shown.src.startsWith('data:image/png'), w: shown.naturalWidth, h: shown.naturalHeight },
+          traced, fill: traced ? getComputedStyle(el).fill : null, ink: getComputedStyle(document.getElementById('cardFront')).color,
+          display: traced ? { w: vb[2], h: vb[3] } : { png: el.src.startsWith('data:image/png'), w: el.naturalWidth, h: el.naturalHeight },
           strip: !strip.classList.contains('hidden') && strip.getBoundingClientRect().height > 0,
-          badge: getComputedStyle(document.getElementById('previewAvatar')).display !== 'none',
-          plate: plate ? plate.className : document.getElementById('previewAvatar').className
+          badge: getComputedStyle(badge).display !== 'none',
+          plate: (plate || badge).style.background || ''
         };
       }, [m[1], m[2]]);
+      return { ...shown, toast };
     };
     const near = (rgb, target, tol = 40) => rgb.every((v, k) => Math.abs(v - target[k]) <= tol);
     const dark = await upload('dark', 'logo.png');
     ok('vCard photo is a 256 px square JPEG, fitted (not cropped)', dark.photo.type === 'JPEG' && dark.photo.w === 256 && dark.photo.h === 256 && near(dark.photo.band, [255, 255, 255]), JSON.stringify(dark.photo));
     ok('transparent dark logo: white behind it in the vCard photo', near(dark.photo.corner, [255, 255, 255]), JSON.stringify(dark.photo.corner));
-    ok('card keeps the transparency and trims the empty space', dark.display.png && dark.display.w < 400 && dark.display.h < 100, JSON.stringify(dark.display));
-    ok('wide logo gets the strip across the card, not the small badge', dark.strip && !dark.badge, JSON.stringify(dark));
-    ok('dark transparent logo: white plate in dark mode only', /(^| )dark:bg-white( |$)/.test(dark.plate) && !dark.plate.includes('gradient'), dark.plate);
-    const light = await upload('light', 'light.png');
-    ok('transparent light logo: dark background in the vCard photo', light.photo.corner.every(v => v < 80), JSON.stringify(light.photo.corner));
-    ok('light transparent logo: plate in the palette colour on the card', light.plate.includes('bg-gradient-to-tr'), light.plate);
+    ok('a one-colour logo is traced: a drawing in the card\'s ink colour, trimmed to the lettering, and the toast says so', dark.traced && dark.fill === dark.ink && dark.display.w <= 160 && dark.display.w / dark.display.h > 3 && /traced in the card's ink colour/.test(dark.toast), JSON.stringify(dark));
+    ok('wide logo gets the strip across the card, not the small badge, with no plate', dark.strip && !dark.badge && !dark.plate, JSON.stringify(dark));
+    const rainbow = await upload('rainbow', 'rainbow.png');
+    ok('a logo of many colours is kept as a picture (PNG with its transparency), and the toast says why', !rainbow.traced && rainbow.display.png && rainbow.display.w < 400 && /kept as is \(it has more than two colours\)/.test(rainbow.toast), JSON.stringify(rainbow));
+    ok('mixed-tone transparent logo: no plate', !rainbow.plate, rainbow.plate);
+    await p11.click('#paletteDropdownBtn'); await p11.click('#paletteListContainer [data-theme="sage"]');
+    const pastel = await upload('pastel', 'pastel.png');
+    ok('a light picture on a light card (Sage) gets a plate in the accent colour; dark slate behind it in the vCard photo', !pastel.traced && pastel.plate === 'rgb(63, 90, 54)' && pastel.photo.corner.every(v => v < 80), JSON.stringify({ plate: pastel.plate, corner: pastel.photo.corner }));
+    await p11.click('#paletteDropdownBtn'); await p11.click('#paletteListContainer [data-theme="twilight"]');
+    ok('on a dark card (Twilight) the same light picture needs no plate', (await p11.$eval('#previewLogoStrip', s => s.firstElementChild.style.background)) === '');
     const opaque = await upload('opaque', 'banner.png');
-    ok('opaque logo is extended with its own edge colour', near(opaque.photo.corner, [204, 0, 0], 50), JSON.stringify(opaque.photo.corner));
-    ok('opaque logo: trimmed to the lettering, no plate', !opaque.display.png && opaque.display.w < 360 && !opaque.plate.includes('gradient') && !opaque.plate.includes('dark:bg-white'), JSON.stringify(opaque));
+    ok('opaque logo is extended with its own edge colour in the vCard photo', near(opaque.photo.corner, [204, 0, 0], 50), JSON.stringify(opaque.photo.corner));
+    ok('opaque banner: the one-colour lettering is traced, no plate', opaque.traced && !opaque.plate && opaque.display.w / opaque.display.h > 3, JSON.stringify(opaque));
+    const whitebg = await upload('whitebg', 'scan.jpg');
+    ok('a JPEG on white: the white is removed, then the logo is traced; the toast says both', whitebg.traced && /white background removed, traced/.test(whitebg.toast) && near(whitebg.photo.corner, [255, 255, 255]), JSON.stringify({ toast: whitebg.toast, traced: whitebg.traced }));
+    const whiteColour = await upload('whitebg-colour', 'scan-colour.jpg');
+    ok('a colour JPEG on white: the white is removed and the picture kept with transparency (PNG), toast says both', !whiteColour.traced && whiteColour.display.png && /white background removed, kept as is/.test(whiteColour.toast), JSON.stringify({ toast: whiteColour.toast, display: whiteColour.display }));
     const svg = await upload('svg', 'logo.svg');
-    ok('SVG logo is accepted and converted', svg.photo.w === 256 && near(svg.photo.corner, [255, 255, 255]) && svg.strip, JSON.stringify(svg));
+    ok('SVG logo is accepted and converted', svg.photo.w === 256 && near(svg.photo.corner, [255, 255, 255]) && svg.strip && svg.traced, JSON.stringify(svg));
     const viewbox = await upload('viewbox', 'viewbox.svg');
     ok('SVG with only a viewBox keeps its wide shape (not squashed square)', viewbox.strip && viewbox.display.w / viewbox.display.h > 3 && near(viewbox.photo.band, [255, 255, 255]), JSON.stringify(viewbox));
     const round = await upload('round', 'round.png');
-    ok('small logo in a wide margin: trimmed, stays in the badge', !round.strip && round.badge && round.display.w < 110 && Math.abs(round.display.w - round.display.h) < 4, JSON.stringify(round));
+    ok('small logo in a wide margin: trimmed, traced, stays in the badge', !round.strip && round.badge && round.traced && Math.abs(round.display.w - round.display.h) <= 2, JSON.stringify(round));
     // Print: the strip does not fit on a 2 in card, so the printed card shows the logo in the badge, with every line in.
     await upload('dark', 'logo.png');
     await p11.fill('#street', '745 Fifth Avenue'); await p11.fill('#city', 'New York');
@@ -790,7 +812,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p11.emulateMedia({ media: 'print' });
     const printed = await p11.evaluate(() => {
       const card = document.querySelector('#printSheet .print-card'), r = card.getBoundingClientRect();
-      const strip = card.querySelector('.basis-full'), badgeImg = [...card.querySelectorAll('img')].find(i => i.getBoundingClientRect().height > 0);
+      const strip = card.querySelector('.basis-full'), badgeImg = [...card.querySelectorAll('img, svg')].find(i => i.getBoundingClientRect().height > 0);
       const bottoms = [...card.querySelectorAll('p,h3')].map(e => e.getBoundingClientRect().bottom - r.top);
       return { stripShown: !!strip && getComputedStyle(strip).display !== 'none', badge: !!badgeImg && Math.round(badgeImg.getBoundingClientRect().height), last: Math.round(Math.max(...bottoms)), h: Math.round(r.height) };
     });
@@ -801,13 +823,13 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('.vcf carries the logo as a JPEG photo', /\r\nPHOTO;TYPE=JPEG;ENCODING=b:\/9j\//.test(vcf11) && !vcf11.includes('svg') && !vcf11.includes('image/png'), vcf11.slice(vcf11.indexOf('PHOTO'), vcf11.indexOf('PHOTO') + 40));
     // Typeface and side are part of the card's look: Clear goes back to Sans and the front; Undo brings the typeface back.
     await p11.selectOption('#cardFontSelect', 'font-serif');
-    await p11.click('#flipCardBtn');
+    await p11.click('#flipCardBtn'); await settled(p11);
     await p11.click('#clearFormBtn');
-    const cleared = await p11.evaluate(() => ({ font: document.getElementById('cardFontSelect').value, serif: document.getElementById('cardFront').classList.contains('font-serif'), flip: document.getElementById('card3DFlipper').style.transform, logo: !!document.querySelector('#previewLogoStrip img') }));
+    const cleared = await p11.evaluate(() => ({ font: document.getElementById('cardFontSelect').value, serif: document.getElementById('cardFront').classList.contains('font-serif'), flip: document.getElementById('card3DFlipper').style.transform, logo: !!document.querySelector('#previewLogoStrip img, #previewLogoStrip svg') }));
     ok('Clear form: Sans typeface, front side up, no logo', cleared.font === 'font-sans' && !cleared.serif && cleared.flip === 'rotateY(0deg)' && !cleared.logo, JSON.stringify(cleared));
     await p11.click('#toastAction');
     await p11.waitForTimeout(300);
-    const undone = await p11.evaluate(() => ({ font: document.getElementById('cardFontSelect').value, back: document.getElementById('cardBack').classList.contains('font-serif'), logo: !!document.querySelector('#previewLogoStrip img') }));
+    const undone = await p11.evaluate(() => ({ font: document.getElementById('cardFontSelect').value, back: document.getElementById('cardBack').classList.contains('font-serif'), logo: !!document.querySelector('#previewLogoStrip img, #previewLogoStrip svg') }));
     ok('Undo brings back the typeface and the logo strip', undone.font === 'font-serif' && undone.back && undone.logo, JSON.stringify(undone));
     ok('round 3: no page errors', errors11.length === 0, errors11.join(' | '));
     await ctx11.close();
@@ -821,19 +843,19 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     const errorsS = [];
     pS.on('pageerror', e => errorsS.push(e.message));
     await pS.goto(ORIGIN); await pS.waitForTimeout(300);
-    await pS.selectOption('#fakeContactSelect', '1');   // Managing Attorney: main, mobile and fax numbers
-    ok('sample loaded with three phones', (await rows(pS, 'phone')).length === 3 && (await pS.inputValue('#firstName')) === 'Marcus');
+    await pS.selectOption('#fakeContactSelect', '4');   // Pidge: mobile, work and fax numbers
+    ok('sample loaded with three phones', (await rows(pS, 'phone')).length === 3 && (await pS.inputValue('#firstName')) === 'Pidge');
     await pS.setInputFiles('#imageUpload', await renderCardImage(pS)); await pS.waitForTimeout(300);
     await pS.click('#runOcrBtn');
     await pS.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
     await proceed(pS);
     const card = async () => ({ first: await pS.inputValue('#firstName'), middle: await pS.inputValue('#middleName'), suffix: await pS.inputValue('#nameSuffix'),
-      unit: await pS.inputValue('#unitNumber'), phones: await rows(pS, 'phone'), front: await pS.textContent('#previewPhone') });
+      unit: await pS.inputValue('#unitNumber'), phones: await rows(pS, 'phone'), front: await pS.$$eval('#previewPhones .card-line-value', els => els.map(e => e.textContent).join('|')) });
     const filled = await card();
     ok('scan into a sample: the sample is replaced, nothing of it left', filled.first === 'Maria' && !filled.middle && !filled.suffix && !filled.unit
       && filled.phones.length === 1 && filled.phones[0].value === '+1 (312) 555-0147' && filled.front === '+1 (312) 555-0147', JSON.stringify(filled));
     await pS.click('#toastAction');
-    ok('Undo brings the sample back', (await pS.inputValue('#firstName')) === 'Marcus' && (await rows(pS, 'phone')).length === 3);
+    ok('Undo brings the sample back', (await pS.inputValue('#firstName')) === 'Pidge' && (await rows(pS, 'phone')).length === 3);
     await pS.click('#reopenScanBtn');
     await proceed(pS);
     const again = await card();
@@ -852,7 +874,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await pF.goto(ORIGIN); await pF.waitForTimeout(300);
     const pops = () => pF.$eval('#fieldsForm', f => Number(f.dataset.pops || 0));
     const card = () => pF.evaluate(() => document.documentElement.dataset.card);
-    ok('fields: the list reads "Insert Fake Contact?" and names each sample by name and company', (await pF.$$eval('#fakeContactSelect option', os => os.map(o => o.textContent).join('|'))) === 'Insert Fake Contact?|Elena Rostova, NeuralShift AI|Marcus Vance, Vance & Partners LLP|Kai Takahashi, Studio Craft'
+    ok('fields: the list reads "Insert Fake Contact?" and names each sample by name and company', (await pF.$$eval('#fakeContactSelect option', os => os.map(o => o.textContent).join('|'))) === 'Insert Fake Contact?|Shutout Box Turtle, Team vCGE|Ghost Raccoon, Team vCGE|Iris Lynx, Team vCGE|Glyph Owl, Team vCGE|Pidge Octopus, Team vCGE|Flipside Chameleon, Team vCGE|Checkers Zebra, Team vCGE|Airlock Falcon, Team vCGE|Cornerstone Elephant, Team vCGE'
       && (await pF.$eval('#fakeContactSelect', s => s.value)) === '' && !(await pF.$('#presetButtonsContainer')), await pF.$$eval('#fakeContactSelect option', os => os.map(o => o.textContent).join('|')));
     ok('fields: nothing has popped yet (the Welcome START lands on Capture)', (await pops()) === 0);
     // A header icon is a move of the deck's own: the form pops on arrival (a swipe, below, does not)
@@ -868,7 +890,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await pF.waitForTimeout(500);
     const pop = await pF.evaluate(() => window.__pop);
     ok('fields: choosing a sample fills the form, pops it in (one animation, 8 steps over 0.32 s), offers Undo, and the list reads the prompt again',
-      (await pF.inputValue('#firstName')) === 'Kai' && (await pF.inputValue('#organization')) === 'Studio Craft' && (await pops()) === 2 && pop.names.includes('fields-pop') && pop.steps === 'steps(8)' && pop.ms === '0.32s'
+      (await pF.inputValue('#firstName')) === 'Iris' && (await pF.inputValue('#organization')) === 'Team vCGE' && (await pops()) === 2 && pop.names.includes('fields-pop') && pop.steps === 'steps(8)' && pop.ms === '0.32s'
       && await pF.isVisible('#toastAction') && (await pF.$eval('#fakeContactSelect', s => s.value)) === '' && (await card()) === 'fields', JSON.stringify({ pop, pops: await pops(), card: await card() }));
     ok('fields: the list and the green button are at least 44 px tall; the button reads "Everything\'s correct" with the tick icon', (await pF.$$eval('#fakeContactSelect, #fieldsDoneBtn', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44)
       && (await pF.textContent('#fieldsDoneBtn')).trim() === "Everything's correct" && !!(await pF.$('#fieldsDoneBtn svg use[href$="#circle-check"]')), JSON.stringify(await pF.$$eval('#fakeContactSelect, #fieldsDoneBtn', els => els.map(e => e.getBoundingClientRect().height))));
@@ -883,7 +905,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     const sidesRight = await footSides();
     await pF.click('#fieldsDoneBtn'); await pF.waitForTimeout(700);
     ok('fields: "Everything\'s correct" sits lower right (the trash lower left) and moves on to the 3D Card with the details on it',
-      sidesRight.ok === 'right' && sidesRight.trash === 'left' && sidesRight.okBottom && (await card()) === 'card' && (await pF.textContent('#previewFullName')) === 'Kai Takahashi' && await pF.isVisible('#vaultHandoff[data-playing]').catch(() => true),
+      sidesRight.ok === 'right' && sidesRight.trash === 'left' && sidesRight.okBottom && (await card()) === 'card' && (await pF.textContent('#previewFullName')) === 'Iris Lynx' && await pF.isVisible('#vaultHandoff[data-playing]').catch(() => true),
       JSON.stringify({ sidesRight, card: await card() }));
     await pF.click('#navSettings'); await pF.click('#handLeftBtn'); await pF.keyboard.press('Escape'); await pF.waitForTimeout(200);
     await pF.click('#navFields'); await pF.waitForTimeout(600);
@@ -896,7 +918,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await pF.emulateMedia({ reducedMotion: 'reduce' });
     const before = await pops();
     await pF.selectOption('#fakeContactSelect', '0'); await pF.waitForTimeout(300);
-    ok('fields: under reduce motion a sample is simply there (no pop class), the arrival still counted', (await pops()) === before + 1 && !(await pF.$eval('#fieldsForm', f => f.classList.contains('is-popping'))) && (await pF.inputValue('#firstName')) === 'Elena', String(await pops()));
+    ok('fields: under reduce motion a sample is simply there (no pop class), the arrival still counted', (await pops()) === before + 1 && !(await pF.$eval('#fieldsForm', f => f.classList.contains('is-popping'))) && (await pF.inputValue('#firstName')) === 'Shutout', String(await pops()));
     ok('fields: no page errors', errorsF.length === 0, errorsF.join(' | '));
     await ctxF.close();
   }
@@ -1542,16 +1564,131 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await pU.click('#navCard'); await pU.waitForTimeout(700);
     const flip = await pU.locator('#flipCardBtn').boundingBox();
     const turned = () => pU.$eval('#card3DFlipper', el => el.style.transform);
-    await pU.touchscreen.tap(flip.x + flip.width / 2, flip.y + 1.5);
+    await pU.touchscreen.tap(flip.x + flip.width / 2, flip.y + 1.5); await settled(pU);
     ok('near miss: a tap on a button\'s edge does nothing', (await turned()) !== 'rotateY(180deg)', await turned());
-    await pU.touchscreen.tap(flip.x + flip.width / 2, flip.y + flip.height / 2);
+    await pU.touchscreen.tap(flip.x + flip.width / 2, flip.y + flip.height / 2); await settled(pU);
     ok('a tap in the middle of the button works', (await turned()) === 'rotateY(180deg)', await turned());
-    await pU.mouse.click(flip.x + flip.width / 2, flip.y + 1.5);
+    await pU.mouse.click(flip.x + flip.width / 2, flip.y + 1.5); await settled(pU);
     ok('a mouse click on the edge still works (only fingers get the near-miss guard)', (await turned()) === 'rotateY(0deg)', await turned());
     await pU.setViewportSize({ width: 390, height: 844 });
     ok('phone width: the app reports the phone layout and nothing scrolls sideways', await pU.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--vcge-layout').trim() === 'phone' && document.documentElement.scrollWidth <= innerWidth));
     ok('shared look: no missing files, no page errors', missingU.length === 0 && errorsU.length === 0, missingU.concat(errorsU).join(' | '));
     await ctxU.close();
+  }
+
+  // 3D Card (MOD06, redesign step 8): fall themes on the card face, every line with its label, swipe-to-spin, toasts
+  // at the top, the pilots as samples with their animal logos, the Logo controls on this card
+  {
+    const ctx6 = await browser.newContext({ hasTouch: true });
+    const p6 = await ctx6.newPage();
+    const errors6 = [], external6 = [], missing6 = [];
+    p6.on('pageerror', e => errors6.push(e.message));
+    p6.on('console', m => { if (m.type() === 'error') errors6.push('console: ' + m.text()); });
+    p6.on('request', r => { if (!r.url().startsWith(ORIGIN) && !/^(data|blob):/.test(r.url())) external6.push(r.url()); });
+    p6.on('response', r => { if (r.status() >= 400) missing6.push(`${r.status()} ${r.url()}`); });
+    await p6.goto(ORIGIN); await p6.waitForTimeout(300);
+    await p6.click('#navCard'); await p6.waitForTimeout(700);
+    const rgb = (hex) => `rgb(${parseInt(hex.slice(1, 3), 16)}, ${parseInt(hex.slice(3, 5), 16)}, ${parseInt(hex.slice(5, 7), 16)})`;
+    const face = () => p6.$eval('#cardFront', el => { const cs = getComputedStyle(el); return { bg: cs.backgroundColor, ink: cs.color }; });
+    ok('card: the default theme is Slate Blue, on the card face and in the picker', (await face()).bg === rgb('#3e5572') && (await face()).ink === rgb('#eef3f9') && (await p6.textContent('#currentPaletteLabel')) === 'Slate Blue', JSON.stringify(await face()));
+    ok('card: the picker lists the eight fall palettes in order', (await p6.$$eval('#paletteListContainer button', bs => bs.map(b => b.textContent.trim()).join('|'))) === 'Pumpkin|Maple|Harvest Gold|Cranberry|Spruce|Sage|Slate Blue|Twilight');
+    await p6.click('#paletteDropdownBtn'); await p6.click('#paletteListContainer [data-theme="pumpkin"]');
+    ok('card: Pumpkin colours the whole face, front and back, with dark ink; the back too', (await face()).bg === rgb('#e8792b') && (await face()).ink === rgb('#2a1407') && (await p6.$eval('#cardBack', el => getComputedStyle(el).backgroundColor)) === rgb('#e8792b') && (await p6.textContent('#toastMessage')) === 'Applied palette: Pumpkin', JSON.stringify(await face()));
+    ok('card: the initials badge is the accent with the card colour on it', (await p6.$eval('#previewAvatar', el => [el.style.background, el.style.color].join('|'))) === `${rgb('#7a3309')}|${rgb('#e8792b')}`, await p6.$eval('#previewAvatar', el => el.style.background));
+    // Every phone, email and site, each with its label; the third of a kind is left off the printed card
+    await p6.click('#navFields'); await p6.waitForTimeout(500);
+    await p6.fill('#firstName', 'Many'); await p6.fill('#lastName', 'Lines');
+    for (const n of [0, 1]) { await p6.click('#addPhoneBtn'); await p6.click('#addEmailBtn'); }
+    await p6.fill('#phoneValue0', '+1 (312) 555-0101'); await p6.fill('#phoneValue1', '+1 (312) 555-0102'); await p6.fill('#phoneValue2', '+1 (312) 555-0103');
+    await p6.selectOption('#phoneType0', 'work'); await p6.selectOption('#phoneType1', 'mobile'); await p6.selectOption('#phoneType2', 'workFax');
+    await p6.fill('#emailValue0', 'a@example.com'); await p6.fill('#emailValue1', 'b@example.com'); await p6.fill('#emailValue2', 'c@example.com');
+    await p6.fill('#websiteValue0', 'https://example.com');
+    const lines = await p6.evaluate(() => {
+      const read = (id) => [...document.querySelectorAll(`#${id} .card-line`)].map(p => ({ label: p.querySelector('.card-line-label').textContent, value: p.querySelector('.card-line-value').textContent, printHidden: p.classList.contains('print:hidden') }));
+      return { phones: read('previewPhones'), emails: read('previewEmails'), sites: read('previewWebsites') };
+    });
+    ok('card: every phone and email is on the card with its label (Work, Mobile, Work fax)', lines.phones.length === 3 && lines.phones.map(l => l.label).join('|') === 'Work|Mobile|Work fax' && lines.phones[2].value === '+1 (312) 555-0103' && lines.emails.length === 3 && lines.sites.length === 1 && lines.sites[0].value === 'https://example.com', JSON.stringify(lines));
+    ok('card: past two of a kind a line is left off the printed card (no room on 2 in)', !lines.phones[0].printHidden && !lines.phones[1].printHidden && lines.phones[2].printHidden && lines.emails[2].printHidden && !lines.sites[0].printHidden, JSON.stringify(lines));
+    ok('card: an empty list reads as before', (await p6.evaluate(() => { document.getElementById('websiteValue0').value = ''; document.getElementById('websiteValue0').dispatchEvent(new Event('input')); return document.querySelector('#previewWebsites .card-line').textContent; })) === 'No website');
+    // The spin: a tap flips (26 fps steps with a small snap, settling exactly on the face); a sideways drag on the card
+    // turns it and it settles on the nearest face; a drag from the screen edge is the browser's; the deck stays put.
+    await p6.click('#navCard'); await p6.waitForTimeout(700);
+    const flipper = await p6.locator('#card3DFlipper').boundingBox();
+    const angle = () => p6.$eval('#card3DFlipper', el => el.style.transform);
+    const frames = [];
+    await p6.evaluate(() => { window.__spin = []; new MutationObserver(() => window.__spin.push(document.getElementById('card3DFlipper').style.transform)).observe(document.getElementById('card3DFlipper'), { attributes: true, attributeFilter: ['style'] }); });
+    await p6.click('#flipCardBtn'); await settled(p6);
+    frames.push(...await p6.evaluate(() => window.__spin));
+    const degs = frames.map(f => parseFloat(/rotateY\(([-\d.]+)deg\)/.exec(f)[1]));
+    ok('card: a flip is stepped (about 10 frames over 0.42 s), snaps a little past 180 and settles exactly on 180', (await angle()) === 'rotateY(180deg)' && degs.length >= 7 && degs.length <= 14 && Math.max(...degs) > 181 && (await p6.$eval('#card3DFlipper', el => el.dataset.spin)) === 'still', JSON.stringify(degs));
+    const cx = flipper.x + flipper.width / 2, cy = flipper.y + flipper.height / 2;
+    await p6.mouse.move(cx - flipper.width * 0.3, cy); await p6.mouse.down();
+    for (let i = 1; i <= 8; i++) await p6.mouse.move(cx - flipper.width * 0.3 + flipper.width * 0.6 * i / 8, cy);
+    const midway = await angle();
+    await p6.mouse.up(); await settled(p6);
+    ok('card: a sideways drag across the card turns it with the finger and it settles on the front', /rotateY\(2[5-9]\d|rotateY\(3[0-5]\d/.test(midway) && (await angle()) === 'rotateY(0deg)', `${midway} -> ${await angle()}`);
+    await p6.mouse.move(cx, cy); await p6.mouse.down(); await p6.mouse.move(cx + 3, cy); await p6.mouse.up(); await settled(p6);
+    ok('card: a drag shorter than a tap still counts as a tap (flips)', (await angle()) === 'rotateY(180deg)', await angle());
+    const cardName = () => p6.evaluate(() => document.documentElement.dataset.card);
+    await p6.mouse.move(cx, cy); await p6.mouse.down();
+    for (let i = 1; i <= 6; i++) await p6.mouse.move(cx + flipper.width * 0.2 * i / 6, cy);
+    await p6.mouse.up(); await settled(p6); await p6.waitForTimeout(400);
+    ok('card: a short drag settles back on the same face and the deck stays on this card', (await angle()) === 'rotateY(180deg)' && (await cardName()) === 'card', `${await angle()} ${await cardName()}`);
+    await p6.mouse.move(20, cy); await p6.mouse.down(); await p6.mouse.move(200, cy); await p6.mouse.up(); await settled(p6);
+    ok('card: a drag that starts within 48 px of the screen edge does not spin the card', (await angle()) === 'rotateY(180deg)', await angle());
+    await p6.emulateMedia({ reducedMotion: 'reduce' });
+    await p6.evaluate(() => { window.__spin = []; });
+    await p6.click('#flipCardBtn');
+    ok('card: under reduce motion the flip is instant (one frame)', (await angle()) === 'rotateY(0deg)' && (await p6.evaluate(() => window.__spin.length)) === 1, JSON.stringify(await p6.evaluate(() => window.__spin)));
+    await p6.emulateMedia({ reducedMotion: 'no-preference' });
+    // Toasts: at the top, 3 s, a tap dismisses, a hold keeps it until 3 s after the release
+    await p6.click('#paletteDropdownBtn'); await p6.click('#paletteListContainer [data-theme="sage"]');
+    await p6.waitForTimeout(400);   // it slides in over 0.3 s
+    const toastBox = await p6.locator('#toast').boundingBox();
+    ok('toast: shows at the top of the screen, under the header, not the bottom', toastBox.y > 40 && toastBox.y < 120 && await p6.isVisible('#toast'), JSON.stringify(toastBox));
+    await p6.waitForTimeout(2200);
+    ok('toast: still there at 2.6 s', !(await p6.$eval('#toast', t => t.classList.contains('opacity-0'))));
+    await p6.waitForTimeout(700);
+    ok('toast: gone after 3 s', await p6.$eval('#toast', t => t.classList.contains('opacity-0')));
+    await p6.click('#paletteDropdownBtn'); await p6.click('#paletteListContainer [data-theme="maple"]');
+    await p6.click('#toastMessage');
+    ok('toast: a tap dismisses it at once', await p6.$eval('#toast', t => t.classList.contains('opacity-0')));
+    await p6.click('#paletteDropdownBtn'); await p6.click('#paletteListContainer [data-theme="spruce"]');
+    const tb = await p6.locator('#toast').boundingBox();
+    await p6.mouse.move(tb.x + tb.width / 2, tb.y + tb.height / 2); await p6.mouse.down();
+    await p6.waitForTimeout(3600);
+    ok('toast: held, it stays past 3 s', !(await p6.$eval('#toast', t => t.classList.contains('opacity-0'))));
+    await p6.mouse.up();
+    await p6.waitForTimeout(2500);
+    ok('toast: still there 2.5 s after the release', !(await p6.$eval('#toast', t => t.classList.contains('opacity-0'))));
+    await p6.waitForTimeout(800);
+    ok('toast: gone 3 s after the release', await p6.$eval('#toast', t => t.classList.contains('opacity-0')));
+    // The Logo controls live on this card: upload on the right by its preview, Remove on the far left once there is a logo
+    const ctl = await p6.evaluate(() => { const r = (id) => document.getElementById(id).getBoundingClientRect(); const card = r('cardCard'); return { upload: r('avatarUpload').width === 0 ? document.getElementById('avatarUpload').parentElement.getBoundingClientRect().left : 0, remove: r('removeAvatarBtn'), preview: r('formAvatarPreview'), inCard: document.getElementById('cardCard').contains(document.getElementById('avatarUpload')) && !document.getElementById('cardFields').contains(document.getElementById('avatarUpload')), cardLeft: card.left, cardW: card.width, label: document.getElementById('avatarUpload').parentElement.textContent.trim() }; });
+    ok('logo: the upload reads "Logo", sits on the 3D Card (not the Fields card), on the right with its preview', ctl.inCard && ctl.label === 'Logo' && ctl.upload > ctl.cardLeft + ctl.cardW / 2 && ctl.preview.left < ctl.upload, JSON.stringify(ctl));
+    ok('logo: no Remove button while there is no logo', !(await p6.isVisible('#removeAvatarBtn')));
+    // A sample brings its animal as the logo (a bundled file, drawn on the device, kept in its own colours)
+    await p6.click('#navFields'); await p6.waitForTimeout(500);
+    await p6.selectOption('#fakeContactSelect', '1');   // Ghost the Raccoon
+    await p6.waitForFunction(() => !!document.querySelector('#previewAvatar img'), null, { timeout: 5000 });
+    await p6.waitForTimeout(300);
+    const ghost = await p6.evaluate(() => ({ name: document.getElementById('previewFullName').textContent, theme: document.getElementById('currentPaletteLabel').textContent, logo: document.querySelector('#previewAvatar img').src.slice(0, 21), badge: getComputedStyle(document.getElementById('previewAvatar')).display !== 'none', remove: getComputedStyle(document.getElementById('removeAvatarBtn')).display !== 'none' }));
+    ok('sample: Ghost the Raccoon lands with the Twilight theme and the raccoon as a picture logo in the badge, Remove now shown', ghost.name === 'Ghost Raccoon' && ghost.theme === 'Twilight' && ghost.logo === 'data:image/png;base64' && ghost.badge && ghost.remove, JSON.stringify(ghost));
+    const [dl6] = await Promise.all([p6.waitForEvent('download'), p6.click('#downloadVcfBtn')]);
+    const vcf6 = fs.readFileSync(await dl6.path(), 'utf8');
+    ok('sample: the .vcf carries the animal as a JPEG photo and the 555-01 number', /PHOTO;TYPE=JPEG;ENCODING=b:/.test(vcf6) && vcf6.includes('+1 (202) 555-0102') && vcf6.includes('ghost@example.com'), vcf6.split('\r\n').filter(l => /^(TEL|EMAIL|PHOTO)/.test(l)).map(l => l.slice(0, 40)).join(' | '));
+    await p6.click('#navCard'); await p6.waitForTimeout(500);
+    const sides = await p6.evaluate(() => { const r = document.getElementById('removeAvatarBtn').getBoundingClientRect(), u = document.getElementById('avatarUpload').parentElement.getBoundingClientRect(); return { gap: u.left - r.right, removeText: document.getElementById('removeAvatarBtn').textContent.trim() }; });
+    ok('logo: "Remove logo" sits well away from the upload (on the far left)', sides.removeText === 'Remove logo' && sides.gap > 80, JSON.stringify(sides));
+    await p6.click('#removeAvatarBtn');
+    ok('logo: Remove takes the logo off and says so; the initials are back', !(await p6.$('#previewAvatar img')) && (await p6.textContent('#previewAvatar')).trim() === 'GR' && (await p6.textContent('#toastMessage')) === 'Logo removed.');
+    await p6.click('#toastAction').catch(() => {});
+    await p6.click('#navFields'); await p6.waitForTimeout(300);
+    await p6.click('#clearFormBtn'); await p6.click('#toastAction');
+    await p6.waitForTimeout(300);
+    ok('sample: Undo after Clear brings the sample back without its logo (removed before) and with its theme', (await p6.inputValue('#firstName')) === 'Ghost' && (await p6.textContent('#currentPaletteLabel')) === 'Twilight' && !(await p6.$('#previewAvatar img')));
+    ok('card: no page errors, nothing fetched from outside, no missing files', errors6.length === 0 && external6.length === 0 && missing6.length === 0, errors6.concat(external6, missing6).join(' | '));
+    await ctx6.close();
   }
 
   console.log(`\n${pass} passed, ${fail} failed`);

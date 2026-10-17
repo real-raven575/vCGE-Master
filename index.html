@@ -192,15 +192,6 @@
             <!-- Fields card (MOD05, Pidge): the details land here after the Read card's hand-off and pop in all at once -->
             <div class="fields-head">
                 <h2>Contact details</h2>
-                <div class="flex items-center gap-2">
-                    <div id="formAvatarPreview" class="w-14 h-14"></div>
-                    <div class="flex flex-col gap-1">
-                        <label class="cursor-pointer text-[11px] font-semibold px-2 py-1 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition text-center">
-                            Avatar<input id="avatarUpload" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" class="hidden">
-                        </label>
-                        <button id="removeAvatarBtn" type="button" class="hidden text-[11px] px-2 py-1 rounded-lg hover:text-rose-500 transition">Remove</button>
-                    </div>
-                </div>
             </div>
             <!-- "Insert Fake Contact?": the sample contacts (MOD06 supplies them as data; fieldsCard.js fills the list) -->
             <div class="fields-tools">
@@ -289,27 +280,37 @@
                     </select>
                     <button id="flipCardBtn" type="button" class="ml-auto px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition">Flip card</button>
                 </div>
+                <!-- Logo (MOD06): upload sits on the right with the preview; Remove on the far left, away from it -->
+                <div class="flex flex-wrap items-center gap-2">
+                    <button id="removeAvatarBtn" type="button" class="hidden px-3 py-1.5 rounded-lg text-xs font-semibold hover:text-rose-500 transition">Remove logo</button>
+                    <div class="ml-auto flex items-center gap-2">
+                        <div id="formAvatarPreview" class="w-11 h-11"></div>
+                        <label class="cursor-pointer text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition text-center">
+                            Logo<input id="avatarUpload" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" class="hidden">
+                        </label>
+                    </div>
+                </div>
 
                 <div class="perspective-1000">
                     <div id="card3DFlipper" class="relative transform-style-3d cursor-pointer">
-                        <div id="cardFront" class="w-full min-h-64 rounded-3xl p-6 shadow-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-4 relative overflow-hidden backface-hidden font-sans">
+                        <div id="cardFront" class="card-face w-full min-h-64 rounded-3xl p-6 shadow-xl space-y-4 relative overflow-hidden backface-hidden font-sans">
                             <div class="flex flex-wrap items-center gap-4">
                                 <div id="previewLogoStrip" class="hidden"></div>
                                 <div id="previewAvatar" class="w-16 h-16"></div>
                                 <div class="min-w-0 flex-1">
                                     <h3 id="previewFullName" class="text-xl font-bold tracking-tight truncate">New Contact</h3>
-                                    <p id="previewTitle" class="text-sm text-slate-500 dark:text-slate-400 truncate">Job Title</p>
+                                    <p id="previewTitle" class="card-muted text-sm truncate">Job Title</p>
                                     <p id="previewOrg" class="text-sm font-semibold truncate">Company Name</p>
                                 </div>
                             </div>
-                            <div class="text-xs space-y-1 text-slate-600 dark:text-slate-300">
-                                <p id="previewPhone">No phone number</p>
-                                <p id="previewEmail" class="break-all">No email address</p>
-                                <p id="previewWebsite" class="break-all">No website</p>
-                                <p id="previewAddress">No address provided</p>
+                            <div class="card-lines text-xs space-y-1">
+                                <div id="previewPhones"></div>
+                                <div id="previewEmails" class="break-all"></div>
+                                <div id="previewWebsites" class="break-all"></div>
+                                <p id="previewAddress" class="card-line">No address provided</p>
                             </div>
                         </div>
-                        <div id="cardBack" class="absolute inset-0 w-full rounded-3xl p-6 shadow-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col justify-center items-center text-center gap-2 rotate-y-180 backface-hidden font-sans">
+                        <div id="cardBack" class="card-face absolute inset-0 w-full rounded-3xl p-6 shadow-xl flex flex-col justify-center items-center text-center gap-2 rotate-y-180 backface-hidden font-sans">
                             <canvas id="qrCanvas" width="320" height="320" class="w-40 h-40 rounded-xl shadow-lg bg-white"></canvas>
                             <p id="backCardName" class="text-sm font-bold">New Contact</p>
                             <p id="qrNotice" class="hidden text-[10px] text-amber-600 dark:text-amber-400">QR code unavailable: see the message above</p>
@@ -511,7 +512,8 @@
     </div>
 
     <!-- Toast -->
-    <div id="toast" class="fixed bottom-5 left-1/2 -translate-x-1/2 translate-y-20 opacity-0 pointer-events-none transition-all duration-300 z-50 px-4 py-2.5 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-sm shadow-xl flex items-center gap-3" role="status">
+    <!-- Toast (MOD06): at the top under the header, 3 s; a tap dismisses it, a hold keeps it -->
+    <div id="toast" class="fixed top-14 left-1/2 -translate-x-1/2 -translate-y-24 opacity-0 pointer-events-none transition-all duration-300 z-50 max-w-[calc(100vw-2rem)] px-4 py-2.5 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-sm shadow-xl flex items-center gap-3 cursor-pointer select-none" role="status">
         <span id="toastMessage"></span>
         <button id="toastAction" type="button" class="hidden font-semibold text-brand-400 dark:text-brand-700 hover:underline">Undo</button>
     </div>

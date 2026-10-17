@@ -861,6 +861,72 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     && card.toneOf(image([10, 10, 10, 255], [10, 10, 10, 255]), 20, all) === 'dark'
     && card.toneOf(image([128, 128, 128, 255], [128, 128, 128, 255]), 20, all) === null
     && card.toneOf(image([0, 0, 0, 0], [0, 0, 0, 0]), 20, all) === null);
+
+  // Redesign step 8: the eight fall themes, each a card colour, an ink and an accent that read well together
+  const themes = Object.values(card.THEMES);
+  ok('eight fall palettes in the order of the plan', themes.map(t => t.label).join('|') === 'Pumpkin|Maple|Harvest Gold|Cranberry|Spruce|Sage|Slate Blue|Twilight');
+  ok('every theme: ink on the card reads at 4.5:1 or better, the initials (card colour on the accent) at 3:1 or better',
+    themes.every(t => card.contrastRatio(t.ink, t.card) >= 4.5 && card.contrastRatio(t.card, t.accent) >= 3), themes.map(t => `${t.label} ${card.contrastRatio(t.ink, t.card).toFixed(1)}/${card.contrastRatio(t.card, t.accent).toFixed(1)}`).join(', '));
+  ok('contrast ratio: white on black is 21, a colour on itself 1', Math.abs(card.contrastRatio('#fff', '#000') - 21) < 0.01 && card.contrastRatio('#e8792b', '#e8792b') === 1);
+  ok('an old palette key (a card held through a lock) and an unknown one land on a fall theme', card.themeKeyOf('ocean') === 'slateblue' && card.themeKeyOf('sunset') === 'pumpkin' && card.themeKeyOf('nope') === card.DEFAULT_THEME && card.themeKeyOf('maple') === 'maple' && card.THEMES[card.DEFAULT_THEME]);
+
+  // The nine pilots as sample contacts: fictional numbers and addresses only, a bundled animal logo each, licence kept
+  const fs6 = await import('node:fs');
+  ok('nine samples, one per pilot plus the PM, all at Team vCGE with a first and last name', card.PRESETS.length === 9 && card.PRESETS.every(p => p.organization === 'Team vCGE' && p.firstName && p.lastName)
+    && card.PRESETS.map(p => p.firstName).join(',') === 'Shutout,Ghost,Iris,Glyph,Pidge,Flipside,Checkers,Airlock,Cornerstone');
+  ok('samples use only the reserved 555-01xx numbers and example.com', card.PRESETS.every(p => p.phones.every(ph => /^\+1 \(202\) 555-01\d\d$/.test(ph.value))
+    && p.emails.every(e => /@example\.com$/.test(e.value)) && p.websites.every(w => /^https:\/\/(www\.)?(example\.com|instagram\.com\/example)/.test(w.value))), JSON.stringify(card.PRESETS.map(p => [p.phones, p.emails, p.websites])));
+  ok('every sample names a fall theme and a bundled animal logo that exists, with the Noto licence beside it',
+    card.PRESETS.every(p => card.THEMES[p.themePalette] && /^src\/vendor\/icons\/animals\/[a-z]+\.svg$/.test(p.logo) && fs6.existsSync(`${R}/../${p.logo}`))
+    && fs6.existsSync(`${R}/vendor/icons/animals/LICENSE-noto-emoji.txt`) && fs6.readFileSync(`${R}/vendor/icons/animals/LICENSE-noto-emoji.txt`, 'utf8').includes('Apache License'), card.PRESETS.map(p => p.logo).join(' '));
+  ok('the sample logo files are plain SVG drawings (no scripts, no links out)', card.PRESETS.every(p => { const t = fs6.readFileSync(`${R}/../${p.logo}`, 'utf8'); return t.startsWith('<svg') && !/<script|<a[\s>]|href=|on[a-z]+=|url\((?!#)|http(?!:\/\/www\.w3\.org\/)/i.test(t); }));
+
+  // White background removal: the white joined to the edge goes see-through, white inside the logo stays
+  const white = () => {
+    const px = new Uint8ClampedArray(8 * 8 * 4).fill(255);                         // all white, opaque
+    for (let y = 2; y < 6; y++) for (let x = 2; x < 6; x++) px.set([200, 0, 0, 255], (y * 8 + x) * 4);   // a red block
+    px.set([255, 255, 255, 255], (3 * 8 + 3) * 4);                                 // a white hole in it
+    px.set([230, 230, 230, 255], (0 * 8 + 7) * 4);                                 // a light grey corner pixel
+    return px;
+  };
+  const w8 = white();
+  const cleared = card.removeWhite(w8, 8, 8);
+  ok('the white around the logo is removed, with a soft edge for near-white', cleared === 48 && w8[3] === 0 && w8[(0 * 8 + 7) * 4 + 3] > 0 && w8[(0 * 8 + 7) * 4 + 3] < 255, `${cleared} ${w8[3]} ${w8[(0 * 8 + 7) * 4 + 3]}`);
+  ok('the logo and the white inside it are untouched', w8[(2 * 8 + 2) * 4 + 3] === 255 && w8[(3 * 8 + 3) * 4 + 3] === 255);
+  ok('isWhite reads an edge colour', card.isWhite('rgb(255,255,255)') && card.isWhite('rgb(240, 238, 236)') && !card.isWhite('rgb(200,0,0)') && !card.isWhite(''));
+
+  // The trace: outlines of a cell mask as closed loops, a hole as a second loop, touching corners kept apart
+  const one = new Uint8Array(9); one[4] = 1;
+  ok('one cell: one square loop', JSON.stringify(card.outlines(one, 3, 3)) === '[[[1,1],[2,1],[2,2],[1,2]]]');
+  const ring = new Uint8Array([1, 1, 1, 1, 0, 1, 1, 1, 1]);
+  ok('a ring: the outside and the hole, the hole the other way round', JSON.stringify(card.outlines(ring, 3, 3)) === '[[[0,0],[3,0],[3,3],[0,3]],[[2,1],[1,1],[1,2],[2,2]]]');
+  ok('two cells touching at a corner stay two loops', card.outlines(new Uint8Array([1, 0, 0, 1]), 2, 2).length === 2);
+  ok('soften cuts each corner back half a cell, so a long side stays straight', JSON.stringify(card.soften([[0, 0], [4, 0], [4, 4], [0, 4]])) === '[[0,0.5],[0.5,0],[3.5,0],[4,0.5],[4,3.5],[3.5,4],[0.5,4],[0,3.5]]');
+  const box = { x: 0, y: 0, w: 20, h: 10, transparent: false, edge: 'rgb(255,255,255)' };
+  const traced = card.traceLogo(image([255, 255, 255, 255], [20, 20, 20, 255]), 20, box);
+  ok('a dark mark on white traces to one path filled with currentColor, marked as the module\'s own', /^<svg [^>]*data-vcge-trace="1"[^>]*viewBox="0 0 20 10"><path fill="currentColor" fill-rule="evenodd" d="M[^"]+Z"\/><\/svg>$/.test(traced.svg || ''), traced.svg || traced.reason);
+  const mixed = image([255, 255, 255, 255], [20, 20, 20, 255]);
+  for (let x = 8; x < 10; x++) for (let y = 4; y < 6; y++) mixed.set([250, 240, 30, 255], (y * 20 + x) * 4);   // half the mark yellow
+  ok('a mark of two colours is not traced (kept as is)', card.traceLogo(mixed, 20, box).reason === 'colours');
+  ok('colour distance to the ink-to-background line: on it 0, off it the gap', card.distanceToSegment([128, 128, 128], [0, 0, 0], [255, 255, 255]) === 0 && Math.round(card.distanceToSegment([255, 0, 0], [0, 0, 0], [255, 255, 255])) === 208 && card.distanceToSegment([10, 10, 10], [0, 0, 0], [0, 0, 0]) > 17);
+  ok('a hold on a toast is 0.4 s or longer', card.TOAST_HOLD_MS === 400);
+  ok('a blank image is too faint to trace', card.traceLogo(image([255, 255, 255, 255], [255, 255, 255, 255]), 20, box).reason === 'faint');
+  const half = new Uint8ClampedArray(20 * 10 * 4).fill(255);
+  for (let y = 0; y < 10; y++) for (let x = 0; x < 10; x++) half.set([20, 20, 20, 255], (y * 20 + x) * 4);   // the left half black
+  const small = card.traceLogo(half, 20, box, { max: 4 });
+  ok('the trace is downscaled to the grid limit (a 20 x 10 mark on a 4 x 2 grid)', /viewBox="0 0 4 2"/.test(small.svg || '') && /M0 0\.5L0\.5 0L1\.5 0L2 0\.5L2 1\.5L1\.5 2L0\.5 2L0 1\.5Z/.test(small.svg || ''), small.svg || small.reason);
+  ok('the toast says what was done to the logo', card.logoMessage({ traced: true, whiteRemoved: true }).includes('white background removed') && card.logoMessage({ traced: false, whiteRemoved: false, reason: 'colours' }).includes('more than two colours'));
+
+  // Motion: the shared ease (26 fps steps, 5 percent snap), the spin and the toast timings
+  ok('ease starts at 0, ends at 1, snaps past 1 on the way', card.easeSnap(0) === 0 && card.easeSnap(1) === 1 && Math.max(...Array.from({ length: 101 }, (_, i) => card.easeSnap(i / 100))) > 1.03);
+  {
+    let t = 0; const frames = []; const timers = [];
+    const stop = card.tween(0, 180, 400, v => frames.push(v), { now: () => t, schedule: (fn, ms) => { timers.push([fn, ms]); return timers.length; }, cancel: () => {} });
+    while (timers.length) { const [fn, ms] = timers.shift(); t += ms; fn(); }
+    ok('a spin is stepped at 26 fps and lands exactly on the target', frames.length >= 9 && frames.length <= 12 && frames[frames.length - 1] === 180 && Math.max(...frames) > 180, JSON.stringify(frames.map(Math.round)));
+    stop();
+  }
+  ok('spin, edge and toast numbers follow the plan: 26 fps, 5 percent, 48 px edge, 3 s toast', card.STEP_FPS === 26 && card.OVERSHOOT === 0.05 && card.EDGE_PX === 48 && card.TOAST_MS === 3000 && card.PRINT_LINES_EACH === 2);
 }
 
 // MOD01 browser gate (browserGate.js, ES5): which missing feature blocks the app and which only warns

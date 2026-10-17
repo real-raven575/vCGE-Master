@@ -110,3 +110,21 @@ for (const name of APP_ICONS) {
 fs.writeFileSync(path.join(appIconsOut, 'sprite.svg'), `<svg xmlns="http://www.w3.org/2000/svg" style="display:none">${symbols.join('')}</svg>\n`);
 fs.copyFileSync(path.join(NM, '@tabler/icons/LICENSE'), path.join(appIconsOut, 'LICENSE-tabler.txt'));
 console.log(`${String(APP_ICONS.length).padStart(6)} SVG src/vendor/icons/app/ (Tabler) + sprite.svg`);
+
+// Logos for the "Insert Fake Contact?" samples (mod06-gui/card3dView.js PRESETS): the roster's animals from Noto Emoji
+// (Apache-2.0, via @iconify-json/noto), written out as plain SVG files. Where Noto has no such animal, the nearest one
+// stands in (lynx: cat, chameleon: lizard, falcon: eagle). The Apache licence text ships beside them (the npm package
+// carries only the SPDX id, so the text is kept in scripts/licenses/).
+const ANIMALS = ['turtle', 'raccoon', 'cat', 'owl', 'octopus', 'lizard', 'zebra', 'eagle', 'elephant'];
+const noto = JSON.parse(fs.readFileSync(path.join(NM, '@iconify-json/noto/icons.json'), 'utf8'));
+const animalsOut = path.join(iconsOut, 'animals');
+fs.mkdirSync(animalsOut, { recursive: true });
+for (const name of ANIMALS) {
+    const icon = noto.icons[name];
+    if (!icon) throw new Error(`Noto Emoji has no icon named ${name}`);
+    const w = icon.width || noto.width, h = icon.height || noto.height;
+    fs.writeFileSync(path.join(animalsOut, `${name}.svg`),
+        `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">${icon.body}</svg>\n`);
+}
+fs.copyFileSync(path.join(ROOT, 'scripts/licenses/LICENSE-noto-emoji.txt'), path.join(animalsOut, 'LICENSE-noto-emoji.txt'));
+console.log(`${String(ANIMALS.length).padStart(6)} SVG src/vendor/icons/animals/ (Noto Emoji)`);
