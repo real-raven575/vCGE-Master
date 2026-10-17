@@ -62,6 +62,9 @@ jobs:
         include:
           - { name: Firefox, browser: firefox, install: firefox }
           - { name: WebKit, browser: webkit, install: webkit, debug: 'pw:browser' }
+          # temporary diagnostic rows for the WebKit page crash (removed with VCGE_EXP once the cause is known)
+          - { name: WebKit exp nocb, browser: webkit, install: webkit, debug: 'pw:browser', exp: nocb }
+          - { name: WebKit exp reload, browser: webkit, install: webkit, debug: 'pw:browser', exp: reload }
           - { name: Google Chrome, browser: chrome, install: chrome }
           - { name: Microsoft Edge, browser: msedge, install: msedge }
           - { name: iPhone, browser: webkit, install: webkit, device: iPhone 15, debug: 'pw:browser' }
@@ -69,6 +72,7 @@ jobs:
     env:
       VCGE_BROWSER: ${{ matrix.browser }}
       VCGE_DEVICE: ${{ matrix.device }}
+      VCGE_EXP: ${{ matrix.exp }}
       DEBUG: ${{ matrix.debug }}   # temporary: prints the browser's own stderr to see why WebKit's page crashes
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2

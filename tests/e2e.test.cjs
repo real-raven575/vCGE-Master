@@ -467,11 +467,17 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
   ok('Esc is No', !(await visible('wipeDialog')) && await vaultOpen(page));
   await closeVault(page);
   // Colour-blind mode (Shell's settings set html[data-cb="1"]): words and a bar say what the colours say
-  await page.evaluate(() => { document.documentElement.dataset.cb = '1'; });
-  await page.click('.deck-card.is-current .vcge-trash');
-  ok('colour-blind mode: Yes reads "Hold to wipe" and a fill bar shows', (await text('wipeYesText')) === 'Hold to wipe' && await visible('wipeHoldBar'));
-  await page.click('#wipeNoBtn');
-  await page.evaluate(() => { delete document.documentElement.dataset.cb; });
+  // VCGE_EXP is a temporary diagnostic for the WebKit page crash (two extra CI rows): "nocb" skips the colour-blind
+  // dialog, "reload" reloads the page between it and the hold. Unset, the test runs as written.
+  const EXP = process.env.VCGE_EXP || '';
+  if (EXP !== 'nocb') {
+    await page.evaluate(() => { document.documentElement.dataset.cb = '1'; });
+    await page.click('.deck-card.is-current .vcge-trash');
+    ok('colour-blind mode: Yes reads "Hold to wipe" and a fill bar shows', (await text('wipeYesText')) === 'Hold to wipe' && await visible('wipeHoldBar'));
+    await page.click('#wipeNoBtn');
+    await page.evaluate(() => { delete document.documentElement.dataset.cb; });
+  }
+  if (EXP === 'reload') { await page.reload(); await page.waitForTimeout(500); await page.fill('#firstName', nameBefore); await page.waitForTimeout(300); }
   await page.click('.deck-card.is-current .vcge-trash');
   await holdYes(page, 1700); await page.waitForTimeout(600);
   ok('holding Yes 1.5 s wipes everything and the page starts fresh', (await val('firstName')) === '' && !(await visible('reopenScanBtn')) && !(await visible('wipeDialog')) && !(await visible('vaultModal')) && (await text('vaultBadge')) === 'Vault: UNLOCKED');
