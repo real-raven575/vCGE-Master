@@ -31,8 +31,32 @@ const FILES = [
     ['@fontsource/fira-code/files/fira-code-latin-400-normal.woff2', 'fonts/fira-code-latin-400.woff2'],
     ['@fontsource/fira-code/files/fira-code-latin-600-normal.woff2', 'fonts/fira-code-latin-600.woff2'],
     ['@fontsource/fira-code/files/fira-code-latin-700-normal.woff2', 'fonts/fira-code-latin-700.woff2'],
-    ['@fontsource/fira-code/LICENSE', 'fonts/LICENSE-fira-code.txt']
+    ['@fontsource/fira-code/LICENSE', 'fonts/LICENSE-fira-code.txt'],
+    // MOD-XX tags (SIL OFL 1.1): Sixtyfour, Latin subset, variable "Bleed" axis (set to 100 for a bold look); mod01-shell/ui.css.
+    ['@fontsource-variable/sixtyfour/files/sixtyfour-latin-bled-normal.woff2', 'fonts/sixtyfour-latin-bled.woff2'],
+    ['@fontsource-variable/sixtyfour/LICENSE', 'fonts/LICENSE-sixtyfour.txt'],
+    // UI font choices for Settings (SIL OFL 1.1), Latin subset, weights 400/700; declared in mod01-shell/ui.css.
+    ['@fontsource/atkinson-hyperlegible/files/atkinson-hyperlegible-latin-400-normal.woff2', 'fonts/atkinson-hyperlegible-latin-400.woff2'],
+    ['@fontsource/atkinson-hyperlegible/files/atkinson-hyperlegible-latin-700-normal.woff2', 'fonts/atkinson-hyperlegible-latin-700.woff2'],
+    ['@fontsource/atkinson-hyperlegible/LICENSE', 'fonts/LICENSE-atkinson-hyperlegible.txt'],
+    ['@fontsource/lexend/files/lexend-latin-400-normal.woff2', 'fonts/lexend-latin-400.woff2'],
+    ['@fontsource/lexend/files/lexend-latin-700-normal.woff2', 'fonts/lexend-latin-700.woff2'],
+    ['@fontsource/lexend/LICENSE', 'fonts/LICENSE-lexend.txt'],
+    ['@fontsource/opendyslexic/files/opendyslexic-latin-400-normal.woff2', 'fonts/opendyslexic-latin-400.woff2'],
+    ['@fontsource/opendyslexic/files/opendyslexic-latin-700-normal.woff2', 'fonts/opendyslexic-latin-700.woff2'],
+    ['@fontsource/opendyslexic/LICENSE', 'fonts/LICENSE-opendyslexic.txt'],
+    ['@fontsource/tinos/files/tinos-latin-400-normal.woff2', 'fonts/tinos-latin-400.woff2'],
+    ['@fontsource/tinos/files/tinos-latin-700-normal.woff2', 'fonts/tinos-latin-700.woff2'],
+    ['@fontsource/tinos/LICENSE', 'fonts/LICENSE-tinos.txt'],
+    ['@fontsource/comic-neue/files/comic-neue-latin-400-normal.woff2', 'fonts/comic-neue-latin-400.woff2'],
+    ['@fontsource/comic-neue/files/comic-neue-latin-700-normal.woff2', 'fonts/comic-neue-latin-700.woff2'],
+    ['@fontsource/comic-neue/LICENSE', 'fonts/LICENSE-comic-neue.txt'],
+    ['@fontsource/macondo/files/macondo-latin-400-normal.woff2', 'fonts/macondo-latin-400.woff2'],
+    ['@fontsource/macondo/LICENSE', 'fonts/LICENSE-macondo.txt']
 ];
+
+// App icons for the redesign's header and buttons: Tabler Icons outline set (MIT), copied as SVG files.
+const APP_ICONS = ['aperture', 'radar-2', 'lock', 'forms', 'id', 'qrcode', 'send', 'settings', 'trash', 'camera', 'upload', 'circle-check'];
 
 // Contact-icon templates for the OCR icon detector (mod04-ocr/iconDetector.js): generic shapes from Lucide (ISC),
 // brand logos from Simple Icons (CC0). LinkedIn's logo is not in either set; the detector draws its own "in" template.
@@ -72,3 +96,8 @@ fs.writeFileSync(path.join(iconsOut, 'templates.json'), JSON.stringify(templates
 fs.copyFileSync(path.join(NM, 'lucide-static/LICENSE'), path.join(iconsOut, 'LICENSE-lucide.txt'));
 fs.copyFileSync(path.join(NM, 'simple-icons/LICENSE.md'), path.join(iconsOut, 'LICENSE-simple-icons.md'));
 console.log(`${(fs.statSync(path.join(iconsOut, 'templates.json')).size / 1024).toFixed(0).padStart(6)} KB  src/vendor/icons/templates.json`);
+const appIconsOut = path.join(iconsOut, 'app');
+fs.mkdirSync(appIconsOut, { recursive: true });
+for (const name of APP_ICONS) fs.copyFileSync(path.join(NM, '@tabler/icons/icons/outline', `${name}.svg`), path.join(appIconsOut, `${name}.svg`));
+fs.copyFileSync(path.join(NM, '@tabler/icons/LICENSE'), path.join(appIconsOut, 'LICENSE-tabler.txt'));
+console.log(`${String(APP_ICONS.length).padStart(6)} SVG src/vendor/icons/app/ (Tabler)`);

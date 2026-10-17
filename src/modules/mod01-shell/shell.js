@@ -7,6 +7,7 @@
  * bus for the audit log and reports if the lock is missing. It also opens the welcome pop-up (welcome.js) as vCGE starts.
  */
 import { globalEventBus, Events } from '../../share/eventBus.js';
+import './ui.js';
 import { showWelcome } from './welcome.js';
 
 // Action-level gatekeeper: outbound intents must be dispatched by vCGE-MOD08.

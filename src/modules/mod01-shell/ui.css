@@ -1,0 +1,71 @@
+/* vCGE-MOD01 shared look (redesign step 1): size breakpoints, chunkier buttons, the MOD-XX tag, bundled fonts and icons.
+   Layout sizes: phone under 600 px, tablet 600-1199 px, desktop 1200 px and up; very large screens scale up the rem. */
+
+/* MOD-XX tag (Sixtyfour, SIL OFL 1.1; the "Bleed" axis at 100 reads bold) */
+@font-face { font-family: 'Sixtyfour'; font-style: normal; font-weight: 400; font-display: swap; src: url('../../vendor/fonts/sixtyfour-latin-bled.woff2') format('woff2'); }
+/* UI font choices for Settings (SIL OFL 1.1); a font file is only fetched, from the app itself, once something uses it */
+@font-face { font-family: 'Atkinson Hyperlegible'; font-style: normal; font-weight: 400; font-display: swap; src: url('../../vendor/fonts/atkinson-hyperlegible-latin-400.woff2') format('woff2'); }
+@font-face { font-family: 'Atkinson Hyperlegible'; font-style: normal; font-weight: 700; font-display: swap; src: url('../../vendor/fonts/atkinson-hyperlegible-latin-700.woff2') format('woff2'); }
+@font-face { font-family: 'Lexend'; font-style: normal; font-weight: 400; font-display: swap; src: url('../../vendor/fonts/lexend-latin-400.woff2') format('woff2'); }
+@font-face { font-family: 'Lexend'; font-style: normal; font-weight: 700; font-display: swap; src: url('../../vendor/fonts/lexend-latin-700.woff2') format('woff2'); }
+@font-face { font-family: 'OpenDyslexic'; font-style: normal; font-weight: 400; font-display: swap; src: url('../../vendor/fonts/opendyslexic-latin-400.woff2') format('woff2'); }
+@font-face { font-family: 'OpenDyslexic'; font-style: normal; font-weight: 700; font-display: swap; src: url('../../vendor/fonts/opendyslexic-latin-700.woff2') format('woff2'); }
+@font-face { font-family: 'Tinos'; font-style: normal; font-weight: 400; font-display: swap; src: url('../../vendor/fonts/tinos-latin-400.woff2') format('woff2'); }
+@font-face { font-family: 'Tinos'; font-style: normal; font-weight: 700; font-display: swap; src: url('../../vendor/fonts/tinos-latin-700.woff2') format('woff2'); }
+@font-face { font-family: 'Comic Neue'; font-style: normal; font-weight: 400; font-display: swap; src: url('../../vendor/fonts/comic-neue-latin-400.woff2') format('woff2'); }
+@font-face { font-family: 'Comic Neue'; font-style: normal; font-weight: 700; font-display: swap; src: url('../../vendor/fonts/comic-neue-latin-700.woff2') format('woff2'); }
+/* Macondo has a single weight; bold text uses the browser's synthetic bold */
+@font-face { font-family: 'Macondo'; font-style: normal; font-weight: 400; font-display: swap; src: url('../../vendor/fonts/macondo-latin-400.woff2') format('woff2'); }
+
+:root {
+    --vcge-layout: desktop;
+    --vcge-tap: 2.75rem;          /* 44 px: smallest button height and width */
+    --vcge-gap: 0.5rem;           /* 8 px between neighbouring buttons */
+    --vcge-icon-stroke: 2.3;      /* Tabler icons: set by raven575 against the preview (stroke 3), 2026-10-17 */
+}
+@media (max-width: 599.98px) { :root { --vcge-layout: phone; } }
+@media (min-width: 600px) and (max-width: 1199.98px) { :root { --vcge-layout: tablet; } }
+/* 4K: the same desktop layout, scaled up instead of shrinking */
+@media (min-width: 2400px) { html { font-size: 125%; } }
+@media (min-width: 3200px) { html { font-size: 150%; } }
+
+/* Buttons: at least 44 px, a 2 px outline. The crop corners are drag handles, not buttons, and keep their own look. */
+button:not(.crop-handle) {
+    min-height: var(--vcge-tap);
+    min-width: var(--vcge-tap);
+    border-width: 2px;
+    border-style: solid;
+    border-color: rgba(100, 116, 139, 0.55);
+    border-color: color-mix(in srgb, currentColor 40%, transparent);
+}
+/* A file picker's label looks like a button too. Its own rule: a browser without :has() drops only this one. The label
+   is a block, so its text is centred in the taller box (buttons centre their text on their own). */
+label:has(> input[type="file"]) {
+    min-height: var(--vcge-tap);
+    border-width: 2px;
+    border-style: solid;
+    border-color: rgba(100, 116, 139, 0.55);
+    border-color: color-mix(in srgb, currentColor 40%, transparent);
+}
+label:not(.hidden):has(> input[type="file"]) { display: flex; align-items: center; justify-content: center; }
+
+/* MOD-XX tag: sits on the top-right edge of each panel, the same place, font and size everywhere.
+   Colours nod to the Commodore 64 screen (blue background, light blue text). */
+.mod-tag-host { position: relative; }
+.mod-tag-host > .mod-tag { margin: 0 !important; }   /* the panels' space-y spacing must not push it off the edge */
+.mod-tag {
+    position: absolute; top: 0; right: 1rem; transform: translateY(-50%); z-index: 1;
+    display: inline-flex; gap: 0.375rem; pointer-events: none; user-select: none;
+}
+.mod-tag span {
+    font-family: 'Sixtyfour', ui-monospace, monospace; font-variation-settings: 'BLED' 100;
+    font-size: 0.625rem; line-height: 1; letter-spacing: 0.04em; text-transform: uppercase;
+    padding: 0.25rem 0.4rem; border-radius: 0.375rem; background: #40318d; color: #d6d3ff;
+}
+
+/* A scrolling dialog would clip a tag on its edge, so there it sits just inside the top-right corner */
+.mod-tag.mod-tag-inset { top: 0.875rem; transform: none; }
+
+/* App icons (src/vendor/icons/app, Tabler, MIT) */
+.vcge-icon { width: 1.5rem; height: 1.5rem; stroke-width: var(--vcge-icon-stroke); }
+.vcge-icon * { stroke-width: var(--vcge-icon-stroke); }

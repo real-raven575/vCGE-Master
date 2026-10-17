@@ -1084,6 +1084,45 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await ctxH.close();
   }
 
+  // MOD01 shared look: MOD-XX tags in Sixtyfour on every panel, 44 px buttons with 2 px outlines, the near-miss rim for taps
+  {
+    const ctxU = await browser.newContext({ hasTouch: true, viewport: { width: 1280, height: 800 } });
+    const pU = await ctxU.newPage();
+    const errorsU = [], missingU = [];
+    pU.on('pageerror', e => errorsU.push(e.message));
+    pU.on('response', r => { if (r.status() >= 400) missingU.push(`${r.status()} ${r.url()}`); });
+    await pU.goto(ORIGIN); await pU.waitForTimeout(500);
+    const tags = await pU.evaluate(async () => {
+      await document.fonts.ready;
+      return Array.from(document.querySelectorAll('.mod-tag')).map(t => {
+        const span = t.querySelector('span'), host = t.parentElement.getBoundingClientRect(), r = t.getBoundingClientRect();
+        return { text: Array.from(t.children).map(c => c.textContent).join(' '), font: getComputedStyle(span).fontFamily, size: getComputedStyle(span).fontSize,
+          onEdge: Math.abs((r.top + r.bottom) / 2 - host.top) < 2 && host.right - r.right > 8 && host.right - r.right < 24 };
+      });
+    });
+    ok('MOD-XX tags: every module\'s panel shows its tag', tags.map(t => t.text).join('|') === 'MOD-03 MOD-04|MOD-02|MOD-05|MOD-06 MOD-07|MOD-08', tags.map(t => t.text).join('|'));
+    ok('MOD-XX tags: same spot (top-right edge), same font (Sixtyfour) and size', tags.every(t => t.onEdge && /Sixtyfour/.test(t.font) && t.size === tags[0].size), JSON.stringify(tags));
+    ok('MOD-XX tags: the bundled Sixtyfour font loads', await pU.evaluate(async () => { await document.fonts.load('10px Sixtyfour'); return document.fonts.check('10px Sixtyfour'); }));
+    const small = await pU.evaluate(() => Array.from(document.querySelectorAll('button:not(.crop-handle), label'))
+      .filter(b => (b.tagName === 'BUTTON' || b.querySelector(':scope > input[type=file]')) && b.offsetParent)
+      .map(b => { const r = b.getBoundingClientRect(), cs = getComputedStyle(b); return { id: b.id || b.textContent.trim().slice(0, 20), h: r.height, w: r.width, border: cs.borderTopWidth }; })
+      .filter(b => b.h < 43.5 || b.w < 43.5 || b.border !== '2px'));
+    ok('buttons: every visible button is at least 44 px with a 2 px outline', small.length === 0, JSON.stringify(small));
+    // A finger tap on the outer 4 px of a button is ignored; in the middle it works; a mouse click on the edge still works
+    const flip = await pU.locator('#flipCardBtn').boundingBox();
+    const turned = () => pU.$eval('#card3DFlipper', el => el.style.transform);
+    await pU.touchscreen.tap(flip.x + flip.width / 2, flip.y + 1.5);
+    ok('near miss: a tap on a button\'s edge does nothing', (await turned()) !== 'rotateY(180deg)', await turned());
+    await pU.touchscreen.tap(flip.x + flip.width / 2, flip.y + flip.height / 2);
+    ok('a tap in the middle of the button works', (await turned()) === 'rotateY(180deg)', await turned());
+    await pU.mouse.click(flip.x + flip.width / 2, flip.y + 1.5);
+    ok('a mouse click on the edge still works (only fingers get the near-miss guard)', (await turned()) === 'rotateY(0deg)', await turned());
+    await pU.setViewportSize({ width: 390, height: 844 });
+    ok('phone width: the app reports the phone layout and nothing scrolls sideways', await pU.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--vcge-layout').trim() === 'phone' && document.documentElement.scrollWidth <= innerWidth));
+    ok('shared look: no missing files, no page errors', missingU.length === 0 && errorsU.length === 0, missingU.concat(errorsU).join(' | '));
+    await ctxU.close();
+  }
+
   console.log(`\n${pass} passed, ${fail} failed`);
   await browser.close(); server.kill();
   process.exitCode = fail ? 1 : 0;

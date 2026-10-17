@@ -31,6 +31,8 @@ export default defineConfig({
     build: {
         outDir: 'dist',
         emptyOutDir: true,
-        target: 'es2021'
+        target: 'es2021',
+        // Never inline fonts as data: URLs: the CSP allows font-src 'self' only
+        assetsInlineLimit: (file) => (file.endsWith('.woff2') ? false : undefined)
     }
 });

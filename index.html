@@ -18,6 +18,8 @@
     <link rel="stylesheet" href="src/modules/mod08-egress/print.css">
     <!-- MOD01 welcome pop-up and tour (opened by shell.js every time vCGE starts; nothing stored) -->
     <link rel="stylesheet" href="src/modules/mod01-shell/welcome.css">
+    <!-- MOD01 shared look: size breakpoints, 44 px buttons with 2 px outlines, MOD-XX tags (Sixtyfour), bundled fonts -->
+    <link rel="stylesheet" href="src/modules/mod01-shell/ui.css">
 </head>
 <body class="bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100 min-h-screen flex flex-col antialiased">
 
@@ -60,7 +62,7 @@
 
         <!-- LEFT: Intake (MOD03/04) & Security (MOD02/MOD08 audit) -->
         <section class="space-y-6">
-            <div class="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+            <div class="mod-tag-host bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
                 <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Scan a business card</h2>
                 <div class="grid grid-cols-2 gap-2">
                     <label class="cursor-pointer text-center py-2.5 px-3 bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold rounded-xl transition text-sm">
@@ -88,9 +90,10 @@
                 </div>
                 <p id="eventLog" class="text-xs font-mono text-slate-500 dark:text-slate-400 break-words"></p>
                 <canvas id="captureCanvas" class="hidden"></canvas>
+                <div class="mod-tag" aria-hidden="true"><span>MOD-03</span><span>MOD-04</span></div>
             </div>
 
-            <div class="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-3">
+            <div class="mod-tag-host bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-3">
                 <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Security</h2>
                 <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 flex items-center justify-between text-sm">
                     <span class="font-medium">MOD02 Vault</span>
@@ -120,11 +123,12 @@
                     <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Egress &amp; vault audit log</h3>
                     <ul id="auditLog" class="text-[11px] font-mono text-slate-500 dark:text-slate-400 space-y-0.5"></ul>
                 </div>
+                <div class="mod-tag" aria-hidden="true"><span>MOD-02</span></div>
             </div>
         </section>
 
         <!-- CENTER: Contact form (MOD05/MOD06) -->
-        <section class="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+        <section class="mod-tag-host bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
             <div class="flex items-center justify-between">
                 <h2 class="text-lg font-bold">Contact details</h2>
                 <div class="flex items-center gap-2">
@@ -200,11 +204,12 @@
                 <label class="block"><span class="field-label">Birthday</span><input id="birthday" type="date" class="field-input"></label>
                 <label class="block col-span-2"><span class="field-label">Notes</span><textarea id="notes" rows="2" class="field-input"></textarea></label>
             </div>
+            <div class="mod-tag" aria-hidden="true"><span>MOD-05</span></div>
         </section>
 
         <!-- RIGHT: Card preview (MOD06/MOD07) & outbound actions (MOD08) -->
         <section class="space-y-4">
-            <div class="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
+            <div class="mod-tag-host bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-4">
                 <div class="flex flex-wrap items-center gap-2">
                     <div class="relative">
                         <button id="paletteDropdownBtn" type="button" class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition">
@@ -248,10 +253,11 @@
                         </div>
                     </div>
                 </div>
+                <div class="mod-tag" aria-hidden="true"><span>MOD-06</span><span>MOD-07</span></div>
             </div>
 
-            <div class="bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-2">
-                <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Share &amp; export (MOD08)</h2>
+            <div class="mod-tag-host bg-white dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-5 shadow-sm space-y-2">
+                <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Share &amp; export</h2>
                 <div class="grid grid-cols-3 gap-2 text-xs font-semibold">
                     <button id="downloadVcfBtn" type="button" class="py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 transition">.vcf</button>
                     <button id="shareNativeBtn" type="button" class="py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition">Share</button>
@@ -261,6 +267,7 @@
                     <button id="printCardBtn" type="button" class="py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition">Print</button>
                 </div>
                 <button id="copyVcardBtn" type="button" class="w-full py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition text-xs font-semibold">Copy vCard text</button>
+                <div class="mod-tag" aria-hidden="true"><span>MOD-08</span></div>
             </div>
         </section>
     </main>

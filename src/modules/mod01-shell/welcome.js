@@ -78,6 +78,7 @@ function renderWelcome() {
     tour.addEventListener('click', () => goTo(0));
     const list = el('ol', { className: 'vcge-welcome-points' }, ...WELCOME_POINTS.map(t => el('li', {}, t)));
     const card = el('div', { id: 'welcomeDialog', className: 'vcge-welcome-card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'welcomeTitle', 'aria-describedby': 'welcomeTagline' },
+        el('div', { className: 'mod-tag mod-tag-inset', 'aria-hidden': 'true' }, el('span', {}, 'MOD-01')),
         el('span', { className: 'vcge-welcome-tag' }, 'vCGE'),
         el('h2', { id: 'welcomeTitle' }, 'Welcome to vCGE'),
         el('p', { id: 'welcomeTagline', className: 'vcge-welcome-tagline' }, 'Operation: Never Lose Contact'),

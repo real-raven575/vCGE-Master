@@ -827,5 +827,23 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('welcome: stores nothing and publishes nothing (no storage, cookies or bus)', !/localStorage|sessionStorage|indexedDB|document\.cookie|globalEventBus|innerHTML/.test(code));
 }
 
+// MOD01 shared look (ui.js / ui.css): breakpoints, the near-miss rim, bundled fonts and icons with their licences
+{
+  const fs = await import('node:fs');
+  const ui = await import(`${R}/modules/mod01-shell/ui.js`);
+  ok('ui: Settings font list is alphabetical with Inter as the default', JSON.stringify(ui.UI_FONTS) === JSON.stringify([...ui.UI_FONTS].sort((x, y) => x.localeCompare(y))) && ui.UI_FONTS.length === 7 && ui.DEFAULT_UI_FONT === 'Inter' && ui.UI_FONTS.includes('Inter'));
+  ok('ui: 599 px is a phone, 600-1199 a tablet, 1200 and up a desktop', ui.layoutFor(599) === 'phone' && ui.layoutFor(600) === 'tablet' && ui.layoutFor(1199) === 'tablet' && ui.layoutFor(1200) === 'desktop' && ui.layoutFor(3840) === 'desktop');
+  const box = { left: 100, top: 100, right: 200, bottom: 144 };
+  ok('ui: a tap within 4 px of a button edge is a near miss, the middle is not', ui.onRim(box, 101, 120) && ui.onRim(box, 150, 143) && !ui.onRim(box, 150, 122) && !ui.onRim(box, 104, 104) && !ui.onRim(box, 90, 120));
+  const css = fs.readFileSync(`${R}/modules/mod01-shell/ui.css`, 'utf8');
+  const fontUrls = [...css.matchAll(/url\('\.\.\/\.\.\/vendor\/fonts\/([^']+)'\)/g)].map(m => m[1]);
+  ok('ui: every declared font is bundled (Sixtyfour plus the Settings fonts)', fontUrls.length === 12 && fontUrls.every(f => fs.existsSync(`${R}/vendor/fonts/${f}`)), fontUrls.join(' '));
+  ok('ui: each new font ships with its SIL Open Font License', ['sixtyfour', 'atkinson-hyperlegible', 'lexend', 'opendyslexic', 'tinos', 'comic-neue', 'macondo'].every(n => /SIL OPEN FONT LICENSE/i.test(fs.readFileSync(`${R}/vendor/fonts/LICENSE-${n}.txt`, 'utf8'))));
+  const icons = ['aperture', 'radar-2', 'lock', 'forms', 'id', 'qrcode', 'send', 'settings', 'trash', 'camera', 'upload', 'circle-check'];
+  ok('ui: the twelve app icons are bundled as SVG with the Tabler MIT licence', icons.every(n => fs.readFileSync(`${R}/vendor/icons/app/${n}.svg`, 'utf8').includes('<svg')) && /MIT License/.test(fs.readFileSync(`${R}/vendor/icons/app/LICENSE-tabler.txt`, 'utf8')));
+  ok('ui: icon stroke 2.3 and buttons at least 44 px with a 2 px outline', /--vcge-icon-stroke:\s*2\.3;/.test(css) && /--vcge-tap:\s*2\.75rem;/.test(css) && /border-width:\s*2px/.test(css));
+  ok('ui: no font or icon comes from a host (only bundled files)', !/https?:/.test(css.replace(/\/\*[\s\S]*?\*\//g, '')));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;
