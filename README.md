@@ -1,8 +1,14 @@
+<img src="src/assets/brand/vcge-logo-192.png" alt="vCGE logo" width="96" height="96" align="right">
+
 # vCard Generator Engine (vCGE)
 
-> **Zero-Trust, Offline-First, Privacy-Focused Digital Business Card Ecosystem**
+> **Operation: Never Lose Contact**
+>
+> Zero-trust, offline-first, privacy-focused digital business cards. Created by raven575.
 
 The **vCard Generator Engine (vCGE)** is a high-security, cross-platform digital business card processing system. Built on a modular ES Architecture and powered by Tauri v2, vCGE processes physical business cards via hardware camera feeds or local file uploads, parses text locally via WebAssembly OCR, and generates interactive 3D business cards with scannable vCard QR codes—all without leaving your device.
+
+No ads, no tracking, no accounts, no internet: the app talks to nothing but its own bundled files, and the only thing it ever keeps is one small settings line (hand, colour-blind mode, theme, font). Everything scanned, typed or shown lives in memory and is wiped when you leave. Site: [vCGE.APP](https://vcge.app).
 
 ---
 
@@ -12,21 +18,22 @@ The **vCard Generator Engine (vCGE)** is a high-security, cross-platform digital
 
 1. **The Vault Principle (`vCGE-MOD02`):** Nothing is stored. The vault is temporary and lives in memory only: leaving or reloading the page, or 7 minutes without activity, wipes the card, the photo and the scan. With a 4-digit session PIN the screen timing out only locks the card, and 7 minutes after the lock it is wiped; without one, 30 seconds out of view or 2 idle minutes wipe it. A locked card is held encrypted with AES-GCM-256 under a key made for that lock alone. The red trash button on every card wipes everything: Yes must be held for 1.5 seconds.
 2. **Ephemeral Memory Lifecycle:** The card being edited (`MOD06`) lives only in the page's form fields and in memory, never in storage, and QR code matrix generation (`MOD07`) operates on volatile RAM streams; both are protected by a 120-second TTL zero-fill auto-purge protocol and startup memory residue checks.
-3. **Sole Egress Gateway (`vCGE-MOD08`):** All external data sharing (Web Share API, `.vcf` downloads, high-res PNG QR exports, SMS/Email, and 3.5" x 2" physical printing) is strictly routed through a single, audited egress controller. Direct network calls from sub-modules are intercepted and blocked by the central container.
+3. **Sole Egress Gateway (`vCGE-MOD08`):** All external data sharing (Web Share API, `.vcf` downloads, high-res PNG QR exports, SMS/Email, and printing: one 6 × 3.5 in page with the card at business-card size and its QR beside it) is strictly routed through a single, audited egress controller. Direct network calls from sub-modules are intercepted and blocked by the central container.
 
 ---
 
 ## 🚧 Current Status
 
-**Working web prototype.** The app runs end-to-end in a browser:
-- Scan or upload a card, then review and edit the contact.
-- Preview the 3D card.
-- Keep it in the temporary in-memory vault while you work (nothing is saved).
-- Share or export through MOD08.
+**Working web app, redesigned 2026-10-17 (all ten steps of the plan built).** The app is a deck of postcards, one card per step, that a swipe, the arrow keys or a header icon moves through:
+- **Welcome:** the vCGE logo and tagline, Set Up PIN/BIO Lock Now, START, Take a Tour (six stops, one card at a time) and CANCEL, which leads to a Thank You page. Shown every time the app opens; nothing records that it was seen.
+- **Capture (MOD03):** take or upload a photo in a clean viewfinder with a zoom fader and a round shutter, then crop and straighten it (handles, Rotate 90°, Snap to card).
+- **Read (MOD04):** the photo is read on the device by Tesseract.js while a soft shimmer sweeps across it; 55 s at most, no number shown, Cancel at any time. Then each line is checked before it fills anything.
+- **Fields (MOD05):** the whole form on one card, a list of sample contacts, and Everything's correct to move on.
+- **3D Card (MOD06, with the QR on its back, MOD07):** eight fall themes, three typefaces, the logo traced on the device, flip and spin.
+- **Share (MOD08):** .vcf, share sheet, Export QR pop-up (Themed or Black & White, square or round dots, a frame, an optional centre logo, saved exactly as previewed), email, SMS and Print / Save as PDF (Themed or Black & White, one 6 × 3.5 in page).
+- **Vault page (MOD02) and Settings sheet (MOD01)** open over the deck from the header: session PIN and biometric unlock; hand, colour-blind mode, light or dark theme and one of seven fonts (Inter, Atkinson Hyperlegible, Lexend, OpenDyslexic, Tinos, Comic Neue, Macondo).
 
-All of this happens with no network access: the MOD01 gatekeeper and a Content-Security-Policy block every non-local request.
-
-OCR (Tesseract.js) and QR generation (qrcode-generator) run entirely on-device from bundled files in `src/vendor/`.
+All of this happens with no network access: the MOD01 network lock and a Content-Security-Policy block every non-local request. OCR (Tesseract.js) and QR generation (qrcode-generator) run entirely on-device from bundled files in `src/vendor/`.
 
 **Desktop app:** Tauri v2, with the same memory-only vault. Linux builds are verified end to end; macOS and Windows builds and Rust tests pass in CI but the apps are not yet tested on those systems.
 
@@ -107,9 +114,10 @@ vCGE-Master/
 │   ├── tauri.conf.json            # window, CSP, bundle targets
 │   ├── capabilities/default.json  # main window may call only delete_device_secret
 │   ├── src/lib.rs                 # delete_device_secret: removes the old vault device key (OS keychain via keyring crate)
-│   └── icons/                     # generated from app-icon.png (`npx tauri icon`)
+│   └── icons/                     # generated from app-icon.png, the vCGE logo (`npx tauri icon`)
 └── src/
     ├── main.js                    # Master Integration Controller (wires all modules over the event bus)
+    ├── assets/brand/              # vCGE logo (480, 192 and 32 px PNG): tab icon, header, Welcome card
     ├── styles/                    # tailwind.input.css → tailwind.css (compiled, committed)
     ├── vendor/                    # qrcode-generator, Tesseract.js + WASM core + English model, card fonts (committed)
     ├── share/                     # Global Shared Libraries (vCGE-SHARE)
@@ -121,14 +129,14 @@ vCGE-Master/
     │   ├── regexMatchers.js       # Shared regex constants
     │   └── vcardFormatter.js      # The single vCard 3.0 builder (RFC 2426 escaping, CRLF)
     └── modules/                   # Isolated Core Functional Modules
-        ├── mod01-shell/           # netLock.js + workerGuard.js (network lock: page, OCR worker), browserGate.js + unsupported/ (old-browser gate), shell.js (audit bridge, boots the deck), deck.js + deck.css (postcard deck, header, sheets), welcome.js (Welcome card, tour, Thank You page), ui.js + ui.css (breakpoints, buttons, fonts), settings.js (the one saved entry: hand, colour-blind mode, theme, font)
+        ├── mod01-shell/           # netLock.js + workerGuard.js (network lock: page, OCR worker), browserGate.js + browserGate.css + unsupported/ (old-browser gate), shell.js (audit bridge, boots the deck), deck.js + deck.css (postcard deck, header, sheets), welcome.js + welcome.css (Welcome card, tour, Thank You page), ui.js + ui.css (breakpoints, buttons, fonts), settings.js (the one saved entry: hand, colour-blind mode, theme, font)
         ├── mod02-vault/           # vault.js (temporary vault, memory only: AES-GCM-256 hold/release, old-vault clean-up), sessionPin.js (4-digit PIN), biometric.js (Face ID / fingerprint via WebAuthn, on-device), lockHandoff.js (the padlock that plays at each hand-off between cards), wipeDialog.js (hold-to-wipe), vault.css, secretInputs.js (no save-password prompts), keychain.js (deletes the old desktop device key), ttlManager.js (120 s idle purge), vaultStore.js + wipePolicy.js (hub store with per-module handles, a logo slot Export writes and the card reads, and the wipe rules; built and tested, not yet wired into main.js)
         ├── mod03-camera/          # camera.js + camera.css (Capture card: viewfinder, zoom fader, shutter, upload), viewfinder.js (visible-window and card-frame maths, stepped tween), cropEditor.js (corner handles, rotate, Snap to card), cardFinder.js (on-device card-edge finder), perspective.js (straightening maths)
-        ├── mod04-ocr/             # ocrWorker.js (image pre-processing + bundled Tesseract.js, on-device), iconDetector.js + iconMatcher.js (icons in front of lines), glyphChoices.js (second guesses for each letter)
-        ├── mod05-form/            # formMapper.js (OCR text → contact), addressAutocomplete.js (local-only)
+        ├── mod04-ocr/             # ocrWorker.js (image pre-processing + bundled Tesseract.js, on-device), readCard.js + read.css (the Read card: shimmer, Cancel, lines to check), iconDetector.js + iconMatcher.js (icons in front of lines), glyphChoices.js (second guesses for each letter)
+        ├── mod05-form/            # formMapper.js (OCR text → contact), fieldsCard.js + fields.css (the Fields card: pop-in, sample list, Everything's correct), addressAutocomplete.js (local-only)
         ├── mod06-gui/             # card3dView.js (CardView: form, preview, palettes, typeface, logo trimming and layout), cardStyles.css
         ├── mod07-qr/              # qrGenerator.js (vCard via shared builder, scannable QR via qrcode-generator)
-        └── mod08-egress/          # egressController.js (share, .vcf, QR PNG, mailto/sms, print + audit), print.css
+        └── mod08-egress/          # egressController.js (share, .vcf, QR PNG, mailto/sms, print + audit), exportDialogs.js + export.css (Export QR pop-up, Print / PDF choice), print.css (one 6 × 3.5 in page)
 ```
 
 **Rebuilding the CSS:** after changing Tailwind classes in `index.html` or `src/**/*.js`, run `npm install` and then `npm run build:css`, and commit the updated `src/styles/tailwind.css`.
@@ -137,7 +145,7 @@ vCGE-Master/
 
 ## 👥 Creators
 
-raven575, Gemini & Claude
+Created by [raven575](https://raven575.com), with Gemini & Claude. Home: [vCGE.APP](https://vcge.app).
 
 ## 📄 License
 
