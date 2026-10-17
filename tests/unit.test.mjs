@@ -628,7 +628,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 
 // QR engine (ESM, delegates to shared formatter)
 {
-  const { VCGEQREngine } = await import(`${R}/modules/mod07-qr/qrGenerator.js`);
+  const { VCGEQREngine, qrPalette } = await import(`${R}/modules/mod07-qr/qrGenerator.js`);
   const q = new VCGEQREngine();
   const contact = { firstName: 'Jane', lastName: 'Doe', organization: 'Smith, Jones', birthday: '1990-01-02' };
   ok('MOD07 output identical to shared formatter', q.generateVCard30(contact) === share.formatVCard(contact));
@@ -637,20 +637,29 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   // Render with the bundled qrcode-generator onto an in-memory canvas, then decode with jsQR.
   const jsQR = require('jsqr');
   globalThis.qrcode = require('../src/vendor/qrcode-generator/qrcode.js');
+  // A tiny canvas: fillRect, arc + fill (round dots, circle frame) and drawImage (a grey block) paint real colours
+  // into an RGBA buffer, so jsQR decodes the same pixels a browser would. stroke draws nothing: a frame sits
+  // outside the quiet zone and must not matter to the decoder.
   const makeCanvas = () => {
     const c = { width: 0, height: 0, _px: null };
+    const rgb = (style) => { const h = style.replace('#', ''); const n = parseInt(h.length === 3 ? h.split('').map(x => x + x).join('') : h, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
+    const put = (x, y, [r, g, b]) => { if (x < 0 || y < 0 || x >= c.width || y >= c.height) return; const o = (y * c.width + x) * 4; c._px[o] = r; c._px[o + 1] = g; c._px[o + 2] = b; c._px[o + 3] = 255; };
+    const ensure = () => { if (!c._px || c._px.length !== c.width * c.height * 4) c._px = new Uint8ClampedArray(c.width * c.height * 4); };
+    let path = [];
     const ctx = {
-      fillStyle: '#000000', font: '', textAlign: '',
-      fillRect(x, y, w, h) {
-        if (!c._px || c._px.length !== c.width * c.height * 4) c._px = new Uint8ClampedArray(c.width * c.height * 4);
-        const v = this.fillStyle.toLowerCase() === '#ffffff' ? 255 : 0;
-        for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++) { const o = (j * c.width + i) * 4; c._px[o] = c._px[o + 1] = c._px[o + 2] = v; c._px[o + 3] = 255; }
-      },
+      fillStyle: '#000000', strokeStyle: '#000000', lineWidth: 1, font: '', textAlign: '',
+      fillRect(x, y, w, h) { ensure(); const col = rgb(this.fillStyle); for (let j = Math.round(y); j < Math.round(y + h); j++) for (let i = Math.round(x); i < Math.round(x + w); i++) put(i, j, col); },
+      beginPath() { path = []; },
+      arc(cx, cy, r) { path.push({ cx, cy, r }); },
+      rect() {}, roundRect() {}, stroke() {},
+      fill() { ensure(); const col = rgb(this.fillStyle); for (const { cx, cy, r } of path) for (let j = Math.floor(cy - r); j <= Math.ceil(cy + r); j++) for (let i = Math.floor(cx - r); i <= Math.ceil(cx + r); i++) if ((i + 0.5 - cx) ** 2 + (j + 0.5 - cy) ** 2 <= r * r) put(i, j, col); },
+      drawImage(img, x, y, w, h) { const keep = this.fillStyle; this.fillStyle = '#777777'; this.fillRect(x, y, w, h); this.fillStyle = keep; },
       fillText() {}
     };
     c.getContext = () => ctx;
     return c;
   };
+  const decodes = (cv) => { const d = jsQR(cv._px, cv.width, cv.height); return d && d.data; };
   const utf8Contact = { firstName: 'José', lastName: 'Müller', organization: 'Café Zürich' };
   const canvas = makeCanvas();
   ok('QR renders with bundled library', q.renderQRCode(canvas, q.generateVCard30(utf8Contact), { size: 320 }) === true && canvas.width <= 320);
@@ -670,6 +679,34 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const px = (x, y) => blank._px[(y * blank.width + x) * 4];
   ok('MOD07 placeholder is a white square on a black square', blank.width === 320 && px(5, 5) === 0 && px(160, 160) === 255 && px(314, 314) === 0);
   ok('MOD07 placeholder never decodes as a QR code', jsQR(blank._px, blank.width, blank.height) === null);
+
+  // Step 9: themed colours with a contrast check, and the export styles drawn from the same matrix.
+  const themes = { pumpkin: '#e8792b', maple: '#8f2318', harvest: '#dea52c', cranberry: '#6a1030', spruce: '#1f4b3a', sage: '#b9c6a8', slateblue: '#3e5572', twilight: '#2a2450' };
+  const text = q.generateVCard30(utf8Contact);
+  const themedAll = Object.values(themes).every((card) => { const p = qrPalette({ card }); return p.themed && p.ratio >= 4 && p.dark !== '#000000' && p.light !== '#ffffff'; });
+  ok('MOD07 every fall theme tints the QR (dark shade on a pale tint, contrast at least 4:1)', themedAll, JSON.stringify(Object.fromEntries(Object.entries(themes).map(([k, c]) => [k, qrPalette({ card: c }).ratio.toFixed(1)]))));
+  const weak = qrPalette({ card: '#808080' }, { darkMix: 0.1, lightMix: 0.1 });
+  ok('MOD07 a tint under 4:1 falls back to black on white', weak.themed === false && weak.dark === '#000000' && weak.light === '#ffffff' && weak.ratio < 4, weak.ratio);
+  ok('MOD07 a missing or malformed theme is black on white', qrPalette(null).themed === false && qrPalette({ card: 'teal' }).themed === false);
+  const themedOk = Object.values(themes).every((card) => { const cv = makeCanvas(); return q.renderQRCode(cv, text, { size: 320, theme: { card } }) && q.lastRender.themed && decodes(cv) === text; });
+  ok('MOD07 the themed QR decodes to the exact vCard for all eight themes', themedOk);
+  const plain = makeCanvas(); q.renderQRCode(plain, text, { size: 320, theme: null });
+  ok('MOD07 without a theme the QR is black on white and reports themed=false', q.lastRender.themed === false && q.lastRender.dark === '#000000' && decodes(plain) === text);
+  const round = makeCanvas();
+  ok('MOD07 round dots decode (finder squares stay square)', q.renderQRCode(round, text, { size: 320, dots: 'round', theme: { card: themes.spruce } }) && q.lastRender.dots === 'round' && decodes(round) === text);
+  const framed = ['square', 'rounded', 'circle'].every((frame) => { const cv = makeCanvas(); return q.renderQRCode(cv, text, { size: 320, frame, dots: 'round' }) && q.lastRender.frame === frame && cv.width > 0 && decodes(cv) === text; });
+  ok('MOD07 square, rounded and circle frames keep the code scannable', framed);
+  const circle = makeCanvas(); q.renderQRCode(circle, text, { size: 200, frame: 'circle' });
+  const square = makeCanvas(); q.renderQRCode(square, text, { size: 200, frame: 'square' });
+  ok('MOD07 a circle frame gets a larger canvas than a square one, so it clears the corners', circle.width > square.width);
+  const logoed = makeCanvas();
+  ok('MOD07 a centre logo forces level H and the code still decodes around it', q.renderQRCode(logoed, text, { size: 320, logo: {} }) && q.lastRender.level === 'H' && q.lastRender.logo === true && decodes(logoed) === text);
+  ok('MOD07 logo option is offered when the contact fits at level H', q.logoOption(text).ok === true && q.fits(text, 'H') === true);
+  const big = 'x'.repeat(1700); // fits at level M (2953 bytes max) but not at level H (1273 bytes max)
+  ok('MOD07 logo option is greyed out with a reason when the contact no longer fits at level H', q.fits(big, 'M') === true && q.fits(big, 'H') === false && q.logoOption(big).ok === false && /Too much/.test(q.logoOption(big).reason));
+  ok('MOD07 an unknown dots or frame value falls back to square and none', q.renderQRCode(makeCanvas(), text, { dots: 'hex', frame: 'oval' }) && q.lastRender.dots === 'square' && q.lastRender.frame === 'none');
+  q.renderPlaceholder(makeCanvas(), 320);
+  ok('MOD07 the placeholder clears lastRender, so nothing claims a themed code is on screen', q.lastRender === null);
   delete globalThis.qrcode;
 }
 

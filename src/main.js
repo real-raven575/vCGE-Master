@@ -34,7 +34,7 @@ import { ContactFormMapper, LINE_ROLES } from './modules/mod05-form/formMapper.j
 import { PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES } from './share/contactOptions.js';
 import { AddressAutocompleteEngine } from './modules/mod05-form/addressAutocomplete.js';
 import { initFieldsCard } from './modules/mod05-form/fieldsCard.js';
-import { CardView, PRESETS } from './modules/mod06-gui/card3dView.js';
+import { CardView, PRESETS, THEMES, themeKeyOf } from './modules/mod06-gui/card3dView.js';
 import { vcgeQREngine } from './modules/mod07-qr/qrGenerator.js';
 import { egressController } from './modules/mod08-egress/egressController.js';
 
@@ -84,7 +84,9 @@ function refresh(contact = cardView.getContact()) {
     // The QR payload omits the photo: base64 images exceed QR capacity.
     const hasDetails = vcgeQREngine.hasDetails(contact);
     if (!hasDetails) vcgeQREngine.renderPlaceholder($('qrCanvas'), 320);
-    const qrOk = hasDetails && vcgeQREngine.renderQRCode($('qrCanvas'), vcgeQREngine.generateVCard30({ ...contact, avatarBase64: null }), { size: 320 });
+    // The QR is tinted to the card's theme (MOD07 checks the contrast and falls back to black on white itself).
+    const theme = THEMES[themeKeyOf(contact.themePalette)];
+    const qrOk = hasDetails && vcgeQREngine.renderQRCode($('qrCanvas'), vcgeQREngine.generateVCard30({ ...contact, avatarBase64: null }), { size: 320, theme });
     $('qrNotice').classList.toggle('hidden', qrOk || !hasDetails);
     egressController.setPayload(vcard, contact, { qrReal: qrOk, hasDetails });
     globalEventBus.publish(Events.CONTACT_UPDATED, { timestamp: Date.now() });

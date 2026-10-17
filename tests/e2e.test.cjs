@@ -164,6 +164,14 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   ok('QR rendered with bundled library (no notice)', !(await visible('qrNotice')));
   const qrText = await decodeQr(page);
   ok('on-screen QR decodes to the current vCard', qrText && qrText.includes('FN:Jane Doe\r\n') && qrText.includes('ORG:Smith\\, Jones'), qrText);
+  // Step 9 (Checkers): the code is tinted to the card's theme, never pure black on pure white, and floats on a deeper shadow.
+  const tint = await page.evaluate(() => {
+    const c = document.getElementById('qrCanvas'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    const seen = new Set(); for (let i = 0; i < d.length; i += 4) seen.add(`${d[i]},${d[i + 1]},${d[i + 2]}`);
+    return { colours: [...seen], shadow: [...c.classList].filter(k => k.startsWith('shadow-')) };
+  });
+  ok('on-screen QR is tinted to the theme (two colours, neither pure black nor pure white)', tint.colours.length === 2 && !tint.colours.includes('0,0,0') && !tint.colours.includes('255,255,255'), JSON.stringify(tint.colours));
+  ok('QR canvas carries the deeper drop shadow', tint.shadow.includes('shadow-xl'), JSON.stringify(tint.shadow));
 
   // vCard download through MOD08
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#downloadVcfBtn')]);
