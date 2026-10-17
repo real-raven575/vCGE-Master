@@ -236,7 +236,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const before = JSON.stringify(localStorage);
   let gesture = false;
   const s = new VaultStore({ isUserGesture: () => gesture });
-  ok('vault store has the pipeline slots and starts empty', SLOTS.join() === 'photo,ocr,review,contact,lastScan,undo' && s.isEmpty() && s.state() === 'open');
+  ok('vault store has the pipeline slots and starts empty', SLOTS.join() === 'photo,ocr,review,contact,lastScan,undo,logo' && s.isEmpty() && s.state() === 'open');
   const notices = []; s.onChange('contact', n => notices.push(n));
   const contact = { firstName: 'Jane', phones: [{ type: 'work', value: '555' }] };
   s.put('contact', contact);
@@ -259,6 +259,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('egress reads the contact only during a user gesture', egress.readForShare('contact') === null && ((gesture = true), egress.readForShare('contact').firstName === 'Jane'));
   gesture = false;
   ok('egress cannot share the photo', denied(() => egress.readForShare('photo')));
+  // Logo slot (redesign step 3): Export writes the QR centre logo the person wants on the card; the card view reads it.
+  const cardH = s.handle('mod06');
+  egress.put('logo', '<svg/>');
+  ok('egress writes the logo slot; the card view reads it', cardH.get('logo') === '<svg/>' && denied(() => egress.get('logo')) && denied(() => cardH.put('logo', 'x')));
+  ok('no other module reaches the logo', denied(() => cam.get('logo')) && denied(() => ocrH.get('logo')) && denied(() => qr.get('logo')));
   let unknownModule = false; try { s.handle('mod99'); } catch (e) { unknownModule = e.message.startsWith('VAULT_UNKNOWN_MODULE'); }
   ok('unknown modules get no handle', unknownModule);
   ok('every module right names a real slot', Object.values(MODULE_RIGHTS).every(r => [...r.read, ...r.write, ...(r.share || [])].every(x => SLOTS.includes(x))));
@@ -850,6 +855,31 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('ui: the twelve app icons are bundled as SVG with the Tabler MIT licence', icons.every(n => fs.readFileSync(`${R}/vendor/icons/app/${n}.svg`, 'utf8').includes('<svg')) && /MIT License/.test(fs.readFileSync(`${R}/vendor/icons/app/LICENSE-tabler.txt`, 'utf8')));
   ok('ui: icon stroke 2.3 and buttons at least 44 px with a 2 px outline', /--vcge-icon-stroke:\s*2\.3;/.test(css) && /--vcge-tap:\s*2\.75rem;/.test(css) && /border-width:\s*2px/.test(css));
   ok('ui: no font or icon comes from a host (only bundled files)', !/https?:/.test(css.replace(/\/\*[\s\S]*?\*\//g, '')));
+}
+
+// MOD02 padlock hand-off: pure frame maths (the drawing itself is checked in the browser suite)
+{
+  const h = await import(`${R}/modules/mod02-vault/lockHandoff.js`);
+  ok('hand-off cycle is 1.25 to 1.5 s, stepped at 24 to 30 fps', h.HANDOFF_MS >= 1250 && h.HANDOFF_MS <= 1500 && h.HANDOFF_FPS >= 24 && h.HANDOFF_FPS <= 30);
+  ok('a hand-off is a move between step cards, never from or onto Welcome or at boot', h.isHandoff('read', 'fields') && h.isHandoff('card', 'share') && !h.isHandoff(null, 'capture') && !h.isHandoff('welcome', 'capture') && !h.isHandoff('share', 'welcome') && !h.isHandoff('read', 'read'));
+  let max = 0; for (let x = 0; x <= 1; x += 0.0005) max = Math.max(max, h.easeOvershoot(x));
+  ok('the shackle lands with a 4 to 6 percent overshoot and settles', h.easeOvershoot(0) === 0 && h.easeOvershoot(1) === 1 && max >= 1.04 && max <= 1.06, max.toFixed(4));
+  const start = h.frameAt(0), mid = h.frameAt(0.5), end = h.frameAt(1);
+  ok('starts unlocked and orange, invisible', !start.locked && start.colour === 0 && start.opacity === 0 && start.shackle < 0);
+  ok('mid-cycle it is locked and green: the shackle is down, the dial has turned', mid.locked && mid.colour === 1 && mid.shackle === 0 && mid.dial > 0 && mid.opacity === 1);
+  ok('ends unlocked and orange again, faded out', !end.locked && end.colour === 0 && end.opacity === 0 && end.shackle === start.shackle && end.dial > mid.dial);
+  ok('the shackle position changes with the colour, so colour is never the only cue', h.frameAt(0.2).locked === (h.frameAt(0.2).colour > 0) || h.frameAt(0.3).locked);
+  ok('frames snap to the grid', h.quantize(0.5) === Math.floor(0.5 * Math.round(h.HANDOFF_MS / 1000 * h.HANDOFF_FPS)) / Math.round(h.HANDOFF_MS / 1000 * h.HANDOFF_FPS) && h.quantize(1) === 1 && h.quantize(0) === 0);
+  ok('end state under reduce motion is the open orange lock, shown still', !h.END_STATE.locked && h.END_STATE.colour === 0 && h.END_STATE.opacity === 1);
+  ok('orange to green mix', h.mixColour(0) === 'rgb(249, 115, 22)' && h.mixColour(1) === 'rgb(34, 197, 94)');
+}
+
+// MOD02 hold-to-wipe: hold timing (the dialog itself is checked in the browser suite)
+{
+  const w = await import(`${R}/modules/mod02-vault/wipeDialog.js`);
+  ok('Yes must be held 1.5 s', w.HOLD_MS === 1500);
+  ok('hold progress runs 0 to 1 and clamps', w.holdProgress(0, 1000) === 0 && w.holdProgress(1000, 1000) === 0 && w.holdProgress(1000, 1750) === 0.5 && w.holdProgress(1000, 2500) === 1 && w.holdProgress(1000, 9000) === 1);
+  ok('the settings-wipe signal exists and carries no data by name', share.Events.SETTINGS_WIPE_REQUESTED === 'SETTINGS_WIPE_REQUESTED');
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

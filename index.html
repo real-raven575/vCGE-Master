@@ -22,6 +22,8 @@
     <link rel="stylesheet" href="src/modules/mod01-shell/ui.css">
     <!-- MOD01 postcard deck: header icons, the card track, the Vault and Settings sheets, the Thank You page -->
     <link rel="stylesheet" href="src/modules/mod01-shell/deck.css">
+    <!-- MOD02 Vault: the padlock hand-off, hold-to-wipe, the lock screen and the Vault page -->
+    <link rel="stylesheet" href="src/modules/mod02-vault/vault.css">
 </head>
 <body class="bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100 h-screen flex flex-col antialiased overflow-hidden">
 
@@ -322,41 +324,46 @@
     </main>
 
     <!-- Vault page (MOD02 content, opened by the header lock icon or the Welcome card): PIN, fingerprint, wipe, audit log -->
+    <!-- Vault page (MOD02, Ghost): set, change or remove the PIN and the fingerprint or face unlock. Fresh every visit, never saved. -->
     <div id="vaultPage" class="vcge-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="vaultPageTitle">
         <div class="vcge-sheet-panel mod-tag-host space-y-3">
             <div class="vcge-sheet-head">
                 <h2 id="vaultPageTitle">Vault</h2>
                 <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close">&#x2715;</button>
             </div>
-                <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Security</h2>
-                <div class="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50 flex items-center justify-between text-sm">
-                    <span class="font-medium">MOD02 Vault</span>
-                    <span id="vaultStateIndicator" class="text-xs font-mono text-emerald-500">UNLOCKED / memory only</span>
+            <p class="vault-lead">Your card is held in memory only and is never saved. Set a PIN, and a fingerprint or face if your device has one, so the card locks instead of being wiped when you step away. Both are set up fresh every visit and forgotten when you leave.</p>
+            <div class="vault-row">
+                <span class="font-medium">MOD02 Vault</span>
+                <span id="vaultStateIndicator" class="text-xs font-mono text-emerald-500">UNLOCKED / memory only</span>
+            </div>
+            <p id="purgeCountdown" class="text-[11px] font-mono text-slate-500 dark:text-slate-400">Auto-clear idle</p>
+            <div id="quickUnlockPanel" class="vault-section hidden">
+                <h3>PIN and fingerprint</h3>
+                <div class="vault-row">
+                    <span id="sessionPinStatus">Session PIN: not set</span>
+                    <span>
+                        <button id="setSessionPinBtn" type="button" class="vault-btn">Set PIN</button>
+                        <button id="clearSessionPinBtn" type="button" class="vault-btn-quiet hidden">Remove</button>
+                        <button id="vaultLockNowBtn" type="button" class="vault-btn-quiet hidden">Lock now</button>
+                    </span>
                 </div>
-                <p id="purgeCountdown" class="text-[11px] font-mono text-slate-500 dark:text-slate-400">Auto-clear idle</p>
-                <div id="quickUnlockPanel" class="hidden space-y-2 p-2.5 rounded-xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700/50">
-                    <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Quick unlock</h3>
-                    <div class="flex items-center justify-between gap-2 text-xs">
-                        <span id="sessionPinStatus">Session PIN: not set</span>
-                        <span class="flex gap-2">
-                            <button id="setSessionPinBtn" type="button" class="font-semibold text-brand-700 dark:text-brand-400 hover:underline">Set PIN</button>
-                            <button id="clearSessionPinBtn" type="button" class="hidden hover:text-rose-500">Remove</button>
-                        </span>
-                    </div>
-                    <div id="biometricRow" class="hidden flex items-center justify-between gap-2 text-xs">
-                        <span id="biometricStatus">Face ID / fingerprint: off</span>
-                        <span class="flex gap-2">
-                            <button id="addBiometricBtn" type="button" class="font-semibold text-brand-700 dark:text-brand-400 hover:underline">Add</button>
-                            <button id="clearBiometricBtn" type="button" class="hidden hover:text-rose-500">Remove</button>
-                        </span>
-                    </div>
-                    <p class="text-[11px] text-slate-500 dark:text-slate-400">Nothing is saved. Leaving or reloading the page, or 7 minutes without activity, wipes the card. With a 4-digit PIN set, the screen turning off or 2 idle minutes lock it instead. Without a PIN, 30 s out of view or 2 idle minutes wipe it.</p>
+                <div id="biometricRow" class="vault-row hidden">
+                    <span id="biometricStatus">Face ID / fingerprint: off</span>
+                    <span>
+                        <button id="addBiometricBtn" type="button" class="vault-btn">Turn on</button>
+                        <button id="clearBiometricBtn" type="button" class="vault-btn-quiet hidden">Turn off</button>
+                    </span>
                 </div>
-                <button id="wipeVaultBtn" type="button" class="w-full py-2 px-4 bg-slate-100 hover:bg-rose-50 dark:bg-slate-800 dark:hover:bg-rose-950/50 border border-slate-200 dark:border-slate-700 hover:text-rose-600 dark:hover:text-rose-400 font-medium rounded-xl transition text-xs">Wipe card &amp; everything in memory</button>
-                <div>
-                    <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Egress &amp; vault audit log</h3>
-                    <ul id="auditLog" class="text-[11px] font-mono text-slate-500 dark:text-slate-400 space-y-0.5"></ul>
-                </div>
+                <p class="vault-note">Nothing is saved. Leaving or reloading the page wipes the card. With a 4-digit PIN set, the screen turning off or 2 idle minutes lock it instead, and 7 minutes after the lock it is wiped. Without a PIN, 30 s out of view or 2 idle minutes wipe it.</p>
+            </div>
+            <div class="vault-row">
+                <span><button id="wipeVaultBtn" type="button" class="vault-btn-quiet vault-btn-danger">Wipe everything and start over</button></span>
+                <span><button id="vaultSettingsBtn" type="button" class="vault-btn-quiet" data-open-sheet="settingsSheet">Settings</button></span>
+            </div>
+            <div>
+                <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Egress &amp; vault audit log</h3>
+                <ul id="auditLog" class="text-[11px] font-mono text-slate-500 dark:text-slate-400 space-y-0.5"></ul>
+            </div>
             <div class="mod-tag" aria-hidden="true"><span>MOD-02</span></div>
         </div>
     </div>
@@ -407,14 +414,21 @@
         </div>
     </div>
 
-    <!-- Quick lock (MOD02): the card is held in the temporary vault until the session PIN or biometric brings it back -->
-    <div id="vaultModal" class="hidden fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-        <form id="vaultForm" class="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-sm w-full space-y-3 shadow-2xl">
+    <!-- Lock screen (MOD02): the card is held in the temporary vault until the fingerprint, face or session PIN brings it back.
+         Fingerprint first and big, the PIN under it; no Unlock button (the 4th digit unlocks); the keyboard never covers a control. -->
+    <div id="vaultModal" class="hidden fixed inset-0 z-50 bg-black/70 flex justify-center p-4">
+        <form id="vaultForm" class="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-sm w-full space-y-3 shadow-2xl" aria-labelledby="vaultModalTitle" aria-describedby="vaultModalHint">
             <h2 id="vaultModalTitle" class="text-lg font-bold">Locked</h2>
             <p id="vaultModalHint" class="text-xs text-slate-500 dark:text-slate-400"></p>
-            <label id="vaultPinRow" class="block"><span class="field-label">4-digit PIN</span><input id="vaultPin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-bwignore data-form-type="other" class="field-input"></label>
+            <button id="vaultBiometricBtn" type="button" class="vault-bio-btn hidden">
+                <svg class="vcge-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18.9 7a8 8 0 0 1 1.1 5v1a6 6 0 0 0 .8 3"/><path d="M8 11a4 4 0 0 1 8 0v1a10 10 0 0 0 2 6"/><path d="M12 11v2a14 14 0 0 0 2.5 8"/><path d="M8 15a18 18 0 0 0 1.8 6"/><path d="M4.9 19a22 22 0 0 1-.9-7v-1a8 8 0 0 1 12-6.95"/></svg>
+                <span>Use fingerprint or face</span>
+            </button>
+            <p id="vaultOr" class="vault-or hidden">or</p>
+            <label id="vaultPinRow" class="block"><span class="field-label">Type your 4-digit PIN</span><input id="vaultPin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-bwignore data-form-type="other" class="field-input"></label>
+            <p id="vaultError" class="text-xs text-rose-600 dark:text-rose-400 min-h-4" role="alert"></p>
             <!-- Calm ring: time left before the 7-minute reset wipes the held card -->
-            <div class="relative w-32 h-32 mx-auto">
+            <div class="vault-ring relative mx-auto">
                 <svg viewBox="0 0 120 120" class="w-full h-full -rotate-90" aria-hidden="true">
                     <circle cx="60" cy="60" r="52" fill="none" stroke-width="8" class="stroke-slate-200 dark:stroke-slate-700"></circle>
                     <circle id="vaultLockRing" cx="60" cy="60" r="52" fill="none" stroke-width="8" stroke-linecap="round" stroke-dasharray="326.73" stroke-dashoffset="0" class="stroke-brand-500"></circle>
@@ -425,11 +439,8 @@
                 </div>
             </div>
             <p id="quickUnlockCountdown" class="text-[11px] text-center text-slate-500 dark:text-slate-400"></p>
-            <p id="vaultError" class="text-xs text-rose-600 dark:text-rose-400 min-h-4" role="alert"></p>
-            <button id="vaultBiometricBtn" type="button" class="hidden w-full py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Use Face ID / fingerprint</button>
-            <div class="flex justify-between gap-2">
-                <button id="vaultStartOverBtn" type="button" class="px-3 py-2 rounded-lg text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white transition">Wipe and start over</button>
-                <button id="vaultUnlockBtn" type="submit" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Unlock</button>
+            <div class="flex justify-center">
+                <button id="vaultStartOverBtn" type="button" class="vault-btn-quiet vault-btn-danger">Wipe and start over</button>
             </div>
         </form>
     </div>

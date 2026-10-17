@@ -237,12 +237,19 @@ async function stopDriver(driver) {
       inv('delete_device_secret').then(() => inv('device_secret', { create: true }).then(() => done('created'), () => done('ok')), e => done('delete failed: ' + e));`);
     ok('desktop: deleting the old device key works and no key can be created any more', ipc === 'ok' && !keyringHasDeviceKey(), ipc);
 
-    // Wipe button
-    await js('window.confirm = () => true;');
+    // Hold-to-wipe: the Vault page's wipe button opens the question; Yes held 1.5 s wipes and reloads
     await type('#firstName', 'Wipe me');
     await openVaultPage();
     await click('#wipeVaultBtn');
-    ok('desktop: Wipe empties the card', await until(async () => (await val('firstName')) === '' && (await txt('auditLog')).includes('Vault wiped'), 5000));
+    ok('desktop: the wipe button asks the hold-to-wipe question', await until(async () => visible('wipeDialog'), 5000));
+    await js(`document.getElementById('wipeYesBtn').dispatchEvent(new PointerEvent('pointerdown', { button: 0, pointerId: 1, pointerType: 'mouse', bubbles: true }));`);
+    await new Promise(r => setTimeout(r, 400));
+    await js(`document.getElementById('wipeYesBtn').dispatchEvent(new PointerEvent('pointerup', { button: 0, pointerId: 1, pointerType: 'mouse', bubbles: true }));`);
+    ok('desktop: letting go of Yes early keeps the card', (await val('firstName')) === 'Wipe me' && await visible('wipeDialog'));
+    await js(`document.getElementById('wipeYesBtn').dispatchEvent(new PointerEvent('pointerdown', { button: 0, pointerId: 1, pointerType: 'mouse', bubbles: true }));`);
+    await new Promise(r => setTimeout(r, 1700));
+    await js(`document.getElementById('wipeYesBtn').dispatchEvent(new PointerEvent('pointerup', { button: 0, pointerId: 1, pointerType: 'mouse', bubbles: true }));`);
+    ok('desktop: Yes held 1.5 s wipes the card and the app starts fresh', await until(async () => (await val('firstName')) === '' && !(await visible('wipeDialog')) && !(await visible('vaultModal')), 8000));
   } finally {
     await wd('DELETE', S('')).catch(() => {});
     await stopDriver(driver);
