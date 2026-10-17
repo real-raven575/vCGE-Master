@@ -60,15 +60,21 @@ async function stopDriver(driver) {
   // Brings the card that holds an element into view first: WebDriver scrolls an element in and acts at once, before
   // the deck has settled on that card and lifted its cover.
   const onCard = async (css) => {
-    const name = await js(`const el = document.querySelector(arguments[0]), card = el && el.closest('.deck-card');
-      return card && !card.classList.contains('is-current') ? card.dataset.card : null;`, css);
-    if (name) {   // the header icon brings the card in, as a person would
+    const wanted = await js(`const el = document.querySelector(arguments[0]), card = el && el.closest('.deck-card');
+      return card ? card.dataset.card : null;`, css);
+    const current = () => js(`return document.documentElement.dataset.card;`);
+    // The header icon brings the card in, as a person would. A move that a late scroll (a focus, a closing dialog)
+    // undid is asked for once more.
+    for (let attempt = 0; wanted && attempt < 3 && (await current()) !== wanted; attempt++) {
       await deckSettled();
-      await wd('POST', S(`/element/${await el(`.deck-nav [data-card="${name}"]:not([data-qr])`)}/click`), {});
+      await wd('POST', S(`/element/${await el(`.deck-nav [data-card="${wanted}"]:not([data-qr])`)}/click`), {});
+      await deckSettled();
+      await until(async () => (await current()) === wanted, 3000);
     }
     await deckSettled();
-    // The Vault's padlock plays over the middle of the screen for 1.4 s after a hand-off; WebDriver acts once it has gone.
-    await until(() => js(`const h = document.getElementById('vaultHandoff'); return !h || h.classList.contains('hidden');`), 5000);
+    // The Vault's padlock plays in the middle of the screen for 1.4 s after a hand-off; WebDriver acts once it has gone.
+    await until(() => js(`const h = document.getElementById('vaultHandoff'); return !h || h.classList.contains('hidden');`), 3000);
+    if (wanted && (await current()) !== wanted) console.log('onCard: still not on', wanted, await deckState());
   };
   const click = async (css) => {
     await onCard(css);

@@ -113,7 +113,7 @@ export class LockHandoff {
 
     /** Plays one cycle (restarts if one is running). */
     play() {
-        if (!this.root) return;
+        if (!this.root || (typeof document !== 'undefined' && document.hidden)) return;   // nobody is looking
         this.stop();
         this.root.classList.remove('hidden');
         this.live.textContent = 'Details locked in the vault, moving on.';
@@ -135,6 +135,8 @@ export class LockHandoff {
         };
         this.paint(frameAt(0));
         this.raf = requestAnimationFrame(step);
+        // A webview that stalls animation frames must not leave the lock on screen: the clock ends the cycle regardless.
+        this.timer = setTimeout(() => this.stop(), HANDOFF_MS + 150);
     }
 
     stop() {
