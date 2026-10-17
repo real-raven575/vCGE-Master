@@ -24,6 +24,8 @@
     <link rel="stylesheet" href="src/modules/mod01-shell/deck.css">
     <!-- MOD02 Vault: the padlock hand-off, hold-to-wipe, the lock screen and the Vault page -->
     <link rel="stylesheet" href="src/modules/mod02-vault/vault.css">
+    <!-- MOD03 Camera: the Capture card (viewfinder, zoom fader, shutter, crop step) -->
+    <link rel="stylesheet" href="src/modules/mod03-camera/camera.css">
 </head>
 <body class="bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100 h-screen flex flex-col antialiased overflow-hidden">
 
@@ -77,28 +79,57 @@
         <section id="cardCapture" class="deck-card mod-tag-host" data-card="capture" aria-label="Capture">
             <div class="deck-card-body space-y-4">
                 <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Scan a business card</h2>
-                <div class="grid grid-cols-2 gap-2">
-                    <label class="cursor-pointer text-center py-2.5 px-3 bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold rounded-xl transition text-sm">
-                        Upload image
-                        <input id="imageUpload" type="file" accept="image/*" class="hidden">
+                <!-- Capture (MOD03, Iris): Take a photo first, Upload a photo second; the picker is the device's own -->
+                <div id="captureChoice" class="cap-choice">
+                    <button id="startCameraBtn" type="button" class="cap-btn cap-btn-primary"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#camera"></use></svg><span>Take a photo</span></button>
+                    <label id="uploadPhotoBtn" class="cap-btn">
+                        <svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#upload"></use></svg><span>Upload a photo</span>
+                        <input id="imageUpload" type="file" accept="image/*" class="hidden" aria-label="Upload a photo">
                     </label>
-                    <button id="startCameraBtn" type="button" class="py-2.5 px-3 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 font-semibold rounded-xl transition text-sm">Use camera</button>
                 </div>
                 <button id="reopenScanBtn" type="button" class="hidden w-full py-2 px-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/60 dark:hover:bg-slate-700 rounded-xl text-xs font-semibold transition">Reopen last scan (fix lines and fill again, no new OCR)</button>
-                <div id="cameraPanel" class="hidden space-y-3">
-                    <div id="viewfinderArea" class="relative rounded-xl overflow-hidden bg-black aspect-video cursor-crosshair">
-                        <video id="cameraStream" autoplay playsinline muted class="w-full h-full object-cover"></video>
-                        <div id="focusRing" class="hidden absolute w-12 h-12 -ml-6 -mt-6 border-2 border-brand-400 rounded-full pointer-events-none"></div>
+                <!-- Viewfinder: the live picture with thin corner brackets marking a card-shaped frame, the zoom fader on the
+                     left (48 px from the screen edge) and the round green shutter on the right; Settings can mirror them -->
+                <div id="cameraPanel" class="hidden cap-finder">
+                    <div id="viewfinderArea" class="cap-view">
+                        <video id="cameraStream" autoplay playsinline muted></video>
+                        <div id="cardFrame" class="cap-frame" aria-hidden="true">
+                            <span class="cap-corner tl"></span><span class="cap-corner tr"></span><span class="cap-corner br"></span><span class="cap-corner bl"></span>
+                        </div>
+                        <div class="cap-fader">
+                            <span id="zoomDisplay" class="cap-zoom" aria-live="off">1.0x</span>
+                            <div class="cap-fader-track"><input id="zoomSlider" type="range" min="1" max="4" step="0.1" value="1" aria-label="Zoom" aria-orientation="vertical" data-no-swipe></div>
+                        </div>
+                        <div class="cap-shutter-slot">
+                            <button id="captureBtn" type="button" class="cap-shutter" aria-label="Take the photo" title="Take the photo"><span class="cap-shutter-dot" aria-hidden="true"></span></button>
+                            <span class="cap-shutter-label" aria-hidden="true">Shutter</span>
+                        </div>
                     </div>
-                    <div class="flex items-center gap-2 text-xs">
-                        <label for="zoomSlider" class="text-slate-500 dark:text-slate-400">Zoom</label>
-                        <input id="zoomSlider" type="range" min="1" max="4" step="0.1" value="1" class="flex-1">
-                        <span id="zoomDisplay" class="font-mono w-10 text-right">1.0x</span>
+                    <div class="cap-finder-tools">
+                        <button id="switchCameraBtn" type="button">Switch camera</button>
+                        <button id="stopCameraBtn" type="button">Close camera</button>
                     </div>
-                    <div class="grid grid-cols-3 gap-2">
-                        <button id="captureBtn" type="button" class="py-2 bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold rounded-lg text-xs transition">Capture</button>
-                        <button id="switchCameraBtn" type="button" class="py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg text-xs transition">Switch</button>
-                        <button id="stopCameraBtn" type="button" class="py-2 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg text-xs transition">Close</button>
+                </div>
+                <!-- Crop & straighten (MOD03): the handles start at the photo's full edge; Snap to card finds the edges on request -->
+                <div id="captureReview" class="hidden space-y-3">
+                    <p class="text-xs text-slate-500 dark:text-slate-400">The whole photo is read unless you move a corner. Drag the corners onto the card, or press Snap to card. The photo stays on this device.</p>
+                    <div id="cropStage" class="relative mx-auto w-fit max-w-full select-none">
+                        <img id="reviewImage" alt="Captured business card" class="block max-w-full max-h-80 rounded-lg bg-slate-100 dark:bg-slate-800">
+                        <svg id="cropOverlay" class="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none" aria-hidden="true">
+                            <polygon id="cropPolygon" class="crop-outline" points=""></polygon>
+                        </svg>
+                        <button type="button" class="crop-handle" data-corner="0"></button>
+                        <button type="button" class="crop-handle" data-corner="1"></button>
+                        <button type="button" class="crop-handle" data-corner="2"></button>
+                        <button type="button" class="crop-handle" data-corner="3"></button>
+                    </div>
+                    <p id="ocrRetakeNotice" class="hidden text-sm text-amber-600 dark:text-amber-400" role="alert">This photo is too blurry or unclear to read. Retake it closer, in good light, and hold steady.</p>
+                    <div id="captureActions" class="cap-review-actions">
+                        <button id="rotatePhotoBtn" type="button" class="cap-quiet mr-auto">Rotate 90°</button>
+                        <button id="snapCardBtn" type="button" class="cap-quiet">Snap to card</button>
+                        <button id="retakePhotoBtn" type="button" class="cap-quiet hidden">Retake photo</button>
+                        <button id="cancelReviewBtn" type="button" class="cap-quiet">Cancel</button>
+                        <button id="runOcrBtn" type="button" class="cap-ok"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#circle-check"></use></svg><span>OK</span></button>
                     </div>
                 </div>
                 <p id="eventLog" class="text-xs font-mono text-slate-500 dark:text-slate-400 break-words"></p>
@@ -115,21 +146,8 @@
                 <!-- Review (MOD03 -> MOD04 -> MOD05): step 1 crop & straighten the photo, step 2 check the extracted text -->
                 <div id="cropReviewModal" class="hidden space-y-3">
             <div id="ocrStepPhoto" class="space-y-3">
-                <h2 class="text-lg font-bold">Review captured image</h2>
-                <p class="text-xs text-slate-500 dark:text-slate-400">Drag the four corners onto the card's corners to straighten it, or leave them to read the whole photo. The image stays on this device.</p>
-                <div id="cropStage" class="relative mx-auto w-fit max-w-full select-none">
-                    <img id="reviewImage" alt="Captured business card" class="block max-w-full max-h-80 rounded-lg bg-slate-100 dark:bg-slate-800">
-                    <svg id="cropOverlay" class="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none" aria-hidden="true">
-                        <polygon id="cropPolygon" class="crop-outline" points=""></polygon>
-                    </svg>
-                    <button type="button" class="crop-handle" data-corner="0"></button>
-                    <button type="button" class="crop-handle" data-corner="1"></button>
-                    <button type="button" class="crop-handle" data-corner="2"></button>
-                    <button type="button" class="crop-handle" data-corner="3"></button>
-                </div>
-                <p class="text-xs text-slate-500 dark:text-slate-400">Focus point <span id="priorityCoord" class="font-mono">(0.5, 0.5)</span>.</p>
-                <p id="ocrRetakeNotice" class="hidden text-sm text-amber-600 dark:text-amber-400" role="alert">This photo is too blurry or unclear to read. Retake it closer, in good light, and hold steady.</p>
-                <!-- Reading progress (MOD04): full at the 60 s limit; Cancel stops the reader -->
+                <h2 class="text-lg font-bold">Reading the card</h2>
+                <!-- Reading progress (MOD04): full at the 60 s limit; Cancel stops the reader and goes back to the photo -->
                 <div id="ocrProgress" class="hidden space-y-1">
                     <div class="flex items-center gap-3">
                         <div id="ocrProgressBar" role="progressbar" aria-label="Reading the card" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" class="flex-1 h-2 rounded-full bg-slate-200 dark:bg-slate-800 overflow-hidden">
@@ -138,12 +156,6 @@
                         <button id="ocrStopBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Cancel</button>
                     </div>
                     <p id="ocrProgressLabel" class="text-xs text-slate-500 dark:text-slate-400" aria-live="polite">Extracting…</p>
-                </div>
-                <div id="ocrPhotoActions" class="flex flex-wrap justify-end gap-2">
-                    <button id="rotatePhotoBtn" type="button" class="mr-auto px-3 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Rotate 90°</button>
-                    <button id="retakePhotoBtn" type="button" class="hidden px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Retake photo</button>
-                    <button id="cancelReviewBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Cancel</button>
-                    <button id="runOcrBtn" type="button" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Extract fields</button>
                 </div>
             </div>
 

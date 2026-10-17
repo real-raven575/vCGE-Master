@@ -216,8 +216,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     [Events.IMAGE_CAPTURED, Events.OCR_TEXT_EXTRACTED].forEach(ev => globalEventBus.subscribe(ev, d => window.__busSeen.push(JSON.stringify(d))));
   });
   await page.setInputFiles('#imageUpload', await renderCardImage(page)); await page.waitForTimeout(300);
-  ok('upload opens review modal', await visible('cropReviewModal'));
-  await page.evaluate(() => { window.__ocrButtonTexts = []; new MutationObserver(() => window.__ocrButtonTexts.push(document.getElementById('runOcrBtn').textContent)).observe(document.getElementById('runOcrBtn'), { childList: true, characterData: true, subtree: true }); });
+  ok('upload opens the crop step on the Capture card', await visible('captureReview') && (await page.evaluate(() => document.documentElement.dataset.card)) === 'capture' && !(await visible('cropReviewModal')));
   await page.evaluate(() => {
     window.__ocrBar = { shown: false, values: [], labels: [] };
     const bar = document.getElementById('ocrProgressBar'), box = document.getElementById('ocrProgress'), label = document.getElementById('ocrProgressLabel');
@@ -226,10 +225,9 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   });
   await page.click('#runOcrBtn');
   await page.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
-  const buttonTexts = await page.evaluate(() => window.__ocrButtonTexts);
   const bar = await page.evaluate(() => window.__ocrBar);
-  ok('a progress bar shows while reading, says the reader is being prepared, and fills to 100% before the review opens', bar.shown && bar.values.includes(100) && bar.labels.includes('Preparing the reader…') && !(await visible('ocrProgress')) && (await visible('ocrStepText')), JSON.stringify({ shown: bar.shown, max: Math.max(...bar.values), labels: [...new Set(bar.labels)] }));
-  ok('first scan says the reader is being prepared, then extracting', buttonTexts.indexOf('Preparing the reader…') >= 0 && buttonTexts.indexOf('Extracting…', buttonTexts.indexOf('Preparing the reader…')) > 0, buttonTexts.join(' | '));
+  ok('OK moves to the Read card, where a progress bar shows while reading, says the reader is being prepared, and fills to 100% before the review opens', bar.shown && bar.values.includes(100) && bar.labels.includes('Preparing the reader…') && !(await visible('ocrProgress')) && (await visible('ocrStepText')) && (await page.evaluate(() => document.documentElement.dataset.card)) === 'read', JSON.stringify({ shown: bar.shown, max: Math.max(...bar.values), labels: [...new Set(bar.labels)] }));
+  ok('first scan says the reader is being prepared, then extracting', bar.labels.indexOf('Preparing the reader…') >= 0 && bar.labels.indexOf('Extracting…', bar.labels.indexOf('Preparing the reader…')) > 0, [...new Set(bar.labels)].join(' | '));
   ok('review step lists the OCR lines with a field picker each', (await page.$$('#ocrLines select')).length >= 8 && (await page.inputValue('#ocrLineRole0')) === 'name', String((await page.$$('#ocrLines select')).length));
   ok('nothing reaches the form before Fill form', !(await rows(page, 'email')).some(r => r.value.includes('northwind')));
   ok('"Will fill" summary shows the mapped fields', (await text('ocrSummary')).includes('maria.gonzalez@northwind.com') && (await text('ocrSummary')).includes('Northwind Systems'));
@@ -957,10 +955,11 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await pS.goto(ORIGIN); await pS.waitForTimeout(300);
     await pS.setInputFiles('#imageUpload', await renderCardImage(pS)); await pS.waitForTimeout(300);
     await pS.click('#runOcrBtn');
-    ok('reading shows the progress bar with a Cancel button instead of the photo buttons', await pS.isVisible('#ocrProgress') && await pS.isVisible('#ocrStopBtn') && !(await pS.isVisible('#runOcrBtn')));
+    ok('reading shows the progress bar with a Cancel button on the Read card, OK held back', await pS.isVisible('#ocrProgress') && await pS.isVisible('#ocrStopBtn') && (await pS.evaluate(() => document.documentElement.dataset.card)) === 'read' && await pS.isDisabled('#runOcrBtn'));
     await pS.click('#ocrStopBtn');
     await pS.waitForSelector('#ocrProgress', { state: 'hidden', timeout: 10000 });
-    ok('Cancel stops reading and goes back to the photo step (Retake or Extract again)', await pS.isVisible('#ocrStepPhoto') && !(await pS.isVisible('#ocrStepText')) && await pS.isVisible('#retakePhotoBtn') && await pS.isVisible('#runOcrBtn') && !(await pS.isDisabled('#runOcrBtn')));
+    await pS.waitForFunction(() => document.documentElement.dataset.card === 'capture', null, { timeout: 5000 }).catch(() => {});
+    ok('Cancel stops reading and goes back to the photo on the Capture card (Retake or OK again)', (await pS.evaluate(() => document.documentElement.dataset.card)) === 'capture' && await pS.isVisible('#captureReview') && !(await pS.isVisible('#cropReviewModal')) && await pS.isVisible('#retakePhotoBtn') && await pS.isVisible('#runOcrBtn') && !(await pS.isDisabled('#runOcrBtn')));
     await pS.click('#runOcrBtn');
     await pS.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
     ok('after Cancel, Extract reads the photo with a fresh reader', (await pS.$$('#ocrLines select')).length >= 8);
@@ -990,7 +989,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await pT.clock.runFor(61000);
     await pT.waitForSelector('#ocrTimeoutModal', { state: 'visible', timeout: 10000 });
     await pT.click('#ocrTimeoutCancelBtn');
-    ok('Cancel after a timeout goes back to the photo step', !(await pT.isVisible('#ocrTimeoutModal')) && await pT.isVisible('#ocrStepPhoto') && await pT.isVisible('#retakePhotoBtn') && !(await pT.isVisible('#ocrProgress')));
+    ok('Cancel after a timeout goes back to the photo on the Capture card', !(await pT.isVisible('#ocrTimeoutModal')) && (await pT.evaluate(() => document.documentElement.dataset.card)) === 'capture' && await pT.isVisible('#captureReview') && await pT.isVisible('#retakePhotoBtn') && !(await pT.isVisible('#ocrProgress')));
     await ctxT.close();
   }
 
@@ -1003,13 +1002,14 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p4.setInputFiles('#imageUpload', await renderCardImage(p4, 6)); await p4.waitForTimeout(300);
     await p4.click('#runOcrBtn');
     await p4.waitForSelector('#ocrRetakeNotice', { state: 'visible', timeout: 90000 }).catch(() => {});
-    ok('blurry photo: retake prompt shown in the review dialog', await p4.isVisible('#ocrRetakeNotice') && await p4.isVisible('#retakePhotoBtn') && !(await p4.isVisible('#runOcrBtn')));
+    await p4.waitForFunction(() => document.documentElement.dataset.card === 'capture', null, { timeout: 5000 }).catch(() => {});
+    ok('blurry photo: retake prompt shown on the Capture card', await p4.isVisible('#ocrRetakeNotice') && await p4.isVisible('#retakePhotoBtn') && !(await p4.isVisible('#runOcrBtn')) && (await p4.evaluate(() => document.documentElement.dataset.card)) === 'capture');
     ok('blurry photo: form left unchanged', (await p4.inputValue('#firstName')) === 'Typed' && (await p4.inputValue('#emailValue0')) === '');
     const chooser = p4.waitForEvent('filechooser', { timeout: 5000 }).then(() => true, () => false);
     await p4.click('#retakePhotoBtn');
     ok('Retake photo opens the photo picker', await chooser && !(await p4.isVisible('#cropReviewModal')));
     await p4.setInputFiles('#imageUpload', await renderCardImage(p4)); await p4.waitForTimeout(300);
-    ok('new photo resets the dialog (Extract fields back, prompt hidden)', await p4.isVisible('#runOcrBtn') && !(await p4.isVisible('#ocrRetakeNotice')));
+    ok('new photo resets the crop step (OK back, prompt hidden)', await p4.isVisible('#runOcrBtn') && !(await p4.isVisible('#ocrRetakeNotice')));
     await p4.click('#runOcrBtn');
     await p4.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
     await p4.click('#applyOcrBtn');
@@ -1025,6 +1025,10 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     const crooked = await renderSkewedCard(p5);
     await p5.setInputFiles('#imageUpload', crooked.file); await p5.waitForTimeout(500);
     ok('crop handles shown on the photo', (await p5.$$('#cropStage [data-corner]')).length === 4 && await p5.isVisible('[data-corner="0"]'));
+    ok('the handles start at the full edge of the photo, never pushed in', (await p5.getAttribute('#cropPolygon', 'points')) === '0,0 1600,0 1600,1200 0,1200', await p5.getAttribute('#cropPolygon', 'points'));
+    await p5.click('#snapCardBtn'); await p5.waitForTimeout(200);
+    const snapped = (await p5.getAttribute('#cropPolygon', 'points')).split(' ').map(pt => pt.split(',').map(Number));
+    ok('Snap to card moves the handles onto the card\'s corners', snapped.every(([x, y], i) => Math.hypot(x - crooked.corners[i].x, y - crooked.corners[i].y) < 12), JSON.stringify(snapped) + ' vs ' + JSON.stringify(crooked.corners));
     await dragCorners(p5, crooked.corners);
     const outline = await p5.getAttribute('#cropPolygon', 'points');
     const placed = outline.split(' ').map(pt => pt.split(',').map(Number));
@@ -1044,7 +1048,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     const after = await p5.textContent('#ocrSummary');
     ok('summary follows edits and picker changes live', after.includes('Mariah') && !/Website/.test(after) && /Notes/.test(after), after);
     await p5.click('#ocrBackBtn');
-    ok('Back to photo returns to step 1', await p5.isVisible('#ocrStepPhoto') && !(await p5.isVisible('#ocrStepText')));
+    await p5.waitForFunction(() => document.documentElement.dataset.card === 'capture', null, { timeout: 5000 }).catch(() => {});
+    ok('Back to photo returns to the crop step on the Capture card', (await p5.evaluate(() => document.documentElement.dataset.card)) === 'capture' && await p5.isVisible('#captureReview') && !(await p5.isVisible('#cropReviewModal')));
     await p5.click('#runOcrBtn');
     await p5.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
     const roles2 = await p5.$$eval('#ocrLines select', s => s.map(x => x.value));
@@ -1073,10 +1078,111 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p3.setInputFiles('#imageUpload', await renderCardImage(p3)); await p3.waitForTimeout(300);
     await p3.click('#runOcrBtn');
     const settled = await p3.waitForSelector('#cropReviewModal', { state: 'hidden', timeout: 30000 }).then(() => true, () => false);
-    ok('missing OCR model: extraction ends instead of hanging', settled && (await p3.textContent('#runOcrBtn')).trim() === 'Extract fields');
+    ok('missing OCR model: extraction ends instead of hanging', settled && (await p3.textContent('#runOcrBtn')).trim() === 'OK' && !(await p3.isDisabled('#runOcrBtn')));
     ok('missing OCR model: user told the engine could not start', (await p3.textContent('#toastMessage')).includes('OCR engine could not start'), await p3.textContent('#toastMessage'));
     ok('missing OCR model: form left unchanged (no sample text)', (await p3.inputValue('#firstName')) === 'Typed' && (await p3.inputValue('#emailValue0')) === 'typed@example.com' && (await p3.inputValue('#lastName')) === '');
     await ctx3.close();
+  }
+
+  // MOD03 Capture card (redesign step 5): Take / Upload buttons, the viewfinder with corner brackets, the zoom fader 48 px
+  // from the screen edge, the green shutter that sinks and pops back, a shot that is exactly what the viewfinder showed,
+  // handles at the full edge, Snap to card, bad uploads turned away with a toast, the left-hand mirror
+  {
+    const ctxV = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
+    await ctxV.addInitScript(() => {
+      // A 640 x 360 test feed: four colours, so the shot can be checked against the window the viewfinder showed
+      navigator.mediaDevices.getUserMedia = async () => {
+        const c = document.createElement('canvas'); c.width = 640; c.height = 360; const x = c.getContext('2d');
+        x.fillStyle = '#ff0000'; x.fillRect(0, 0, 320, 180); x.fillStyle = '#00ff00'; x.fillRect(320, 0, 320, 180);
+        x.fillStyle = '#0000ff'; x.fillRect(0, 180, 320, 180); x.fillStyle = '#ffff00'; x.fillRect(320, 180, 320, 180);
+        return c.captureStream(5);
+      };
+    });
+    const pV = await ctxV.newPage();
+    const errorsV = [];
+    pV.on('pageerror', e => errorsV.push(e.message));
+    pV.on('console', m => { if (m.type() === 'error') errorsV.push('console: ' + m.text()); });
+    await pV.goto(ORIGIN); await pV.waitForTimeout(500);
+    const card = () => pV.evaluate(() => document.documentElement.dataset.card);
+    const box = (sel) => pV.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height }; }, sel);
+    const choice = await pV.$$eval('#captureChoice > *', els => els.map(e => ({ text: e.textContent.trim(), h: e.offsetHeight, left: e.getBoundingClientRect().left })));
+    ok('capture: Take a photo first (left), Upload a photo second (right), both medium buttons side by side', choice.length === 2 && choice[0].text === 'Take a photo' && choice[1].text === 'Upload a photo' && choice[0].left < choice[1].left && choice.every(c => c.h >= 44), JSON.stringify(choice));
+    ok('capture: the upload button opens the device\'s own image picker (any image type, no pop-up of our own)', (await pV.getAttribute('#imageUpload', 'accept')) === 'image/*' && (await pV.getAttribute('#imageUpload', 'type')) === 'file');
+
+    // A file that is not a photo is turned away with a toast, the crop step never opens
+    await pV.setInputFiles('#imageUpload', { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('hello') }); await pV.waitForTimeout(300);
+    ok('capture: a non-image upload is rejected with a toast and nothing opens', (await pV.textContent('#toastMessage')).includes('not a photo') && !(await pV.isVisible('#captureReview')) && !(await pV.getAttribute('#reviewImage', 'src')), await pV.textContent('#toastMessage'));
+
+    // The viewfinder: clean, four thin brackets, upright card frame in portrait, fader left (48 px in), shutter right
+    await pV.click('#startCameraBtn'); await pV.waitForTimeout(400);
+    const view = await box('#viewfinderArea'), frame = await box('#cardFrame'), fader = await box('.cap-fader'), shutter = await box('#captureBtn');
+    const overlay = await pV.evaluate(() => Array.from(document.querySelectorAll('#viewfinderArea > *')).map(e => e.id || e.className));
+    ok('viewfinder: only the video, the corner brackets, the fader and the shutter sit over the picture', overlay.length === 4 && (await pV.$$('#cardFrame .cap-corner')).length === 4 && !(await pV.$('#focusRing')), JSON.stringify(overlay));
+    ok('viewfinder: the card frame is upright in portrait, centred and fills most of the view', (await pV.getAttribute('#cardFrame', 'data-orientation')) === 'portrait' && frame.h > frame.w && Math.abs(frame.w / frame.h - 2 / 3.5) < 0.02
+      && frame.h > view.h * 0.8 && Math.abs((frame.l + frame.r) / 2 - (view.l + view.r) / 2) < 2, JSON.stringify({ view, frame }));
+    ok('viewfinder: the brackets are thin lines (2 px) with nothing filled in', await pV.$eval('#cardFrame .cap-corner.tl', c => { const s = getComputedStyle(c); return s.borderTopWidth === '2px' && s.borderLeftWidth === '2px' && s.borderRightWidth === '0px' && s.backgroundColor === 'rgba(0, 0, 0, 0)'; }));
+    ok('viewfinder: the zoom fader is vertical, on the left, at least 48 px from the screen edge', fader.l >= 48 && fader.h > fader.w && fader.l < view.l + view.w / 3 && (await pV.getAttribute('#zoomSlider', 'aria-orientation')) === 'vertical' && (await pV.textContent('#zoomDisplay')) === '1.0x', JSON.stringify(fader));
+    ok('viewfinder: the shutter is a round green button on the right, in the middle of the height', shutter.l > view.l + view.w / 2 && Math.abs((shutter.t + shutter.b) / 2 - (view.t + view.b) / 2) < 4 && shutter.w === shutter.h && shutter.w >= 64
+      && await pV.$eval('#captureBtn', b => getComputedStyle(b).borderRadius.startsWith('999') && /22, 163, 74|74, 222, 128|21, 128, 61/.test(getComputedStyle(b).backgroundImage)), JSON.stringify(shutter));
+    ok('viewfinder: the shutter sits in the middle 60 percent of the screen height', (shutter.t + shutter.b) / 2 > 844 * 0.2 && (shutter.t + shutter.b) / 2 < 844 * 0.8, String((shutter.t + shutter.b) / 2));
+
+    // The fader eases into a change: the readout passes through a value between 1 and 2 before landing on 2.0x
+    await pV.evaluate(() => { const s = document.getElementById('zoomSlider'); s.value = '2'; s.dispatchEvent(new Event('input', { bubbles: true })); });
+    await pV.waitForTimeout(120);
+    const midway = await pV.textContent('#zoomDisplay');
+    await pV.waitForFunction(() => document.getElementById('cameraStream').style.transform === 'scale(2)', null, { timeout: 2000 });
+    ok('zoom: the fader eases into the change instead of snapping', /^1\.[1-9]x$/.test(midway) && (await pV.textContent('#zoomDisplay')) === '2.0x', midway);
+
+    // The shutter sinks on the press and pops back after the release; the shot is the window the viewfinder showed
+    await pV.mouse.move(shutter.l + shutter.w / 2, shutter.t + shutter.h / 2); await pV.mouse.down(); await pV.waitForTimeout(60);
+    const sunk = await pV.$eval('#captureBtn', b => b.style.transform);
+    await pV.mouse.up(); await pV.waitForTimeout(500);
+    const popped = await pV.$eval('#captureBtn', b => b.style.transform);
+    ok('shutter: sinks while pressed and pops back on release', sunk === 'scale(0.9)' && popped === '', `${sunk} -> ${popped}`);
+    ok('shutter: the shot opens the crop step and the camera closes', await pV.isVisible('#captureReview') && (await pV.evaluate(() => document.getElementById('cameraPanel').classList.contains('hidden') && document.getElementById('cameraStream').srcObject === null)) && (await card()) === 'capture');
+    // The 390 x 464-ish portrait view covers the 640 x 360 feed (scale by height), zoomed 2x: the window is the middle of it
+    const shot = await pV.evaluate(() => new Promise(resolve => {
+      const i = document.getElementById('reviewImage');
+      const read = () => { const c = document.createElement('canvas'); c.width = i.naturalWidth; c.height = i.naturalHeight; const x = c.getContext('2d'); x.drawImage(i, 0, 0);
+        const px = (fx, fy) => Array.from(x.getImageData(Math.floor(c.width * fx), Math.floor(c.height * fy), 1, 1).data).slice(0, 3);
+        resolve({ w: c.width, h: c.height, tl: px(0.1, 0.1), tr: px(0.9, 0.1), bl: px(0.1, 0.9), br: px(0.9, 0.9) }); };
+      if (i.complete && i.naturalWidth) read(); else i.onload = read;
+    }));
+    const expectW = Math.round(view.w / (view.h / 360) / 2), expectH = 180;   // the view measured before the shot (the camera closes after it)
+    ok('shot: exactly the window the viewfinder showed (cover crop and 2x zoom), not the whole frame', Math.abs(shot.w - expectW) <= 1 && shot.h === expectH
+      && shot.tl.join() === '255,0,0' && shot.tr.join() === '0,255,0' && shot.bl.join() === '0,0,255' && shot.br.join() === '255,255,0', JSON.stringify({ shot, expectW, expectH }));
+    ok('shot: the handles start at the full edge of the frame', (await pV.getAttribute('#cropPolygon', 'points')) === `0,0 ${shot.w},0 ${shot.w},${shot.h} 0,${shot.h}`, await pV.getAttribute('#cropPolygon', 'points'));
+    ok('shot: no copy of the photo is left in the capture canvas', (await pV.$eval('#captureCanvas', c => c.width + c.height)) === 0);
+    await pV.click('#snapCardBtn'); await pV.waitForTimeout(200);
+    ok('Snap to card on a photo with no card in it leaves the handles alone and says so', (await pV.textContent('#toastMessage')).includes('No card edges found') && (await pV.getAttribute('#cropPolygon', 'points')) === `0,0 ${shot.w},0 ${shot.w},${shot.h} 0,${shot.h}`, await pV.textContent('#toastMessage'));
+    ok('crop step: Rotate, Snap to card, Cancel and a green OK; OK is the only green one', (await pV.$$eval('#captureActions button', bs => bs.filter(b => b.offsetParent).map(b => b.textContent.trim()))).join('|') === 'Rotate 90°|Snap to card|Cancel|OK'
+      && await pV.$eval('#runOcrBtn', b => getComputedStyle(b).backgroundColor === 'rgb(22, 163, 74)'));
+    // Retake after a camera shot opens the camera again; Cancel drops the photo
+    await pV.evaluate(() => document.getElementById('retakePhotoBtn').classList.remove('hidden'));
+    await pV.click('#retakePhotoBtn'); await pV.waitForTimeout(300);
+    ok('Retake after a camera shot opens the camera again and drops the old photo', await pV.isVisible('#cameraPanel') && !(await pV.isVisible('#captureReview')) && !(await pV.getAttribute('#reviewImage', 'src')));
+    await pV.click('#stopCameraBtn');
+    ok('Close camera stops the feed', await pV.evaluate(() => document.getElementById('cameraStream').srcObject === null && document.getElementById('cameraPanel').classList.contains('hidden')));
+    await pV.setInputFiles('#imageUpload', await renderCardImage(pV)); await pV.waitForTimeout(300);
+    ok('upload: the handles start at the full photo', await pV.isVisible('#captureReview') && (await pV.getAttribute('#cropPolygon', 'points')) === '0,0 1050,0 1050,600 0,600');
+    await pV.click('#cancelReviewBtn');
+    ok('Cancel on the crop step drops the photo and goes back to Take or Upload', !(await pV.isVisible('#captureReview')) && !(await pV.getAttribute('#reviewImage', 'src')) && await pV.isVisible('#startCameraBtn'));
+
+    // Left hand (Settings): the shutter moves to the left and the fader to the right, still 48 px from the edge
+    await pV.click('#navSettings'); await pV.click('#handLeftBtn'); await pV.keyboard.press('Escape'); await pV.waitForTimeout(200);
+    await pV.click('#startCameraBtn'); await pV.waitForTimeout(400);
+    const faderL = await box('.cap-fader'), shutterL = await box('#captureBtn');
+    ok('left hand: the shutter is on the left and the fader on the right, 48 px from the screen edge', shutterL.l < faderL.l && 390 - faderL.r >= 48 && shutterL.l >= 48, JSON.stringify({ faderL, shutterL }));
+    await pV.click('#navSettings'); await pV.click('#handRightBtn'); await pV.keyboard.press('Escape');
+    await pV.evaluate(() => localStorage.clear());
+    // Reduce motion: zoom applies at once
+    await pV.emulateMedia({ reducedMotion: 'reduce' });
+    await pV.evaluate(() => { const s = document.getElementById('zoomSlider'); s.value = '3'; s.dispatchEvent(new Event('input', { bubbles: true })); });
+    ok('reduce motion: the zoom lands at once', (await pV.textContent('#zoomDisplay')) === '3.0x');
+    await pV.emulateMedia({ reducedMotion: null });
+    await pV.click('#stopCameraBtn');
+    ok('capture card: no page errors', errorsV.length === 0, errorsV.join(' | '));
+    await ctxV.close();
   }
 
   // Camera in use by another app: busy at start, a virtual camera, the feed taken or muted mid-scan -> camera off + pop-up

@@ -147,7 +147,7 @@ async function stopDriver(driver) {
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
       const dt = new DataTransfer(); dt.items.add(new File([bytes], 'card.png', { type: 'image/png' }));
       const input = document.getElementById('imageUpload'); input.files = dt.files; input.dispatchEvent(new Event('change'));`);
-    ok('upload opens review modal', await until(() => visible('cropReviewModal'), 5000));
+    ok('upload opens the crop step on the Capture card', await until(() => visible('captureReview'), 5000));
     await click('#runOcrBtn');
     ok('real OCR runs in the desktop webview and opens the review step', await until(() => visible('ocrStepText'), 90000), await txt('toastMessage'));
     await click('#applyOcrBtn');
@@ -180,7 +180,7 @@ async function stopDriver(driver) {
       const dt = new DataTransfer(); dt.items.add(new File([bytes], 'crooked.png', { type: 'image/png' }));
       const input = document.getElementById('imageUpload'); input.files = dt.files; input.dispatchEvent(new Event('change'));
       return [[0, 0], [1050, 0], [1050, 600], [0, 600]].map(([px, py]) => { const p = m.transformPoint({ x: px, y: py }); return [p.x, p.y]; });`);
-    await until(() => js(`const i = document.getElementById('reviewImage'); return i.naturalWidth === 1600 && !document.getElementById('cropReviewModal').classList.contains('hidden');`), 5000);
+    await until(() => js(`const i = document.getElementById('reviewImage'); return i.naturalWidth === 1600 && !document.getElementById('captureReview').classList.contains('hidden');`), 5000);
     await onCard('#reviewImage');
     for (let i = 0; i < 4; i++) {
       const g = await js(`const i = document.getElementById('reviewImage').getBoundingClientRect(), h = document.querySelector('[data-corner="${i}"]').getBoundingClientRect();
@@ -213,7 +213,7 @@ async function stopDriver(driver) {
       const dt = new DataTransfer(); dt.items.add(new File([bytes], 'icons.png', { type: 'image/png' }));
       const input = document.getElementById('imageUpload'); input.files = dt.files; input.dispatchEvent(new Event('change'));
       done(true); })();`, mobileIcon);
-    await until(() => visible('cropReviewModal'), 5000);
+    await until(() => visible('captureReview'), 5000);
     await click('#runOcrBtn');
     await until(async () => (await visible('ocrStepText')) || (await visible('ocrRetakeNotice')), 90000);
     const iconSummary = (await visible('ocrStepText')) ? await txt('ocrSummary') : `review step not shown (retake prompt: ${await visible('ocrRetakeNotice')})`;

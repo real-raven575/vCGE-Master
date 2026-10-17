@@ -568,6 +568,64 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('collapsed corners are rejected', threw);
 }
 
+// Viewfinder geometry and the stepped tween (MOD03 Capture card)
+{
+  const { visibleSourceRect, cardFrameRect, easeSnap, tween, CARD_ASPECT, OVERSHOOT } = await import(`${R}/modules/mod03-camera/viewfinder.js`);
+  ok('visible window: a 16:9 view over a 16:9 feed at 1x is the whole frame', JSON.stringify(visibleSourceRect(1600, 900, 1920, 1080)) === JSON.stringify({ x: 0, y: 0, width: 1920, height: 1080 }));
+  ok('visible window: a tall phone view over a wide feed shows the middle band (cover crop)', JSON.stringify(visibleSourceRect(390, 520, 1920, 1080)) === JSON.stringify({ x: 555, y: 0, width: 810, height: 1080 }), JSON.stringify(visibleSourceRect(390, 520, 1920, 1080)));
+  ok('visible window: 2x digital zoom shows the centre quarter of that band', JSON.stringify(visibleSourceRect(390, 520, 1920, 1080, 2)) === JSON.stringify({ x: 758, y: 270, width: 405, height: 540 }), JSON.stringify(visibleSourceRect(390, 520, 1920, 1080, 2)));
+  ok('visible window: zoom below 1 and missing sizes are harmless', visibleSourceRect(390, 520, 1920, 1080, 0.5).width === 810 && visibleSourceRect(0, 0, 640, 360).width === 640);
+  const wide = cardFrameRect(800, 450), tall = cardFrameRect(390, 520);
+  ok('card frame: landscape in a wide view, upright in a tall one, 3.5:2 either way', wide.orientation === 'landscape' && Math.abs(wide.width / wide.height - CARD_ASPECT) < 1e-9 && tall.orientation === 'portrait' && Math.abs(tall.height / tall.width - CARD_ASPECT) < 1e-9);
+  ok('card frame: fills most of the view and sits centred', wide.width === 800 * 0.88 || wide.height === 450 * 0.88, JSON.stringify(wide));
+  ok('card frame: centred', Math.abs(wide.x * 2 + wide.width - 800) < 1e-9 && Math.abs(tall.y * 2 + tall.height - 520) < 1e-9);
+  ok('ease: starts at 0, ends at 1, overshoots a little late in the move', easeSnap(0) === 0 && Math.abs(easeSnap(1) - 1) < 1e-9 && easeSnap(0.8) > 1 && easeSnap(0.8) < 1 + OVERSHOOT + 1e-9 && Math.abs(easeSnap(0.5) - 0.5) < 1e-9, [easeSnap(0.5), easeSnap(0.8)].join());
+  // A fake clock: the tween steps at 26 fps and lands exactly on the target
+  let now = 0; const timers = [];
+  const schedule = (fn, ms) => { timers.push({ at: now + ms, fn }); return timers.length; };
+  const seen = [];
+  tween(1, 2, 260, (v) => seen.push(v), { now: () => now, schedule, cancel: () => {} });
+  while (timers.length) { const t = timers.shift(); now = t.at; t.fn(); }
+  ok('tween: stepped frames about 38 ms apart, ending exactly on the target', seen.length >= 6 && seen.length <= 8 && seen[seen.length - 1] === 2 && seen.slice(0, -1).every(v => v > 1 && v < 2.1), JSON.stringify(seen));
+  const instant = []; tween(1, 3, 260, (v) => instant.push(v), { instant: true, schedule, cancel: () => {} });
+  ok('tween: under reduce motion the end value applies at once', instant.length === 1 && instant[0] === 3 && timers.length === 0);
+}
+
+// Snap to card: the on-device edge finder (MOD03)
+{
+  const { findCardQuad, convexHull, orderCorners } = await import(`${R}/modules/mod03-camera/cardFinder.js`);
+  // A white 1050 x 600 card, rotated and sheared on a grey background, with dark "text" rows on it (the e2e crooked card)
+  const deg = Math.PI / 180;
+  const mul = (a, b) => [a[0] * b[0] + a[2] * b[1], a[1] * b[0] + a[3] * b[1], a[0] * b[2] + a[2] * b[3], a[1] * b[2] + a[3] * b[3], a[0] * b[4] + a[2] * b[5] + a[4], a[1] * b[4] + a[3] * b[5] + a[5]];
+  const apply = (m, x, y) => [m[0] * x + m[2] * y + m[4], m[1] * x + m[3] * y + m[5]];
+  const invert = (m) => { const det = m[0] * m[3] - m[1] * m[2]; const a = m[3] / det, b = -m[1] / det, c = -m[2] / det, d = m[0] / det; return [a, b, c, d, -(a * m[4] + c * m[5]), -(b * m[4] + d * m[5])]; };
+  let m = [1, 0, 0, 1, 820, 600];
+  m = mul(m, [Math.cos(-24 * deg), Math.sin(-24 * deg), -Math.sin(-24 * deg), Math.cos(-24 * deg), 0, 0]);
+  m = mul(m, [1, 0, Math.tan(-12 * deg), 1, 0, 0]);
+  m = mul(m, [1, 0, 0, 1, -525, -300]);
+  const render = (W, H, bg, card, text = true) => {
+    const data = new Uint8ClampedArray(W * H * 4), inv = invert(m);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const [cx, cy] = apply(inv, x + 0.5, y + 0.5);
+      let v = bg;
+      if (cx >= 0 && cx < 1050 && cy >= 0 && cy < 600) v = text && cy > 40 && cy < 500 && cx > 70 && cx < 900 && Math.floor(cy / 60) % 2 === 0 && Math.floor(cx / 14) % 3 !== 2 ? 255 - card : card;
+      const o = (y * W + x) * 4; data[o] = data[o + 1] = data[o + 2] = v; data[o + 3] = 255;
+    }
+    return { data, width: W, height: H };
+  };
+  const corners = [[0, 0], [1050, 0], [1050, 600], [0, 600]].map(([x, y]) => apply(m, x, y));
+  const close = (q) => !!q && q.length === 4 && q.every((p, i) => Math.hypot(p.x - corners[i][0], p.y - corners[i][1]) < 12);
+  const light = findCardQuad(render(1600, 1200, 110, 255));
+  ok('finder: a white card on a grey table is found, corners within 12 px, top-left first', close(light), JSON.stringify(light));
+  ok('finder: a dark card on a light table is found too', close(findCardQuad(render(1600, 1200, 245, 40))));
+  ok('finder: nothing to find in a flat photo', findCardQuad(render(800, 600, 128, 128, false)) === null);
+  ok('finder: a photo that already is the card (edges off every side) gives null, so the handles stay at the full edge', findCardQuad({ data: new Uint8ClampedArray(400 * 240 * 4).fill(255), width: 400, height: 240 }) === null);
+  const smallBlob = (() => { const W = 400, H = 300, data = new Uint8ClampedArray(W * H * 4).fill(60); for (let y = 140; y < 160; y++) for (let x = 190; x < 210; x++) { const o = (y * W + x) * 4; data[o] = data[o + 1] = data[o + 2] = 255; } return { data, width: W, height: H }; })();
+  ok('finder: a patch too small to be a card gives null', findCardQuad(smallBlob) === null);
+  ok('convex hull drops inner points and keeps the corners', convexHull([[0, 0], [10, 0], [10, 10], [0, 10], [5, 5], [2, 3]]).length === 4);
+  ok('corners are ordered top-left, top-right, bottom-right, bottom-left', orderCorners([{ x: 9, y: 9 }, { x: 0, y: 10 }, { x: 10, y: 0 }, { x: 1, y: 1 }]).map(p => `${p.x},${p.y}`).join(' ') === '1,1 10,0 9,9 0,10');
+}
+
 // QR engine (ESM, delegates to shared formatter)
 {
   const { VCGEQREngine } = await import(`${R}/modules/mod07-qr/qrGenerator.js`);

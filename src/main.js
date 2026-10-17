@@ -15,7 +15,7 @@
  */
 import './modules/mod01-shell/shell.js';
 import { initSettings } from './modules/mod01-shell/settings.js';
-import { go as showCard, use as useDeck, closeSheet } from './modules/mod01-shell/deck.js';
+import { go as showCard, use as useDeck, closeSheet, toast as deckToast } from './modules/mod01-shell/deck.js';
 import { globalEventBus, Events } from './share/eventBus.js';
 import { CONTACT_FIELDS, CONTACT_LIST_FIELDS, createEmptyContact } from './share/cardSchema.js';
 import { temporaryVault, deleteLegacyVault } from './modules/mod02-vault/vault.js';
@@ -49,7 +49,8 @@ const LEGACY_PLAINTEXT_KEYS = ['vcge_contact_state', 'vcge_state', 'vcge_prefs']
 
 const formMapper = new ContactFormMapper();
 const cardView = new CardView({ onChange: refresh, addressEngine: new AddressAutocompleteEngine(), formMapper });
-const camera = new VCGEActiveCamera();
+// MOD03 speaks to the person through Shell's toast (deck.js hands the call to the hook set in boot), never by importing another module.
+const camera = new VCGEActiveCamera({ toast: deckToast });
 const cropEditor = new CropEditor();
 
 // 'open': the card is on the page. 'quick': hidden after a lock and held in the temporary vault until the session PIN
@@ -376,10 +377,9 @@ function clearCapturedImages() {
     forgetLastScan();
     cardView.forgetUndo();
     egressController.clearPrintSheet();
-    camera.stopCamera();
-    camera.capturedImageDataUrl = null;
-    $('cameraPanel').classList.add('hidden');
-    $('reviewImage').removeAttribute('src');
+    camera.closeCamera();
+    camera.discardPhoto();
+    showRetakePrompt(false);
     closeReviewDialog();
     const capture = $('captureCanvas');
     capture.width = 0;
@@ -514,7 +514,7 @@ function onActivity() {
 
 // ---- Intake: camera / upload (MOD03) -> OCR (MOD04) -> mapper (MOD05) -----------------------------------------
 
-// Retake prompt in the review dialog (shown when a photo is too blurry or unclear to read).
+// Retake prompt on the Capture card's crop step (shown when a photo is too blurry or unclear to read).
 function showRetakePrompt(show) {
     $('ocrRetakeNotice').classList.toggle('hidden', !show);
     $('retakePhotoBtn').classList.toggle('hidden', !show);
@@ -645,7 +645,6 @@ const ocrProgress = {
     show() {
         this.stop(); this.set(0);
         $('ocrProgressLabel').textContent = 'Extracting…';
-        $('ocrPhotoActions').classList.add('hidden');
         $('ocrProgress').classList.remove('hidden');
     },
     // 'starting': the bar waits at 0 while the reader loads; 'reading': it starts filling.
@@ -659,24 +658,24 @@ const ocrProgress = {
     hide() {
         this.stop();
         $('ocrProgress').classList.add('hidden');
-        $('ocrPhotoActions').classList.remove('hidden');
     }
 };
 let ocrStoppedByUser = false;
 
+// OK on the Capture card: the deck moves to the Read card, where the photo is read; the crop step stays behind on
+// the Capture card for Back, Cancel and Retake.
 async function runOcr() {
-    if (!$('reviewImage').src) return;
+    if (!$('reviewImage').getAttribute('src')) return;
     showRetakePrompt(false);
     ocrStoppedByUser = false;
     $('runOcrBtn').disabled = true;
-    $('runOcrBtn').textContent = 'Extracting…';
+    showReviewStep('photo');
+    $('cropReviewModal').classList.remove('hidden');
+    showCard('read');
     ocrProgress.show();
     try {
         // The first scan (and the first after a wipe) starts the reader from ~7 MB of bundled files: say so.
-        const onStatus = (status) => {
-            $('runOcrBtn').textContent = status === 'starting' ? 'Preparing the reader…' : 'Extracting…';
-            ocrProgress.status(status);
-        };
+        const onStatus = (status) => ocrProgress.status(status);
         const { text, lines } = await executeOCRScan(cropEditor.getCroppedImage(), { onStatus });
         // Finished early: the bar fills up before the review step opens.
         ocrProgress.stop(); ocrProgress.set(1);
@@ -687,12 +686,14 @@ async function runOcr() {
         showReviewStep('text');
     } catch (e) {
         if (e && e.code === 'OCR_CANCELLED') {
-            // Cancel: back to the photo, ready to extract again or take a new one. A wipe already cleared the dialog.
+            // Cancel: back to the photo on the Capture card, ready for OK again or a new one. A wipe already cleared everything.
+            if (!$('cropReviewModal').classList.contains('hidden')) backToPhoto();
             if (ocrStoppedByUser) $('retakePhotoBtn').classList.remove('hidden');
             return;
         }
         console.error('[vCGE] OCR failed:', e);
         if (e && e.code === 'OCR_UNREADABLE') {
+            backToPhoto();
             showRetakePrompt(true);
         } else if (e && e.code === 'OCR_TIMEOUT') {
             // The reader was restarted; the photo stays for Try Again.
@@ -700,15 +701,15 @@ async function runOcr() {
             $('ocrTimeoutModal').classList.remove('hidden');
             $('ocrTryAgainBtn').focus();
         } else if (e && e.code === 'OCR_UNAVAILABLE') {
-            closeReviewDialog();
+            backToPhoto();
             cardView.showToast('The OCR engine could not start, so your form was not changed. Type the details in, or try again.');
         } else {
+            backToPhoto();
             cardView.showToast('Could not read that image.');
         }
     } finally {
         ocrProgress.hide();
         $('runOcrBtn').disabled = false;
-        $('runOcrBtn').textContent = 'Extract fields';
     }
 }
 
@@ -722,7 +723,13 @@ function stopOcr() {
 function closeTimeoutPrompt(retry) {
     $('ocrTimeoutModal').classList.add('hidden');
     if (retry) runOcr();
-    else $('retakePhotoBtn').classList.remove('hidden');
+    else { backToPhoto(); $('retakePhotoBtn').classList.remove('hidden'); }
+}
+
+// Back to the photo on the Capture card (its crop step is still there); the Read card's review closes.
+function backToPhoto() {
+    closeReviewDialog();
+    showCard('capture');
 }
 
 function applyOcrReview() {
@@ -751,35 +758,33 @@ function forgetLastScan() {
     $('reopenScanBtn').classList.add('hidden');
 }
 
-// What a quick lock keeps of the scan in progress: the photo, the open review step and the last scan.
+// What a quick lock keeps of the scan in progress: the photo, the open review step (the crop step on the Capture card
+// or the text step on the Read card) and the last scan.
 function scanSnapshot() {
     const photo = $('reviewImage').getAttribute('src') || null;
-    const open = !$('cropReviewModal').classList.contains('hidden');
+    const open = !$('cropReviewModal').classList.contains('hidden') || !$('captureReview').classList.contains('hidden');
     const review = open ? { lines: ocrReview && !$('ocrStepText').classList.contains('hidden') ? ocrReview.lines.map(line => ({ ...line })) : null } : null;
     if (!review && !lastScan) return null;
     return { photo, review, lastScan };
 }
 
 
-// Puts a scan held through a quick lock back: the review dialog at the step it was on, and "Reopen last scan".
+// Puts a scan held through a quick lock back: the review at the step it was on, and "Reopen last scan".
 function restoreScan(scan) {
     if (!scan) return;
     if (scan.photo) {
         camera.capturedImageDataUrl = scan.photo;
-        $('reviewImage').src = scan.photo;
+        camera.openReview(scan.photo);
     }
     if (scan.lastScan) {
         lastScan = scan.lastScan;
         $('reopenScanBtn').classList.remove('hidden');
     }
     if (!scan.review) return;
-    if (scan.review.lines) {
-        ocrReview = { lines: scan.review.lines, fields: null };
-        renderOcrLines();
-        showReviewStep('text');
-    } else {
-        showReviewStep('photo');
-    }
+    if (!scan.review.lines) { showCard('capture'); return; }
+    ocrReview = { lines: scan.review.lines, fields: null };
+    renderOcrLines();
+    showReviewStep('text');
     $('ocrBackBtn').classList.toggle('hidden', !scan.photo);
     $('cropReviewModal').classList.remove('hidden');
     showCard('read');
@@ -791,36 +796,32 @@ function wireIntake() {
         camera.handleGalleryUpload(e.target.files[0]);
         e.target.value = '';
     });
-    $('startCameraBtn').addEventListener('click', async () => {
-        $('cameraPanel').classList.remove('hidden');
-        await camera.initCamera();
-    });
+    $('startCameraBtn').addEventListener('click', () => { camera.discardPhoto(); showRetakePrompt(false); camera.initCamera(); });
     $('captureBtn').addEventListener('click', () => camera.captureFrame());
     $('switchCameraBtn').addEventListener('click', () => camera.switchCamera());
-    $('stopCameraBtn').addEventListener('click', () => {
-        camera.stopCamera();
-        $('cameraPanel').classList.add('hidden');
-    });
+    $('stopCameraBtn').addEventListener('click', () => camera.closeCamera());
     $('runOcrBtn').addEventListener('click', runOcr);
     $('ocrStopBtn').addEventListener('click', stopOcr);
     $('ocrTryAgainBtn').addEventListener('click', () => closeTimeoutPrompt(true));
     $('ocrTimeoutCancelBtn').addEventListener('click', () => closeTimeoutPrompt(false));
     $('rotatePhotoBtn').addEventListener('click', () => { showRetakePrompt(false); cropEditor.rotate(); });
-    $('cancelReviewBtn').addEventListener('click', () => { closeReviewDialog(); showCard('capture'); });
-    $('ocrCancelBtn').addEventListener('click', () => { closeReviewDialog(); showCard('capture'); });
-    $('ocrBackBtn').addEventListener('click', () => showReviewStep('photo'));
+    // Snap to card moves the handles only when it finds a card; otherwise it says so and leaves them alone.
+    $('snapCardBtn').addEventListener('click', () => { if (!cropEditor.snapToCard()) deckToast('No card edges found. Drag the corners onto the card yourself.'); });
+    // Cancel on the crop step drops the photo: back to Take a photo or Upload a photo.
+    $('cancelReviewBtn').addEventListener('click', () => { showRetakePrompt(false); camera.discardPhoto(); });
+    $('ocrCancelBtn').addEventListener('click', backToPhoto);
+    $('ocrBackBtn').addEventListener('click', backToPhoto);
     $('applyOcrBtn').addEventListener('click', applyOcrReview);
     $('reopenScanBtn').addEventListener('click', reopenLastScan);
-    // Retake: with the camera open, close the dialog so the user can capture again; otherwise pick another photo
-    // (on phones the picker also offers the camera).
+    // Retake: a camera shot opens the camera again; an upload opens the picker again (on phones it also offers the camera).
     $('retakePhotoBtn').addEventListener('click', () => {
-        closeReviewDialog();
-        showCard('capture');
-        if ($('cameraPanel').classList.contains('hidden')) $('imageUpload').click();
-        else cardView.showToast('Hold the card steady and capture again.');
+        showRetakePrompt(false);
+        backToPhoto();
+        if (camera.lastSource === 'camera') { camera.discardPhoto(); camera.initCamera(); }
+        else $('imageUpload').click();
     });
-    // A new photo starts over at step 1 and drops any text extracted from the previous one (the camera reopens the dialog).
-    globalEventBus.subscribe(Events.IMAGE_CAPTURED, () => { showRetakePrompt(false); closeReviewDialog(); forgetLastScan(); $('ocrBackBtn').classList.remove('hidden'); showCard('read'); });
+    // A new photo starts over at the crop step on the Capture card and drops any text extracted from the previous one.
+    globalEventBus.subscribe(Events.IMAGE_CAPTURED, () => { showRetakePrompt(false); closeReviewDialog(); forgetLastScan(); $('ocrBackBtn').classList.remove('hidden'); showCard('capture'); });
 }
 
 // ---- Egress (MOD08 only) ---------------------------------------------------------------------------------------
