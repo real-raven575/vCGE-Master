@@ -51,8 +51,15 @@ async function stopDriver(driver) {
   const deckSettled = () => until(() => js(`const t = document.getElementById('deck'), c = document.querySelector('.deck-card.is-current');
     if (!t || !c) return true; const left = c.offsetLeft + c.offsetWidth / 2 - t.clientWidth / 2;
     if (Math.abs(t.scrollLeft - left) > 1.5 || t.scrollLeft !== t.__lastSeen) { t.__lastSeen = t.scrollLeft; return false; } return true;`), 5000);
-  const click = async (css) => {
+  // Brings the card that holds an element into view first: WebDriver scrolls an element in and acts at once, before
+  // the deck has settled on that card and lifted its cover.
+  const onCard = async (css) => {
+    await js(`const el = document.querySelector(arguments[0]), card = el && el.closest('.deck-card');
+      if (card && !card.classList.contains('is-current')) card.scrollIntoView({ inline: 'center', block: 'nearest' });`, css);
     await deckSettled();
+  };
+  const click = async (css) => {
+    await onCard(css);
     try { return await wd('POST', S(`/element/${await el(css)}/click`), {}); } catch (e) {
       // Say what sat in the way (the card in view, the deck position, the element under the target's centre).
       const where = await js(`const el = document.querySelector(arguments[0]), r = el && el.getBoundingClientRect(), t = document.getElementById('deck');
@@ -63,7 +70,7 @@ async function stopDriver(driver) {
       throw e;
     }
   };
-  const type = async (css, text) => { await deckSettled(); const id = await el(css); await wd('POST', S(`/element/${id}/clear`), {}); await wd('POST', S(`/element/${id}/value`), { text }); };
+  const type = async (css, text) => { await onCard(css); const id = await el(css); await wd('POST', S(`/element/${id}/clear`), {}); await wd('POST', S(`/element/${id}/value`), { text }); };
   const val = (id) => js(`return document.getElementById(arguments[0]).value;`, id);
   const txt = (id) => js(`return document.getElementById(arguments[0]).textContent.trim();`, id);
   const visible = (id) => js(`const e = document.getElementById(arguments[0]); return !e.classList.contains('hidden');`, id);
@@ -149,6 +156,7 @@ async function stopDriver(driver) {
       const input = document.getElementById('imageUpload'); input.files = dt.files; input.dispatchEvent(new Event('change'));
       return [[0, 0], [1050, 0], [1050, 600], [0, 600]].map(([px, py]) => { const p = m.transformPoint({ x: px, y: py }); return [p.x, p.y]; });`);
     await until(() => js(`const i = document.getElementById('reviewImage'); return i.naturalWidth === 1600 && !document.getElementById('cropReviewModal').classList.contains('hidden');`), 5000);
+    await onCard('#reviewImage');
     for (let i = 0; i < 4; i++) {
       const g = await js(`const i = document.getElementById('reviewImage').getBoundingClientRect(), h = document.querySelector('[data-corner="${i}"]').getBoundingClientRect();
         return { hx: h.left + h.width / 2, hy: h.top + h.height / 2, ix: i.left, iy: i.top, iw: i.width, ih: i.height };`);

@@ -1079,6 +1079,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('deck: the arrow keys move one card at a time', (await state()).card === 'read', (await state()).card);
     await pH.click('#navCard'); await pH.waitForTimeout(700);
     ok('deck: a header icon jumps to its card', (await state()).card === 'card', (await state()).card);
+    await deckSettled(pH);
     await pH.focus('#firstName'); await pH.waitForTimeout(400);
     await pH.keyboard.press('ArrowLeft'); await pH.waitForTimeout(300);
     ok('deck: the arrow keys leave the deck alone while typing', (await state()).card === 'fields', (await state()).card);
