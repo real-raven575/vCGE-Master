@@ -987,5 +987,14 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('the settings-wipe signal exists and carries no data by name', share.Events.SETTINGS_WIPE_REQUESTED === 'SETTINGS_WIPE_REQUESTED');
 }
 
+// MOD05 Fields card (fieldsCard.js): the pop-in timing and the "Insert Fake Contact?" labels
+{
+  const fc = await import(`${R}/modules/mod05-form/fieldsCard.js`);
+  ok('the pop-in is 320 ms stepped at 26 fps (8 steps), like the padlock and the shimmer', fc.POP_MS === 320 && fc.POP_FPS === 26 && fc.POP_STEPS === 8);
+  ok('the list prompt and the green button read as raven575 asked', fc.FAKE_CONTACT_PROMPT === 'Insert Fake Contact?' && fc.DONE_LABEL === "Everything's correct");
+  ok('a sample is listed by name and company, never by its emoji label', fc.sampleLabel({ label: '🤖 AI Research Lead', firstName: 'Elena', lastName: 'Rostova', organization: 'NeuralShift AI' }) === 'Elena Rostova, NeuralShift AI'
+    && fc.sampleLabel({ label: '🎨 Solo', firstName: 'Kai' }) === 'Kai' && fc.sampleLabel({ label: ' Plain label ' }) === 'Plain label' && fc.sampleLabel({}) === 'Sample contact');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;

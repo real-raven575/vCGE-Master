@@ -33,7 +33,8 @@ import { readIndicator, renderReviewRows, initReadCard, resetBlink, READER_UNAVA
 import { ContactFormMapper, LINE_ROLES } from './modules/mod05-form/formMapper.js';
 import { PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES } from './share/contactOptions.js';
 import { AddressAutocompleteEngine } from './modules/mod05-form/addressAutocomplete.js';
-import { CardView } from './modules/mod06-gui/card3dView.js';
+import { initFieldsCard } from './modules/mod05-form/fieldsCard.js';
+import { CardView, PRESETS } from './modules/mod06-gui/card3dView.js';
 import { vcgeQREngine } from './modules/mod07-qr/qrGenerator.js';
 import { egressController } from './modules/mod08-egress/egressController.js';
 
@@ -758,6 +759,9 @@ function wireIntake() {
     $('ocrBackBtn').addEventListener('click', backToPhoto);
     $('applyOcrBtn').addEventListener('click', applyOcrReview);
     initReadCard({ onBeforeChange: beforeCardChange });
+    // Fields card (MOD05): the sample list (MOD06's data), the pop-in on arrival, and "Everything's correct" on to the
+    // 3D Card (the padlock hand-off follows the deck's signal; the card view already holds the details in memory).
+    initFieldsCard({ samples: PRESETS, onSample: (preset) => cardView.loadSample(preset), onDone: () => showCard('card'), onBeforeChange: beforeCardChange });
     $('reopenScanBtn').addEventListener('click', reopenLastScan);
     // Retake: a camera shot opens the camera again; an upload opens the picker again (on phones it also offers the camera).
     $('retakePhotoBtn').addEventListener('click', () => {

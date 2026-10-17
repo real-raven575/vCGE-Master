@@ -28,6 +28,8 @@
     <link rel="stylesheet" href="src/modules/mod03-camera/camera.css">
     <!-- MOD04 OCR: the Read card (the photo under a shimmer while it is read, the Looks right box) -->
     <link rel="stylesheet" href="src/modules/mod04-ocr/read.css">
+    <!-- MOD05 Field mapping: the Fields card (the form, the fake-contact list, the pop-in, the green Everything's correct) -->
+    <link rel="stylesheet" href="src/modules/mod05-form/fields.css">
 </head>
 <body class="bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100 h-screen flex flex-col antialiased overflow-hidden">
 
@@ -187,8 +189,9 @@
         </section>
         <section id="cardFields" class="deck-card mod-tag-host" data-card="fields" aria-label="Fields">
             <div class="deck-card-body space-y-4">
-            <div class="flex items-center justify-between">
-                <h2 class="text-lg font-bold">Contact details</h2>
+            <!-- Fields card (MOD05, Pidge): the details land here after the Read card's hand-off and pop in all at once -->
+            <div class="fields-head">
+                <h2>Contact details</h2>
                 <div class="flex items-center gap-2">
                     <div id="formAvatarPreview" class="w-14 h-14"></div>
                     <div class="flex flex-col gap-1">
@@ -199,12 +202,10 @@
                     </div>
                 </div>
             </div>
-            <div>
-                <div class="flex items-center justify-between mb-1">
-                    <p class="text-[11px] text-slate-500 dark:text-slate-400">Sample presets</p>
-                    <button id="clearFormBtn" type="button" class="text-[11px] font-semibold px-2 py-1 rounded-lg hover:text-rose-500 transition">Clear form</button>
-                </div>
-                <div id="presetButtonsContainer" class="flex flex-wrap gap-1.5"></div>
+            <!-- "Insert Fake Contact?": the sample contacts (MOD06 supplies them as data; fieldsCard.js fills the list) -->
+            <div class="fields-tools">
+                <label class="fields-fake"><select id="fakeContactSelect" class="field-input" aria-label="Insert Fake Contact?"></select></label>
+                <button id="clearFormBtn" type="button" class="text-[11px] font-semibold px-3 py-1 rounded-lg hover:text-rose-500 transition">Clear form</button>
             </div>
 
             <!-- Option lists (prefixes, suffixes, unit types, countries, regions) are filled from share/contactOptions.js -->
@@ -212,7 +213,7 @@
             <datalist id="nameSuffixOptions"></datalist>
             <datalist id="unitTypeOptions"></datalist>
 
-            <div class="grid grid-cols-2 gap-3 text-sm">
+            <div id="fieldsForm" class="fields-form grid grid-cols-2 gap-3 text-sm">
                 <label class="block"><span class="field-label">Prefix</span><input id="namePrefix" type="text" list="namePrefixOptions" autocomplete="off" class="field-input" placeholder="Mr., Dr., ..."></label>
                 <label class="block"><span class="field-label">First name</span><input id="firstName" type="text" autocomplete="off" class="field-input"></label>
                 <label class="block"><span class="field-label">Middle name</span><input id="middleName" type="text" autocomplete="off" class="field-input"></label>
@@ -265,6 +266,8 @@
             </div>
             <div class="deck-card-foot">
                 <button type="button" class="vcge-trash" aria-label="Wipe everything and start over" title="Wipe everything and start over"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg></button>
+                <!-- Green "Everything's correct" (fieldsCard.js fills it): the details go on to the 3D Card -->
+                <button id="fieldsDoneBtn" type="button" class="fields-ok">Everything's correct</button>
             </div>
             <div class="mod-tag" aria-hidden="true"><span>MOD-05</span></div>
         </section>

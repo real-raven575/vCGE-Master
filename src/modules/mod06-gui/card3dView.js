@@ -19,7 +19,8 @@ export const THEMES = {
     slate: { label: 'Monochrome Slate', bg: 'from-slate-700 to-slate-900', hex: '#334155' }
 };
 
-const PRESETS = [
+// Sample contacts, as data: the Fields card (MOD05) lists them under "Insert Fake Contact?" and calls loadSample().
+export const PRESETS = [
     { label: '🤖 AI Research Lead', namePrefix: 'Dr.', firstName: 'Elena', lastName: 'Rostova', nameSuffix: 'PhD', organization: 'NeuralShift AI', jobTitle: 'Principal Research Scientist',
       phones: [{ type: 'work', value: '+1 (415) 888-0199' }, { type: 'mobile', value: '+1 (415) 888-0122' }], emails: [{ type: 'work', value: 'e.rostova@neuralshift.ai' }],
       websites: [{ type: 'work', value: 'https://neuralshift.ai' }, { type: 'linkedin', value: 'https://www.linkedin.com/in/elena-rostova' }],
@@ -71,7 +72,6 @@ export class CardView {
 
     init() {
         this.buildOptionLists();
-        this.buildPresetButtons();
         this.buildPaletteMenu();
         this.attachListeners();
         this.applyTheme(this.themeKey);
@@ -438,23 +438,13 @@ export class CardView {
 
     // ---- UI construction & listeners -----------------------------------------------------------------------
 
-    buildPresetButtons() {
-        const container = $('presetButtonsContainer');
-        if (!container) return;
-        PRESETS.forEach(preset => {
-            const btn = document.createElement('button');
-            btn.type = 'button';
-            btn.className = 'px-2.5 py-1 bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 rounded-lg font-semibold text-[11px] transition';
-            btn.textContent = preset.label;
-            btn.addEventListener('click', () => {
-                this.changeWithUndo(`Loaded sample: ${preset.firstName} ${preset.lastName}`,
-                    () => {
-                        this.setContact({ ...createEmptyContact(), ...preset, avatarBase64: this.avatarBase64, logoDisplay: this.logoDisplay, cardFont: this.fontClass });
-                        this.holdsSample = true;
-                    });
+    /** Puts a sample contact (one of PRESETS) on the card as a whole, with Undo; the logo and typeface stay. */
+    loadSample(preset) {
+        this.changeWithUndo(`Loaded sample: ${preset.firstName} ${preset.lastName}`,
+            () => {
+                this.setContact({ ...createEmptyContact(), ...preset, avatarBase64: this.avatarBase64, logoDisplay: this.logoDisplay, cardFont: this.fontClass });
+                this.holdsSample = true;
             });
-            container.appendChild(btn);
-        });
     }
 
     buildPaletteMenu() {

@@ -254,6 +254,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   ok('real OCR extracts phone, email, website', got.phoneWork === '+1 (312) 555-0147' && got.email === 'maria.gonzalez@northwind.com' && got.website === 'https://northwind.com', JSON.stringify(got));
   ok('real OCR extracts street, city, state, zip', got.street === '233 South Wacker Drive' && got.city === 'Chicago' && got.state === 'IL' && got.zip === '60606', JSON.stringify(got));
   ok('user told the form was filled', (await text('toastMessage')).includes('Form filled'));
+  ok('Fields card: the form popped in once on the hand-off (all boxes together, after the text was in them)', (await page.getAttribute('#fieldsForm', 'data-pops')) === '1', await page.getAttribute('#fieldsForm', 'data-pops'));
   if (!process.env.SERVE_DIR) {
     const seen = await page.evaluate(() => window.__busSeen);
     ok('bus carries no photo or OCR text, only signals', seen.length === 2 && !seen.some(d => /data:image|Gonzalez|northwind/i.test(d)), seen.join(' | ').slice(0, 300));
@@ -820,7 +821,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     const errorsS = [];
     pS.on('pageerror', e => errorsS.push(e.message));
     await pS.goto(ORIGIN); await pS.waitForTimeout(300);
-    await pS.click('#presetButtonsContainer button:nth-child(2)');   // Managing Attorney: main, mobile and fax numbers
+    await pS.selectOption('#fakeContactSelect', '1');   // Managing Attorney: main, mobile and fax numbers
     ok('sample loaded with three phones', (await rows(pS, 'phone')).length === 3 && (await pS.inputValue('#firstName')) === 'Marcus');
     await pS.setInputFiles('#imageUpload', await renderCardImage(pS)); await pS.waitForTimeout(300);
     await pS.click('#runOcrBtn');
@@ -841,6 +842,65 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await ctxS.close();
   }
 
+  // Fields card (MOD05, redesign step 7): the "Insert Fake Contact?" list, the pop-in on arrival, "Everything's correct"
+  {
+    const ctxF = await browser.newContext();
+    const pF = await ctxF.newPage();
+    const errorsF = [];
+    pF.on('pageerror', e => errorsF.push(e.message));
+    pF.on('console', m => { if (m.type() === 'error') errorsF.push('console: ' + m.text()); });
+    await pF.goto(ORIGIN); await pF.waitForTimeout(300);
+    const pops = () => pF.$eval('#fieldsForm', f => Number(f.dataset.pops || 0));
+    const card = () => pF.evaluate(() => document.documentElement.dataset.card);
+    ok('fields: the list reads "Insert Fake Contact?" and names each sample by name and company', (await pF.$$eval('#fakeContactSelect option', os => os.map(o => o.textContent).join('|'))) === 'Insert Fake Contact?|Elena Rostova, NeuralShift AI|Marcus Vance, Vance & Partners LLP|Kai Takahashi, Studio Craft'
+      && (await pF.$eval('#fakeContactSelect', s => s.value)) === '' && !(await pF.$('#presetButtonsContainer')), await pF.$$eval('#fakeContactSelect option', os => os.map(o => o.textContent).join('|')));
+    ok('fields: nothing has popped yet (the Welcome START lands on Capture)', (await pops()) === 0);
+    // A header icon is a move of the deck's own: the form pops on arrival (a swipe, below, does not)
+    await pF.click('#navFields'); await pF.waitForTimeout(600);
+    ok('fields: arriving by the header icon pops the form in', (await pops()) === 1 && (await card()) === 'fields', String(await pops()));
+    await pF.evaluate(() => {
+      window.__pop = { names: [], steps: null };
+      const f = document.getElementById('fieldsForm');
+      new MutationObserver(() => { const cs = getComputedStyle(f); if (f.classList.contains('is-popping')) { window.__pop.names.push(cs.animationName); window.__pop.steps = cs.animationTimingFunction; window.__pop.ms = cs.animationDuration; } })
+        .observe(f, { attributes: true, attributeFilter: ['class'] });
+    });
+    await pF.selectOption('#fakeContactSelect', '2');
+    await pF.waitForTimeout(500);
+    const pop = await pF.evaluate(() => window.__pop);
+    ok('fields: choosing a sample fills the form, pops it in (one animation, 8 steps over 0.32 s), offers Undo, and the list reads the prompt again',
+      (await pF.inputValue('#firstName')) === 'Kai' && (await pF.inputValue('#organization')) === 'Studio Craft' && (await pops()) === 2 && pop.names.includes('fields-pop') && pop.steps === 'steps(8)' && pop.ms === '0.32s'
+      && await pF.isVisible('#toastAction') && (await pF.$eval('#fakeContactSelect', s => s.value)) === '' && (await card()) === 'fields', JSON.stringify({ pop, pops: await pops(), card: await card() }));
+    ok('fields: the list and the green button are at least 44 px tall; the button reads "Everything\'s correct" with the tick icon', (await pF.$$eval('#fakeContactSelect, #fieldsDoneBtn', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44)
+      && (await pF.textContent('#fieldsDoneBtn')).trim() === "Everything's correct" && !!(await pF.$('#fieldsDoneBtn svg use[href$="#circle-check"]')), JSON.stringify(await pF.$$eval('#fakeContactSelect, #fieldsDoneBtn', els => els.map(e => e.getBoundingClientRect().height))));
+    ok('fields: the pop class is gone once the animation ends', !(await pF.$eval('#fieldsForm', f => f.classList.contains('is-popping'))));
+    // A swipe is not a move of the deck's own: the form was in view the whole way, so it does not pop
+    await pF.evaluate(() => document.getElementById('cardRead').scrollIntoView({ inline: 'center', block: 'nearest' })); await pF.waitForTimeout(400);
+    await pF.evaluate(() => document.getElementById('cardFields').scrollIntoView({ inline: 'center', block: 'nearest' })); await pF.waitForTimeout(400);
+    ok('fields: arriving by a swipe does not pop (no flash of a form that was already in view)', (await pops()) === 2 && (await card()) === 'fields', String(await pops()) + ' ' + (await card()));
+    // "Everything's correct": the details go on to the 3D Card (the padlock hand-off follows the deck's signal)
+    const footSides = () => pF.evaluate(() => { const c = document.getElementById('cardFields').getBoundingClientRect(), t = document.querySelector('#cardFields .vcge-trash').getBoundingClientRect(), b = document.getElementById('fieldsDoneBtn').getBoundingClientRect();
+      const side = (r) => (r.left + r.width / 2 > c.left + c.width / 2 ? 'right' : 'left'); return { trash: side(t), ok: side(b), okBottom: b.bottom <= c.bottom + 1 && b.top > c.top + c.height / 2 }; });
+    const sidesRight = await footSides();
+    await pF.click('#fieldsDoneBtn'); await pF.waitForTimeout(700);
+    ok('fields: "Everything\'s correct" sits lower right (the trash lower left) and moves on to the 3D Card with the details on it',
+      sidesRight.ok === 'right' && sidesRight.trash === 'left' && sidesRight.okBottom && (await card()) === 'card' && (await pF.textContent('#previewFullName')) === 'Kai Takahashi' && await pF.isVisible('#vaultHandoff[data-playing]').catch(() => true),
+      JSON.stringify({ sidesRight, card: await card() }));
+    await pF.click('#navSettings'); await pF.click('#handLeftBtn'); await pF.keyboard.press('Escape'); await pF.waitForTimeout(200);
+    await pF.click('#navFields'); await pF.waitForTimeout(600);
+    const sidesLeft = await footSides();
+    ok('fields: left hand puts "Everything\'s correct" lower left and the trash lower right', sidesLeft.ok === 'left' && sidesLeft.trash === 'right', JSON.stringify(sidesLeft));
+    await pF.click('#navSettings'); await pF.click('#handRightBtn'); await pF.click('#cbToggle'); await pF.keyboard.press('Escape'); await pF.waitForTimeout(200);
+    ok('fields: colour-blind mode turns the green button blue', (await pF.$eval('#fieldsDoneBtn', b => getComputedStyle(b).backgroundColor)) === 'rgb(37, 99, 235)');
+    await pF.click('#navSettings'); await pF.click('#cbToggle'); await pF.keyboard.press('Escape');
+    // Reduce motion: the arrival counts, nothing moves
+    await pF.emulateMedia({ reducedMotion: 'reduce' });
+    const before = await pops();
+    await pF.selectOption('#fakeContactSelect', '0'); await pF.waitForTimeout(300);
+    ok('fields: under reduce motion a sample is simply there (no pop class), the arrival still counted', (await pops()) === before + 1 && !(await pF.$eval('#fieldsForm', f => f.classList.contains('is-popping'))) && (await pF.inputValue('#firstName')) === 'Elena', String(await pops()));
+    ok('fields: no page errors', errorsF.length === 0, errorsF.join(' | '));
+    await ctxF.close();
+  }
+
   // Tester feedback round 1: Undo after a sample / clear / scan fill, reopen the last scan, readable SMS and email, one-page print
   {
     const ctx9 = await browser.newContext();
@@ -850,7 +910,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     p9.on('console', m => { if (m.type() === 'error') errors9.push('console: ' + m.text()); });
     await p9.goto(ORIGIN); await p9.waitForTimeout(300);
     await p9.fill('#firstName', 'Typed'); await p9.fill('#emailValue0', 'typed@example.com');
-    await p9.click('#presetButtonsContainer button');
+    await p9.selectOption('#fakeContactSelect', '0');
     ok('sample preset replaces the form and offers Undo', (await p9.inputValue('#firstName')) !== 'Typed' && await p9.isVisible('#toastAction') && (await p9.textContent('#toastAction')).trim() === 'Undo');
     await p9.click('#toastAction');
     ok('Undo brings the typed card back', (await p9.inputValue('#firstName')) === 'Typed' && (await p9.inputValue('#emailValue0')) === 'typed@example.com' && (await p9.textContent('#toastMessage')).includes('Undone'));
