@@ -188,6 +188,10 @@ export function initDeck() {
     let pointerHeld = false, holdTimer = null;
     const settle = () => {
         if (pointerHeld) { settlePending = true; track.dataset.deck = 'held'; return; }
+        // A move of the deck's own is still running: its next frame, or the 150 ms watchdog, ends it at the target.
+        // Settling here would jump ahead and then let that frame drag the deck back between cards, and the settle
+        // after it would pick the card in between (a slow webview showed this: Capture to Fields ended on Read).
+        if (tween) return;
         track.dataset.deck = 'still';
         if (goTarget !== null) {
             // A move of the deck's own: arrived, or its animation stalled (a slow frame, a headless webview) and the

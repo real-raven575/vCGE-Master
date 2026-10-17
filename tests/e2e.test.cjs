@@ -1482,6 +1482,20 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await pH.click('#welcomeStartBtn'); await pH.waitForTimeout(700);
     ok('welcome: START moves to the Capture card and lights its header icon', (await state()).card === 'capture'
       && await pH.$eval('#navCapture', b => b.classList.contains('is-on') && b.getAttribute('aria-current') === 'page') && await pH.$eval('#navRead', b => !b.classList.contains('is-on')));
+    // A slow webview (frames 100 ms apart, under the deck's 150 ms watchdog) must not strand a two-card move on the
+    // card in between: the settle waits for the deck's own move to finish (seen on the Linux desktop CI: Read).
+    await pH.evaluate(() => {
+      const raf = window.requestAnimationFrame.bind(window), caf = window.cancelAnimationFrame.bind(window), late = new Map(), t0 = performance.now();
+      window.requestAnimationFrame = (cb) => {
+        const since = performance.now() - t0;
+        if (since < 60 || since > 320) return raf(cb);
+        const id = -late.size - 1 - Math.random(); late.set(id, setTimeout(() => { late.delete(id); cb(performance.now()); }, 100)); return id;
+      };
+      window.cancelAnimationFrame = (id) => { if (late.has(id)) { clearTimeout(late.get(id)); late.delete(id); } else caf(id); };
+    });
+    await pH.click('#navFields'); await pH.waitForTimeout(1200);
+    ok('deck: a two-card move through slow frames still lands on the card asked for, not the one in between', (await state()).card === 'fields'
+      && await pH.evaluate(() => { const t = document.getElementById('deck'), c = document.getElementById('cardFields'); return t.dataset.deck === 'still' && Math.abs(t.scrollLeft - (c.offsetLeft + c.offsetWidth / 2 - t.clientWidth / 2)) <= 1; }), JSON.stringify(await state()));
     await pH.fill('#firstName', 'Welcomed'); await pH.waitForTimeout(400);
     ok('deck: typing in a field brings its card into view', (await pH.inputValue('#firstName')) === 'Welcomed' && (await state()).card === 'fields', (await state()).card);
     await pH.reload(); await pH.waitForTimeout(400);
