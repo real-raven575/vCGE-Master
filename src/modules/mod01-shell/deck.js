@@ -23,7 +23,9 @@ export const EDGE_PX = 48;               // no drag control within this much of 
 const $ = (id) => document.getElementById(id);
 const hooks = { toast: null, wipe: null, cancel: null, showQr: null };
 const beforeChange = [];
-let currentName = null, track = null, cards = [], settleTimer = null, settledLeft = 0, settlePending = false;
+let currentName = null, track = null, cards = [], settleTimer = null, settlePending = false;
+let settledLeft = 0;          // where the deck last came to rest (the direction of a later scroll is read from here)
+let goTarget = null;          // where a smooth move of the deck's own is heading, until it arrives
 
 export function use(h) { Object.assign(hooks, h); }
 export function onBeforeChange(fn) { beforeChange.push(fn); return () => beforeChange.splice(beforeChange.indexOf(fn), 1); }
@@ -45,9 +47,11 @@ function nearest() {
 // The scroll position that centres a card.
 const centreOf = (card) => card.offsetLeft + card.offsetWidth / 2 - track.clientWidth / 2;
 function centre(name, behavior) {
-    const card = cardEl(name);
-    const left = centreOf(card);
-    if (Math.abs(track.scrollLeft - left) > 1) track.scrollTo({ left, behavior });
+    const left = centreOf(cardEl(name));
+    const away = Math.abs(track.scrollLeft - left) > 1;
+    if (behavior === 'smooth' && away) { goTarget = left; track.scrollTo({ left, behavior }); return; }
+    goTarget = null;
+    if (away) track.scrollTo({ left, behavior: 'auto' });
     settledLeft = left;
 }
 
@@ -159,13 +163,28 @@ export function initDeck() {
     let pointerHeld = false;
     const settle = () => {
         if (pointerHeld) { settlePending = true; return; }
+        if (goTarget !== null) {
+            // A move of the deck's own: arrived, or its animation stalled (a slow frame, a headless webview) and the
+            // deck sat between cards. Either way it ends where it was heading.
+            if (Math.abs(track.scrollLeft - goTarget) > 2) track.scrollTo({ left: goTarget, behavior: 'auto' });
+            settledLeft = goTarget; goTarget = null;
+            setCurrent(nearest());
+            return;
+        }
         const name = pick();
         setCurrent(name);
         centre(name, 'auto');
     };
-    const onScroll = () => { clearTimeout(settleTimer); settleTimer = setTimeout(settle, 80); };
+    const onScroll = () => {
+        // A move of the deck's own that reaches its target is over at once, so a scroll that follows it is read as new.
+        if (goTarget !== null && Math.abs(track.scrollLeft - goTarget) <= 2) { settledLeft = goTarget; goTarget = null; }
+        clearTimeout(settleTimer); settleTimer = setTimeout(settle, 80);
+    };
     const release = () => { pointerHeld = false; if (settlePending) { settlePending = false; settle(); } };
     document.addEventListener('pointerdown', () => { pointerHeld = true; }, true);
+    // A finger or a wheel on the track takes over from a move in flight.
+    track.addEventListener('pointerdown', () => { goTarget = null; }, { passive: true });
+    track.addEventListener('wheel', () => { goTarget = null; }, { passive: true });
     document.addEventListener('pointerup', release, true);
     document.addEventListener('pointercancel', release, true);
     track.addEventListener('scroll', onScroll, { passive: true });
