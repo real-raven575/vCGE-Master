@@ -15,6 +15,8 @@
     <!-- Tailwind CSS, compiled locally (npm run build:css) so the app makes no runtime CDN request -->
     <link rel="stylesheet" href="src/styles/tailwind.css">
     <link rel="stylesheet" href="src/modules/mod06-gui/cardStyles.css">
+    <!-- MOD08 Export: the Share card, the Export QR pop-up, the Print / PDF choice, and the 6 x 3.5 in print sheet -->
+    <link rel="stylesheet" href="src/modules/mod08-egress/export.css">
     <link rel="stylesheet" href="src/modules/mod08-egress/print.css">
     <!-- MOD01 welcome pop-up and tour (opened by shell.js every time vCGE starts; nothing stored) -->
     <link rel="stylesheet" href="src/modules/mod01-shell/welcome.css">
@@ -320,21 +322,24 @@
             </div>
             <div class="deck-card-foot">
                 <button type="button" class="vcge-trash" aria-label="Wipe everything and start over" title="Wipe everything and start over"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg></button>
+                <button id="readyToShareBtn" type="button" class="share-ready">Ready to share</button>
             </div>
             <div class="mod-tag" aria-hidden="true"><span>MOD-06</span><span>MOD-07</span></div>
         </section>
         <section id="cardShare" class="deck-card mod-tag-host" data-card="share" aria-label="Share">
             <div class="deck-card-body space-y-4">
                 <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Share &amp; export</h2>
-                <div class="grid grid-cols-3 gap-2 text-xs font-semibold">
-                    <button id="downloadVcfBtn" type="button" class="py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 transition">.vcf</button>
-                    <button id="shareNativeBtn" type="button" class="py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition">Share</button>
-                    <button id="exportQrBtn" type="button" class="py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition">QR PNG</button>
-                    <button id="emailBtn" type="button" class="py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition">Email</button>
-                    <button id="smsBtn" type="button" class="py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition">SMS</button>
-                    <button id="printCardBtn" type="button" class="py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition">Print</button>
+                <p class="share-lead">Nothing leaves vCGE until you press one of these.</p>
+                <div class="share-grid">
+                    <button id="downloadVcfBtn" type="button" class="share-btn share-primary">Save .vcf file</button>
+                    <button id="shareNativeBtn" type="button" class="share-btn">Share</button>
+                    <button id="copyVcardBtn" type="button" class="share-btn">Copy</button>
+                    <button id="exportQrBtn" type="button" class="share-btn">QR PNG</button>
+                    <button id="printCardBtn" type="button" class="share-btn">Print / PDF</button>
+                    <button id="emailBtn" type="button" class="share-btn">Email</button>
+                    <button id="smsBtn" type="button" class="share-btn">SMS</button>
                 </div>
-                <button id="copyVcardBtn" type="button" class="w-full py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition text-xs font-semibold">Copy vCard text</button>
+                <p class="share-note">Files are named after the contact: <span id="shareFileExample">Contact.vcf, Contact QR.png</span></p>
             </div>
             <div class="deck-card-foot">
                 <button type="button" class="vcge-trash" aria-label="Wipe everything and start over" title="Wipe everything and start over"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg></button>
@@ -428,6 +433,83 @@
         </div>
     </div>
 
+    <!-- Export QR pop-up (MOD08, Airlock): colours, dots, frame and centre logo for the saved PNG, with a live preview.
+         A Shell sheet: a sideways swipe, Esc or the X is Cancel. The code is drawn by MOD07; a logo is only ever drawn as an image. -->
+    <div id="exportQrSheet" class="vcge-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="exportQrTitle">
+        <div class="vcge-sheet-panel mod-tag-host">
+            <div class="vcge-sheet-head">
+                <h2 id="exportQrTitle">Export QR</h2>
+                <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close">&#x2715;</button>
+            </div>
+            <div class="export-qr-body">
+                <div class="export-qr-preview">
+                    <canvas id="exportQrPreview" width="0" height="0" aria-label="QR code preview" role="img"></canvas>
+                    <p id="exportQrNote" class="export-qr-note" aria-live="polite"></p>
+                </div>
+                <div class="export-qr-options">
+                    <div class="export-qr-group" role="radiogroup" aria-labelledby="qrColourLabel">
+                        <span id="qrColourLabel">Colours</span>
+                        <div class="export-qr-choices">
+                            <label><input type="radio" name="qrColour" value="themed" checked>Themed</label>
+                            <label><input type="radio" name="qrColour" value="bw">Black &amp; White</label>
+                        </div>
+                    </div>
+                    <div class="export-qr-group" role="radiogroup" aria-labelledby="qrDotsLabel">
+                        <span id="qrDotsLabel">Dots</span>
+                        <div class="export-qr-choices">
+                            <label><input type="radio" name="qrDots" value="square" checked>Square</label>
+                            <label><input type="radio" name="qrDots" value="round">Round</label>
+                        </div>
+                    </div>
+                    <div class="export-qr-group" role="radiogroup" aria-labelledby="qrFrameLabel">
+                        <span id="qrFrameLabel">Frame</span>
+                        <div class="export-qr-choices">
+                            <label><input type="radio" name="qrFrame" value="none" checked>None</label>
+                            <label><input type="radio" name="qrFrame" value="square">Square</label>
+                            <label><input type="radio" name="qrFrame" value="rounded">Rounded</label>
+                            <label><input type="radio" name="qrFrame" value="circle">Circle</label>
+                        </div>
+                    </div>
+                    <div class="export-qr-group" role="radiogroup" aria-labelledby="qrLogoLabel">
+                        <span id="qrLogoLabel">Centre logo</span>
+                        <div class="export-qr-choices">
+                            <label><input type="radio" name="qrLogo" value="none" checked>Nothing</label>
+                            <label><input type="radio" name="qrLogo" value="scanned">Scanned logo</label>
+                            <label><input type="radio" name="qrLogo" value="upload">Upload</label>
+                        </div>
+                        <input id="exportQrLogoFile" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" class="hidden" aria-label="Upload a logo for the QR centre">
+                        <p id="exportQrLogoReason" class="export-qr-reason" aria-live="polite"></p>
+                    </div>
+                    <label id="exportQrUseOnCardRow" class="export-qr-use hidden"><input id="exportQrUseOnCard" type="checkbox"> <span>Also use this logo on my card</span></label>
+                </div>
+            </div>
+            <div class="export-qr-actions">
+                <button id="exportQrCancelBtn" type="button" class="export-qr-cancel">Cancel</button>
+                <button id="exportQrSaveBtn" type="button" class="export-qr-save" disabled>Save PNG</button>
+            </div>
+            <p class="export-qr-file">Saved exactly as previewed, as <span id="exportQrFileName">Contact QR.png</span>.</p>
+            <div class="mod-tag mod-tag-inset" aria-hidden="true"><span>MOD-08</span></div>
+        </div>
+    </div>
+
+    <!-- Print / PDF choice (MOD08): Themed or Black &amp; White, then the browser's print dialog (Save as PDF lives there) -->
+    <div id="printChoiceSheet" class="vcge-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="printChoiceTitle">
+        <div class="vcge-sheet-panel mod-tag-host">
+            <div class="vcge-sheet-head">
+                <h2 id="printChoiceTitle">Print / PDF</h2>
+                <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close">&#x2715;</button>
+            </div>
+            <p class="print-choice-lead">One 6 &times; 3.5 inch page: the card at business-card size with its QR code beside it. Choose Save as PDF in the print dialog for a file.</p>
+            <div class="print-choice-actions">
+                <button id="printThemedBtn" type="button" class="print-choice print-choice-themed">Themed</button>
+                <button id="printBwBtn" type="button" class="print-choice print-choice-bw">Black &amp; White</button>
+                <button id="printCancelBtn" type="button" class="print-choice-cancel">Cancel</button>
+            </div>
+            <p class="print-choice-note">Themed keeps the card's colours. If the theme's QR would not scan, the code is printed in black and white and a message says so.</p>
+            <div class="mod-tag mod-tag-inset" aria-hidden="true"><span>MOD-08</span></div>
+        </div>
+    </div>
+
     <!-- Thank You page (MOD01): after CANCEL on the Welcome card, once the session is wiped -->
     <div id="thankYouPage" class="thank-you hidden" role="dialog" aria-modal="true" aria-labelledby="thankYouTitle">
         <div class="thank-you-box">
@@ -518,7 +600,7 @@
         <button id="toastAction" type="button" class="hidden font-semibold text-brand-400 dark:text-brand-700 hover:underline">Undo</button>
     </div>
 
-    <!-- Print sheet (MOD08): filled just before printing with the card front and back at 3.5" x 2"; emptied on idle purge and lock -->
+    <!-- Print sheet (MOD08): filled just before printing with the card front (3.5 x 2 in) and the QR beside it on a 6 x 3.5 in page; emptied on idle purge and lock -->
     <div id="printSheet" class="hidden" aria-hidden="true"></div>
 
     <!-- Bundled third-party libraries (pinned, MIT / Apache-2.0; see THIRD_PARTY_NOTICES.md) -->

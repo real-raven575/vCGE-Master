@@ -177,7 +177,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#downloadVcfBtn')]);
   const vcf = fs.readFileSync(await dl.path(), 'utf8');
   ok('.vcf downloaded with escaped ORG and CRLF', vcf.includes('ORG:Smith\\, Jones') && vcf.includes('\r\nFN:Jane Doe\r\n'), JSON.stringify(vcf.slice(0, 120)));
-  ok('download filename', dl.suggestedFilename() === 'Jane_Doe.vcf', dl.suggestedFilename());
+  ok('download filename: the full name, with its space (step 10)', dl.suggestedFilename() === 'Jane Doe.vcf', dl.suggestedFilename());
 
   // Richer contact fields: name parts, typed rows, unit, country-driven region picker -> preview, vCard, QR
   ok('prefix/suffix/unit suggestion lists filled', (await page.$$eval('#namePrefixOptions option', o => o.map(x => x.value))).includes('Dr.') && (await page.$$eval('#nameSuffixOptions option', o => o.length)) === 10 && (await page.$$eval('#unitTypeOptions option', o => o.map(x => x.value))).includes('Suite'));
@@ -816,7 +816,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await upload('dark', 'logo.png');
     await p11.fill('#street', '745 Fifth Avenue'); await p11.fill('#city', 'New York');
     await p11.evaluate(() => { window.print = () => {}; });
-    await p11.click('#printCardBtn');
+    await p11.click('#printCardBtn'); await p11.click('#printBwBtn');
     await p11.emulateMedia({ media: 'print' });
     const printed = await p11.evaluate(() => {
       const card = document.querySelector('#printSheet .print-card'), r = card.getBoundingClientRect();
@@ -978,20 +978,51 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
       ok('email: readable summary plus the vCard text', mail.startsWith('mailto:?subject=Contact: Maria Gonzalez&body=Maria Gonzalez\n') && mail.includes('save the text below as a .vcf file') && mail.includes('BEGIN:VCARD'), JSON.stringify(mail.slice(0, 160)));
     }
 
-    // Print / Save as PDF: one page, front and back at business-card size
+    // Print / Save as PDF (step 10): Themed or Black & White, then one 6 x 3.5 in page with the front at business-card size and the QR beside it
     await p9.evaluate(() => { window.print = () => {}; });
     await p9.click('#printCardBtn');
-    const sheet = await p9.evaluate(() => ({ cards: document.querySelectorAll('#printSheet .print-card').length, qr: !!document.querySelector('#printSheet .print-back img'), ids: document.querySelectorAll('#printSheet [id]').length, text: document.getElementById('printSheet').textContent }));
-    ok('print sheet holds the front and the QR back (no duplicate ids)', sheet.cards === 2 && sheet.qr && sheet.ids === 0 && sheet.text.includes('Maria Gonzalez'), JSON.stringify(sheet));
+    ok('Print / PDF asks only Themed or Black & White', await p9.isVisible('#printChoiceSheet') && await p9.isVisible('#printThemedBtn') && await p9.isVisible('#printBwBtn') && (await p9.evaluate(() => document.activeElement && document.activeElement.id)) === 'printThemedBtn');
+    await p9.keyboard.press('Escape');
+    ok('Esc cancels the print choice (a sheet: a swipe would too) and nothing is printed', !(await p9.isVisible('#printChoiceSheet')) && (await p9.evaluate(() => document.getElementById('printSheet').children.length)) === 0);
+    await p9.click('#printCardBtn'); await p9.click('#printThemedBtn');
+    const sheet = await p9.evaluate(() => {
+      const card = document.querySelector('#printSheet .print-card'), flipper = document.getElementById('card3DFlipper');
+      return { cards: document.querySelectorAll('#printSheet .print-card').length, qr: !!document.querySelector('#printSheet .print-qr img'), ids: document.querySelectorAll('#printSheet [id]').length,
+        text: document.getElementById('printSheet').textContent, themed: card.classList.contains('print-themed'),
+        vars: ['--card-bg', '--card-ink', '--card-accent'].map(v => card.style.getPropertyValue(v) === flipper.style.getPropertyValue(v) && card.style.getPropertyValue(v) !== ''), theme: card.dataset.theme === flipper.dataset.theme };
+    });
+    ok('print sheet holds the front and the QR beside it (no duplicate ids)', sheet.cards === 1 && sheet.qr && sheet.ids === 0 && sheet.text.includes('Maria Gonzalez'), JSON.stringify(sheet));
+    ok('themed print copy carries the card\'s theme variables and theme name itself', sheet.themed && sheet.vars.every(Boolean) && sheet.theme, JSON.stringify(sheet));
     await p9.emulateMedia({ media: 'print' });
-    const size = await p9.evaluate(() => { const r = document.querySelector('#printSheet .print-card').getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height)]; });
-    ok('printed card is 3.5 x 2 inches', size[0] === 336 && size[1] === 192, JSON.stringify(size));
+    const size = await p9.evaluate(() => {
+      const c = document.querySelector('#printSheet .print-card'), q = document.querySelector('#printSheet .print-qr img'), r = c.getBoundingClientRect(), qr = q.getBoundingClientRect();
+      return { card: [Math.round(r.width), Math.round(r.height)], qr: [Math.round(qr.width), Math.round(qr.height)], qrRight: qr.left > r.right, bg: getComputedStyle(c).backgroundColor, ink: getComputedStyle(c).color, cardBg: getComputedStyle(document.getElementById('cardFront')).backgroundColor };
+    });
+    ok('printed card is 3.5 x 2 inches with the 1.5 in QR to its right', size.card[0] === 336 && size.card[1] === 192 && size.qr[0] === 144 && size.qr[1] === 144 && size.qrRight, JSON.stringify(size));
+    ok('themed print keeps the card\'s own colours', size.bg === size.cardBg && size.bg !== 'rgb(255, 255, 255)', JSON.stringify(size));
     await p9.emulateMedia({ media: null });
-    const pdf = (await p9.pdf({ format: 'Letter', preferCSSPageSize: true, printBackground: true })).toString('latin1');
+    const pdf = (await p9.pdf({ preferCSSPageSize: true, printBackground: true })).toString('latin1');
     const pages = (pdf.match(/\/Type\s*\/Page[^s]/g) || []).length;
-    ok('print is one page (no blank pages) and the card is still on the sheet', pages === 1 && (await p9.evaluate(() => document.getElementById('printSheet').children.length)) === 2, `${pages} pages`);
+    const box = /\/MediaBox\s*\[\s*0\s+0\s+(\d+)\s+(\d+)\s*\]/.exec(pdf);
+    ok('print is one 6 x 3.5 in page (no blank pages) and the card is still on the sheet', pages === 1 && box && box[1] === '432' && box[2] === '252' && (await p9.evaluate(() => document.getElementById('printSheet').children.length)) === 2, `${pages} pages, box ${box && box.slice(1)}`);
     await p9.evaluate(() => window.dispatchEvent(new Event('afterprint')));
     ok('print copies stay until the next print (afterprint can fire before the PDF is drawn)', (await p9.evaluate(() => document.getElementById('printSheet').children.length)) === 2);
+    await p9.click('#printCardBtn'); await p9.click('#printBwBtn');
+    await p9.emulateMedia({ media: 'print' });
+    const bw = await p9.evaluate(() => {
+      const c = document.querySelector('#printSheet .print-card'), q = document.querySelector('#printSheet .print-qr img');
+      return { bg: getComputedStyle(c).backgroundColor, ink: getComputedStyle(c).color, bw: c.classList.contains('print-bw'), src: q.src.slice(0, 21) };
+    });
+    await p9.emulateMedia({ media: null });
+    ok('Black & White print: white card, dark ink, a PNG QR', bw.bw && bw.bg === 'rgb(255, 255, 255)' && bw.ink === 'rgb(15, 23, 42)' && bw.src === 'data:image/png;base64', JSON.stringify(bw));
+    // The B&W QR on the sheet is black on white; the themed one above was tinted
+    const qrColours = await p9.evaluate(async () => {
+      const img = document.querySelector('#printSheet .print-qr img'); await img.decode();
+      const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+      const x = c.getContext('2d'); x.drawImage(img, 0, 0); const d = x.getImageData(0, 0, c.width, c.height).data;
+      const seen = new Set(); for (let i = 0; i < d.length; i += 4) seen.add(`${d[i]},${d[i + 1]},${d[i + 2]}`); return [...seen];
+    });
+    ok('Black & White QR is pure black on pure white', qrColours.length === 2 && qrColours.includes('0,0,0') && qrColours.includes('255,255,255'), JSON.stringify(qrColours));
     ok('tester round 1: no page errors', errors9.length === 0, errors9.join(' | '));
     await ctx9.close();
   }
@@ -1698,6 +1729,114 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('sample: Undo after Clear brings the sample back without its logo (removed before) and with its theme', (await p6.inputValue('#firstName')) === 'Ghost' && (await p6.textContent('#currentPaletteLabel')) === 'Twilight' && !(await p6.$('#previewAvatar img')));
     ok('card: no page errors, nothing fetched from outside, no missing files', errors6.length === 0 && external6.length === 0 && missing6.length === 0, errors6.concat(external6, missing6).join(' | '));
     await ctx6.close();
+  }
+
+  // Step 10 (Airlock): the Share card, Ready to share, file names, the Export QR pop-up (styles, logo, Vault hand-off)
+  {
+    const ctxA = await browser.newContext({ acceptDownloads: true });
+    const pA = await ctxA.newPage();
+    const errorsA = [], externalA = [];
+    pA.on('pageerror', e => errorsA.push(e.message));
+    pA.on('console', m => { if (m.type() === 'error') errorsA.push('console: ' + m.text()); });
+    pA.on('request', r => { if (!r.url().startsWith(ORIGIN) && !/^(data|blob):/.test(r.url())) externalA.push(r.url()); });
+    await pA.goto(ORIGIN); await pA.waitForTimeout(300);
+    const decodeCanvas = (id) => pA.evaluate((id) => { const c = document.getElementById(id); if (!c.width) return null; return { w: c.width, h: c.height, data: Array.from(c.getContext('2d').getImageData(0, 0, c.width, c.height).data) }; }, id)
+      .then(q => { if (!q) return null; const r = jsQR(Uint8ClampedArray.from(q.data), q.w, q.h); return r && r.data; });
+    const coloursOf = (id) => pA.evaluate((id) => { const c = document.getElementById(id), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; const seen = new Set(); for (let i = 0; i < d.length; i += 4) seen.add(`${d[i]},${d[i + 1]},${d[i + 2]}`); return [...seen]; }, id);
+    const tA = (id) => pA.$eval('#' + id, el => el.textContent.trim());
+
+    // An empty card: the Share card says so instead of opening the pop-up or printing
+    await pA.click('#navShare'); await pA.waitForTimeout(400);
+    const shareCard = await pA.evaluate(() => {
+      const ids = ['downloadVcfBtn', 'shareNativeBtn', 'copyVcardBtn', 'exportQrBtn', 'printCardBtn', 'emailBtn', 'smsBtn'];
+      const rects = ids.map(id => document.getElementById(id).getBoundingClientRect());
+      return { current: document.querySelector('.deck-card.is-current').id, heights: rects.map(r => Math.round(r.height)), allInside: rects.every(r => r.width > 0 && r.height > 0), tag: document.querySelector('#cardShare .mod-tag').textContent.trim(), hint: document.getElementById('shareFileExample').textContent };
+    });
+    ok('Share card: all seven ways out on one card, each at least 44 px tall, tagged MOD-08', shareCard.current === 'cardShare' && shareCard.heights.every(h => h >= 44) && shareCard.allInside && shareCard.tag === 'MOD-08', JSON.stringify(shareCard));
+    ok('Share card names the files after the contact; an empty card is "Contact"', shareCard.hint === 'Contact.vcf, Contact QR.png', shareCard.hint);
+    await pA.click('#exportQrBtn'); await pA.waitForTimeout(200);
+    ok('empty card: QR PNG says to add a contact first, no pop-up', !(await pA.isVisible('#exportQrSheet')) && (await tA('toastMessage')) === 'Add a contact first.');
+    await pA.click('#printCardBtn'); await pA.waitForTimeout(200);
+    ok('empty card: Print / PDF says to add a contact first, no choice sheet', !(await pA.isVisible('#printChoiceSheet')));
+
+    // Ready to share on the 3D Card moves the deck to the Share card
+    await pA.click('#navFields'); await pA.waitForTimeout(400);
+    await pA.fill('#firstName', 'Jane'); await pA.fill('#lastName', 'Doe'); await pA.fill('#organization', 'Smith, Jones'); await pA.fill('#emailValue0', 'jane@example.com');
+    await pA.waitForTimeout(400);
+    await pA.click('#navCard'); await pA.waitForTimeout(500);
+    const ready = await pA.evaluate(() => { const b = document.getElementById('readyToShareBtn'), r = b.getBoundingClientRect(), c = document.getElementById('cardCard').getBoundingClientRect(); return { inFoot: r.top > c.top + c.height / 2, h: Math.round(r.height), bg: getComputedStyle(b).backgroundColor }; });
+    await pA.click('#readyToShareBtn'); await pA.waitForTimeout(700);
+    ok('Ready to share (green, in the 3D Card\'s foot) takes the person to the Share card', ready.inFoot && ready.h >= 44 && ready.bg === 'rgb(22, 163, 74)' && (await pA.evaluate(() => document.querySelector('.deck-card.is-current').id)) === 'cardShare', JSON.stringify(ready));
+    ok('the file hint follows the contact', (await tA('shareFileExample')) === 'Jane Doe.vcf, Jane Doe QR.png', await tA('shareFileExample'));
+
+    // Export QR pop-up: a live preview from the same code as the card back, Themed by default
+    await pA.click('#exportQrBtn');
+    await pA.waitForSelector('#exportQrSheet', { state: 'visible' });
+    await pA.waitForFunction(() => document.getElementById('exportQrPreview').width > 0);
+    const expected = await decodeQr(pA);
+    const previewed = await decodeCanvas('exportQrPreview');
+    ok('Export QR: the preview decodes to the same vCard as the card back', previewed && previewed === expected && previewed.includes('FN:Jane Doe'), previewed && previewed.slice(0, 60));
+    const themedColours = await coloursOf('exportQrPreview');
+    ok('Export QR: Themed by default (tinted, not pure black on white), Save PNG enabled, file name shown', themedColours.length === 2 && !themedColours.includes('0,0,0') && !(await pA.isDisabled('#exportQrSaveBtn')) && (await tA('exportQrFileName')) === 'Jane Doe QR.png', JSON.stringify(themedColours));
+    const logoState = await pA.evaluate(() => ({ scanned: document.querySelector('input[name="qrLogo"][value="scanned"]').disabled, upload: document.querySelector('input[name="qrLogo"][value="upload"]').disabled, reason: document.getElementById('exportQrLogoReason').textContent }));
+    ok('no logo on the card yet: "Scanned logo" is greyed out with a reason, Upload stays open', logoState.scanned && !logoState.upload && /No logo on the card yet/.test(logoState.reason), JSON.stringify(logoState));
+    await pA.check('input[name="qrColour"][value="bw"]'); await pA.waitForTimeout(150);
+    const bwColours = await coloursOf('exportQrPreview');
+    ok('Black & White: pure black on pure white, still the same code', bwColours.length === 2 && bwColours.includes('0,0,0') && bwColours.includes('255,255,255') && (await decodeCanvas('exportQrPreview')) === expected, JSON.stringify(bwColours));
+    const squareW = await pA.$eval('#exportQrPreview', c => c.width);
+    await pA.check('input[name="qrDots"][value="round"]'); await pA.check('input[name="qrFrame"][value="circle"]'); await pA.waitForTimeout(200);
+    const circleW = await pA.$eval('#exportQrPreview', c => c.width);
+    ok('round dots in a circle frame still decode, on a larger canvas that clears the corners', (await decodeCanvas('exportQrPreview')) === expected && circleW > squareW, `${squareW} -> ${circleW}`);
+    ok('the note is empty when there is nothing to say', (await tA('exportQrNote')) === '');
+    // Esc (a Shell sheet: a sideways swipe or the X do the same) cancels; the next opening starts fresh
+    await pA.keyboard.press('Escape');
+    ok('Esc cancels the pop-up', !(await pA.isVisible('#exportQrSheet')));
+    await pA.click('#exportQrBtn'); await pA.waitForSelector('#exportQrSheet', { state: 'visible' }); await pA.waitForTimeout(200);
+    ok('the pop-up opens fresh: Themed, square, no frame, no logo', await pA.isChecked('input[name="qrColour"][value="themed"]') && await pA.isChecked('input[name="qrDots"][value="square"]') && await pA.isChecked('input[name="qrFrame"][value="none"]') && await pA.isChecked('input[name="qrLogo"][value="none"]'));
+
+    // Upload a logo for the centre: made ready on the device (traced into a drawing), drawn as an image; the code still decodes around it
+    const logoPng = await pA.evaluate(() => { const c = document.createElement('canvas'); c.width = 320; c.height = 80; const x = c.getContext('2d'); x.fillStyle = '#1d4ed8'; x.font = 'bold 56px Arial'; x.fillText('ACME', 20, 62); return c.toDataURL('image/png'); });
+    await pA.check('input[name="qrFrame"][value="rounded"]');
+    await pA.setInputFiles('#exportQrLogoFile', { name: 'acme.png', mimeType: 'image/png', buffer: Buffer.from(logoPng.split(',')[1], 'base64') });
+    await pA.waitForFunction(() => document.querySelector('input[name="qrLogo"][value="upload"]').checked && !document.getElementById('exportQrUseOnCardRow').classList.contains('hidden'), null, { timeout: 5000 });
+    await pA.waitForTimeout(300);
+    const withLogo = await pA.evaluate(() => { const c = document.getElementById('exportQrPreview'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; const seen = new Set(); for (let i = 0; i < d.length; i += 4) seen.add(`${d[i]},${d[i + 1]},${d[i + 2]}`); return { colours: seen.size, w: c.width, hasPhoto: !!document.querySelector('#previewAvatar img, #previewAvatar svg') }; });
+    ok('uploaded logo: drawn in the centre (more than the two code colours), the code still decodes; the card is untouched until asked', withLogo.colours > 2 && (await decodeCanvas('exportQrPreview')) === expected && !withLogo.hasPhoto, JSON.stringify(withLogo));
+    ok('"Also use this logo on my card" is offered, unticked', await pA.isVisible('#exportQrUseOnCardRow') && !(await pA.isChecked('#exportQrUseOnCard')));
+    // Save PNG: the file is the preview, named after the contact; with the box ticked the logo reaches the card through the Vault
+    await pA.check('#exportQrUseOnCard');
+    const [dlQr] = await Promise.all([pA.waitForEvent('download'), pA.click('#exportQrSaveBtn')]);
+    ok('Save PNG downloads "Jane Doe QR.png" and closes the pop-up', dlQr.suggestedFilename() === 'Jane Doe QR.png' && !(await pA.isVisible('#exportQrSheet')), dlQr.suggestedFilename());
+    const pngBytes = fs.readFileSync(await dlQr.path());
+    ok('the saved file is a PNG', pngBytes.slice(1, 4).toString() === 'PNG');
+    await pA.waitForFunction(() => !!document.querySelector('#previewAvatar img, #previewAvatar svg, #previewLogoStrip img, #previewLogoStrip svg'), null, { timeout: 5000 });
+    ok('the logo is on the card too, and the toast says both', !!(await pA.$('#previewAvatar img, #previewAvatar svg, #previewLogoStrip img, #previewLogoStrip svg')) && /Saved Jane Doe QR\.png\. The logo is on your card too\./.test(await tA('toastMessage')), await tA('toastMessage'));
+    ok('audit log records the PNG export by name of the action only', (await tA('auditLog')).includes('MOD08 egress: export_png') && !(await tA('auditLog')).includes('Jane Doe'));
+    const [dlV] = await Promise.all([pA.waitForEvent('download'), pA.click('#downloadVcfBtn')]);
+    const vcfA = fs.readFileSync(await dlV.path(), 'utf8');
+    ok('the .vcf now carries that logo as its photo', /\r\nPHOTO;TYPE=JPEG;ENCODING=b:/.test(vcfA), vcfA.slice(0, 80));
+    // Now the card has a logo: "Scanned logo" is offered and draws the card's own logo in the centre
+    await pA.click('#exportQrBtn'); await pA.waitForSelector('#exportQrSheet', { state: 'visible' });
+    await pA.waitForFunction(() => document.getElementById('exportQrPreview').width > 0);
+    ok('with a logo on the card, "Scanned logo" is offered', !(await pA.isDisabled('input[name="qrLogo"][value="scanned"]')) && (await tA('exportQrLogoReason')) === '');
+    await pA.check('input[name="qrLogo"][value="scanned"]'); await pA.waitForTimeout(400);
+    const scannedColours = await coloursOf('exportQrPreview');
+    ok('scanned logo in the centre, the code still decodes (level H)', scannedColours.length > 2 && (await decodeCanvas('exportQrPreview')) === expected, JSON.stringify(scannedColours.length));
+    await pA.click('#exportQrCancelBtn');
+    ok('Cancel closes the pop-up', !(await pA.isVisible('#exportQrSheet')));
+
+    // A contact too big for level H: the logo options are greyed out with MOD07's reason; the code itself still fits
+    await pA.click('#navFields'); await pA.waitForTimeout(400);
+    await pA.fill('#notes', 'x'.repeat(1500)); await pA.waitForTimeout(500);
+    await pA.click('#navShare'); await pA.waitForTimeout(400);
+    await pA.click('#exportQrBtn'); await pA.waitForSelector('#exportQrSheet', { state: 'visible' }); await pA.waitForTimeout(300);
+    const big = await pA.evaluate(() => ({ scanned: document.querySelector('input[name="qrLogo"][value="scanned"]').disabled, upload: document.querySelector('input[name="qrLogo"][value="upload"]').disabled, reason: document.getElementById('exportQrLogoReason').textContent, none: document.querySelector('input[name="qrLogo"][value="none"]').checked, w: document.getElementById('exportQrPreview').width, save: document.getElementById('exportQrSaveBtn').disabled }));
+    ok('too much data for a logo: both logo options greyed out with the reason, Nothing chosen, the plain code still previews', big.scanned && big.upload && /Too much contact data for a QR code with a logo/.test(big.reason) && big.none && big.w > 0 && !big.save, JSON.stringify(big));
+    await pA.keyboard.press('Escape');
+    // Wipe: the uploaded logo, the preview and the print sheet are gone (the page reloads too)
+    await pA.click('#navCard'); await pA.waitForTimeout(400);
+    ok('Export: no page errors, nothing fetched from outside', errorsA.length === 0 && externalA.length === 0, errorsA.concat(externalA).join(' | '));
+    await ctxA.close();
   }
 
   console.log(`\n${pass} passed, ${fail} failed`);

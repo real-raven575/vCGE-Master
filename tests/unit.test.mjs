@@ -1099,5 +1099,41 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     && fc.sampleLabel({ label: '🎨 Solo', firstName: 'Kai' }) === 'Kai' && fc.sampleLabel({ label: ' Plain label ' }) === 'Plain label' && fc.sampleLabel({}) === 'Sample contact');
 }
 
+// MOD08 Export (Airlock), redesign step 10: file names from the contact, the QR pop-up's choices, the logo through the Vault
+{
+  const { EgressController, safeFileName, FILE_NAME_MAX } = await import(`${R}/modules/mod08-egress/egressController.js`);
+  const { cleanChoices, defaultChoices, previewNote, QR_FRAMES, QR_DOTS } = await import(`${R}/modules/mod08-egress/exportDialogs.js`);
+  ok('MOD08 safe file names keep spaces and drop what Windows, macOS and Linux forbid', safeFileName('Jane Doe') === 'Jane Doe' && safeFileName(' Smith / Jones: "Co" <*?> |x| ') === 'Smith Jones Co x' && safeFileName('a\u0000b\u001fc') === 'abc');
+  ok('MOD08 leading and trailing dots and spaces go; an empty name gives the fallback', safeFileName('.. hidden ..') === 'hidden' && safeFileName('   ') === 'Contact' && safeFileName('///', 'Card') === 'Card');
+  ok('MOD08 very long names are cut', safeFileName('x'.repeat(200)).length === FILE_NAME_MAX);
+  const e = new EgressController();
+  e.setPayload('BEGIN:VCARD', { namePrefix: 'Dr.', firstName: 'Jane', middleName: 'Q.', lastName: 'Doe', nameSuffix: 'PhD', organization: 'Acme' }, { hasDetails: true });
+  ok('MOD08 files are named after the full name', e.baseName() === 'Dr. Jane Q. Doe, PhD' && e.fileName('.vcf') === 'Dr. Jane Q. Doe, PhD.vcf' && e.fileName(' QR.png') === 'Dr. Jane Q. Doe, PhD QR.png');
+  e.setPayload('BEGIN:VCARD', { organization: 'Smith, Jones & Co', firstName: '  ' }, { hasDetails: true });
+  ok('MOD08 without a name the company names the files', e.baseName() === 'Smith, Jones & Co' && e.fileName('.vcf') === 'Smith, Jones & Co.vcf');
+  e.setPayload('BEGIN:VCARD', { phones: [{ type: 'work', value: '555' }] }, { hasDetails: true });
+  ok('MOD08 with neither, "Contact"', e.baseName() === 'Contact' && e.fileName('.vcf') === 'Contact.vcf' && e.fileName(' QR.png') === 'Contact QR.png');
+  e.setPayload('BEGIN:VCARD', { firstName: 'A/B', lastName: 'C:D' }, { hasDetails: true });
+  ok('MOD08 a name with path characters still makes a safe file name', e.fileName('.vcf') === 'AB CD.vcf');
+  ok('MOD08 the share-sheet File carries the same name', typeof File === 'undefined' || e.vcfFile().name === 'AB CD.vcf');
+  // The logo for the card goes through the Vault's logo slot (mod08 writes, mod06 reads), never to the card view.
+  const { VaultStore } = await import(`${R}/modules/mod02-vault/vaultStore.js`);
+  const store = new VaultStore({ isUserGesture: () => false });
+  const seen = []; store.handle('mod06').onChange('logo', (n) => seen.push(n));
+  ok('MOD08 no Vault handle: the logo is not offered anywhere', e.offerLogoToCard({ photo: 'data:image/jpeg;base64,AAA', display: 'data:image/png;base64,BBB' }) === false);
+  e.setVault(store.handle('mod08'));
+  ok('MOD08 "Also use this logo on my card" writes the Vault logo slot; the card view sees the change by slot name only', e.offerLogoToCard({ photo: 'data:image/jpeg;base64,AAA', display: 'data:image/png;base64,BBB' }) === true
+    && JSON.stringify(seen) === '[{"slot":"logo"}]' && store.handle('mod06').get('logo').display === 'data:image/png;base64,BBB');
+  ok('MOD08 a logo without a photo is refused; the display falls back to the photo', e.offerLogoToCard({ display: 'x' }) === false && e.offerLogoToCard({ photo: 'p' }) === true && store.handle('mod06').get('logo').display === 'p');
+  store.clear('logo');
+  ok('MOD08 Export still has no standing read of the contact through its handle', (() => { try { store.handle('mod08').get('contact'); return false; } catch (err) { return err.message.startsWith('VAULT_DENIED'); } })());
+  // The pop-up's choices: themed, square, no frame, no logo by default; anything unknown falls back
+  ok('MOD08 QR pop-up defaults: Themed, square dots, no frame, no logo, not on the card', JSON.stringify(defaultChoices()) === '{"colour":"themed","dots":"square","frame":"none","logo":"none","useOnCard":false}');
+  ok('MOD08 QR pop-up: every frame and dot style MOD07 draws is offered', QR_FRAMES.join() === 'none,square,rounded,circle' && QR_DOTS.join() === 'square,round');
+  ok('MOD08 QR pop-up: unknown choices fall back to the defaults, known ones stay', JSON.stringify(cleanChoices({ colour: 'neon', dots: 'round', frame: 'circle', logo: 'upload', useOnCard: 'yes' })) === '{"colour":"themed","dots":"round","frame":"circle","logo":"upload","useOnCard":false}');
+  ok('MOD08 QR pop-up note: a code that does not fit, a theme that is not scannable, or nothing to say', /Too much contact data/.test(previewNote({ ok: false, themed: false }, defaultChoices()))
+    && /Black & White is used/.test(previewNote({ ok: true, themed: false }, defaultChoices())) && previewNote({ ok: true, themed: true }, defaultChoices()) === '' && previewNote({ ok: true, themed: false }, { ...defaultChoices(), colour: 'bw' }) === '');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;

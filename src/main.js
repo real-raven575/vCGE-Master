@@ -34,9 +34,11 @@ import { ContactFormMapper, LINE_ROLES } from './modules/mod05-form/formMapper.j
 import { PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES } from './share/contactOptions.js';
 import { AddressAutocompleteEngine } from './modules/mod05-form/addressAutocomplete.js';
 import { initFieldsCard } from './modules/mod05-form/fieldsCard.js';
-import { CardView, PRESETS, THEMES, themeKeyOf } from './modules/mod06-gui/card3dView.js';
+import { CardView, PRESETS, THEMES, themeKeyOf, prepareLogo } from './modules/mod06-gui/card3dView.js';
 import { vcgeQREngine } from './modules/mod07-qr/qrGenerator.js';
-import { egressController } from './modules/mod08-egress/egressController.js';
+import { egressController, PRINT_QR_PX } from './modules/mod08-egress/egressController.js';
+import { exportQrDialog, printChoiceDialog } from './modules/mod08-egress/exportDialogs.js';
+import { VaultStore } from './modules/mod02-vault/vaultStore.js';
 
 const $ = (id) => document.getElementById(id);
 const IDLE_PURGE_SECONDS = 120;
@@ -70,6 +72,9 @@ const idleTtl = new TTLMemoryStreamManager(IDLE_PURGE_SECONDS, () => purgeVolati
 const sessionPin = new SessionPin();
 const biometric = new BiometricUnlock();
 const lockHandoff = new LockHandoff();
+// The vault hub (MOD02, Phase 2 in progress): today it carries the logo slot, which Export writes ("Also use this logo
+// on my card") and the card view reads, so no module hands data to another. The contact itself still goes through refresh().
+const vaultStore = new VaultStore({ vault: temporaryVault, pin: sessionPin, biometric });
 // Every red trash button, the Vault page's wipe button and "Wipe and start over" on the lock screen: hold Yes 1.5 s, then wipe and reload.
 // Saying No counts as activity. Deleting the saved settings is a signal the dialog publishes; Shell clears its own entry.
 const wipeDialog = new WipeDialog({ onWipe: () => wipeSession('wipe button'), onCancel: () => { markActivity(); updateTimerStrip(); } });
@@ -381,6 +386,9 @@ function clearCapturedImages() {
     forgetLastScan();
     cardView.forgetUndo();
     egressController.clearPrintSheet();
+    exportQrDialog.reset();       // an uploaded QR logo and the preview
+    printChoiceDialog.close();
+    vaultStore.clear('logo');
     camera.closeCamera();
     camera.discardPhoto();
     showRetakePrompt(false);
@@ -778,20 +786,60 @@ function wireIntake() {
 
 // ---- Egress (MOD08 only) ---------------------------------------------------------------------------------------
 
+// The QR for an export, drawn by MOD07 from the current contact in the chosen style. Returns what was drawn.
+function renderExportQr(canvas, { themed = true, dots = 'square', frame = 'none', logo = null, size = 320 } = {}) {
+    const contact = cardView.getContact();
+    if (!vcgeQREngine.hasDetails(contact)) return { ok: false, themed: false };
+    const text = vcgeQREngine.generateVCard30({ ...contact, avatarBase64: null });
+    const theme = themed ? THEMES[themeKeyOf(contact.themePalette)] : null;
+    const ok = vcgeQREngine.renderQRCode(canvas, text, { size, theme, dots, frame, logo });
+    return { ok, themed: !!(ok && vcgeQREngine.lastRender && vcgeQREngine.lastRender.themed) };
+}
+
 function wireEgress() {
     // A share or download may bring another app to the front: the 2-minute idle rule applies, not the screen-off lock or 30 s wipe.
-    ['downloadVcfBtn', 'exportQrBtn', 'emailBtn', 'smsBtn', 'printCardBtn', 'shareNativeBtn', 'copyVcardBtn']
+    ['downloadVcfBtn', 'emailBtn', 'smsBtn', 'shareNativeBtn', 'copyVcardBtn']
         .forEach(id => $(id).addEventListener('click', expectExternalApp, true));
     $('downloadVcfBtn').addEventListener('click', () => egressController.downloadVcf());
+    // QR PNG: the Export QR pop-up (colours, dots, frame, centre logo) with a live preview; Save PNG downloads it as previewed.
     $('exportQrBtn').addEventListener('click', () => {
-        const result = egressController.exportQRPNG($('qrCanvas'));
-        if (result.reason === 'empty') cardView.showToast('Add a contact first.');
-        else if (result.reason === 'qr_too_large') cardView.showToast('Too much information for one QR code: use .vcf or Share instead.');
+        if (egressController.isEmpty()) { cardView.showToast('Add a contact first.'); return; }
+        exportQrDialog.open();
+    });
+    exportQrDialog.init({
+        render: renderExportQr,
+        logoOption: () => vcgeQREngine.logoOption(vcgeQREngine.generateVCard30({ ...cardView.getContact(), avatarBase64: null })),
+        scannedLogo: () => cardView.logoDisplay || null,
+        prepareLogo: (source) => prepareLogo(source),
+        toast: (message) => cardView.showToast(message),
+        beforeExternal: expectExternalApp
+    });
+    // "Also use this logo on my card": Export wrote the Vault's logo slot; the card view reads it through its own handle.
+    egressController.setVault(vaultStore.handle('mod08'));
+    const cardVault = vaultStore.handle('mod06');
+    cardVault.onChange('logo', () => {
+        const logo = cardVault.get('logo');
+        if (!logo || vaultMode !== 'open') return;
+        cardView.setAvatar(logo.photo, logo.display);
+        refresh();
+        markActivity();
     });
     $('emailBtn').addEventListener('click', () => egressController.triggerEmailShare());
     $('smsBtn').addEventListener('click', () => egressController.triggerSmsShare());
+    // Print / PDF: Themed or Black & White, then one 6 x 3.5 in page through the browser's print dialog.
     $('printCardBtn').addEventListener('click', () => {
-        if (egressController.triggerPhysicalPrint($('qrCanvas')).reason === 'empty') cardView.showToast('Add a contact first.');
+        if (egressController.isEmpty()) { cardView.showToast('Add a contact first.'); return; }
+        printChoiceDialog.open();
+    });
+    printChoiceDialog.init({
+        onChoose: (themed) => {
+            expectExternalApp();
+            const qr = document.createElement('canvas');
+            const drawn = renderExportQr(qr, { themed, size: PRINT_QR_PX });
+            if (themed && drawn.ok && !drawn.themed) cardView.showToast('The theme colours are not scannable, so the QR is printed in black and white.');
+            egressController.triggerPhysicalPrint({ themed, qrCanvas: drawn.ok ? qr : null });
+            qr.width = qr.height = 0;
+        }
     });
     $('shareNativeBtn').addEventListener('click', async () => {
         const result = await egressController.triggerQuickShare();
@@ -802,8 +850,11 @@ function wireEgress() {
     $('copyVcardBtn').addEventListener('click', async () => {
         const result = await egressController.copyVCard();
         if (result.success) cardView.showToast('vCard copied. The clipboard is not cleared when vCGE wipes.');
+        else if (result.reason === 'empty') cardView.showToast('Add a contact first.');
         else if (result.reason === 'clipboard_unavailable') cardView.showToast('Copying is not available on this device.');
     });
+    // Ready to share, on the 3D Card: on to the Share card (the padlock hand-off follows the deck's signal).
+    $('readyToShareBtn').addEventListener('click', () => showCard('share'));
 }
 
 // ---- Audit trail (telemetry visibility) ------------------------------------------------------------------------
