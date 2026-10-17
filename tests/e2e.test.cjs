@@ -1654,6 +1654,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p6.click('#toastMessage');
     ok('toast: a tap dismisses it at once', await p6.$eval('#toast', t => t.classList.contains('opacity-0')));
     await p6.click('#paletteDropdownBtn'); await p6.click('#paletteListContainer [data-theme="spruce"]');
+    await p6.waitForTimeout(400);   // measured after the slide-in, or the press lands where the toast was, not where it is
     const tb = await p6.locator('#toast').boundingBox();
     await p6.mouse.move(tb.x + tb.width / 2, tb.y + tb.height / 2); await p6.mouse.down();
     await p6.waitForTimeout(3600);
