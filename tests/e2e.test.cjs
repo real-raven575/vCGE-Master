@@ -211,6 +211,7 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
   page.on('response', r => { if (r.status() >= 400) notFound.push(`${r.status()} ${r.url()}`); });
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
+  page.on('crash', () => console.log('diag: the page crashed at', new Date().toISOString()));   // temporary (WebKit runs)
   page.on('dialog', d => d.accept());
   const base = ORIGIN;
   const val = id => page.$eval('#' + id, el => el.value);
@@ -495,7 +496,9 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
   ok('no page errors', errors.length === 0, errors.join(' | '));
   // Startup residue check + 120 s idle purge (fresh context with a controllable clock)
   {
-    const ctx2 = await newContext();
+    // No file is saved from this context: the one download in it (a share) only has to be dispatched. Edge keeps a
+    // blank helper page open for every saved download, and the fake clock, which ticks every page, stalls on it.
+    const ctx2 = await newContext({ acceptDownloads: false });
     await ctx2.addInitScript(() => {
       if (!sessionStorage.getItem('seeded')) {
         sessionStorage.setItem('seeded', '1');
@@ -814,8 +817,6 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     const errors11 = [];
     p11.on('pageerror', e => errors11.push(e.message));
     p11.on('console', m => { if (m.type() === 'error') errors11.push('console: ' + m.text()); });
-    const warnings11 = [];   // diagnostic (temporary): the app's own warnings, read when a logo upload stalls
-    p11.on('console', m => { if (m.type() === 'warning') warnings11.push(m.text()); });
     await p11.goto(ORIGIN); await p11.waitForTimeout(300);
     await p11.fill('#firstName', 'Logo'); await p11.fill('#lastName', 'Tester');
     // Logos as uploaded (redesign step 8): a one-colour logo is traced into the card's ink colour; one of many colours
@@ -842,15 +843,12 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     // Uploads a logo; returns the vCard PHOTO (from the .vcf), what the card shows and what the toast said.
     const upload = async (kind, name) => {
       const url = await logo(kind);
-      const before = await p11.evaluate(() => { const i = document.querySelector('#formAvatarPreview img, #formAvatarPreview svg'); return i ? i.outerHTML : ''; });
+      // The preview is rebuilt from new nodes on every upload, so the old node is marked and the wait is for a node
+      // without the mark. (Comparing the markup was not enough: two logos that trace to the same drawing, as the
+      // viewBox-only SVG and the sized one do in Firefox, give the same markup twice.)
+      await p11.evaluate(() => { const i = document.querySelector('#formAvatarPreview img, #formAvatarPreview svg'); if (i) i.__vcgeSeen = true; });
       await p11.setInputFiles('#avatarUpload', { name, mimeType: url.slice(5, url.indexOf(';')), buffer: Buffer.from(url.split(',')[1], 'base64') });
-      try {
-        await p11.waitForFunction((before) => { const i = document.querySelector('#formAvatarPreview img, #formAvatarPreview svg'); return i && i.outerHTML !== before && (i.tagName === 'svg' || i.complete); }, before);
-      } catch (e) {   // diagnostic (temporary, for the Firefox run): what the page shows instead of the new logo
-        console.log('upload diag:', name, JSON.stringify({ toast: await p11.textContent('#toastMessage').catch(String), warnings: warnings11.slice(-5),
-          preview: await p11.evaluate(() => { const i = document.querySelector('#formAvatarPreview img, #formAvatarPreview svg'); return i ? { tag: i.tagName, complete: i.complete, w: i.naturalWidth, h: i.naturalHeight, src: (i.getAttribute('src') || '').slice(0, 60) } : null; }) }));
-        throw e;
-      }
+      await p11.waitForFunction(() => { const i = document.querySelector('#formAvatarPreview img, #formAvatarPreview svg'); return i && !i.__vcgeSeen && (i.tagName === 'svg' || i.complete); });
       await p11.waitForTimeout(300);   // the logo's shape and tone are read, then the card is drawn again
       const toast = await p11.textContent('#toastMessage');
       const [dl] = await Promise.all([p11.waitForEvent('download'), p11.click('#downloadVcfBtn')]);
