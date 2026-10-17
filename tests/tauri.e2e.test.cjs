@@ -62,10 +62,17 @@ async function stopDriver(driver) {
     await onCard(css);
     try { return await wd('POST', S(`/element/${await el(css)}/click`), {}); } catch (e) {
       // Say what sat in the way (the card in view, the deck position, the element under the target's centre).
-      const where = await js(`const el = document.querySelector(arguments[0]), r = el && el.getBoundingClientRect(), t = document.getElementById('deck');
+      const where = await jsAsync(`const done = arguments[arguments.length - 1], css = arguments[0];
+        const el = document.querySelector(css), r = el && el.getBoundingClientRect(), t = document.getElementById('deck');
         const hit = r && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-        return JSON.stringify({ card: document.documentElement.dataset.card, scrollLeft: t && t.scrollLeft, rect: r && [r.left, r.top, r.width, r.height],
-          hit: hit && (hit.id || hit.className || hit.tagName), hitParent: hit && hit.parentElement && (hit.parentElement.id || hit.parentElement.className) });`, css).catch(() => '?');
+        const out = { card: document.documentElement.dataset.card, scrollLeft: t && t.scrollLeft, rect: r && [r.left, r.top, r.width, r.height],
+          hit: hit && (hit.id || hit.className || hit.tagName), hitParent: hit && hit.parentElement && (hit.parentElement.id || hit.parentElement.className),
+          hidden: document.hidden, inner: [innerWidth, innerHeight], cards: Array.from(document.querySelectorAll('.deck-card')).map(c => c.offsetLeft + '/' + c.offsetWidth).join(' ') };
+        // Does the deck settle at all? (a) after a synthetic release, (b) after a nudge of the track
+        document.dispatchEvent(new Event('pointerup', { bubbles: true }));
+        setTimeout(() => { out.afterRelease = document.documentElement.dataset.card + '@' + t.scrollLeft;
+          let n = 0; const count = () => n++; t.addEventListener('scroll', count); t.scrollLeft += 3;
+          setTimeout(() => { t.removeEventListener('scroll', count); out.afterNudge = document.documentElement.dataset.card + '@' + t.scrollLeft + ' scrollEvents=' + n; done(JSON.stringify(out)); }, 600); }, 400);`, css).catch(() => '?');
       e.message += ` (${css}: ${where})`;
       throw e;
     }

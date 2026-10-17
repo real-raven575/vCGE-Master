@@ -160,9 +160,10 @@ export function initDeck() {
     // The card in view follows the scroll position (a swipe, a trackpad, a focused field scrolled into view), settled a
     // moment after scrolling stops: the deck picks a card and centres it. Nothing moves while a finger or mouse button
     // is down (a press would land on the wrong spot): that settle waits for the release.
-    let pointerHeld = false;
+    let pointerHeld = false, holdTimer = null;
     const settle = () => {
-        if (pointerHeld) { settlePending = true; return; }
+        // A press still down after a second and a half is a hold, not a tap: the deck settles anyway.
+        if (pointerHeld) { settlePending = true; clearTimeout(holdTimer); holdTimer = setTimeout(release, 1500); return; }
         if (goTarget !== null) {
             // A move of the deck's own: arrived, or its animation stalled (a slow frame, a headless webview) and the
             // deck sat between cards. Either way it ends where it was heading.
@@ -180,13 +181,14 @@ export function initDeck() {
         if (goTarget !== null && Math.abs(track.scrollLeft - goTarget) <= 2) { settledLeft = goTarget; goTarget = null; }
         clearTimeout(settleTimer); settleTimer = setTimeout(settle, 80);
     };
-    const release = () => { pointerHeld = false; if (settlePending) { settlePending = false; settle(); } };
+    const release = () => { clearTimeout(holdTimer); pointerHeld = false; if (settlePending) { settlePending = false; settle(); } };
     document.addEventListener('pointerdown', () => { pointerHeld = true; }, true);
     // A finger or a wheel on the track takes over from a move in flight.
     track.addEventListener('pointerdown', () => { goTarget = null; }, { passive: true });
     track.addEventListener('wheel', () => { goTarget = null; }, { passive: true });
-    document.addEventListener('pointerup', release, true);
-    document.addEventListener('pointercancel', release, true);
+    // Every way a press can end (some webviews send only the mouse or touch form of it).
+    ['pointerup', 'pointercancel', 'mouseup', 'touchend', 'touchcancel', 'click', 'dragend'].forEach(t => document.addEventListener(t, release, true));
+    window.addEventListener('blur', release);
     track.addEventListener('scroll', onScroll, { passive: true });
     window.addEventListener('resize', () => { if (currentName) go(currentName, { force: true, instant: true, silent: true }); });
 
