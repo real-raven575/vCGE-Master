@@ -49,10 +49,35 @@ const centreOf = (card) => card.offsetLeft + card.offsetWidth / 2 - track.client
 function centre(name, behavior) {
     const left = centreOf(cardEl(name));
     const away = Math.abs(track.scrollLeft - left) > 1;
-    if (behavior === 'smooth' && away) { goTarget = left; track.scrollTo({ left, behavior }); return; }
+    stopTween();
+    if (behavior === 'smooth' && away) { tweenTo(left); return; }
     goTarget = null;
     if (away) track.scrollTo({ left, behavior: 'auto' });
     settledLeft = left;
+}
+
+// The deck's own moves are animated here (an ease-out of up to 0.45 s) rather than by the browser's smooth scroll,
+// which some webviews stall or cut short. A frame that does not come within 150 ms ends the move at its target.
+let tween = null, tweenWatch = null;
+function stopTween() {
+    if (tween) cancelAnimationFrame(tween);
+    clearTimeout(tweenWatch);
+    tween = tweenWatch = null;
+}
+function tweenTo(left) {
+    goTarget = left;
+    const from = track.scrollLeft, dist = left - from, dur = Math.min(450, 200 + Math.abs(dist) / 4), t0 = performance.now();
+    const end = () => { stopTween(); track.scrollLeft = left; goTarget = null; settledLeft = left; };
+    const step = (now) => {
+        clearTimeout(tweenWatch);
+        const p = Math.min(1, (now - t0) / dur);
+        track.scrollLeft = from + dist * (1 - Math.pow(1 - p, 3));
+        if (p >= 1) { end(); return; }
+        tween = requestAnimationFrame(step);
+        tweenWatch = setTimeout(end, 150);
+    };
+    tween = requestAnimationFrame(step);
+    tweenWatch = setTimeout(end, 150);
 }
 
 // Which card a scroll was heading for. A swipe or a move of the deck's own ends on a card's centre: the nearest card.
@@ -162,8 +187,7 @@ export function initDeck() {
     // is down (a press would land on the wrong spot): that settle waits for the release.
     let pointerHeld = false, holdTimer = null;
     const settle = () => {
-        // A press still down after a second and a half is a hold, not a tap: the deck settles anyway.
-        if (pointerHeld) { settlePending = true; track.dataset.deck = 'held'; clearTimeout(holdTimer); holdTimer = setTimeout(release, 1500); return; }
+        if (pointerHeld) { settlePending = true; track.dataset.deck = 'held'; return; }
         track.dataset.deck = 'still';
         if (goTarget !== null) {
             // A move of the deck's own: arrived, or its animation stalled (a slow frame, a headless webview) and the
@@ -184,10 +208,12 @@ export function initDeck() {
         clearTimeout(settleTimer); settleTimer = setTimeout(settle, 80);
     };
     const release = () => { clearTimeout(holdTimer); pointerHeld = false; if (settlePending) { settlePending = false; settle(); } };
-    document.addEventListener('pointerdown', () => { pointerHeld = true; }, true);
+    // A press still down after a second and a half is a hold, not a tap: the deck settles anyway.
+    document.addEventListener('pointerdown', () => { pointerHeld = true; clearTimeout(holdTimer); holdTimer = setTimeout(release, 1500); }, true);
     // A finger or a wheel on the track takes over from a move in flight.
-    track.addEventListener('pointerdown', () => { goTarget = null; }, { passive: true });
-    track.addEventListener('wheel', () => { goTarget = null; }, { passive: true });
+    const takeOver = () => { stopTween(); goTarget = null; };
+    track.addEventListener('pointerdown', takeOver, { passive: true });
+    track.addEventListener('wheel', takeOver, { passive: true });
     // Every way a press can end (some webviews send only the mouse or touch form of it).
     ['pointerup', 'pointercancel', 'mouseup', 'touchend', 'touchcancel', 'click', 'dragend'].forEach(t => document.addEventListener(t, release, true));
     window.addEventListener('blur', release);
