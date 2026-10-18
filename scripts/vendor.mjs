@@ -33,7 +33,7 @@ const FILES = [
     ['@fontsource/fira-code/files/fira-code-latin-700-normal.woff2', 'fonts/fira-code-latin-700.woff2'],
     ['@fontsource/fira-code/LICENSE', 'fonts/LICENSE-fira-code.txt'],
     // MOD-XX tags (SIL OFL 1.1): Sixtyfour, Latin subset, variable "Bleed" axis (set to 100 for a bold look); mod01-shell/ui.css.
-    ['@fontsource-variable/sixtyfour/files/sixtyfour-latin-bled-normal.woff2', 'fonts/sixtyfour-latin-bled.woff2'],
+    ['@fontsource-variable/sixtyfour/files/sixtyfour-latin-full-normal.woff2', 'fonts/sixtyfour-latin-full.woff2'],
     ['@fontsource-variable/sixtyfour/LICENSE', 'fonts/LICENSE-sixtyfour.txt'],
     // UI font choices for Settings (SIL OFL 1.1), Latin subset, weights 400/700; declared in mod01-shell/ui.css.
     ['@fontsource/atkinson-hyperlegible/files/atkinson-hyperlegible-latin-400-normal.woff2', 'fonts/atkinson-hyperlegible-latin-400.woff2'],

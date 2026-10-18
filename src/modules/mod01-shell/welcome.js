@@ -34,6 +34,7 @@ const WELCOME_POINTS = [
 ];
 
 const GAP = 16;
+const BESIDE_MIN_PX = 352;
 let layer = null, stepIndex = -1, onViewportChange = null;
 
 function el(tag, props = {}, ...children) {
@@ -73,7 +74,7 @@ export function renderWelcomeCard() {
         list,
         el('div', { className: 'welcome-actions' }, pin, start, tour, cancel),
         sample,
-        el('p', { className: 'welcome-fine' }, 'This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data: it keeps one small settings file on this device (hand, colors, theme, font), and nothing you scan, upload or type is ever saved.'));
+        el('p', { className: 'welcome-fine' }, 'This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data: it keeps one small settings file on this device (hand, colors, theme, font, text size), and nothing you scan, upload or type is ever saved.'));
     const thanks = document.getElementById('thankYouPage');
     if (thanks) {
         document.getElementById('thankYouStartOverBtn').addEventListener('click', () => location.reload());
@@ -230,6 +231,11 @@ function placeStep() {
     const right = Math.min(vw - 4, r.right + pad), bottom = Math.min(vh - 4, r.bottom + pad);
     const spot = layer.querySelector('#tourSpot'), tip = layer.querySelector('#tourTip');
     Object.assign(spot.style, { left: `${left}px`, top: `${top}px`, width: `${Math.max(0, right - left)}px`, height: `${Math.max(0, bottom - top)}px` });
+    // On a wide screen a small area (the Vault page) keeps the tour card beside it: the card narrows to the room
+    // there, down to BESIDE_MIN_PX, rather than covering what it talks about.
+    tip.style.width = '';
+    const room = Math.max(left, vw - right) - 2 * GAP;
+    if (vw >= 900 && room < tip.offsetWidth && room >= BESIDE_MIN_PX) tip.style.width = `${room}px`;
     const pos = placeTip({ left, top, right, bottom }, tip.offsetWidth, tip.offsetHeight, vw, vh);
     Object.assign(tip.style, { left: `${pos.left}px`, top: `${pos.top}px` });
     tip.dataset.side = pos.side;

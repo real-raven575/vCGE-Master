@@ -1,8 +1,8 @@
 /* vCGE-MOD01 shared look (redesign step 1): size breakpoints, chunkier buttons, the MOD-XX tag, bundled fonts and icons.
    Layout sizes: phone under 600 px, tablet 600-1199 px, desktop 1200 px and up; very large screens scale up the rem. */
 
-/* MOD-XX tag (Sixtyfour, SIL OFL 1.1; the "Bleed" axis at 100 reads bold) */
-@font-face { font-family: 'Sixtyfour'; font-style: normal; font-weight: 400; font-display: swap; src: url('../../vendor/fonts/sixtyfour-latin-bled.woff2') format('woff2'); }
+/* MOD-XX tag (Sixtyfour, SIL OFL 1.1): the full file, with both its axes, so the tag can be drawn in solid pixels */
+@font-face { font-family: 'Sixtyfour'; font-style: normal; font-weight: 400; font-display: swap; src: url('../../vendor/fonts/sixtyfour-latin-full.woff2') format('woff2'); }
 /* UI font choices for Settings (SIL OFL 1.1); a font file is only fetched, from the app itself, once something uses it */
 @font-face { font-family: 'Atkinson Hyperlegible'; font-style: normal; font-weight: 400; font-display: swap; src: url('../../vendor/fonts/atkinson-hyperlegible-latin-400.woff2') format('woff2'); }
 @font-face { font-family: 'Atkinson Hyperlegible'; font-style: normal; font-weight: 700; font-display: swap; src: url('../../vendor/fonts/atkinson-hyperlegible-latin-700.woff2') format('woff2'); }
@@ -24,13 +24,15 @@
     --vcge-icon-stroke: 2.3;      /* Tabler icons: set by raven575 against the preview (stroke 3), 2026-10-17 */
 }
 @media (max-width: 599.98px) { :root { --vcge-layout: phone; } }
+/* Text size (Settings, settings.js sets --vcge-size): every rem on the page grows with it; the header undoes it (deck.css) */
+html { font-size: calc(100% * var(--vcge-size, 1)); }
 /* The UI font chosen in Settings (settings.js sets html[data-font] and --vcge-ui-font); Inter until then. The card
    preview keeps its own typeface (MOD06 cardStyles.css). */
 html[data-font] body { font-family: var(--vcge-ui-font, 'Inter'), 'Inter', ui-sans-serif, system-ui, sans-serif; }
 @media (min-width: 600px) and (max-width: 1199.98px) { :root { --vcge-layout: tablet; } }
 /* 4K: the same desktop layout, scaled up instead of shrinking */
-@media (min-width: 2400px) { html { font-size: 125%; } }
-@media (min-width: 3200px) { html { font-size: 150%; } }
+@media (min-width: 2400px) { html { font-size: calc(125% * var(--vcge-size, 1)); } }
+@media (min-width: 3200px) { html { font-size: calc(150% * var(--vcge-size, 1)); } }
 
 /* Buttons: at least 44 px, a 2 px outline. The crop corners are drag handles, not buttons, and keep their own look. */
 button:not(.crop-handle) {
@@ -52,19 +54,26 @@ label:has(> input[type="file"]) {
 }
 label:not(.hidden):has(> input[type="file"]) { display: flex; align-items: center; justify-content: center; }
 
-/* MOD-XX tag: sits on the top-right edge of each panel, the same place, font and size everywhere.
-   Colours nod to the Commodore 64 screen (blue background, light blue text). */
+/* MOD-XX tag: sits on the top-right edge of each panel, the same place, font and size everywhere. One block per pilot,
+   "GLYPH:  MOD-04" (ui.js puts the pilot's name on it), in solid pixels: Sixtyfour with its scanlines filled in
+   (SCAN 100) and no bleed, the text centred in a roomier box (raven575, video #2, #3, #45, #96). Colours nod to the
+   Commodore 64 screen (blue background, light blue text), kept light enough to read. While a card's content scrolls
+   under its tag, the tag fades to 36% so it never hides what is under it. */
 .mod-tag-host { position: relative; }
 .mod-tag-host > .mod-tag { margin: 0 !important; }   /* the panels' space-y spacing must not push it off the edge */
 .mod-tag {
     position: absolute; top: 0; right: 1rem; transform: translateY(-50%); z-index: 1;
     display: inline-flex; gap: 0.375rem; pointer-events: none; user-select: none;
+    transition: opacity 0.2s ease-in-out;
 }
+.mod-tag.is-faded { opacity: 0.36; }
 .mod-tag span {
-    font-family: 'Sixtyfour', ui-monospace, monospace; font-variation-settings: 'BLED' 100;
-    font-size: 0.625rem; line-height: 1; letter-spacing: 0.04em; text-transform: uppercase;
-    padding: 0.25rem 0.4rem; border-radius: 0.375rem; background: #40318d; color: #d6d3ff;
+    display: inline-flex; align-items: center; justify-content: center;
+    font-family: 'Sixtyfour', ui-monospace, monospace; font-variation-settings: 'BLED' 0, 'SCAN' 100; font-weight: 400;
+    font-size: 0.625rem; line-height: 1; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap;
+    padding: 0.35rem 0.6rem; border-radius: 0.375rem; background: #40318d; color: #d6d3ff;
 }
+.mod-tag span[data-pilot]::before { content: attr(data-pilot) ":\00a0\00a0"; }
 
 /* A scrolling dialog would clip a tag on its edge, so there it sits just inside the top-right corner */
 .mod-tag.mod-tag-inset { top: 0.875rem; transform: none; }

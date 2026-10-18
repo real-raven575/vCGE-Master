@@ -3,17 +3,20 @@
  * Created by raven575, Gemini & Claude
  *
  * The one thing vCGE keeps on the device: a single localStorage entry of preferences and nothing else (raven575,
- * 2026-10-17). One line of `name=number` pairs, for example `hand=0;cb=0;theme=0;font=0`. Missing or unreadable means
- * the defaults. Nothing scanned, uploaded or typed, and no contact detail, ever goes in here: the whole entry is four
- * small numbers. It is written only when the person changes a setting, so a visit that touches nothing stores nothing.
+ * 2026-10-17). One line of `name=number` pairs, for example `hand=0;cb=0;theme=0;font=0;size=0`. Missing or unreadable
+ * means the defaults. Nothing scanned, uploaded or typed, and no contact detail, ever goes in here: the whole entry is
+ * five small numbers. It is written only when the person changes a setting, so a visit that touches nothing stores nothing.
  *
  *   hand   0 right (default), 1 left: `html[data-hand="right|left"]` for the header mirror, the trash corner, the
  *          Welcome buttons' thumb line and any module that places a control by hand (MOD03's shutter and fader).
  *   cb     0 off (default), 1 on: colour-blind mode, `html[data-cb="1"]` (MOD02's wipe dialog reads it).
  *   theme  0 dark (default), 1 light: the `dark` class on <html> (Tailwind `darkMode: 'class'`).
  *   font   the UI font by its fixed code (FONT_CODES; Inter = 0): `html[data-font]` plus the --vcge-ui-font variable.
+ *   size   the text size by its fixed code (TEXT_SIZES; Normal = 0): `html[data-size]` plus --vcge-size, the factor every
+ *          rem-sized thing on the page grows by, except the header, which keeps its own size (deck.css, video #6).
  *
- * Each font keeps its number for good, so adding fonts later and re-sorting the list never changes a saved choice.
+ * Each font and size keeps its number for good, so adding more later and re-sorting a list never changes a saved choice.
+ * An entry saved before the size setting existed simply has no size: Normal.
  * The wipe dialog's "Also delete my saved settings" arrives as Events.SETTINGS_WIPE_REQUESTED on the bus and clears
  * the entry; Vault never touches this storage itself. The theme key saved before this step is read once and removed.
  */
@@ -27,15 +30,26 @@ const OLD_THEME_KEY = 'vcge_theme_preference';
 export const FONT_CODES = Object.freeze({
     'Inter': 0, 'Atkinson Hyperlegible': 1, 'Lexend': 2, 'OpenDyslexic': 3, 'Tinos': 4, 'Comic Neue': 5, 'Macondo': 6
 });
-export const DEFAULTS = Object.freeze({ hand: 0, cb: 0, theme: 0, font: FONT_CODES[DEFAULT_UI_FONT] });
-const RANGE = { hand: 1, cb: 1, theme: 1, font: Math.max(...Object.values(FONT_CODES)) };
+// Text sizes: fixed codes, shown smallest first. Normal is the size vCGE has always had.
+export const TEXT_SIZES = Object.freeze([
+    { code: 3, name: 'Small', scale: 0.875 }, { code: 0, name: 'Normal', scale: 1 },
+    { code: 1, name: 'Large', scale: 1.125 }, { code: 2, name: 'Larger', scale: 1.25 }
+]);
+export const DEFAULTS = Object.freeze({ hand: 0, cb: 0, theme: 0, font: FONT_CODES[DEFAULT_UI_FONT], size: 0 });
+const RANGE = { hand: 1, cb: 1, theme: 1, font: Math.max(...Object.values(FONT_CODES)), size: Math.max(...TEXT_SIZES.map(t => t.code)) };
+
+/** The text-size factor for a code (1 when the code is unknown). */
+export function scaleFor(code) {
+    const size = TEXT_SIZES.find(t => t.code === code);
+    return size ? size.scale : 1;
+}
 
 /** The font name for a code, or the default font when the code is unknown. */
 export function fontFor(code) {
     return Object.keys(FONT_CODES).find(name => FONT_CODES[name] === code) || DEFAULT_UI_FONT;
 }
 
-/** `hand=0;cb=0;theme=0;font=0` -> settings. Unknown names are dropped; a missing or bad value is its default. */
+/** `hand=0;cb=0;theme=0;font=0;size=0` -> settings. Unknown names are dropped; a missing or bad value is its default. */
 export function parseSettings(line) {
     const out = { ...DEFAULTS };
     if (typeof line !== 'string') return out;
@@ -48,7 +62,7 @@ export function parseSettings(line) {
     return out;
 }
 
-/** settings -> `hand=0;cb=0;theme=0;font=0`, always every name in the same order. */
+/** settings -> `hand=0;cb=0;theme=0;font=0;size=0`, always every name in the same order. */
 export function serializeSettings(settings) {
     const s = parseSettings(serializeRaw(settings));   // clamps and fills in defaults
     return serializeRaw(s);
@@ -78,7 +92,7 @@ export function clearSettings(storage = localStorage) {
     try { storage.removeItem(SETTINGS_KEY); storage.removeItem(OLD_THEME_KEY); } catch { /* nothing to remove */ }
 }
 
-/** Put the settings on <html>: the hand, colour-blind and font hooks and the dark class. */
+/** Put the settings on <html>: the hand, colour-blind, font and size hooks and the dark class. */
 export function applySettings(settings, root = document.documentElement) {
     const s = parseSettings(serializeRaw(settings));
     root.dataset.hand = s.hand === 1 ? 'left' : 'right';
@@ -86,6 +100,8 @@ export function applySettings(settings, root = document.documentElement) {
     root.classList.toggle('dark', s.theme !== 1);
     root.dataset.font = String(s.font);
     root.style.setProperty('--vcge-ui-font', `'${fontFor(s.font)}'`);
+    root.dataset.size = String(s.size);
+    root.style.setProperty('--vcge-size', String(scaleFor(s.size)));
     return s;
 }
 
@@ -93,7 +109,7 @@ export function applySettings(settings, root = document.documentElement) {
 
 /**
  * Wire the sheet's controls (any of them may be missing), apply the saved settings and listen for the wipe signal.
- * Controls: #handRightBtn / #handLeftBtn, #cbToggle (checkbox), #themeToggle (button), #fontSelect (select).
+ * Controls: #handRightBtn / #handLeftBtn, #cbToggle (checkbox), #themeToggle (button), #fontSelect and #sizeSelect (selects).
  */
 export function initSettings(doc = document) {
     const $ = (id) => doc.getElementById(id);
@@ -101,12 +117,13 @@ export function initSettings(doc = document) {
 
     const set = (change) => { s = applySettings({ ...s, ...change }); saveSettings(s); reflect(); };
     const reflect = () => {
-        const right = $('handRightBtn'), left = $('handLeftBtn'), cb = $('cbToggle'), theme = $('themeToggle'), font = $('fontSelect');
+        const right = $('handRightBtn'), left = $('handLeftBtn'), cb = $('cbToggle'), theme = $('themeToggle'), font = $('fontSelect'), size = $('sizeSelect');
         if (right) right.setAttribute('aria-pressed', String(s.hand === 0));
         if (left) left.setAttribute('aria-pressed', String(s.hand === 1));
         if (cb) cb.checked = s.cb === 1;
         if (theme) { theme.textContent = s.theme === 1 ? '☀️' : '🌙'; theme.setAttribute('aria-pressed', String(s.theme === 1)); }
         if (font) font.value = String(s.font);
+        if (size) size.value = String(s.size);
     };
 
     const font = $('fontSelect');
@@ -117,11 +134,20 @@ export function initSettings(doc = document) {
             font.append(o);
         }
     }
+    const size = $('sizeSelect');
+    if (size && !size.options.length) {
+        for (const t of TEXT_SIZES) {                       // smallest first, each with its fixed code
+            const o = doc.createElement('option');
+            o.value = String(t.code); o.textContent = t.name;
+            size.append(o);
+        }
+    }
     $('handRightBtn')?.addEventListener('click', () => set({ hand: 0 }));
     $('handLeftBtn')?.addEventListener('click', () => set({ hand: 1 }));
     $('cbToggle')?.addEventListener('change', (e) => set({ cb: e.target.checked ? 1 : 0 }));
     $('themeToggle')?.addEventListener('click', () => set({ theme: s.theme === 1 ? 0 : 1 }));
     font?.addEventListener('change', (e) => set({ font: Number(e.target.value) }));
+    size?.addEventListener('change', (e) => set({ size: Number(e.target.value) }));
     reflect();
 
     globalEventBus.subscribe(Events.SETTINGS_WIPE_REQUESTED, () => clearSettings());

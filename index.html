@@ -420,11 +420,11 @@
         </div>
     </div>
 
-    <!-- Settings (MOD01): theme today; hand, colour-blind mode and font come with the settings step -->
+    <!-- Settings (MOD01): hand, colour-blind mode, theme, UI font and text size, kept in the one settings entry -->
     <div id="settingsSheet" class="vcge-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
         <div class="vcge-sheet-panel mod-tag-host">
             <div class="vcge-sheet-head">
-                <h2 id="settingsTitle">Settings</h2>
+                <h2 id="settingsTitle" class="vcge-sheet-title"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#settings"></use></svg>Settings</h2>
                 <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close">&#x2715;</button>
             </div>
             <div class="vcge-sheet-row">
@@ -448,6 +448,11 @@
                 <select id="fontSelect" class="vcge-select" aria-label="UI font"></select>
             </div>
             <div class="vcge-sheet-row">
+                <label for="sizeSelect">Text size</label>
+                <select id="sizeSelect" class="vcge-select" aria-label="Text size" aria-describedby="sizeHint"></select>
+            </div>
+            <p id="sizeHint" class="vcge-sheet-hint">The text on the cards grows; the icons at the top stay the same size.</p>
+            <div class="vcge-sheet-row">
                 <span>Language</span>
                 <span class="vcge-sheet-soon">English (more coming later)</span>
             </div>
@@ -455,7 +460,7 @@
                 <span>PIN and fingerprint</span>
                 <button id="settingsVaultBtn" type="button" class="px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition" data-open-sheet="vaultPage">Open the Vault</button>
             </div>
-            <p id="settingsNote" class="vcge-sheet-note">vCGE keeps one small settings file on this device (hand, colors, theme, font). Nothing you scan, upload or type is ever saved.</p>
+            <p id="settingsNote" class="vcge-sheet-note">vCGE keeps one small settings file on this device (hand, colors, theme, font, text size). Nothing you scan, upload or type is ever saved.</p>
         </div>
     </div>
 
