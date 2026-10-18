@@ -1088,6 +1088,28 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('gate: Firefox on Windows 8.1 warns about the system only', gate.warnReasons(env({ navigator: { userAgent: 'Mozilla/5.0 (Windows NT 6.3; Win64; x64; rv:115.0) Gecko/20100101 Firefox/115.0', mediaDevices: { getUserMedia() {} } } })).join() === 'oldos');
   ok('gate: no camera or no 3D flip only warns', gate.warnReasons(env({ navigator: { userAgent: 'x' }, CSS: { supports: () => false } })).join() === 'nocamera,no3d');
   ok('gate: every warning has its text', ['oldos', 'oldengine', 'nocamera', 'no3d'].every(k => typeof gate.WARNINGS[k] === 'string'));
+  // The gate starts the app itself, after the page has been read, and never once it has blocked
+  const fakeDoc = (state, meta) => {
+    const added = [], waiting = [];
+    return { added, waiting, readyState: state, createElement: () => ({}), body: { appendChild: (el) => added.push(el) },
+      querySelector: (sel) => (sel === 'meta[name="vcge-app"]' && meta ? { getAttribute: (a) => (a === 'content' ? meta : null) } : null),
+      addEventListener: (type, fn) => waiting.push([type, fn]) };
+  };
+  ok('gate: the app entry is src/main.js, or the bundle the built page names', gate.APP_ENTRY === 'src/main.js' && gate.appEntry(fakeDoc('complete')) === 'src/main.js'
+    && gate.appEntry(fakeDoc('complete', './assets/index-Ab1_c.js')) === './assets/index-Ab1_c.js');
+  const docL = fakeDoc('loading', './assets/index-Ab1_c.js');
+  gate.startApp({ document: docL });
+  const waited = docL.added.length === 0 && docL.waiting.length === 1 && docL.waiting[0][0] === 'DOMContentLoaded';
+  docL.waiting[0][1]();
+  ok('gate: the app loads as an ES module only after the page has been read', waited && docL.added.length === 1 && docL.added[0].type === 'module' && docL.added[0].src === './assets/index-Ab1_c.js', JSON.stringify(docL.added));
+  const docB = fakeDoc('loading'); const envB = { document: docB };
+  gate.startApp(envB); envB.__vcgeGateBlocked = true; docB.waiting[0][1]();
+  const docC = fakeDoc('complete'); gate.startApp({ document: docC, __vcgeGateBlocked: true });
+  ok('gate: once blocked, the app is never loaded', docB.added.length === 0 && docC.added.length === 0);
+  const page = fs.readFileSync(`${R}/../index.html`, 'utf8');
+  ok('index.html has no script tag for the app, only the one entry the gate reads, after the gate',
+    !/<script[^>]*type="module"/.test(page) && !/<script[^>]*main\.js/.test(page) && page.split('<meta name="vcge-app" content="src/main.js">').length === 2
+    && page.indexOf('mod01-shell/browserGate.js') < page.indexOf('name="vcge-app"'));
   // Both gate scripts must parse in very old browsers: no ES2015+ syntax (comments and strings stripped first)
   const es5 = (file) => {
     const code = fs.readFileSync(`${R}/modules/mod01-shell/${file}`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '').replace(/'(?:\\.|[^'\\])*'/g, "''");

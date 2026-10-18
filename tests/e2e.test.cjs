@@ -1700,6 +1700,11 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   // system or engine outside the app is weak
   {
     ok('a current browser gets no gate banner', !(await page.$('#browserGateBanner')));
+    // The page has no script tag for the app (so the browser cannot fetch it ahead of the checks); the gate added it
+    const served = await (await page.request.get(base)).text();
+    const appTags = await page.$$eval('script[type="module"]', els => els.map(el => el.getAttribute('src')));
+    ok('gate: the page has no script tag for the app; the gate loaded it once, after its checks', !/<script[^>]*type="module"/.test(served) && !/<script[^>]*(?:main\.js|assets\/index-)/.test(served)
+      && appTags.length === 1 && (process.env.SERVE_DIR ? /^\.\/assets\/index-[\w-]+\.js$/ : /^src\/main\.js$/).test(appTags[0]), appTags.join(' '));
     const blocked = async (setup, reason) => {
       const ctxG = await browser.newContext();
       const pG = await ctxG.newPage();
@@ -1719,7 +1724,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     };
     const noWasm = await blocked((ctxG) => ctxG.addInitScript(() => { delete window.WebAssembly; }), 'wasm');
     ok('gate: no WebAssembly opens the "cannot run" page with the reason listed', noWasm.shown && noWasm.reasons.includes('wasm'), noWasm.url);
-    ok('gate: blocked app never starts (main.js not even requested)', !noWasm.requested.some(u => /\/src\/main\.js|\/assets\/index-/.test(u)), noWasm.requested.filter(u => u.endsWith('.js')).join(' '));
+    ok('gate: blocked app never starts (main.js not even requested)', !noWasm.requested.some(u => /\/src\/main\.js|\/assets\/index-[\w-]+\.js/.test(u)), noWasm.requested.filter(u => u.endsWith('.js')).join(' '));
     ok('gate: free & open source browsers are listed first (Firefox, Firefox ESR, Brave)', noWasm.links.slice(0, 3).map(l => new URL(l.href).hostname).join() === 'www.firefox.com,support.mozilla.org,brave.com', noWasm.links.map(l => l.href).join(' '));
     ok('gate: links open in a new tab with no opener, no referrer and no query data', noWasm.links.length === 6 && noWasm.links.every(l => l.target === '_blank' && /noopener/.test(l.rel) && /noreferrer/.test(l.rel) && !new URL(l.href).search && !new URL(l.href).hash));
     ok('gate: the "cannot run" page makes no outside request and draws without errors', noWasm.external.length === 0 && noWasm.pageErrors.length === 0, noWasm.external.concat(noWasm.pageErrors).join(' | '));

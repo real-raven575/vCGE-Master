@@ -95,7 +95,7 @@ vCGE-Master/
 ├── package.json                   # npm start, dev, build, tauri, test, test:e2e, test:icons, test:tauri, build:css, vendor (all deps pinned)
 ├── vite.config.mjs                # Vite build → dist/ (Tauri frontend)
 ├── tailwind.config.js
-├── index.html                     # App UI (loads src/main.js as an ES module; CSP egress lock)
+├── index.html                     # App UI (the browser gate loads src/main.js as an ES module once its checks pass; CSP egress lock)
 ├── .github/workflows/ci.yml       # CI: web tests + desktop builds/tests on Linux, macOS, Windows
 ├── THIRD_PARTY_NOTICES.md         # Bundled libraries & licences (all MIT / Apache-2.0)
 ├── docs/
