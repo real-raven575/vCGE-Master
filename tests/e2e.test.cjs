@@ -1,8 +1,10 @@
-// vCGE end-to-end tests in headless Chromium (`npm run test:e2e`).
-// Needs devDependencies (`npm install`) and a Chromium for Playwright (`npx playwright install chromium`).
+// vCGE end-to-end tests in a headless browser (`npm run test:e2e`).
+// Needs devDependencies (`npm install`) and the browser for Playwright (`npx playwright install chromium`).
 // SERVE_DIR=dist runs the same suite against the Vite build (`npm run build` first).
+// VCGE_BROWSER picks the browser: chromium (default), firefox, webkit, or the branded chrome / msedge.
+// VCGE_DEVICE makes it a phone, by Playwright device name (e.g. "iPhone 15" with webkit, "Galaxy S24" with chromium).
 const path = require('path'), fs = require('fs'), { spawn } = require('child_process');
-const { chromium } = require('playwright');
+const playwright = require('playwright');
 const jsQR = require('jsqr');
 
 const ROOT = path.resolve(__dirname, '..');
@@ -10,16 +12,41 @@ const PORT = String(18000 + Math.floor(Math.random() * 2000));
 const ORIGIN = `http://localhost:${PORT}/`;
 
 // Renders a business card image in the page so OCR runs on real pixels.
-// `blur` (px) simulates a shaky or out-of-focus photo.
+// `blur` (px, the Gaussian's standard deviation) simulates a shaky or out-of-focus photo. The blur is computed here
+// (three box blurs) rather than with the canvas `filter`, which WebKit ignores, so every engine gets the same photo.
 async function renderCardImage(page, blur = 0) {
   const dataUrl = await page.evaluate((blur) => {
     const c = document.createElement('canvas'); c.width = 1050; c.height = 600;
     const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111';
-    if (blur) x.filter = `blur(${blur}px)`;
     const lines = [['bold 56px Arial', 'Maria Gonzalez'], ['34px Arial', 'Director of Engineering'], ['34px Arial', 'Northwind Systems'],
       ['30px Arial', '+1 (312) 555-0147'], ['30px Arial', 'maria.gonzalez@northwind.com'], ['30px Arial', 'https://northwind.com'],
       ['30px Arial', '233 South Wacker Drive'], ['30px Arial', 'Chicago, IL 60606']];
     let y = 80; for (const [f, t] of lines) { x.font = f; x.fillText(t, 70, y); y += f.startsWith('bold') ? 80 : 62; }
+    if (blur) {
+      const w = c.width, h = c.height, img = x.getImageData(0, 0, w, h);
+      let g = new Float32Array(w * h).map((_, i) => img.data[i * 4]);
+      const at = (a, i, n) => a[Math.min(n - 1, Math.max(0, i))];
+      const box = (a, r) => {   // separable running-sum box blur, edges clamped
+        const t = new Float32Array(a.length), o = new Float32Array(a.length), n = 2 * r + 1;
+        for (let yy = 0; yy < h; yy++) {
+          const row = a.subarray(yy * w, yy * w + w); let s = 0;
+          for (let k = -r; k <= r; k++) s += at(row, k, w);
+          for (let xx = 0; xx < w; xx++) { t[yy * w + xx] = s / n; s += at(row, xx + r + 1, w) - at(row, xx - r, w); }
+        }
+        for (let xx = 0; xx < w; xx++) {
+          const col = (i) => t[Math.min(h - 1, Math.max(0, i)) * w + xx]; let s = 0;
+          for (let k = -r; k <= r; k++) s += col(k);
+          for (let yy = 0; yy < h; yy++) { o[yy * w + xx] = s / n; s += col(yy + r + 1) - col(yy - r); }
+        }
+        return o;
+      };
+      // Box widths whose three passes approximate a Gaussian of this standard deviation.
+      let wl = Math.floor(Math.sqrt(4 * blur * blur + 1)); if (wl % 2 === 0) wl--;
+      const m = Math.round((12 * blur * blur - 3 * wl * wl - 12 * wl - 9) / (-4 * wl - 4));
+      for (let i = 0; i < 3; i++) g = box(g, ((i < m ? wl : wl + 2) - 1) / 2);
+      for (let i = 0; i < w * h; i++) img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = g[i];
+      x.putImageData(img, 0, 0);
+    }
     return c.toDataURL('image/png');
   }, blur);
   return { name: 'card.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') };
@@ -82,6 +109,25 @@ const vaultOpen = (page) => page.isVisible('#vaultPage');
 async function openVault(page) { if (!(await vaultOpen(page))) { await page.click('#navVault'); await page.waitForSelector('#vaultPage', { state: 'visible' }); } }
 async function closeVault(page) { if (await vaultOpen(page)) { await page.click('#vaultPage [data-sheet-close]'); await page.waitForSelector('#vaultPage', { state: 'hidden' }); } }
 
+// On phones the header has no room for the Lock button, so Lock lives on the Vault page ("Lock now") instead.
+const isPhone = () => !!(deviceOptions.viewport && deviceOptions.viewport.width < 600);
+// Presses the lock control this layout shows (on a phone: on the Vault page, which closes itself on Lock now).
+async function pressLock(page) {
+  if (!isPhone()) return page.click('#lockVaultBtn');
+  await openVault(page);
+  await page.click('#vaultLockNowBtn');
+  await page.waitForSelector('#vaultPage', { state: 'hidden' });
+}
+// Whether a lock control is offered: the header button, or on a phone the Vault page's Lock now (looked at and closed again).
+async function lockOffered(page) {
+  if (!isPhone()) return page.isVisible('#lockVaultBtn');
+  const wasOpen = await vaultOpen(page);
+  await openVault(page);
+  const offered = await page.isVisible('#vaultLockNowBtn');
+  if (!wasOpen) await closeVault(page);
+  return offered;
+}
+
 // Sets a session PIN from the Security panel (opens the Vault page, and closes it again if it was closed).
 async function setPin(page, pin) {
   const wasOpen = await vaultOpen(page);
@@ -98,7 +144,12 @@ async function holdYes(page, ms, clock = null) {
   await page.evaluate(() => { window.__vcgeOldPage = true; });
   const box = await page.locator('#wipeYesBtn').boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down();
-  if (clock) await clock.runFor(ms); else await page.waitForTimeout(ms);
+  if (clock) await clock.runFor(ms);
+  else if (ms < 1500) await page.waitForTimeout(ms);
+  // A full hold: let go as soon as the dialog says the hold is complete (data-hold="done"), as a person does when the
+  // sweep shows. Letting go later would race the page reload that follows the sweep (WebKit stalls on a mouse event
+  // sent while the page is replaced). If the hold never completes the wait fails, so nothing is loosened.
+  else await page.waitForFunction(() => document.getElementById('wipeDialog').dataset.hold === 'done', null, { timeout: ms + 1500 });
   await page.mouse.up();
   if (ms < 1500) return;
   if (clock) await clock.runFor(600);
@@ -127,21 +178,35 @@ const setVisibility = (page, state) => page.evaluate((state) => {
   document.dispatchEvent(new Event('visibilitychange'));
 }, state);
 
-let pass = 0, fail = 0;
+const BROWSER = process.env.VCGE_BROWSER || 'chromium';
+const CHANNELS = { chrome: 'chrome', msedge: 'msedge' };
+const ENGINE = CHANNELS[BROWSER] ? 'chromium' : BROWSER;
+if (!['chromium', 'firefox', 'webkit'].includes(ENGINE)) throw new Error(`unknown VCGE_BROWSER "${BROWSER}"`);
+const DEVICE = process.env.VCGE_DEVICE ? playwright.devices[process.env.VCGE_DEVICE] : {};
+if (!DEVICE) throw new Error(`unknown VCGE_DEVICE "${process.env.VCGE_DEVICE}"`);
+const { defaultBrowserType, ...deviceOptions } = DEVICE;
+const RUN = BROWSER + (process.env.VCGE_DEVICE ? ` (${process.env.VCGE_DEVICE})` : '');
+
+let pass = 0, fail = 0, notRun = 0;
 const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, console.log('FAIL', n, d)); };
+// A check whose test tool exists only in some engines: reported and counted, never silently dropped.
+const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`); };
 
 (async () => {
   const server = spawn(process.execPath, [path.join(ROOT, 'scripts/serve.mjs')], { env: { ...process.env, PORT } });
   await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('exit', c => reject(new Error(`server exited ${c}`))); });
-  const browser = await chromium.launch();
-  // The welcome pop-up opens on every start; every test page presses START NOW at once, except the welcome tests below.
+  console.log(`Browser: ${RUN}`);
+  const browser = await playwright[ENGINE].launch(CHANNELS[BROWSER] ? { channel: CHANNELS[BROWSER] } : {});
+  // Every context takes the chosen device (if any), and the welcome pop-up that opens on every start is pressed
+  // through (START NOW) at once, except in the welcome tests below.
   const plainContext = browser.newContext.bind(browser);
   const pressStartNow = () => new MutationObserver((_, o) => {
     const b = document.getElementById('welcomeStartBtn');
     if (b) { o.disconnect(); b.click(); }
   }).observe(document, { childList: true, subtree: true });
-  browser.newContext = async (opts) => { const c = await plainContext(opts); await c.addInitScript(pressStartNow); return c; };
-  const context = await browser.newContext({ acceptDownloads: true });
+  browser.newContext = async (opts = {}) => { const c = await plainContext({ ...deviceOptions, ...opts }); await c.addInitScript(pressStartNow); return c; };
+  const newContext = (options) => browser.newContext(options);
+  const context = await newContext({ acceptDownloads: true });
   const page = await context.newPage();
   const external = [], errors = [], notFound = [];
   page.on('request', r => { if (!r.url().startsWith(ORIGIN) && !/^(data|blob):/.test(r.url())) external.push(r.url()); });
@@ -162,7 +227,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   ok('the header shows the logo (bundled, loaded, named vCGE for screen readers)', await page.$eval('.deck-logo', i => i.complete && i.naturalWidth > 0 && i.alt === 'vCGE' && i.src.startsWith(location.origin)));
   ok('opens straight to an empty card (no passphrase dialog)', !(await visible('vaultModal')) && (await val('firstName')) === '');
   ok('header badge reads "Vault: UNLOCKED" and the indicator says memory only', (await text('vaultBadge')) === 'Vault: UNLOCKED' && (await text('vaultStateIndicator')) === 'UNLOCKED / memory only');
-  ok('Lock button hidden until a session PIN is set', !(await visible('lockVaultBtn')));
+  ok('Lock button hidden until a session PIN is set', !(await lockOffered(page)));
   ok('timer strip hidden while the card is empty', !(await visible('vaultTimerStrip')));
   const secretBoxes = await page.$$eval('#vaultPin, #sessionPinInput',
     els => els.map(el => ({ type: el.type, masked: getComputedStyle(el).webkitTextSecurity, ac: el.getAttribute('autocomplete'), caps: el.getAttribute('autocapitalize') })));
@@ -463,7 +528,9 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   ok('no page errors', errors.length === 0, errors.join(' | '));
   // Startup residue check + 120 s idle purge (fresh context with a controllable clock)
   {
-    const ctx2 = await browser.newContext();
+    // No file is saved from this context: the one download in it (a share) only has to be dispatched. Edge keeps a
+    // blank helper page open for every saved download, and the fake clock, which ticks every page, stalls on it.
+    const ctx2 = await newContext({ acceptDownloads: false });
     await ctx2.addInitScript(() => {
       if (!sessionStorage.getItem('seeded')) {
         sessionStorage.setItem('seeded', '1');
@@ -519,7 +586,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   // Quick unlock: 4-digit session PIN after a lock (idle, screen off, Lock button); the card is held in memory only,
   // and 7 minutes without activity wipe it
   {
-    const ctx8 = await browser.newContext();
+    const ctx8 = await newContext();
     const p8 = await ctx8.newPage();
     const errors8 = [];
     p8.on('pageerror', e => errors8.push(e.message));
@@ -543,7 +610,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('session PIN: too-short PIN refused', (await t8('quickSetupError')) === 'Use exactly 4 digits.', await t8('quickSetupError'));
     await p8.fill('#sessionPinInput', '2468'); await p8.click('#quickSetupSaveBtn');
     await p8.waitForSelector('#quickSetupModal', { state: 'hidden' });
-    ok('session PIN set: Security panel shows it and Lock appears', (await t8('sessionPinStatus')) === 'Session PIN: set' && await p8.isVisible('#lockVaultBtn'));
+    ok('session PIN set: Security panel shows it and Lock appears', (await t8('sessionPinStatus')) === 'Session PIN: set' && await lockOffered(p8));
     const pinOn8 = await sw8('pinSwitch');
     ok('Vault page: the PIN switch turns green with "On", Change and Lock now appear, the note goes', pinOn8.on === 'true' && pinOn8.word === 'On' && pinOn8.bg === 'rgb(22, 163, 74)'
       && (await t8('setSessionPinBtn')) === 'Change' && await p8.isVisible('#vaultLockNowBtn') && !(await p8.isVisible('#pinOffNote')), JSON.stringify(pinOn8));
@@ -610,7 +677,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
     await setPin(p8, '4321');
     await p8.fill('#firstName', 'Locked');
-    await p8.click('#lockVaultBtn');
+    await pressLock(p8);
     ok('Lock button hides the card behind the PIN', await p8.isVisible('#vaultPin') && (await p8.inputValue('#firstName')) === '');
     ok('Lock button: the lock screen says the Lock button locked it (not "2 minutes without activity")', (await t8('vaultModalHint')).startsWith('Locked with the Lock button.'), await t8('vaultModalHint'));
     await p8.click('#vaultStartOverBtn');
@@ -640,7 +707,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
     // Unlocking goes back to the card that was in view, and to the Vault page when its Lock now locked it
     await p8.click('#navShare'); await deckSettled(p8);
-    await p8.click('#lockVaultBtn');
+    // On a phone the header Lock is hidden, so a lock that starts on a card is the idle lock: the same button, pressed by the app
+    if (isPhone()) await p8.evaluate(() => document.getElementById('lockVaultBtn').click()); else await p8.click('#lockVaultBtn');
     await p8.evaluate(() => document.getElementById('navCard').click());   // the deck moved while locked
     await deckSettled(p8);
     await p8.fill('#vaultPin', '4321'); await p8.waitForSelector('#vaultModal', { state: 'hidden' }); await deckSettled(p8);
@@ -693,6 +761,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
     // Settings > Wipe after the lock (raven575, 2026-10-18): 10 or 15 minutes instead of 7; the 2-minute lock stays
     const wipeChoice = async (label) => {
+      if (await vaultOpen(p8)) await closeVault(p8);   // on a phone, unlocking after Lock now reopens the Vault page
       await p8.click('#navSettings'); await p8.waitForSelector('#settingsSheet', { state: 'visible' });
       await p8.selectOption('#wipeSelect', { label });
       await p8.click('#settingsSheet [data-sheet-close]'); await p8.waitForSelector('#settingsSheet', { state: 'hidden' });
@@ -701,7 +770,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await openVault(p8);
     ok('wipe 10: the Vault page says 10 minutes after the lock', (await t8('vaultWipeMinutes')) === '10', await t8('vaultWipeMinutes'));
     await closeVault(p8);
-    await p8.fill('#firstName', 'Ten'); await p8.click('#lockVaultBtn');
+    await p8.fill('#firstName', 'Ten'); await pressLock(p8);
     ok('wipe 10: the lock ring starts at 10:00', /^(10:00|9:5\d)$/.test(await t8('vaultLockRingTime')) && /resets in (10:00|9:5\d)/.test(await t8('quickUnlockCountdown')), await t8('vaultLockRingTime'));
     await p8.evaluate(() => { const s = document.getElementById('wipeSelect'); s.value = '2'; s.dispatchEvent(new Event('change', { bubbles: true })); });
     await fastForward(p8, 1000);
@@ -711,11 +780,11 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await fastForward(p8, 170000);   // 10 min 1 s after the lock
     ok('wipe 10: wiped 10 minutes after the lock', !(await p8.isVisible('#vaultModal')) && (await p8.inputValue('#firstName')) === '' && (await t8('toastMessage')).startsWith('Reset: 10 minutes without activity'), await t8('toastMessage'));
     await setPin(p8, '4321');
-    await p8.fill('#firstName', 'Fifteen'); await p8.click('#lockVaultBtn');
+    await p8.fill('#firstName', 'Fifteen'); await pressLock(p8);
     ok('wipe 15: the next lock runs 15 minutes', /^(15:00|14:5\d)$/.test(await t8('vaultLockRingTime')), await t8('vaultLockRingTime'));
     await p8.fill('#vaultPin', '4321'); await p8.waitForSelector('#vaultModal', { state: 'hidden' });
     await p8.evaluate(() => { document.documentElement.dataset.wipe = '99'; });
-    await p8.click('#lockVaultBtn');
+    await pressLock(p8);
     ok('wipe: a value that is not 7, 10 or 15 means 7', /^(7:00|6:5\d)$/.test(await t8('vaultLockRingTime')), await t8('vaultLockRingTime'));
     await p8.fill('#vaultPin', '4321'); await p8.waitForSelector('#vaultModal', { state: 'hidden' });
     await wipeChoice('7 minutes');
@@ -723,14 +792,16 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await openVault(p8);
     ok('Security panel: Change offered and the switch is on', (await t8('setSessionPinBtn')) === 'Change' && (await sw8('pinSwitch')).on === 'true');
     await p8.click('#pinSwitch');
-    ok('Security panel: Remove forgets the PIN and hides Lock', (await t8('sessionPinStatus')) === 'Session PIN: not set' && (await t8('auditLog')).includes('Session PIN removed') && !(await p8.isVisible('#lockVaultBtn')));
+    ok('Security panel: Remove forgets the PIN and hides Lock', (await t8('sessionPinStatus')) === 'Session PIN: not set' && (await t8('auditLog')).includes('Session PIN removed') && !(await lockOffered(p8)));
     ok('quick unlock: no page errors', errors8.length === 0, errors8.join(' | '));
     await ctx8.close();
   }
 
-  // Biometric unlock (Face ID / fingerprint / Windows Hello) through a virtual platform authenticator: on-device only
-  {
-    const ctxB = await browser.newContext();
+  // Biometric unlock (Face ID / fingerprint / Windows Hello) through a virtual platform authenticator: on-device only.
+  // The virtual authenticator is a Chromium DevTools tool; Firefox and WebKit have none.
+  if (ENGINE !== 'chromium') notRunHere('biometric unlock (11 checks)', 'the virtual authenticator exists only in Chromium');
+  else {
+    const ctxB = await newContext();
     const pB = await ctxB.newPage();
     const errorsB = [], externalB = [];
     pB.on('pageerror', e => errorsB.push(e.message));
@@ -756,7 +827,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('biometric added for this session, after a check that passed', (await tB('biometricStatus')) === 'Face ID / fingerprint: on' && (await tB('auditLog')).includes('Face ID / fingerprint added'), await tB('toastMessage'));
     ok('biometric: the switch is green with "On" and the turn-on note goes', (await pB.getAttribute('#biometricSwitch', 'aria-checked')) === 'true' && (await tB('biometricSwitch')) === 'On' && !(await pB.isVisible('#biometricOffNote')));
     await closeVault(pB);
-    await pB.fill('#firstName', 'Bio'); await pB.click('#lockVaultBtn');
+    await pB.fill('#firstName', 'Bio'); await pressLock(pB);
     ok('lock screen offers Face ID / fingerprint', await pB.isVisible('#vaultBiometricBtn') && (await pB.inputValue('#firstName')) === '');
     const bioBox = await pB.locator('#vaultBiometricBtn').boundingBox(), pinBox = await pB.locator('#vaultPin').boundingBox();
     ok('lock screen leads with a big fingerprint button above the PIN, focused (no keyboard pops up), no Unlock button', bioBox.height >= 52 && bioBox.y < pinBox.y && (await pB.evaluate(() => document.activeElement && document.activeElement.id)) === 'vaultBiometricBtn' && !(await pB.$('#vaultUnlockBtn')) && await pB.isVisible('#vaultOr'));
@@ -764,7 +835,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await pB.waitForSelector('#vaultModal', { state: 'hidden', timeout: 5000 }).catch(() => {});
     ok('biometric unlocks the card', !(await pB.isVisible('#vaultModal')) && (await pB.inputValue('#firstName')) === 'Bio' && (await tB('auditLog')).includes('Vault unlocked (biometric)'));
     await cdp.send('WebAuthn.setUserVerified', { authenticatorId, isUserVerified: false });
-    await pB.click('#lockVaultBtn');
+    await pressLock(pB);
     await pB.click('#vaultBiometricBtn'); await pB.waitForTimeout(800);
     ok('face or fingerprint not confirmed: stays locked, PIN offered, and the device\'s reason is shown', await pB.isVisible('#vaultModal') && /^Face or fingerprint not confirmed \([A-Za-z ]+\)\. Use your PIN\.$/.test(await tB('vaultError')) && (await pB.inputValue('#firstName')) === '', await tB('vaultError'));
     await pB.fill('#vaultPin', '2468');
@@ -772,7 +843,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('the PIN still works as the fallback', (await pB.inputValue('#firstName')) === 'Bio');
     await openVault(pB);
     await pB.click('#pinSwitch');
-    ok('removing the PIN removes biometric too', !(await pB.isVisible('#biometricRow')) && !(await pB.isVisible('#lockVaultBtn')));
+    ok('removing the PIN removes biometric too', !(await pB.isVisible('#biometricRow')) && !(await lockOffered(pB)));
     ok('biometric: nothing saved to browser storage', !(await pB.evaluate(() => JSON.stringify(localStorage) + JSON.stringify(sessionStorage))).includes('Bio'));
     ok('biometric: no network requests', externalB.length === 0, externalB.join(', '));
     ok('biometric: no page errors', errorsB.length === 0, errorsB.join(' | '));
@@ -828,11 +899,13 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // Back (button or swipe): asks before wiping, Stay keeps the card, leaving wipes it; an empty card just leaves
   {
-    const ctx11 = await browser.newContext();
+    const ctx11 = await newContext();
     const p11 = await ctx11.newPage();
     const errors11 = [];
     p11.on('pageerror', e => errors11.push(e.message));
-    await p11.goto('about:blank');
+    // Start from a page of our own, not about:blank: in Firefox, Back from the app found no page to go back to.
+    const START = ORIGIN + '?start';
+    await p11.goto(START);
     await p11.goto(ORIGIN); await p11.waitForTimeout(300);
     await p11.click('#firstName'); await p11.keyboard.type('Swiped');
     await p11.goBack(); await p11.waitForTimeout(300);
@@ -841,13 +914,13 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('Stay keeps the card', !(await p11.isVisible('#leaveModal')) && (await p11.inputValue('#firstName')) === 'Swiped');
     await p11.goBack(); await p11.waitForTimeout(300);
     ok('Back asks again after Stay', await p11.isVisible('#leaveModal'));
-    await Promise.all([p11.waitForURL('about:blank'), p11.click('#leaveConfirmBtn')]);
-    ok('"Wipe and leave" goes back', p11.url() === 'about:blank', p11.url());
+    await Promise.all([p11.waitForURL(START), p11.click('#leaveConfirmBtn')]);
+    ok('"Wipe and leave" goes back', p11.url() === START, p11.url());
     await p11.goForward(); await p11.waitForTimeout(500);
     ok('coming back forward: the card is gone', (await p11.inputValue('#firstName')) === '');
     await p11.click('#clearFormBtn');
     await p11.goBack(); await p11.waitForTimeout(500);
-    ok('Back with an empty card leaves without asking', p11.url() === 'about:blank', p11.url());
+    ok('Back with an empty card leaves without asking', p11.url() === START, p11.url());
     // A reload keeps the guard entry: no second one is added, and Back still asks first
     await p11.goto(ORIGIN); await p11.waitForTimeout(300);
     await p11.click('#firstName'); await p11.keyboard.type('One');
@@ -869,7 +942,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // Quick lock keeps the scan in progress: the open review comes back with the session PIN, sealed while locked
   {
-    const ctx10 = await browser.newContext();
+    const ctx10 = await newContext();
     const p10 = await ctx10.newPage();
     const errors10 = [];
     p10.on('pageerror', e => errors10.push(e.message));
@@ -911,7 +984,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // Tester feedback round 3: logos fitted square on an opaque background, and a JPEG vCard photo
   {
-    const ctx11 = await browser.newContext();
+    const ctx11 = await newContext();
     const p11 = await ctx11.newPage();
     const errors11 = [];
     p11.on('pageerror', e => errors11.push(e.message));
@@ -942,9 +1015,12 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     // Uploads a logo; returns the vCard PHOTO (from the .vcf), what the card shows and what the toast said.
     const upload = async (kind, name) => {
       const url = await logo(kind);
-      const before = await p11.evaluate(() => { const i = document.querySelector('#formAvatarPreview img, #formAvatarPreview svg'); return i ? i.outerHTML : ''; });
+      // The preview is rebuilt from new nodes on every upload, so the old node is marked and the wait is for a node
+      // without the mark. (Comparing the markup was not enough: two logos that trace to the same drawing, as the
+      // viewBox-only SVG and the sized one do in Firefox, give the same markup twice.)
+      await p11.evaluate(() => { const i = document.querySelector('#formAvatarPreview img, #formAvatarPreview svg'); if (i) i.__vcgeSeen = true; });
       await p11.setInputFiles('#avatarUpload', { name, mimeType: url.slice(5, url.indexOf(';')), buffer: Buffer.from(url.split(',')[1], 'base64') });
-      await p11.waitForFunction((before) => { const i = document.querySelector('#formAvatarPreview img, #formAvatarPreview svg'); return i && i.outerHTML !== before && (i.tagName === 'svg' || i.complete); }, before);
+      await p11.waitForFunction(() => { const i = document.querySelector('#formAvatarPreview img, #formAvatarPreview svg'); return i && !i.__vcgeSeen && (i.tagName === 'svg' || i.complete); });
       await p11.waitForTimeout(300);   // the logo's shape and tone are read, then the card is drawn again
       const toast = await p11.textContent('#toastMessage');
       const [dl] = await Promise.all([p11.waitForEvent('download'), p11.click('#downloadVcfBtn')]);
@@ -1173,7 +1249,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // Tester feedback round 1: Undo after a sample / clear / scan fill, reopen the last scan, readable SMS and email, one-page print
   {
-    const ctx9 = await browser.newContext();
+    const ctx9 = await newContext();
     const p9 = await ctx9.newPage();
     const errors9 = [];
     p9.on('pageerror', e => errors9.push(e.message));
@@ -1246,10 +1322,13 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('printed card is 3.5 x 2 inches with the 1.5 in QR to its right', size.card[0] === 336 && size.card[1] === 192 && size.qr[0] === 144 && size.qr[1] === 144 && size.qrRight, JSON.stringify(size));
     ok('themed print keeps the card\'s own colours', size.bg === size.cardBg && size.bg !== 'rgb(255, 255, 255)', JSON.stringify(size));
     await p9.emulateMedia({ media: null });
-    const pdf = (await p9.pdf({ preferCSSPageSize: true, printBackground: true })).toString('latin1');
-    const pages = (pdf.match(/\/Type\s*\/Page[^s]/g) || []).length;
-    const box = /\/MediaBox\s*\[\s*0\s+0\s+(\d+)\s+(\d+)\s*\]/.exec(pdf);
-    ok('print is one 6 x 3.5 in page (no blank pages) and the card is still on the sheet', pages === 1 && box && box[1] === '432' && box[2] === '252' && (await p9.evaluate(() => document.getElementById('printSheet').children.length)) === 2, `${pages} pages, box ${box && box.slice(1)}`);
+    if (ENGINE !== 'chromium') notRunHere('print is one 6 x 3.5 in page (no blank pages)', 'saving a page as PDF exists only in Chromium');
+    else {
+      const pdf = (await p9.pdf({ preferCSSPageSize: true, printBackground: true })).toString('latin1');
+      const pages = (pdf.match(/\/Type\s*\/Page[^s]/g) || []).length;
+      const box = /\/MediaBox\s*\[\s*0\s+0\s+(\d+)\s+(\d+)\s*\]/.exec(pdf);
+      ok('print is one 6 x 3.5 in page (no blank pages) and the card is still on the sheet', pages === 1 && box && box[1] === '432' && box[2] === '252' && (await p9.evaluate(() => document.getElementById('printSheet').children.length)) === 2, `${pages} pages, box ${box && box.slice(1)}`);
+    }
     await p9.evaluate(() => window.dispatchEvent(new Event('afterprint')));
     ok('print copies stay until the next print (afterprint can fire before the PDF is drawn)', (await p9.evaluate(() => document.getElementById('printSheet').children.length)) === 2);
     await p9.click('#printCardBtn'); await p9.click('#printBwBtn');
@@ -1274,7 +1353,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // Icons instead of labels: unlabelled numbers typed by their icons, a bare handle next to a social logo
   {
-    const ctx7 = await browser.newContext();
+    const ctx7 = await newContext();
     const p7 = await ctx7.newPage();
     await p7.goto(ORIGIN); await p7.waitForTimeout(300);
     const icon = (f) => fs.readFileSync(path.join(ROOT, 'node_modules/@tabler/icons/icons/outline', f), 'utf8').replace(/currentColor/g, '#111');
@@ -1366,7 +1445,9 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await pS.waitForSelector('#ocrProgress', { state: 'hidden', timeout: 10000 });
     ok('Cancel drops the photo from the Read card', !(await pS.getAttribute('#ocrReadPhoto', 'src')));
     await pS.waitForFunction(() => document.documentElement.dataset.card === 'capture', null, { timeout: 5000 }).catch(() => {});
-    ok('Cancel stops reading and goes back to the photo on the Capture card (Retake or OK again)', (await pS.evaluate(() => document.documentElement.dataset.card)) === 'capture' && await pS.isVisible('#captureReview') && !(await pS.isVisible('#cropReviewModal')) && await pS.isVisible('#retakePhotoBtn') && await pS.isVisible('#runOcrBtn') && !(await pS.isDisabled('#runOcrBtn')));
+    ok('Cancel stops reading and goes back to the photo on the Capture card (Retake or OK again)', (await pS.evaluate(() => document.documentElement.dataset.card)) === 'capture' && await pS.isVisible('#captureReview') && !(await pS.isVisible('#cropReviewModal')) && await pS.isVisible('#retakePhotoBtn') && await pS.isVisible('#runOcrBtn') && !(await pS.isDisabled('#runOcrBtn')),
+      JSON.stringify(await pS.evaluate(() => { const v = (id) => { const e = document.getElementById(id); return !!e && !!(e.offsetWidth || e.offsetHeight); };
+        return { card: document.documentElement.dataset.card, review: v('captureReview'), crop: v('cropReviewModal'), retake: v('retakePhotoBtn'), run: v('runOcrBtn'), runDisabled: document.getElementById('runOcrBtn').disabled, progress: v('ocrProgress') }; })));
     await pS.click('#runOcrBtn');
     await pS.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
     ok('after Cancel, Extract reads the photo with a fresh reader', (await pS.$$('#ocrLines select')).length >= 8);
@@ -1402,7 +1483,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // Blurry photo: OCR runs but the result is unreadable -> retake prompt, form untouched
   {
-    const ctx4 = await browser.newContext();
+    const ctx4 = await newContext();
     const p4 = await ctx4.newPage();
     await p4.goto(ORIGIN); await p4.waitForTimeout(300);
     await p4.fill('#firstName', 'Typed');
@@ -1426,7 +1507,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // Crooked photo: drag the corners onto the card, extract, fix a line, change a picker, fill the form
   {
-    const ctx5 = await browser.newContext();
+    const ctx5 = await newContext();
     const p5 = await ctx5.newPage();
     await p5.goto(ORIGIN); await p5.waitForTimeout(300);
     const crooked = await renderSkewedCard(p5);
@@ -1513,7 +1594,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // OCR engine cannot start (language model missing, as on a host that refuses .gz): no hang, clear message, form untouched
   {
-    const ctx3 = await browser.newContext();
+    const ctx3 = await newContext();
     await ctx3.route('**/eng.traineddata.gz', r => r.fulfill({ status: 404, body: 'not found' }));
     const p3 = await ctx3.newPage();
     await p3.goto(ORIGIN); await p3.waitForTimeout(300);
@@ -1531,7 +1612,10 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   // from the screen edge, the green shutter that sinks and pops back, a shot that is exactly what the viewfinder showed,
   // handles at the full edge, Snap to card, bad uploads turned away with a toast, the left-hand mirror
   {
-    const ctxV = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
+    // Playwright's Firefox sends no pointer events for the mouse in a page with touch turned on (only mousedown, mouseup
+    // and click), so the presses below would never reach the app there. The app never looks for touch, so Firefox runs
+    // this page without it.
+    const ctxV = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: ENGINE !== 'firefox' });
     await ctxV.addInitScript(() => {
       // A 640 x 360 test feed: four colours, so the shot can be checked against the window the viewfinder showed
       navigator.mediaDevices.getUserMedia = async () => {
@@ -1660,53 +1744,68 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
   // Camera in use by another app: busy at start, a virtual camera, the feed taken or muted mid-scan -> camera off + pop-up
   {
-    const ctxC = await browser.newContext();
-    await ctxC.addInitScript(() => {
+    const ctxC = await newContext();
+    // Firefox never delivers an 'ended' or 'mute' event that a page sends to a camera track (the engine probe showed
+    // neither the app's listener nor the test's own one hearing it), so there the stream hands the app a stand-in
+    // track: the real one's properties and methods, with events the test can send.
+    await ctxC.addInitScript((standIn) => {
       window.__camMode = 'normal';
       navigator.mediaDevices.getUserMedia = async () => {
         if (window.__camMode === 'busy') throw new DOMException('Could not start video source', 'NotReadableError');
         const c = document.createElement('canvas'); c.width = 640; c.height = 360;
         const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
-        const stream = c.captureStream(5), track = stream.getVideoTracks()[0];
-        Object.defineProperty(track, 'label', { value: window.__camMode === 'virtual' ? 'OBS Virtual Camera' : 'Integrated Camera' });
+        const stream = c.captureStream(5), real = stream.getVideoTracks()[0];
+        let track = real;
+        if (standIn) {
+          track = new EventTarget();
+          for (const k of ['kind', 'id', 'readyState', 'enabled', 'muted', 'contentHint']) Object.defineProperty(track, k, { configurable: true, get: () => real[k] });
+          for (const m of ['stop', 'clone', 'getSettings', 'getConstraints', 'getCapabilities', 'applyConstraints']) if (typeof real[m] === 'function') track[m] = (...a) => real[m](...a);
+          stream.getVideoTracks = () => [track];
+        }
+        Object.defineProperty(track, 'label', { configurable: true, value: window.__camMode === 'virtual' ? 'OBS Virtual Camera' : 'Integrated Camera' });
         window.__camTrack = track;
         return stream;
       };
-    });
+    }, ENGINE === 'firefox');
     const pC = await ctxC.newPage();
     await pC.goto(ORIGIN); await pC.waitForTimeout(300);
     const popup = () => pC.isVisible('#cameraInUseModal');
     const cameraOff = () => pC.evaluate(() => document.getElementById('cameraStream').srcObject === null && document.getElementById('cameraPanel').classList.contains('hidden'));
     const start = async (mode) => { await pC.evaluate(m => { window.__camMode = m; }, mode); await pC.click('#startCameraBtn'); await pC.waitForTimeout(300); };
+    // What the camera module logged, and whether the test's fake track is the one the app is showing (failure details).
+    const camState = () => pC.evaluate(() => { const s = document.getElementById('cameraStream').srcObject;
+      return `${document.getElementById('eventLog').textContent.trim()} | app shows test track: ${!!s && s.getVideoTracks()[0] === window.__camTrack}`; });
+    // A missing pop-up is reported by the check before it; closing it must not stop the rest of the section.
+    const closePopup = () => pC.click('#cameraInUseOkBtn', { timeout: 2000 }).catch(() => {});
 
     await start('normal');
     ok('ordinary camera starts with no pop-up', await pC.isVisible('#cameraPanel') && !(await popup()) && await pC.evaluate(() => !!document.getElementById('cameraStream').srcObject));
     await pC.click('#stopCameraBtn');
 
     await start('busy');
-    ok('camera held by another app: pop-up shown, camera off', await popup() && await cameraOff());
-    ok('pop-up tells the user to close the other app or upload', (await pC.textContent('#cameraInUseMessage')).includes('Another app is using or watching your camera'));
+    ok('camera held by another app: pop-up shown, camera off', await popup() && await cameraOff(), await camState());
+    ok('pop-up tells the user to close the other app or upload', ((await pC.textContent('#cameraInUseMessage', { timeout: 2000 }).catch(() => '')) || '').includes('Another app is using or watching your camera'));
     ok('OK is focused and closes the pop-up', await pC.evaluate(() => document.activeElement && document.activeElement.id === 'cameraInUseOkBtn'));
-    await pC.click('#cameraInUseOkBtn');
+    await closePopup();
     ok('pop-up closed after OK', !(await popup()));
 
     await start('virtual');
-    ok('virtual camera: pop-up shown, camera off', await popup() && await cameraOff());
-    await pC.click('#cameraInUseOkBtn');
+    ok('virtual camera: pop-up shown, camera off', await popup() && await cameraOff(), await camState());
+    await closePopup();
 
     await start('normal');
     await pC.evaluate(() => window.__camTrack.dispatchEvent(new Event('ended')));
-    await pC.waitForTimeout(100);
-    ok('feed taken by another app mid-scan: pop-up shown, camera off', await popup() && await cameraOff());
-    await pC.click('#cameraInUseOkBtn');
+    await pC.waitForSelector('#cameraInUseModal', { state: 'visible', timeout: 2000 }).catch(() => {});
+    ok('feed taken by another app mid-scan: pop-up shown, camera off', await popup() && await cameraOff(), await camState());
+    await closePopup();
 
     await start('normal');
     await pC.evaluate(() => { const t = window.__camTrack; Object.defineProperty(t, 'muted', { get: () => true }); t.dispatchEvent(new Event('mute')); });
     await pC.waitForTimeout(300);
     ok('brief mute does not trigger the pop-up', !(await popup()));
-    await pC.waitForTimeout(1000);
-    ok('feed muted while in view: pop-up shown, camera off', await popup() && await cameraOff());
-    await pC.click('#cameraInUseOkBtn');
+    await pC.waitForSelector('#cameraInUseModal', { state: 'visible', timeout: 3000 }).catch(() => {});   // MUTE_GRACE_MS after the mute
+    ok('feed muted while in view: pop-up shown, camera off', await popup() && await cameraOff(), await camState());
+    await closePopup();
 
     await start('normal');
     await pC.click('#stopCameraBtn');
@@ -1739,11 +1838,16 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
       const reasons = shown ? await pG.$$eval('#reasonList li', els => els.map(el => el.getAttribute('data-reason'))) : [];
       const links = shown ? await pG.$$eval('.links a', els => els.map(a => ({ href: a.href, target: a.target, rel: a.rel }))) : [];
       const external = requested.filter(u => !u.startsWith(ORIGIN));
+      const ranMain = await pG.evaluate(() => window.name === 'vcge-main-ran').catch(() => null);
       await ctxG.close();
-      return { shown, url, reasons, links, requested, external, pageErrors };
+      return { shown, url, reasons, links, requested, external, pageErrors, ranMain };
     };
-    const noWasm = await blocked((ctxG) => ctxG.addInitScript(() => { delete window.WebAssembly; }), 'wasm');
+    // The app's entry script is swapped for a one-line marker: if the browser ever runs it, the tab's name says so
+    const isMain = (u) => /\/src\/main\.js|\/assets\/index-[^/]*\.js/.test(u);
+    const noWasm = await blocked((ctxG) => Promise.all([ctxG.addInitScript(() => { delete window.WebAssembly; }),
+      ctxG.route((u) => isMain(u.href), (r) => r.fulfill({ contentType: 'text/javascript', body: "window.name = 'vcge-main-ran';" }))]), 'wasm');
     ok('gate: no WebAssembly opens the "cannot run" page with the reason listed', noWasm.shown && noWasm.reasons.includes('wasm'), noWasm.url);
+    ok('gate: blocked app never starts (main.js never runs)', noWasm.ranMain === false, String(noWasm.ranMain));
     ok('gate: blocked app never starts (main.js not even requested)', !noWasm.requested.some(u => /\/src\/main\.js|\/assets\/index-[\w-]+\.js/.test(u)), noWasm.requested.filter(u => u.endsWith('.js')).join(' '));
     ok('gate: free & open source browsers are listed first (Firefox, Firefox ESR, Brave)', noWasm.links.slice(0, 3).map(l => new URL(l.href).hostname).join() === 'www.firefox.com,support.mozilla.org,brave.com', noWasm.links.map(l => l.href).join(' '));
     ok('gate: links open in a new tab with no opener, no referrer and no query data', noWasm.links.length === 6 && noWasm.links.every(l => l.target === '_blank' && /noopener/.test(l.rel) && /noreferrer/.test(l.rel) && !new URL(l.href).search && !new URL(l.href).hash));
@@ -1934,7 +2038,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     const look = await pU.evaluate(() => Array.from(document.querySelectorAll('.deck-card > .mod-tag span')).map(s => ({ pilot: s.dataset.pilot,
       before: getComputedStyle(s, '::before').content, axes: getComputedStyle(s).fontVariationSettings })));
     ok('MOD-XX tags: each names its pilot before the number ("GLYPH:  MOD-04"), in solid pixels with no scanlines or bleed', look.map(l => l.pilot).join('|') === 'Shutout|Iris|Glyph|Pidge|Flipside|Checkers|Airlock'
-      && look.every(l => l.before.includes(l.pilot + ':') && /"BLED" 0/.test(l.axes) && /"SCAN" 100/.test(l.axes)), JSON.stringify(look));
+      // Firefox reports the rule itself (attr(data-pilot) then the colon), not the text it draws; either way the name comes first
+      && look.every(l => (l.before.includes(l.pilot + ':') || /^attr\(data-pilot\) ":/.test(l.before)) && /"BLED" 0/.test(l.axes) && /"SCAN" 100/.test(l.axes)), JSON.stringify(look));
     await pU.click('#navFields'); await pU.waitForTimeout(600);
     const tagFade = async (y) => { await pU.$eval('#cardFields > .deck-card-body', (b, y) => { b.scrollTop = y; }, y); await pU.waitForTimeout(450);
       return pU.$eval('#cardFields > .mod-tag', t => ({ faded: t.classList.contains('is-faded'), opacity: parseFloat(getComputedStyle(t).opacity) })); };
@@ -1973,8 +2078,22 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('near miss: a tap on a button\'s edge does nothing', (await turned()) !== 'rotateY(180deg)', await turned());
     await pU.touchscreen.tap(flip.x + flip.width / 2, flip.y + flip.height / 2); await settled(pU);
     ok('a tap in the middle of the button works', (await turned()) === 'rotateY(180deg)', await turned());
-    await pU.mouse.click(flip.x + flip.width / 2, flip.y + 1.5); await settled(pU);
-    ok('a mouse click on the edge still works (only fingers get the near-miss guard)', (await turned()) === 'rotateY(0deg)', await turned());
+    if (ENGINE === 'firefox') {
+      // Playwright's Firefox sends no pointer events for the mouse in a page with touch turned on, so the app would never
+      // see this click start. The mouse click runs in a mouse-only page instead.
+      const ctxM = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+      const pM = await ctxM.newPage();
+      await pM.goto(ORIGIN); await pM.waitForTimeout(500);
+      await pM.click('#navCard'); await pM.waitForTimeout(700);
+      const flipM = await pM.locator('#flipCardBtn').boundingBox();
+      await pM.mouse.click(flipM.x + flipM.width / 2, flipM.y + 1.5); await settled(pM);
+      const turnedM = await pM.$eval('#card3DFlipper', el => el.style.transform);
+      ok('a mouse click on the edge still works (only fingers get the near-miss guard)', turnedM === 'rotateY(180deg)', `${turnedM} (mouse-only page)`);
+      await ctxM.close();
+    } else {
+      await pU.mouse.click(flip.x + flip.width / 2, flip.y + 1.5); await settled(pU);
+      ok('a mouse click on the edge still works (only fingers get the near-miss guard)', (await turned()) === 'rotateY(0deg)', await turned());
+    }
     await pU.setViewportSize({ width: 390, height: 844 });
     // Read after two frames, as the header checks do: the header drops its names on its resize observer's frame.
     await pU.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
@@ -1987,7 +2106,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   // goes one card, the tablet's first card centres, Shutout's own icon, one lit icon for the 3D card, the timer strip
   // never covers a card's title, and the tour stays under the lock screen
   {
-    const ctxV = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 1024, height: 1366 } });
+    // Playwright's Firefox has no mobile mode (isMobile); the iPad size and touch still apply there
+    const ctxV = await browser.newContext({ hasTouch: true, ...(ENGINE === 'firefox' ? {} : { isMobile: true }), viewport: { width: 1024, height: 1366 } });
     const pV = await ctxV.newPage();
     const errorsV = [];
     pV.on('pageerror', e => errorsV.push(e.message));
@@ -2024,30 +2144,35 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
       && await pV.$eval('#navWelcome', b => b.classList.contains('is-on') && b.getAttribute('aria-current') === 'page' && /Shutout/.test(b.getAttribute('aria-label'))));
 
     // A finger swipe: the deck never moves under a finger that pauses, and on release goes one card in the swipe's direction
-    const cdp = await ctxV.newCDPSession(pV);
-    const touch = async (from, to, holdMs = 0) => {
-      const y = 900; let x = from;
-      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
-      const step = (to - from) / 12;
-      for (let i = 0; i < 12; i++) { x += step; await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y }] }); await pV.waitForTimeout(16); }
-      if (holdMs) await pV.waitForTimeout(holdMs);
-      const during = await deckState();
-      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-      await pV.waitForTimeout(150);
-      await deckSettled(pV); await pV.waitForTimeout(150);
-      return during;
-    };
-    await pV.click('#navCapture'); await pV.waitForTimeout(700);
-    const rest = (await deckState()).left;
-    const paused = await touch(300, 600, 400);
-    ok('swipe: a finger that pauses mid-swipe keeps the deck where it put it (it snapped back under the finger, video #11)', paused.deck === 'held' && paused.left < rest - 200 && paused.card === 'capture', JSON.stringify({ rest, paused }));
-    ok('swipe: on release the deck eases to the card it was heading for, the start page (video #30)', (await deckState()).card === 'welcome' && (await deckState()).left === 0, JSON.stringify(await deckState()));
-    await touch(600, 580);
-    ok('swipe: a nudge shorter than 24 px goes back to the same card', (await deckState()).card === 'welcome', JSON.stringify(await deckState()));
-    await touch(700, 500);
-    ok('swipe: a short swipe goes on to the next card', (await deckState()).card === 'capture', JSON.stringify(await deckState()));
-    await touch(1000, 20);
-    ok('swipe: a long fling still stops at the next card, not two on', (await deckState()).card === 'read', JSON.stringify(await deckState()));
+    // The finger is sent through the Chrome DevTools Protocol, which only Chromium has. Real Chrome and Edge on a desktop
+    // turn that sent touch into the browser's back-swipe instead of scrolling the deck (the page gets the same touch
+    // events; the deck never scrolls and the tab goes back), so the deck swipes run in Playwright's Chromium only.
+    const cdp = ENGINE === 'chromium' ? await ctxV.newCDPSession(pV) : null;
+    if (cdp && !CHANNELS[BROWSER]) {
+      const touch = async (from, to, holdMs = 0) => {
+        const y = 900; let x = from;
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+        const step = (to - from) / 12;
+        for (let i = 0; i < 12; i++) { x += step; await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y }] }); await pV.waitForTimeout(16); }
+        if (holdMs) await pV.waitForTimeout(holdMs);
+        const during = await deckState();
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await pV.waitForTimeout(150);
+        await deckSettled(pV); await pV.waitForTimeout(150);
+        return during;
+      };
+      await pV.click('#navCapture'); await pV.waitForTimeout(700);
+      const rest = (await deckState()).left;
+      const paused = await touch(300, 600, 400);
+      ok('swipe: a finger that pauses mid-swipe keeps the deck where it put it (it snapped back under the finger, video #11)', paused.deck === 'held' && paused.left < rest - 200 && paused.card === 'capture', JSON.stringify({ rest, paused }));
+      ok('swipe: on release the deck eases to the card it was heading for, the start page (video #30)', (await deckState()).card === 'welcome' && (await deckState()).left === 0, JSON.stringify(await deckState()));
+      await touch(600, 580);
+      ok('swipe: a nudge shorter than 24 px goes back to the same card', (await deckState()).card === 'welcome', JSON.stringify(await deckState()));
+      await touch(700, 500);
+      ok('swipe: a short swipe goes on to the next card', (await deckState()).card === 'capture', JSON.stringify(await deckState()));
+      await touch(1000, 20);
+      ok('swipe: a long fling still stops at the next card, not two on', (await deckState()).card === 'read', JSON.stringify(await deckState()));
+    } else notRunHere('swipe: the deck under a finger (5 checks)', cdp ? 'real Chrome and Edge on a desktop turn a sent touch into the back-swipe, not a scroll' : 'touch is sent through the Chrome DevTools Protocol, which only Chromium has');
 
     // The 3D card's two header icons: only the one for the side that is up is lit, and Flipside turns it back
     await pV.click('#navQr'); await pV.waitForTimeout(800);
@@ -2083,7 +2208,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await pV.waitForTimeout(500);
       return pV.textContent('#tourStep');
     };
-    ok('tour: a swipe right to left goes to the next step, left to right back to the first (video #36)', (await swipeTour(800, 300)) === 'Step 2 of 6' && (await swipeTour(300, 800)) === 'Step 1 of 6');
+    if (cdp) ok('tour: a swipe right to left goes to the next step, left to right back to the first (video #36)', (await swipeTour(800, 300)) === 'Step 2 of 6' && (await swipeTour(300, 800)) === 'Step 1 of 6');
+    else notRunHere('tour: a swipe right to left goes to the next step, left to right back to the first (video #36)', 'touch is sent through the Chrome DevTools Protocol, which only Chromium has');
     await pV.click('#tourSkipBtn');
     ok('video fixes: no page errors', errorsV.length === 0, errorsV.join(' | '));
     await ctxV.close();
@@ -2092,7 +2218,10 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   // 3D Card (MOD06, redesign step 8): fall themes on the card face, every line with its label, swipe-to-spin, toasts
   // at the top, the pilots as samples with their animal logos, the Logo controls on this card
   {
-    const ctx6 = await browser.newContext({ hasTouch: true });
+    // Playwright's Firefox sends no pointer events for the mouse in a page with touch turned on (only mousedown, mouseup
+    // and click), so the presses below would never reach the app there. The app never looks for touch, so Firefox runs
+    // this page without it.
+    const ctx6 = await browser.newContext({ hasTouch: ENGINE !== 'firefox' });
     const p6 = await ctx6.newPage();
     const errors6 = [], external6 = [], missing6 = [];
     p6.on('pageerror', e => errors6.push(e.message));
@@ -2470,7 +2599,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await ctxA.close();
   }
 
-  console.log(`\n${pass} passed, ${fail} failed`);
+  console.log(`\n${RUN}: ${pass} passed, ${fail} failed` + (notRun ? `, ${notRun} not run in this engine` : ''));
   await browser.close(); server.kill();
   process.exitCode = fail ? 1 : 0;
 })().catch(e => { console.error(e); process.exit(1); });

@@ -51,6 +51,44 @@ jobs:
       - name: Icon detection accuracy (held-out icon sets)
         run: npm run test:icons
 
+  # The same browser suite in the other engines and branded browsers, and on phone-sized screens (Chromium runs in "web").
+  browsers:
+    name: Browser e2e (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: Firefox, browser: firefox, install: firefox }
+          - { name: WebKit, browser: webkit, install: webkit }
+          - { name: Google Chrome, browser: chrome, install: chrome }
+          - { name: Microsoft Edge, browser: msedge, install: msedge }
+          - { name: iPhone, browser: webkit, install: webkit, device: iPhone 15 }
+          - { name: Android phone, browser: chromium, install: chromium, device: Galaxy S24 }
+    env:
+      VCGE_BROWSER: ${{ matrix.browser }}
+      VCGE_DEVICE: ${{ matrix.device }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+
+      - name: Install ${{ matrix.name }} for Playwright
+        run: npx playwright install --with-deps ${{ matrix.install }}
+
+
+      - name: Browser e2e (source)
+        run: npm run test:e2e
+
+      - name: Browser e2e (Vite build)
+        run: |
+          npm run build
+          SERVE_DIR=dist npm run test:e2e
+
   desktop:
     name: Desktop (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
