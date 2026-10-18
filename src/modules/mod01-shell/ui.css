@@ -55,8 +55,9 @@ label:has(> input[type="file"]) {
 label:not(.hidden):has(> input[type="file"]) { display: flex; align-items: center; justify-content: center; }
 
 /* MOD-XX tag: sits on the top-right edge of each panel, the same place, font and size everywhere. One block per pilot,
-   "GLYPH:  MOD-04" (ui.js puts the pilot's name on it), in solid pixels: Sixtyfour with its scanlines filled in
-   (SCAN 100) and no bleed, the text centred in a roomier box (raven575, video #2, #3, #45, #96). Colours nod to the
+   "GLYPH:  MOD-04" (ui.js puts the pilot's name on it), in Sixtyfour at its own stroke (SCAN 0: filled in to SCAN 100
+   it was too bold to read, raven575 2026-10-18) with no bleed and a crisp 27% drop shadow, the text centred in a
+   roomier box (raven575, video #2, #3, #45, #96). Colours nod to the
    Commodore 64 screen (blue background, light blue text), kept light enough to read. While a card's content scrolls
    under its tag, the tag fades to 36% so it never hides what is under it. */
 .mod-tag-host { position: relative; }
@@ -69,9 +70,10 @@ label:not(.hidden):has(> input[type="file"]) { display: flex; align-items: cente
 .mod-tag.is-faded { opacity: 0.36; }
 .mod-tag span {
     display: inline-flex; align-items: center; justify-content: center;
-    font-family: 'Sixtyfour', ui-monospace, monospace; font-variation-settings: 'BLED' 0, 'SCAN' 100; font-weight: 400;
+    font-family: 'Sixtyfour', ui-monospace, monospace; font-variation-settings: 'BLED' 0, 'SCAN' 0; font-weight: 400;
     font-size: 0.625rem; line-height: 1; letter-spacing: 0.06em; text-transform: uppercase; white-space: nowrap;
     padding: 0.35rem 0.6rem; border-radius: 0.375rem; background: #40318d; color: #d6d3ff;
+    text-shadow: 1px 1px 0 rgba(0, 0, 0, 0.27);
 }
 .mod-tag span[data-pilot]::before { content: attr(data-pilot) ":\00a0\00a0"; }
 

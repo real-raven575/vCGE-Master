@@ -1227,7 +1227,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('ui: each new font ships with its SIL Open Font License', ['sixtyfour', 'atkinson-hyperlegible', 'lexend', 'opendyslexic', 'tinos', 'comic-neue', 'macondo'].every(n => /SIL OPEN FONT LICENSE/i.test(fs.readFileSync(`${R}/vendor/fonts/LICENSE-${n}.txt`, 'utf8'))));
   const icons = ['aperture', 'radar-2', 'lock', 'forms', 'id', 'qrcode', 'send', 'settings', 'trash', 'camera', 'upload', 'circle-check', 'home-shield'];
   ok('ui: every MOD tag names its pilot (the roster)', Object.entries(ui.PILOTS).map(([m, n]) => `${m} ${n}`).join() === 'MOD-01 Shutout,MOD-02 Ghost,MOD-03 Iris,MOD-04 Glyph,MOD-05 Pidge,MOD-06 Flipside,MOD-07 Checkers,MOD-08 Airlock');
-  ok('ui: the tag is drawn in solid pixels (scanlines filled, no bleed) from the full Sixtyfour file', /font-variation-settings:\s*'BLED' 0,\s*'SCAN' 100/.test(css) && css.includes('sixtyfour-latin-full.woff2') && /\.mod-tag\.is-faded\s*\{\s*opacity:\s*0\.36/.test(css));
+  ok('ui: the tag is drawn at Sixtyfour\'s own stroke (SCAN 0, no bleed) with a crisp 27% shadow, from the full Sixtyfour file', /font-variation-settings:\s*'BLED' 0,\s*'SCAN' 0;/.test(css)
+    && /text-shadow:\s*1px 1px 0 rgba\(0, 0, 0, 0\.27\)/.test(css) && css.includes('sixtyfour-latin-full.woff2') && /\.mod-tag\.is-faded\s*\{\s*opacity:\s*0\.36/.test(css));
   ok('ui: the thirteen app icons are bundled as SVG with the Tabler MIT licence', icons.every(n => fs.readFileSync(`${R}/vendor/icons/app/${n}.svg`, 'utf8').includes('<svg')) && /MIT License/.test(fs.readFileSync(`${R}/vendor/icons/app/LICENSE-tabler.txt`, 'utf8')));
   ok('ui: icon stroke 2.3 and buttons at least 44 px with a 2 px outline', /--vcge-icon-stroke:\s*2\.3;/.test(css) && /--vcge-tap:\s*2\.75rem;/.test(css) && /border-width:\s*2px/.test(css));
   ok('ui: no font or icon comes from a host (only bundled files)', !/https?:/.test(css.replace(/\/\*[\s\S]*?\*\//g, '')));
