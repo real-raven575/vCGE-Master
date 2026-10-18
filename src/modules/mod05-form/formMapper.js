@@ -77,6 +77,7 @@ export class ContactFormMapper {
         let website = '';
         for (const line of lines) {
             if (!free(line)) continue;
+            if (line.label === 'web') line.body = joinWebPath(line.body);
             const found = findWebsite(line.body, line.label === 'web' || SOCIAL_HOSTS[line.icon] !== undefined, line.label === 'web');
             if (found) { line.role = 'website'; if (!website && !websiteTypeFor(found)) website = found; }
             // A bare handle next to a social logo ("@studiocraft", "in/janedoe") is that profile.
@@ -103,15 +104,15 @@ export class ContactFormMapper {
             // street is the nearest free line above that starts with a number (plus a "Suite ..." line between them)
             for (let j = i - 1; j >= Math.max(0, i - 2); j--) {
                 if (!free(lines[j])) continue;
-                if (isUnitLine(lines[j].text) && j - 1 >= 0 && free(lines[j - 1]) && looksLikeStreet(lines[j - 1].text, true)) {
+                if (isUnitLine(lines[j].text) && j - 1 >= 0 && free(lines[j - 1]) && isStreet(lines[j - 1], true)) {
                     lines[j].role = 'unit'; lines[j - 1].role = 'street'; break;
                 }
-                if (looksLikeStreet(lines[j].text, true)) { lines[j].role = 'street'; break; }
+                if (isStreet(lines[j], true)) { lines[j].role = 'street'; break; }
             }
             break;
         }
         if (!lines.some(l => l.role === 'street' || l.role === 'address')) {
-            const street = lines.find(l => free(l) && looksLikeStreet(l.text, l.icon === 'address'));
+            const street = lines.find(l => free(l) && isStreet(l, l.icon === 'address'));
             if (street) street.role = 'street';
         }
         if (!lines.some(l => l.role === 'cityStateZip' || l.role === 'address')) {
@@ -163,6 +164,10 @@ export class ContactFormMapper {
             if (!org || score > org.score) org = { line, score };
         });
         if (org && (org.score >= 2 || (!domain && org.score > 0))) org.line.role = 'organization';
+
+        // The card's slogan ("Your Technology Advisor") or a phrase in quotes is kept in Notes, not ignored (raven575,
+        // 2026-10-17). Only lines no other step claimed.
+        lines.forEach(line => { if (free(line) && isTagline(line.text)) line.role = 'notes'; });
 
         // A web path ending in the card's own state code, its I read as a bar ("Kalamazoom\" on a Michigan card), ends
         // in that code ("KalamazooMI").
@@ -406,9 +411,43 @@ function applySecondGuesses(text, alts) {
     return out.join('');
 }
 
-/** ".../Kalamazoom\" with MI as the card's state -> ".../KalamazooMI": only when the path ends in a bar OCR made of an I. */
+/**
+ * ".../Kalamazoom\" or ".../KalamazooMl\" with MI as the card's state -> ".../KalamazooMI": only when the path ends in
+ * a bar OCR made of an I. A lowercase l counts as that bar after a capital or before more bars, never in a plain word
+ * (".../email" stays).
+ */
 function endWithStateCode(text, state) {
-    return text.replace(/(\/[A-Za-z-]{3,})([A-Za-z])([\\|!1])(?=\s|$)/, (m, path, letter, bar) => (normaliseState(letter + bar) === state ? path + state : m));
+    return text.replace(/(\/[A-Za-z-]{2,}?)([A-Za-z])([\\|!1l])([\\|!]*)(?=\s|$)/, (m, path, letter, bar, more) =>
+        ((bar !== 'l' || /[A-Z]/.test(letter) || more) && normaliseState(letter + bar) === state ? path + state : m));
+}
+
+/**
+ * On a labelled web line, the path the OCR split off its domain is joined back: "example.com KalamazooMl\",
+ * "example.com/ Kalamazoo" and "example.com /Kalamazoo" -> "example.com/...". Only one word after the domain; stray
+ * bars standing alone at the end are dropped.
+ */
+function joinWebPath(text) {
+    return text.replace(/(?:\s+[\\|!]+)+$/, '').replace(WEB_PATH_GAP, '$1/');
+}
+const WEB_PATH_GAP = new RegExp(`(?<=[A-Za-z0-9])(\\.(?:${TLDS}))(?:\\s*\\/\\s+|\\s+\\/?\\s*)(?=[A-Za-z0-9-]{2,}[\\\\|!]*$)`, 'i');
+
+/**
+ * Is this line a street? A street read with a stray label letter in front ("T 7950 Moorsbridge Road": the T of the
+ * phone line below) is one too, and loses the letter, as long as no phone number follows the label.
+ */
+function isStreet(line, nextToCityLine) {
+    if (looksLikeStreet(line.text, nextToCityLine)) return true;
+    if (!PHONE_ROLE[line.label] || findPhones(line.body).length || !looksLikeStreet(line.body, nextToCityLine)) return false;
+    line.text = line.body;
+    return true;
+}
+
+/** A slogan ("Your ...", "Serving ...", "Since ...") or a phrase in quotes, of two words or more. */
+function isTagline(text) {
+    const quoted = text.match(/^["'](.+)["']$/);
+    const inner = quoted ? quoted[1].trim() : text;
+    if (inner.split(' ').length < 2 || /[@]/.test(inner) || !isWordy(inner)) return false;
+    return !!quoted || SLOGAN_START.test(inner);
 }
 
 /** The "/" after a web ending read as a bar: "TeamLogicIT.comIKalamazoo" -> "TeamLogicIT.com/Kalamazoo" (bar before a capital). */
@@ -568,9 +607,9 @@ function findPhones(text) {
     return out;
 }
 
-/** OCR often reads the I of a state code as \ | l 1 or !, and O as 0. */
+/** OCR often reads the I of a state code as \ | l 1 or ! (sometimes twice: "M\|"), and O as 0. */
 function normaliseState(token) {
-    const t = token.replace(/\.$/, '');
+    const t = token.replace(/\.$/, '').replace(/^([A-Za-z])[\\|!]{2}$/, '$1|');
     if (t.length > 2) return STATE_BY_NAME[t.toLowerCase()] || '';
     const upper = t.toUpperCase();
     if (US_STATES[upper]) return upper;
@@ -581,7 +620,7 @@ function normaliseState(token) {
 
 /** "Springfield, IL 62701", "Springfield IL 62701", "Springfield, Illinois 62701", or a whole address on one line. */
 function findCityStateZip(text) {
-    const re = new RegExp(`^(.*?)[,\\s]+(${STATE_NAMES_RE}|[A-Za-z][A-Za-z\\\\|1!0]\\.?)[,\\s]+(\\d{5}(?:-\\d{4})?)\\b`, 'i');
+    const re = new RegExp(`^(.*?)[,\\s]+(${STATE_NAMES_RE}|[A-Za-z][A-Za-z\\\\|1!0][\\\\|!]?\\.?)[,\\s]+(\\d{5}(?:-\\d{4})?)\\b`, 'i');
     const m = text.match(re);
     if (!m) return null;
     const state = normaliseState(m[2]);

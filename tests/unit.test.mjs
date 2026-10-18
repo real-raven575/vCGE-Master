@@ -436,11 +436,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const text = 'ya O/\nYour Technology Partner\nDana Whitlock\nOwner & General Manager\n4120 Lakeshore Road, Suite 210\nSpringfield, MI 49011\nE dwhitlock@BrightPathIT.com\nT 616.555.0142\nM 616.555.0187\nW BrightPathIT.com/Holland';
   const lines = fm.classifyLines(text);
   ok('classifyLines gives one role per line', lines.length === 10 && lines.every(l => LINE_ROLES.some(([r]) => r === l.role)), JSON.stringify(lines));
-  ok('classifyLines roles for a labelled card', JSON.stringify(lines.map(l => l.role)) === JSON.stringify(['ignore', 'ignore', 'name', 'jobTitle', 'street', 'cityStateZip', 'email', 'phoneWork', 'phoneMobile', 'website']), lines.map(l => l.role).join());
+  ok('classifyLines roles for a labelled card', JSON.stringify(lines.map(l => l.role)) === JSON.stringify(['ignore', 'notes', 'name', 'jobTitle', 'street', 'cityStateZip', 'email', 'phoneWork', 'phoneMobile', 'website']), lines.map(l => l.role).join());
   // A real phone photo's misreads (fictional details): "I" read as "\" in the domain, the "/" of the web path read as a
   // space, lowercase "w" label, slogan with a company word ("Technology") and no readable company name (logo only).
   const slips = fm.classifyLines('2OO brightpathlogo\nYour Technology Partner\nDana Whitlock\nOwner & General Manager\n4120 Lakeshore Road, Suite 210\nSpringfield, MI 49011\nE dwhitlock@BrightPath\\T.com\nT 616.555.0142\nM 616.555.0187\nw BrightPath\\T.com Holland');
-  ok('misread card: roles (slogan ignored, email and website found, phone types in the picker)', JSON.stringify(slips.map(l => l.role)) === JSON.stringify(['ignore', 'ignore', 'name', 'jobTitle', 'street', 'cityStateZip', 'email', 'phoneWork', 'phoneMobile', 'website']), slips.map(l => l.role).join());
+  ok('misread card: roles (slogan to Notes, email and website found, phone types in the picker)', JSON.stringify(slips.map(l => l.role)) === JSON.stringify(['ignore', 'notes', 'name', 'jobTitle', 'street', 'cityStateZip', 'email', 'phoneWork', 'phoneMobile', 'website']), slips.map(l => l.role).join());
   ok('misread card: review shows the repaired email and web address, without labels', slips[6].text === 'dwhitlock@BrightPathIT.com' && slips[9].text === 'BrightPathIT.com/Holland', slips[6].text + ' | ' + slips[9].text);
   ok('misread card: review shows phone numbers without their T / M labels', slips[7].text === '616.555.0142' && slips[8].text === '616.555.0187', slips[7].text + ' | ' + slips[8].text);
   ok('review keeps the labels of a line with several numbers', fm.classifyLines('T 312.555.1111  M 312.555.2222')[0].text === 'T 312.555.1111 M 312.555.2222');
@@ -482,6 +482,21 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('a line with words the reader was unsure of is flagged for checking', camera.find(l => l.role === 'website').check === 'The reader was not sure of some letters here. Please check them.');
   ok('unsure phone numbers and ignored lines are not flagged', fm.classifyLines([{ text: 'Jo Smith' }, { text: 'T 269.492.7400', unsure: ['269.492.7400'] }, { text: 'ya O/', unsure: ['ya'] }]).every(l => !('check' in l)));
   ok('a short domain is not matched (too easy to confuse)', fm.parseOCRText('Jo Smith\njo@abd.com\nabc.com').emails[0].value === 'jo@abd.com');
+  // The TeamLogic card read from a phone screenshot on the iPad (video review 2026-10-17, finding 53 and 56): the slogan
+  // was ignored, the street carried the T of the phone line, and the web path came apart from its domain.
+  const shot = fm.classifyLines('N20 weersooen\nYour Technology Advisor\nNick Zafer\nOwner & General Manager\nT 7950 Moorsbridge Road, Suite 405\nPortage, MI 49024\nE nzafer@TeamLogicIT.com\nT 269.492.7400\nM 269.254.5403\nW TeamLogicIT.com KalamazooMl\\');
+  const shotFields = fm.buildFields(shot).fields;
+  ok('screenshot read: slogan goes to Notes, logo noise stays ignored', shot[0].role === 'ignore' && shot[1].role === 'notes' && shotFields.notes === 'Your Technology Advisor', JSON.stringify(shot.slice(0, 2)));
+  ok('screenshot read: a stray label letter in front of the street is dropped', shot[4].role === 'street' && shot[4].text === '7950 Moorsbridge Road, Suite 405' && shotFields.street === '7950 Moorsbridge Road' && shotFields.unitNumber === '405', JSON.stringify(shot[4]));
+  ok('a stray letter before a phone number is still that phone\'s label', fm.classifyLines('Jo Smith\nT 269.492.7400')[1].role === 'phoneWork');
+  const site = (t, place = 'Portage, MI 49024') => fm.classifyLines(`Jo Smith\n${place}\n${t}`).find(l => l.role === 'website').text;
+  ok('screenshot read: the web path split off its domain is joined back and ends in the state code', shot[9].text === 'TeamLogicIT.com/KalamazooMI' && site('W TeamLogicIT.com/ Kalamazoo') === 'TeamLogicIT.com/Kalamazoo' && site('W TeamLogicIT.com /Kalamazoo') === 'TeamLogicIT.com/Kalamazoo' && site('W TeamLogicIT.com KalamazooM\\ |') === 'TeamLogicIT.com/KalamazooMI', [shot[9].text, site('W TeamLogicIT.com KalamazooM\\ |')].join(' | '));
+  ok('a lowercase l ends in the state code only after a capital or before a bar', site('W acme.com/KalamazooMl') === 'acme.com/KalamazooMI' && site('W acme.com/email') === 'acme.com/email' && site('W acme.com/Chicagoil', 'Chicago, IL 60601') === 'acme.com/Chicagoil', site('W acme.com/email'));
+  const doubled = fm.parseOCRText('Jo Smith\n12 Main Street\nPortage, M\\| 49024');
+  ok('a state code whose I was read as two bars ("M\\|") is still MI', doubled.city === 'Portage' && doubled.state === 'MI' && doubled.zip === '49024' && fm.parseOCRText('Jo Smith\n12 Main Street\nChicago, IL 60606').state === 'IL', JSON.stringify([doubled.city, doubled.state, doubled.zip]));
+  ok('two words after a domain are not joined as its path', site('W acme.com Detroit office') === 'acme.com', site('W acme.com Detroit office'));
+  const tag = (t) => fm.classifyLines(`Jo Smith\n${t}\njo@acme.com`)[1].role;
+  ok('a phrase in quotes goes to Notes; a lone word, a company or a title does not', tag('"Built to last"') === 'notes' && tag('Serving Kalamazoo since 1999') === 'notes' && tag('"Acme"') !== 'notes' && tag('Acme Tools LLC') === 'organization' && tag('Sales Manager') === 'jobTitle', [tag('"Built to last"'), tag('"Acme"'), tag('Acme Tools LLC')].join());
   ok('review text, read again as plain lines, fills the same fields', JSON.stringify(fm.buildFields(slips).fields) === JSON.stringify(fm.parseOCRText(slips.map(l => l.text).join('\n'))));
   const slipFields = fm.buildFields(slips);
   ok('misread card: email, website path and company (case from the domain) repaired', slipFields.fields.emails[0].value === 'dwhitlock@BrightPathIT.com' && slipFields.fields.websites[0].value === 'BrightPathIT.com/Holland' && slipFields.fields.organization === 'BrightPathIT' && slipFields.derived.organization === 'web address', JSON.stringify([slipFields.fields.emails, slipFields.fields.websites, slipFields.fields.organization]));

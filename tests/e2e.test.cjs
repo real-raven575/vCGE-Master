@@ -252,6 +252,13 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   ok('review step lists the OCR lines with a field picker each', (await page.$$('#ocrLines select')).length >= 8 && (await page.inputValue('#ocrLineRole0')) === 'name', String((await page.$$('#ocrLines select')).length));
   ok('nothing reaches the form before Fill form', !(await rows(page, 'email')).some(r => r.value.includes('northwind')));
   ok('"Will fill" summary shows the mapped fields', (await text('ocrSummary')).includes('maria.gonzalez@northwind.com') && (await text('ocrSummary')).includes('Northwind Systems'));
+  const readGap = await page.evaluate(() => {
+    const label = document.querySelector('#cardRead > .deck-card-body > h2').getBoundingClientRect();
+    const head = document.querySelector('#ocrStepText > h2').getBoundingClientRect();
+    return Math.round(head.top - label.bottom);
+  });
+  ok('the review heading sits close under the "Read the card" label', readGap >= 0 && readGap <= 8, String(readGap));
+  ok('the review reminds that more fields can be added on the next card', (await visible('ocrMoreFields')) && /more fields on the next card/.test(await text('ocrMoreFields')), await text('ocrMoreFields'));
   await page.evaluate(() => {
     window.__blink = { opacities: [], cardAtClear: null };
     const step = document.getElementById('ocrStepText');
