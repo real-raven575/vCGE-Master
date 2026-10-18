@@ -19,6 +19,8 @@
 /* ---- Phone style: the format list and the +1 switch, on one line above the numbers ------------------------- */
 .fields-phone-style { display: flex; align-items: center; gap: var(--vcge-gap, 0.5rem); flex-wrap: wrap; }
 .fields-phone-style select { min-height: var(--vcge-tap, 2.75rem); width: auto; font-variant-numeric: tabular-nums; }
+.fields-hint { margin: -0.5rem 0 0; font-size: 0.75rem; color: #64748b; }
+.dark .fields-hint { color: #94a3b8; }
 .fields-cc { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; font-weight: 600; cursor: pointer; }
 
 /* ---- The form: pops in on arrival -------------------------------------------------------------------------- */

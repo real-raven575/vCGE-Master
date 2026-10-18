@@ -9,4 +9,4 @@ export { createEmptyContact, normalizeContact, validateContact, ContactSchemaVer
 export * from './contactOptions.js';
 export { CryptoUtils } from './cryptoUtils.js';
 export { RegexMatchers } from './regexMatchers.js';
-export { formatVCard, escapeVCardText, foldVCardLines } from './vcardFormatter.js';
+export { formatVCard, escapeVCardText, foldVCardLines, categoryTags } from './vcardFormatter.js';

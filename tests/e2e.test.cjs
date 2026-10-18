@@ -1124,6 +1124,15 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('fields: Reddit is offered as a website type', (await pF.$$eval(`#websiteType${lastSite} option`, os => os.map(o => o.textContent))).includes('Reddit'));
     await pF.fill(`#websiteValue${lastSite}`, 'https://www.facebook.com/profile.php?id=100012345'); await pF.press(`#websiteValue${lastSite}`, 'Tab');
     ok('fields: a pasted Facebook profile link is typed Facebook', (await pF.inputValue(`#websiteType${lastSite}`)) === 'facebook');
+    // Categories box (raven575, 2026-10-18): typed by the person, carried in the .vcf and the QR, wiped with the card
+    await pF.fill('#categories', 'Client, Plumber, client');
+    await pF.waitForTimeout(200);
+    const catVcf = process.env.SERVE_DIR ? '' : await pF.evaluate(async () => (await import('/src/modules/mod08-egress/egressController.js')).egressController.currentVCard);
+    const catQr = await decodeQr(pF);
+    ok('fields: there is a Categories box under Notes with a hint', await pF.isVisible('#categories') && (await pF.textContent('#categoriesHint')).includes('commas'));
+    ok('fields: the categories go into the .vcf and the QR as one CATEGORIES line, repeats dropped', /CATEGORIES:Client,Plumber\r?\n/.test(catQr || '') && (process.env.SERVE_DIR || /CATEGORIES:Client,Plumber\r\n/.test(catVcf)), String(catQr).slice(-160));
+    await pF.click('#clearFormBtn');
+    ok('fields: Clear form empties the Categories box', (await pF.inputValue('#categories')) === '');
     ok('fields: no page errors', errorsF.length === 0, errorsF.join(' | '));
     await ctxF.close();
   }

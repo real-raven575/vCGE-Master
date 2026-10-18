@@ -605,6 +605,12 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('MOD05 #66: Reddit is a website type; reddit.com and fb.me links are typed; u/handle makes a Reddit link', share.WEBSITE_TYPES.some(([k, l]) => k === 'reddit' && l === 'Reddit')
     && share.websiteTypeFor('https://www.reddit.com/user/kai') === 'reddit' && share.websiteTypeFor('https://fb.me/kai.t') === 'facebook' && share.websiteTypeFor('https://www.facebook.com/profile.php?id=100012345') === 'facebook'
     && share.socialProfileUrl('reddit', 'u/kai_t') === 'https://www.reddit.com/user/kai_t' && share.formatVCard({ firstName: 'K', websites: [{ type: 'reddit', value: 'https://www.reddit.com/user/kai' }] }).includes('X-SOCIALPROFILE;TYPE=reddit:https://www.reddit.com/user/kai'));
+  // Categories box on the Fields card (raven575, 2026-10-18): the vCard's CATEGORIES, built only by vcardFormatter.js
+  ok('categories: the schema has a categories field, empty by default', share.CONTACT_FIELDS.includes('categories') && share.createEmptyContact().categories === '');
+  ok('categories: tags are trimmed; empty and repeated ones (any case) dropped', JSON.stringify(share.categoryTags(' Client, Plumber,, client ;Met  at expo\n')) === JSON.stringify(['Client', 'Plumber', 'Met at expo']) && share.categoryTags('').length === 0 && share.categoryTags(null).length === 0);
+  const catCard = share.formatVCard({ firstName: 'K', categories: 'Client, Plumber; R&D' });
+  ok('categories: written as one CATEGORIES line, tags joined by plain commas', catCard.includes('\r\nCATEGORIES:Client,Plumber,R&D\r\n'), catCard);
+  ok('categories: a backslash in a tag is escaped; no line when there are none', share.formatVCard({ firstName: 'K', categories: 'A\\B' }).includes('CATEGORIES:A\\\\B') && !share.formatVCard({ firstName: 'K', categories: ' , ' }).includes('CATEGORIES'));
   ok('socialProfileUrl builds links only from plausible handles', share.socialProfileUrl('tiktok', '@kai') === 'https://tiktok.com/@kai' && share.socialProfileUrl('youtube', 'studio craft') === '' && share.socialProfileUrl('unknown', 'kai') === '');
 }
 
