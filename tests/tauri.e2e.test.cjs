@@ -125,7 +125,7 @@ async function stopDriver(driver) {
 
     // Session PIN from the Security panel (the Vault page)
     await openVaultPage();
-    await click('#setSessionPinBtn');
+    await click('#pinSwitch');
     await type('#sessionPinInput', '2468'); await click('#quickSetupSaveBtn');
     ok('session PIN set in the desktop app', await until(async () => !(await visible('quickSetupModal')) && (await txt('sessionPinStatus')) === 'Session PIN: set', 10000));
     await closeVaultPage();

@@ -82,7 +82,8 @@ export class LockHandoff {
         root.id = 'vaultHandoff';
         root.className = 'vault-handoff hidden';
         root.setAttribute('aria-hidden', 'true');
-        root.innerHTML = `<svg viewBox="0 0 64 64" class="vault-handoff-lock" focusable="false">
+        // The glow is a layer of its own behind the lock (vault.css), never a filter on the moving SVG.
+        root.innerHTML = `<span class="vault-handoff-glow"></span><svg viewBox="0 0 64 64" class="vault-handoff-lock" focusable="false">
             <path class="vh-shackle" d="M21 30 V21 a11 11 0 0 1 22 0 V30" fill="none" stroke-width="5" stroke-linecap="round"></path>
             <rect class="vh-body" x="12" y="28" width="40" height="28" rx="7"></rect>
             <g class="vh-dial"><circle cx="32" cy="42" r="7.5" fill="none" stroke-width="2.5"></circle><line x1="32" y1="36.5" x2="32" y2="40" stroke-width="2.5" stroke-linecap="round"></line></g>

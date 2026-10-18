@@ -12,10 +12,13 @@
     --vh-glow: rgb(249, 115, 22);
 }
 .vault-handoff.hidden { display: none; }
-.vault-handoff-lock {
-    width: 5.5rem; height: 5.5rem;
-    filter: drop-shadow(0 0 10px var(--vh-glow)) drop-shadow(0 0 2px rgba(15, 23, 42, 0.35));
+/* The glow is its own layer behind the lock and moves with it. A filter on the moving SVG left see-through cut-outs
+   where the shackle moved (raven575's iPad, 2026-10-17), so the lock itself carries no filter. */
+.vault-handoff-glow {
+    position: absolute; inset: -30%; border-radius: 50%; pointer-events: none; opacity: 0.55;
+    background: radial-gradient(closest-side, var(--vh-glow) 35%, rgba(255, 255, 255, 0) 100%);
 }
+.vault-handoff-lock { position: relative; width: 5.5rem; height: 5.5rem; }
 .vault-handoff-lock .vh-shackle { stroke: rgb(249, 115, 22); transform: translateY(-7px); }
 .vault-handoff-lock .vh-body { fill: rgb(249, 115, 22); }
 .vault-handoff-lock .vh-dial { stroke: #431407; transform-origin: 32px 42px; }
@@ -23,7 +26,8 @@
 
 /* ---- Hold-to-wipe ------------------------------------------------------------------------------------------------ */
 .wipe-dialog {
-    position: fixed; inset: 0; z-index: 60; display: flex; align-items: center; justify-content: center; padding: 1rem;
+    /* Above the lock screen (its "Wipe and start over" opens this), so above everything else too */
+    position: fixed; inset: 0; z-index: 76; display: flex; align-items: center; justify-content: center; padding: 1rem;
     background: rgba(2, 6, 23, 0.7); touch-action: pan-y;
 }
 .wipe-dialog.hidden { display: none; }
@@ -81,7 +85,9 @@ button.wipe-yes { background: #bbf7d0; color: #052e16; border-color: #16a34a; -w
 .wipe-dialog.is-cb .wipe-yes-label small { display: none; }
 
 /* ---- Lock screen: fingerprint first, PIN under it, nothing hidden by the keyboard ---------------------------------- */
-#vaultModal { align-items: flex-start; overflow-y: auto; }
+/* The lock is the top layer: above the welcome pop-up and tour (70) and every sheet, below only hold-to-wipe (76) and
+   the Thank You page (80), so the fingerprint button and the PIN box can always be pressed. */
+#vaultModal { z-index: 75; align-items: flex-start; overflow-y: auto; }
 #vaultModal form { margin: auto 0; max-height: none; }
 @media (min-height: 640px) { #vaultModal { align-items: center; } }
 button.vault-bio-btn {
@@ -128,3 +134,27 @@ button.vault-btn.hidden, button.vault-btn-quiet.hidden { display: none; }
 .dark .vault-section h3 { color: #94a3b8; }
 .vault-note { font-size: 0.75rem; color: #64748b; margin: 0.25rem 0 0; }
 .dark .vault-note { color: #94a3b8; }
+.vault-note.hidden { display: none; }
+
+/* Dialog titles with their icon on the left (Vault page, lock screen) */
+.vault-title { display: flex; align-items: center; gap: 0.5rem; }
+.vault-title .vcge-icon { width: 1.35em; height: 1.35em; flex: none; }
+#vaultLockNowBtn { display: inline-flex; align-items: center; gap: 0.35rem; white-space: nowrap; }
+#vaultLockNowBtn.hidden { display: none; }
+button.vault-btn-quiet .vcge-icon { width: 1.1rem; height: 1.1rem; flex: none; }
+
+/* On / off switches: green with "On", red with "Off"; the word and the knob's side both carry the state */
+button.vault-switch {
+    position: relative; display: inline-flex; align-items: center; min-height: var(--vcge-tap, 2.75rem); min-width: 5.25rem;
+    padding: 0 2.6rem 0 0.9rem; border-radius: 999px; font-size: 0.85rem; font-weight: 700; cursor: pointer;
+    background: #fee2e2; color: #991b1b; border: 2px solid #dc2626;
+}
+.dark button.vault-switch { background: rgba(127, 29, 29, 0.45); color: #fecaca; border-color: #ef4444; }
+.vault-switch-knob {
+    position: absolute; right: 0.3rem; top: 50%; width: 1.9rem; height: 1.9rem; margin-top: -0.95rem; border-radius: 50%;
+    background: #ffffff; border: 2px solid #dc2626; box-sizing: border-box;
+}
+button.vault-switch[aria-checked="true"] { padding: 0 0.9rem 0 2.6rem; background: #16a34a; color: #052e16; border-color: #15803d; }
+.dark button.vault-switch[aria-checked="true"] { background: #16a34a; color: #052e16; border-color: #22c55e; }
+button.vault-switch[aria-checked="true"] .vault-switch-knob { right: auto; left: 0.3rem; border-color: #15803d; }
+@media (prefers-reduced-motion: no-preference) { .vault-switch-knob { transition: left 0.15s, right 0.15s; } }

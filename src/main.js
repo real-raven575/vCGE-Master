@@ -15,7 +15,7 @@
  */
 import './modules/mod01-shell/shell.js';
 import { initSettings } from './modules/mod01-shell/settings.js';
-import { go as showCard, use as useDeck, onBeforeChange as beforeCardChange, closeSheet, toast as deckToast, setFace as setCardFace } from './modules/mod01-shell/deck.js';
+import { go as showCard, use as useDeck, onBeforeChange as beforeCardChange, openSheet, closeSheet, current as currentCard, toast as deckToast, setFace as setCardFace } from './modules/mod01-shell/deck.js';
 import { globalEventBus, Events } from './share/eventBus.js';
 import { CONTACT_FIELDS, CONTACT_LIST_FIELDS, createEmptyContact } from './share/cardSchema.js';
 import { temporaryVault, deleteLegacyVault } from './modules/mod02-vault/vault.js';
@@ -66,6 +66,8 @@ let resetDeadline = 0;       // wall-clock time at which 7 minutes without activ
 let externalAppUntil = 0;    // until then, the page going out of view is the picker or share sheet the app opened
 let leaveGuardArmed = false; // an extra history entry is in place, so Back asks before leaving
 let leaving = false;
+let lockedOnCard = null;     // the card in view when the lock came down: unlocking returns to it
+let lockedFromVault = false; // locked with "Lock now" on the Vault page: unlocking opens the Vault page again
 
 // 120-second TTL on everything held in RAM: any user activity restarts it; on expiry the card is locked (PIN set) or wiped.
 const idleTtl = new TTLMemoryStreamManager(IDLE_PURGE_SECONDS, () => purgeVolatileState('idle'));
@@ -128,20 +130,32 @@ function setVaultBadge() {
 // Security panel: session PIN and biometric state.
 function renderQuickUnlockPanel() {
     $('quickUnlockPanel').classList.toggle('hidden', vaultMode !== 'open');
-    $('sessionPinStatus').textContent = sessionPin.isSet() ? 'Session PIN: set' : 'Session PIN: not set';
-    $('setSessionPinBtn').textContent = sessionPin.isSet() ? 'Change' : 'Set PIN';
-    $('clearSessionPinBtn').classList.toggle('hidden', !sessionPin.isSet());
-    $('vaultLockNowBtn').classList.toggle('hidden', !sessionPin.isSet());
+    const pinOn = sessionPin.isSet(), bioOn = biometric.isEnrolled();
+    $('sessionPinStatus').textContent = pinOn ? 'Session PIN: set' : 'Session PIN: not set';
+    setSwitch('pinSwitch', pinOn);
+    $('pinOffNote').classList.toggle('hidden', pinOn);
+    $('setSessionPinBtn').classList.toggle('hidden', !pinOn);   // Change, once a PIN is set
+    $('vaultLockNowBtn').classList.toggle('hidden', !pinOn);
     // Biometric is offered once a PIN is set (the PIN stays the fallback) and only where the device can check it.
-    $('biometricRow').classList.toggle('hidden', !biometricSupported || !sessionPin.isSet());
-    $('biometricStatus').textContent = biometric.isEnrolled() ? 'Face ID / fingerprint: on' : 'Face ID / fingerprint: off';
-    $('addBiometricBtn').classList.toggle('hidden', biometric.isEnrolled());
-    $('clearBiometricBtn').classList.toggle('hidden', !biometric.isEnrolled());
+    $('biometricRow').classList.toggle('hidden', !biometricSupported || !pinOn);
+    $('biometricNotes').classList.toggle('hidden', !biometricSupported || !pinOn);
+    $('biometricStatus').textContent = bioOn ? 'Face ID / fingerprint: on' : 'Face ID / fingerprint: off';
+    setSwitch('biometricSwitch', bioOn);
+    $('biometricOffNote').classList.toggle('hidden', bioOn);
+}
+
+// The PIN and Face ID / fingerprint switches: green with "On" when on, red with "Off" when off (the word is always there,
+// so colour is never the only cue).
+function setSwitch(id, on) {
+    const sw = $(id);
+    sw.setAttribute('aria-checked', on ? 'true' : 'false');
+    sw.querySelector('.vault-switch-word').textContent = on ? 'On' : 'Off';
 }
 
 function openPinModal(reason) {
     const bio = biometric.isEnrolled();
     $('vaultModalHint').textContent = `${reason === 'out of view' ? 'Locked while the screen was off or another app was in front.'
+        : reason === 'Lock button' ? 'Locked with the Lock button.'
         : `Locked after ${IDLE_PURGE_SECONDS / 60} minutes without activity.`} ${bio ? 'Use your fingerprint or face, or type your PIN.' : `Enter your ${PIN_LENGTH}-digit PIN to continue, or start over to wipe it.`}`;
     $('vaultError').textContent = '';
     $('vaultPin').value = '';
@@ -183,6 +197,9 @@ function updateTimerStrip() {
     const remaining = idleTtl.getRemainingTime();
     const show = vaultMode === 'open' && remaining > 0 && hasWork();
     $('vaultTimerStrip').classList.toggle('hidden', !show);
+    // The strip hangs under the header: its height is published (0px when hidden) so Shell can move the cards down by it
+    // instead of the strip covering their titles. A layout signal only, never any data.
+    document.documentElement.style.setProperty('--vcge-vault-strip', show ? `${$('vaultTimerBand').offsetHeight}px` : '0px');
     const warn = show && remaining <= TIMER_WARN_SECONDS;
     NOTE_HIDDEN.forEach(c => $('vaultTimerNote').classList.toggle(c, !warn));
     if (!show) return;
@@ -216,11 +233,14 @@ async function submitPin(event) {
 
 // Lock with a session PIN (idle, screen off, or the Lock button): the card and the scan in progress leave the page and
 // are held, encrypted, in the temporary vault until the PIN or biometric brings them back, or the 7-minute reset.
-function quickLock(reason = 'idle') {
+// `lockedAt` is when the lock was due: an idle lock noticed late (timers frozen while the photo picker or a share had the
+// screen) still wipes 7 minutes after the 2 idle minutes ran out, not 7 minutes after the page came back.
+function quickLock(reason = 'idle', lockedAt = Date.now()) {
     if (vaultMode !== 'open') return;
     const payload = { contact: cardView.getContact(), scan: scanSnapshot() };
     idleTtl.stop();
-    resetDeadline = Date.now() + RESET_SECONDS * 1000;   // the 7 minutes run from the lock (raven575, 2026-10-17)
+    resetDeadline = lockedAt + RESET_SECONDS * 1000;   // the 7 minutes run from the lock (raven575, 2026-10-17)
+    lockedOnCard = currentCard();
     closeQuickUnlockDialogs();
     clearCapturedImages();
     holding = temporaryVault.hold(payload).catch(e => { console.error('[vCGE] Could not hold the card:', e); return false; });
@@ -254,6 +274,11 @@ async function quickUnlock(method) {
     globalEventBus.publish(Events.VAULT_UNLOCKED, { method, timestamp: Date.now() });
     markActivity();
     restoreScan(held.scan);
+    // Back to the card that was in view when it locked, and to the Vault page when "Lock now" there locked it.
+    if (lockedOnCard) showCard(lockedOnCard, { silent: true });
+    if (lockedFromVault) openSheet('vaultPage');
+    lockedOnCard = null;
+    lockedFromVault = false;
     cardView.showToast(`Unlocked (${method}).`);
 }
 
@@ -261,7 +286,9 @@ async function unlockWithBiometric() {
     if (vaultMode !== 'quick' || !biometric.isEnrolled()) return;
     $('vaultError').textContent = '';
     if (await biometric.verify()) return quickUnlock('biometric');
-    if (vaultMode === 'quick') $('vaultError').textContent = 'Face or fingerprint not confirmed. Use your PIN.';
+    // The device's reason (NotAllowedError and the like) is shown, so a button that stops working can be traced.
+    const why = biometric.lastError ? ` (${biometric.lastError})` : '';
+    if (vaultMode === 'quick') $('vaultError').textContent = `Face or fingerprint not confirmed${why}. Use your PIN.`;
 }
 
 // Unlock as soon as the 4th digit is typed: no extra tap.
@@ -281,6 +308,8 @@ function wipeSession(reason, message = null) {
     biometric.clear();
     temporaryVault.wipe();
     holding = null;
+    lockedOnCard = null;
+    lockedFromVault = false;
     closeQuickUnlockDialogs();
     closePinModal();
     $('leaveModal').classList.add('hidden');
@@ -320,6 +349,7 @@ async function saveSessionPin(event) {
     $('quickSetupModal').classList.add('hidden');
     globalEventBus.publish(Events.VAULT_UNLOCK_METHOD_CHANGED, { change: 'Session PIN set', timestamp: Date.now() });
     setVaultIndicator();
+    updatePurgeCountdown();
     cardView.showToast('Session PIN set: the card now locks instead of being wiped when the screen turns off.');
 }
 
@@ -333,6 +363,7 @@ function clearSessionPin() {
     biometric.clear();   // biometric needs the PIN as its fallback
     globalEventBus.publish(Events.VAULT_UNLOCK_METHOD_CHANGED, { change: 'Session PIN removed', timestamp: Date.now() });
     setVaultIndicator();
+    updatePurgeCountdown();
 }
 
 async function addBiometric() {
@@ -351,6 +382,15 @@ async function addBiometric() {
         cardView.showToast(`Face ID / fingerprint was not added (${why}). The PIN still works.`);
     }
     setVaultIndicator();
+}
+
+// The switches: turning the PIN on asks for one; off forgets it (and Face ID / fingerprint, which needs it as the fallback).
+function togglePin() {
+    if (sessionPin.isSet()) clearSessionPin(); else openQuickSetup();
+}
+
+function toggleBiometric() {
+    if (biometric.isEnrolled()) clearBiometric(); else addBiometric();
 }
 
 function clearBiometric() {
@@ -402,7 +442,13 @@ function purgeVolatileState(reason) {
     idleTtl.stop();
     globalEventBus.publish(Events.MEMORY_PURGED, { reason, timestamp: Date.now() });
     if (sessionPin.isSet()) {
-        quickLock();
+        // The lock was due when the idle time ran out; phones freeze timers in the background, so that can be well
+        // before now. If its 7 minutes are already over, the card is wiped instead of locked.
+        const lockedAt = Math.min(Date.now(), idleTtl.expiresAt || Date.now());
+        if (Date.now() >= lockedAt + RESET_SECONDS * 1000) {
+            return wipeSession(`${RESET_SECONDS / 60} minutes without activity`, `Reset: ${RESET_SECONDS / 60} minutes without activity, so everything was wiped.`);
+        }
+        quickLock('idle', lockedAt);
         cardView.showToast(`Hidden after ${IDLE_PURGE_SECONDS / 60} minutes without activity.`);
     } else {
         wipeSession(reason, `Wiped after ${IDLE_PURGE_SECONDS / 60} minutes without activity.`);
@@ -411,8 +457,10 @@ function purgeVolatileState(reason) {
 
 function updatePurgeCountdown() {
     const el = $('purgeCountdown');
-    el.textContent = vaultMode === 'quick' ? `Resets in ${resetRemaining()} s`
-        : idleTtl.timerId ? `Auto-clear in ${idleTtl.getRemainingTime()} s` : 'Auto-clear idle';
+    // With a PIN the idle time locks the card first, so it reads "Auto-lock"; without one it clears it.
+    const word = sessionPin.isSet() ? 'Auto-lock' : 'Auto-clear';
+    el.textContent = vaultMode === 'quick' ? `Wipes in ${resetRemaining()} s`
+        : idleTtl.timerId ? `${word} in ${idleTtl.getRemainingTime()} s` : `${word} idle`;
     if (vaultMode === 'quick') {
         setVaultIndicator();
         updateQuickUnlockCountdown();
@@ -725,7 +773,8 @@ function scanSnapshot() {
 }
 
 
-// Puts a scan held through a quick lock back: the review at the step it was on, and "Reopen last scan".
+// Puts a scan held through a quick lock back: the review at the step it was on, and "Reopen last scan". The deck goes
+// back to the card that was in view when it locked (quickUnlock), not to the review's card.
 function restoreScan(scan) {
     if (!scan) return;
     if (scan.photo) {
@@ -736,14 +785,12 @@ function restoreScan(scan) {
         lastScan = scan.lastScan;
         $('reopenScanBtn').classList.remove('hidden');
     }
-    if (!scan.review) return;
-    if (!scan.review.lines) { showCard('capture'); return; }
+    if (!scan.review || !scan.review.lines) return;
     ocrReview = { lines: scan.review.lines, fields: null };
     renderOcrLines();
     showReviewStep('text');
     $('ocrBackBtn').classList.toggle('hidden', !scan.photo);
     $('cropReviewModal').classList.remove('hidden');
-    showCard('read');
 }
 
 function wireIntake() {
@@ -907,18 +954,21 @@ function boot() {
     $('vaultPin').addEventListener('focus', keepPinInView);
     $('vaultStartOverBtn').addEventListener('click', wipeVault);
     $('lockVaultBtn').addEventListener('click', () => { if (sessionPin.isSet()) quickLock('Lock button'); });
-    $('vaultLockNowBtn').addEventListener('click', () => { if (sessionPin.isSet()) { closeSheet('vaultPage'); quickLock('Lock button'); } });
+    $('vaultLockNowBtn').addEventListener('click', () => { if (sessionPin.isSet()) { closeSheet('vaultPage'); quickLock('Lock button'); lockedFromVault = true; } });
     $('quickSetupForm').addEventListener('submit', saveSessionPin);
     $('quickSetupSkipBtn').addEventListener('click', closeQuickSetup);
     $('setSessionPinBtn').addEventListener('click', openQuickSetup);
-    $('clearSessionPinBtn').addEventListener('click', clearSessionPin);
-    $('addBiometricBtn').addEventListener('click', addBiometric);
-    $('clearBiometricBtn').addEventListener('click', clearBiometric);
+    $('pinSwitch').addEventListener('click', togglePin);
+    $('biometricSwitch').addEventListener('click', toggleBiometric);
     $('wipeVaultBtn').addEventListener('click', wipeVault);
     $('vaultTimerKeepBtn').addEventListener('click', () => { markActivity(); updateTimerStrip(); });
     $('leaveStayBtn').addEventListener('click', stayOnPage);
     $('leaveConfirmBtn').addEventListener('click', leavePage);
     $('clearFormBtn').addEventListener('click', () => cardView.changeWithUndo('Form cleared.', () => cardView.clear()));
+    // Reloaded while on the guard entry (a reload keeps the entry and its state): it is still in place, so the guard is
+    // armed without adding another. Entries no longer pile up one per reload; WebKit crashed on a reload after a
+    // second guard entry had been added (browser matrix, 2026-10-18; inferred from its log, not proven).
+    if (history.state && history.state.vcgeLeaveGuard) leaveGuardArmed = true;
     window.addEventListener('popstate', onPopState);
     window.addEventListener('pagehide', onPageHide);
     window.addEventListener('pageshow', onPageShow);

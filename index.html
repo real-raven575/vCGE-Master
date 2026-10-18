@@ -358,33 +358,37 @@
     <div id="vaultPage" class="vcge-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="vaultPageTitle">
         <div class="vcge-sheet-panel mod-tag-host space-y-3">
             <div class="vcge-sheet-head">
-                <h2 id="vaultPageTitle">Vault</h2>
+                <h2 id="vaultPageTitle" class="vault-title"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#lock"></use></svg>Vault</h2>
                 <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close">&#x2715;</button>
             </div>
             <p class="vault-lead">Your card is held in memory only and is never saved. Set a PIN, and a fingerprint or face if your device has one, so the card locks instead of being wiped when you step away. Both are set up fresh every visit and forgotten when you leave.</p>
             <div class="vault-row">
-                <span class="font-medium">MOD02 Vault</span>
-                <span id="vaultStateIndicator" class="text-xs font-mono text-emerald-500">UNLOCKED / memory only</span>
+                <span><span class="font-medium">MOD02 Vault</span> <span id="vaultStateIndicator" class="text-xs font-mono text-emerald-500">UNLOCKED / memory only</span></span>
+                <span><button id="vaultLockNowBtn" type="button" class="vault-btn-quiet hidden"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#lock"></use></svg>Lock now</button></span>
             </div>
             <p id="purgeCountdown" class="text-[11px] font-mono text-slate-500 dark:text-slate-400">Auto-clear idle</p>
             <div id="quickUnlockPanel" class="vault-section hidden">
                 <h3>PIN and fingerprint</h3>
+                <!-- Switches: green "On" when on, red "Off" when off. The PIN switch asks for a PIN; Change sits beside it once set. -->
                 <div class="vault-row">
-                    <span id="sessionPinStatus">Session PIN: not set</span>
+                    <span id="sessionPinStatus" class="vault-sr-only">Session PIN: not set</span>
+                    <span id="pinSwitchLabel">Session PIN</span>
                     <span>
-                        <button id="setSessionPinBtn" type="button" class="vault-btn">Set PIN</button>
-                        <button id="clearSessionPinBtn" type="button" class="vault-btn-quiet hidden">Remove</button>
-                        <button id="vaultLockNowBtn" type="button" class="vault-btn-quiet hidden">Lock now</button>
+                        <button id="setSessionPinBtn" type="button" class="vault-btn-quiet hidden">Change</button>
+                        <button id="pinSwitch" type="button" role="switch" aria-checked="false" aria-labelledby="pinSwitchLabel" class="vault-switch"><span class="vault-switch-word">Off</span><span class="vault-switch-knob" aria-hidden="true"></span></button>
                     </span>
                 </div>
+                <p id="pinOffNote" class="vault-note">Turn on to lock the card instead of wiping it when you step away.</p>
                 <div id="biometricRow" class="vault-row hidden">
-                    <span id="biometricStatus">Face ID / fingerprint: off</span>
-                    <span>
-                        <button id="addBiometricBtn" type="button" class="vault-btn">Turn on</button>
-                        <button id="clearBiometricBtn" type="button" class="vault-btn-quiet hidden">Turn off</button>
-                    </span>
+                    <span id="biometricStatus" class="vault-sr-only">Face ID / fingerprint: off</span>
+                    <span id="biometricSwitchLabel">Face ID / fingerprint</span>
+                    <span><button id="biometricSwitch" type="button" role="switch" aria-checked="false" aria-labelledby="biometricSwitchLabel" class="vault-switch"><span class="vault-switch-word">Off</span><span class="vault-switch-knob" aria-hidden="true"></span></button></span>
                 </div>
-                <p class="vault-note">Nothing is saved. Leaving or reloading the page wipes the card. With a 4-digit PIN set, the screen turning off or 2 idle minutes lock it instead, and 7 minutes after the lock it is wiped. Without a PIN, 30 s out of view or 2 idle minutes wipe it.</p>
+                <div id="biometricNotes" class="hidden">
+                    <p id="biometricOffNote" class="vault-note">Turn on to unlock with your face or fingerprint.</p>
+                    <p class="vault-note">Turning it on makes your browser save a passkey for this site on your device, because the browser requires it to check your face or fingerprint. The passkey holds no contact details. vCGE forgets it when the card is wiped, so after a wipe you turn it on again. Old ones can be deleted in your password manager.</p>
+                </div>
+                <p class="vault-note">vCGE saves none of your card. Leaving, closing or reloading the page wipes it. With a 4-digit PIN set, the screen turning off or 2 idle minutes lock it instead, and 7 minutes after the lock it is wiped. Without a PIN, 30 s out of view or 2 idle minutes wipe it.</p>
             </div>
             <div class="vault-row">
                 <span><button id="wipeVaultBtn" type="button" class="vault-btn-quiet vault-btn-danger">Wipe everything and start over</button></span>
@@ -542,9 +546,10 @@
 
     <!-- Lock screen (MOD02): the card is held in the temporary vault until the fingerprint, face or session PIN brings it back.
          Fingerprint first and big, the PIN under it; no Unlock button (the 4th digit unlocks); the keyboard never covers a control. -->
-    <div id="vaultModal" class="hidden fixed inset-0 z-50 bg-black/70 flex justify-center p-4">
+    <!-- Always the top layer (above the welcome tour; vault.css sets its z-index) so its buttons can always be pressed -->
+    <div id="vaultModal" class="hidden fixed inset-0 bg-black/70 flex justify-center p-4">
         <form id="vaultForm" class="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-sm w-full space-y-3 shadow-2xl" aria-labelledby="vaultModalTitle" aria-describedby="vaultModalHint">
-            <h2 id="vaultModalTitle" class="text-lg font-bold">Locked</h2>
+            <h2 id="vaultModalTitle" class="vault-title text-lg font-bold"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#lock"></use></svg>Locked</h2>
             <p id="vaultModalHint" class="text-xs text-slate-500 dark:text-slate-400"></p>
             <button id="vaultBiometricBtn" type="button" class="vault-bio-btn hidden">
                 <svg class="vcge-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18.9 7a8 8 0 0 1 1.1 5v1a6 6 0 0 0 .8 3"/><path d="M8 11a4 4 0 0 1 8 0v1a10 10 0 0 0 2 6"/><path d="M12 11v2a14 14 0 0 0 2.5 8"/><path d="M8 15a18 18 0 0 0 1.8 6"/><path d="M4.9 19a22 22 0 0 1-.9-7v-1a8 8 0 0 1 12-6.95"/></svg>

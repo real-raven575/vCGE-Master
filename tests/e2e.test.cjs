@@ -86,7 +86,7 @@ async function closeVault(page) { if (await vaultOpen(page)) { await page.click(
 async function setPin(page, pin) {
   const wasOpen = await vaultOpen(page);
   await openVault(page);
-  await page.click('#setSessionPinBtn');
+  await page.click('#pinSwitch');
   await page.fill('#sessionPinInput', pin); await page.click('#quickSetupSaveBtn');
   await page.waitForSelector('#quickSetupModal', { state: 'hidden' });
   if (!wasOpen) await closeVault(page);
@@ -437,6 +437,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p2.fill('#firstName', 'Idle'); await p2.fill('#lastName', 'Tester');
     await p2.clock.fastForward(5000);
     ok('countdown shows remaining time', /Auto-clear in 11\d s/.test(await p2.textContent('#purgeCountdown')), await p2.textContent('#purgeCountdown'));
+    const strip2 = await p2.evaluate(() => ({ v: document.documentElement.style.getPropertyValue('--vcge-vault-strip'), h: document.getElementById('vaultTimerBand').offsetHeight }));
+    ok('timer strip: while shown, its height is published as --vcge-vault-strip (so the cards can sit below it)', strip2.h > 0 && strip2.v === `${strip2.h}px`, JSON.stringify(strip2));
     ok('timer strip: without a PIN it reads "Clears in" with the time left', await p2.isVisible('#vaultTimerStrip') && (await p2.textContent('#vaultTimerLabel')) === 'Clears in' && /^1:5\d$/.test(await p2.textContent('#vaultTimerTime')), await p2.textContent('#vaultTimerTime'));
     await p2.clock.fastForward(60000);
     await p2.fill('#organization', 'Activity resets');
@@ -445,6 +447,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p2.clock.fastForward(25000);
     ok('idle 120 s without a PIN wipes the card', (await p2.inputValue('#firstName')) === '' && (await p2.textContent('#previewFullName')).trim() === 'New Contact' && !(await p2.isVisible('#vaultModal')));
     ok('timer strip gone once the card is wiped', !(await p2.isVisible('#vaultTimerStrip')));
+    ok('timer strip: its height is published for Shell\'s layout, 0px once it is gone', (await p2.evaluate(() => document.documentElement.style.getPropertyValue('--vcge-vault-strip'))) === '0px');
     ok('purge logged in audit log', (await p2.textContent('#auditLog')).includes('RAM purged (idle)'));
 
     // Out of view: 30 s wipes, a shorter absence keeps the card, and frozen background timers are caught on return
@@ -485,12 +488,21 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
 
     ok('no session PIN offer on its own', !(await p8.isVisible('#quickSetupModal')) && (await t8('sessionPinStatus')) === 'Session PIN: not set');
     await openVault(p8);
-    await p8.click('#setSessionPinBtn');
+    const sw8 = (id) => p8.evaluate((id) => { const b = document.getElementById(id); return { on: b.getAttribute('aria-checked'), word: b.textContent.trim(), bg: getComputedStyle(b).backgroundColor }; }, id);
+    const pinOff8 = await sw8('pinSwitch');
+    ok('Vault page: the PIN is a switch, red with "Off" and a note to turn it on, no green button while it is off', pinOff8.on === 'false' && pinOff8.word === 'Off' && ['rgb(254, 226, 226)', 'rgba(127, 29, 29, 0.45)'].includes(pinOff8.bg)
+      && await p8.isVisible('#pinOffNote') && !(await p8.isVisible('#setSessionPinBtn')) && !(await p8.isVisible('#vaultLockNowBtn')), JSON.stringify(pinOff8));
+    ok('Vault page: the title has its lock icon on the left', await p8.$eval('#vaultPageTitle', h => h.firstElementChild && h.firstElementChild.tagName === 'svg' && h.textContent.trim() === 'Vault'));
+    await p8.click('#pinSwitch');
     await p8.fill('#sessionPinInput', '12'); await p8.click('#quickSetupSaveBtn');
     ok('session PIN: too-short PIN refused', (await t8('quickSetupError')) === 'Use exactly 4 digits.', await t8('quickSetupError'));
     await p8.fill('#sessionPinInput', '2468'); await p8.click('#quickSetupSaveBtn');
     await p8.waitForSelector('#quickSetupModal', { state: 'hidden' });
     ok('session PIN set: Security panel shows it and Lock appears', (await t8('sessionPinStatus')) === 'Session PIN: set' && await p8.isVisible('#lockVaultBtn'));
+    const pinOn8 = await sw8('pinSwitch');
+    ok('Vault page: the PIN switch turns green with "On", Change and Lock now appear, the note goes', pinOn8.on === 'true' && pinOn8.word === 'On' && pinOn8.bg === 'rgb(22, 163, 74)'
+      && (await t8('setSessionPinBtn')) === 'Change' && await p8.isVisible('#vaultLockNowBtn') && !(await p8.isVisible('#pinOffNote')), JSON.stringify(pinOn8));
+    ok('Vault page: with a PIN the countdown reads "Auto-lock" (it locks before it clears)', /^Auto-lock (idle|in \d+ s)$/.test(await t8('purgeCountdown')), await t8('purgeCountdown'));
     await closeVault(p8);
     await p8.fill('#firstName', 'Quick'); await p8.fill('#lastName', 'Unlock');
     await p8.clock.fastForward(1000);
@@ -502,6 +514,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('timer strip: Keep open refills it and the note goes away', /^(2:00|1:59)$/.test(await t8('vaultTimerTime')) && !(await p8.isVisible('#vaultTimerNote')) && (await p8.evaluate(() => document.getElementById('vaultTimerBar').className)).includes('bg-brand-500'), await t8('vaultTimerTime'));
     await idle();
     ok('idle with a session PIN: card hidden, PIN prompt', await p8.isVisible('#vaultModal') && (await t8('vaultModalTitle')) === 'Locked' && await p8.isVisible('#vaultPin') && (await p8.inputValue('#firstName')) === '');
+    ok('lock screen: the title has its lock icon on the left', await p8.$eval('#vaultModalTitle', h => h.firstElementChild && h.firstElementChild.tagName === 'svg'));
     ok('quick lock: badge, indicator and countdown show the 7 minutes that run from the lock', (await t8('vaultBadge')) === 'Vault: LOCKED' && /^LOCKED \(resets in (7:00|6:5\d)\)$/.test(await t8('vaultStateIndicator')) && /everything resets in (7:00|6:5\d)/.test(await t8('quickUnlockCountdown')), await t8('vaultStateIndicator'));
     const ring8 = await p8.evaluate(() => Number(document.getElementById('vaultLockRing').getAttribute('stroke-dashoffset')));
     ok('lock screen: calm green ring shows the time left until it is cleared', /^(7:00|6:5\d)$/.test(await t8('vaultLockRingTime')) && ring8 >= 0 && ring8 < 10 && !(await p8.isVisible('#vaultTimerStrip')), `${await t8('vaultLockRingTime')} ${ring8}`);
@@ -540,6 +553,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('idle lock: 5 minutes after it the card is still held (the 7 minutes run from the lock)', await p8.isVisible('#vaultModal') && /^(2:0\d|1:5\d)$/.test(await t8('vaultLockRingTime')), await t8('vaultLockRingTime'));
     await p8.clock.fastForward(120000);
     await p8.waitForFunction(() => document.getElementById('toastMessage').textContent.startsWith('Reset: 7 minutes'), null, { timeout: 5000 }).catch(() => {});
+    // A slow runner can still be closing the lock screen here; the next step needs the header, which it covers.
+    await p8.waitForSelector('#vaultModal', { state: 'hidden', timeout: 5000 }).catch(() => {});
     ok('idle lock, then 7 minutes after the lock: card and PIN wiped, no dialog', !(await p8.isVisible('#vaultModal')) && (await p8.inputValue('#firstName')) === '' && (await t8('toastMessage')).startsWith('Reset: 7 minutes without activity') && (await t8('sessionPinStatus')) === 'Session PIN: not set', await t8('toastMessage'));
 
     await setPin(p8, '1357');
@@ -552,15 +567,66 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p8.fill('#firstName', 'Locked');
     await p8.click('#lockVaultBtn');
     ok('Lock button hides the card behind the PIN', await p8.isVisible('#vaultPin') && (await p8.inputValue('#firstName')) === '');
+    ok('Lock button: the lock screen says the Lock button locked it (not "2 minutes without activity")', (await t8('vaultModalHint')).startsWith('Locked with the Lock button.'), await t8('vaultModalHint'));
     await p8.click('#vaultStartOverBtn');
     ok('"Wipe and start over" on the lock screen asks the hold-to-wipe question above it', await p8.isVisible('#wipeDialog') && await p8.isVisible('#vaultModal'));
     await holdYes(p8, 1700, p8.clock); await p8.waitForTimeout(300);
     ok('"Wipe and start over" (held) wipes the held card and starts fresh', !(await p8.isVisible('#vaultModal')) && !(await p8.isVisible('#wipeDialog')) && (await p8.inputValue('#firstName')) === '' && (await t8('vaultBadge')) === 'Vault: UNLOCKED');
 
+    // A lock noticed late (timers frozen while the photo picker had the screen): the 7 minutes run from when the 2 idle
+    // minutes ran out, not from when the page came back.
     await setPin(p8, '4321');
+    await p8.fill('#firstName', 'Picker'); await p8.clock.fastForward(1000);
+    await p8.evaluate(() => document.getElementById('imageUpload').dispatchEvent(new MouseEvent('click')));   // the app opens the photo picker
+    await p8.evaluate(() => document.getElementById('imageUpload').blur());
+    await setVisibility(p8, 'hidden');
+    await p8.clock.setSystemTime(await p8.evaluate(() => Date.now() + 360000));   // 6 minutes in the picker, timers frozen
+    await setVisibility(p8, 'visible'); await p8.clock.fastForward(1000);
+    await p8.waitForSelector('#vaultModal', { state: 'visible' });
+    ok('idle lock noticed late: about 3 minutes left (7 from when it was due), not a fresh 7', await p8.isVisible('#vaultModal') && /^(3:0\d|2:5\d)$/.test(await t8('vaultLockRingTime')), await t8('vaultLockRingTime'));
+    await p8.fill('#vaultPin', '4321'); await p8.waitForSelector('#vaultModal', { state: 'hidden' });
+    await p8.fill('#firstName', 'Picker2'); await p8.clock.fastForward(1000);
+    await p8.evaluate(() => { const u = document.getElementById('imageUpload'); u.dispatchEvent(new MouseEvent('click')); u.blur(); });
+    await setVisibility(p8, 'hidden');
+    await p8.clock.setSystemTime(await p8.evaluate(() => Date.now() + 400000));   // 6 min 40 s: under 7 since activity, but 2 + 7 is not over either
+    await setVisibility(p8, 'visible'); await p8.clock.fastForward(1000);
+    ok('idle lock noticed late but within its 7 minutes: locked, not wiped', await p8.isVisible('#vaultModal') && /^(2:2\d|2:1\d)$/.test(await t8('vaultLockRingTime')), await t8('vaultLockRingTime'));
+    await p8.fill('#vaultPin', '4321'); await p8.waitForSelector('#vaultModal', { state: 'hidden' });
+
+    // Unlocking goes back to the card that was in view, and to the Vault page when its Lock now locked it
+    await p8.click('#navShare'); await deckSettled(p8);
+    await p8.click('#lockVaultBtn');
+    await p8.evaluate(() => document.getElementById('navCard').click());   // the deck moved while locked
+    await deckSettled(p8);
+    await p8.fill('#vaultPin', '4321'); await p8.waitForSelector('#vaultModal', { state: 'hidden' }); await deckSettled(p8);
+    ok('unlock returns to the card that was in view when it locked', (await p8.$eval('.deck-card.is-current', c => c.dataset.card)) === 'share' && !(await vaultOpen(p8)));
     await openVault(p8);
-    ok('Security panel: Change and Remove offered', (await t8('setSessionPinBtn')) === 'Change' && await p8.isVisible('#clearSessionPinBtn'));
-    await p8.click('#clearSessionPinBtn');
+    await p8.click('#vaultLockNowBtn');
+    ok('Lock now on the Vault page closes it and locks', await p8.isVisible('#vaultModal') && !(await vaultOpen(p8)));
+    await p8.fill('#vaultPin', '4321'); await p8.waitForSelector('#vaultModal', { state: 'hidden' });
+    ok('unlock after Lock now opens the Vault page again (close it to carry on)', await vaultOpen(p8) && (await p8.$eval('.deck-card.is-current', c => c.dataset.card)) === 'share');
+    await closeVault(p8);
+
+    // The lock is the top layer: it comes down during the welcome tour and its PIN box can still be pressed
+    await p8.evaluate(() => document.getElementById('welcomeTourBtn').click());
+    await p8.waitForSelector('#tourTip', { state: 'visible' });
+    await p8.evaluate(() => document.getElementById('lockVaultBtn').click());
+    const onTop8 = await p8.evaluate(() => {
+      const pick = (id) => { const r = document.getElementById(id).getBoundingClientRect(), e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!e && !!e.closest('#vaultModal'); };
+      return { pin: pick('vaultPin'), start: pick('vaultStartOverBtn'), z: [getComputedStyle(document.getElementById('vaultModal')).zIndex, getComputedStyle(document.getElementById('welcomeLayer')).zIndex] };
+    });
+    ok('lock during the tour: the lock screen is on top and its controls take the tap', onTop8.pin && onTop8.start && Number(onTop8.z[0]) > Number(onTop8.z[1]), JSON.stringify(onTop8));
+    await p8.click('#vaultStartOverBtn');
+    const wipeOnTop8 = await p8.evaluate(() => { const r = document.getElementById('wipeYesBtn').getBoundingClientRect(), e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!e && !!e.closest('#wipeDialog'); });
+    ok('lock during the tour: hold-to-wipe opens above the lock screen', wipeOnTop8);
+    await p8.click('#wipeNoBtn');
+    await p8.fill('#vaultPin', '4321'); await p8.waitForSelector('#vaultModal', { state: 'hidden' });
+    if (await p8.isVisible('#tourSkipBtn')) await p8.click('#tourSkipBtn');
+    await p8.waitForTimeout(700);
+
+    await openVault(p8);
+    ok('Security panel: Change offered and the switch is on', (await t8('setSessionPinBtn')) === 'Change' && (await sw8('pinSwitch')).on === 'true');
+    await p8.click('#pinSwitch');
     ok('Security panel: Remove forgets the PIN and hides Lock', (await t8('sessionPinStatus')) === 'Session PIN: not set' && (await t8('auditLog')).includes('Session PIN removed') && !(await p8.isVisible('#lockVaultBtn')));
     ok('quick unlock: no page errors', errors8.length === 0, errors8.join(' | '));
     await ctx8.close();
@@ -585,11 +651,14 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await setPin(pB, '2468');
     ok('biometric offered once a PIN is set', await pB.isVisible('#biometricRow') && (await tB('biometricStatus')) === 'Face ID / fingerprint: off');
     await cdp.send('WebAuthn.setUserVerified', { authenticatorId, isUserVerified: false });
-    await pB.click('#addBiometricBtn'); await pB.waitForTimeout(800);
+    ok('biometric: the switch is off (red) with a note, and the page says a passkey is saved on the device and holds no contact details',
+      (await pB.getAttribute('#biometricSwitch', 'aria-checked')) === 'false' && await pB.isVisible('#biometricOffNote') && /saves? a passkey[\s\S]*no contact details[\s\S]*after a wipe you turn it on again/.test(await tB('biometricNotes')), await tB('biometricNotes'));
+    await pB.click('#biometricSwitch'); await pB.waitForTimeout(800);
     ok('a device that cannot confirm the person does not turn biometric on, and the real reason is shown', (await tB('biometricStatus')) === 'Face ID / fingerprint: off' && /was not added \([A-Za-z_]+\)/.test(await tB('toastMessage')) && !(await tB('auditLog')).includes('fingerprint added'), await tB('toastMessage'));
     await cdp.send('WebAuthn.setUserVerified', { authenticatorId, isUserVerified: true });
-    await pB.click('#addBiometricBtn'); await pB.waitForTimeout(500);
+    await pB.click('#biometricSwitch'); await pB.waitForTimeout(500);
     ok('biometric added for this session, after a check that passed', (await tB('biometricStatus')) === 'Face ID / fingerprint: on' && (await tB('auditLog')).includes('Face ID / fingerprint added'), await tB('toastMessage'));
+    ok('biometric: the switch is green with "On" and the turn-on note goes', (await pB.getAttribute('#biometricSwitch', 'aria-checked')) === 'true' && (await tB('biometricSwitch')) === 'On' && !(await pB.isVisible('#biometricOffNote')));
     await closeVault(pB);
     await pB.fill('#firstName', 'Bio'); await pB.click('#lockVaultBtn');
     ok('lock screen offers Face ID / fingerprint', await pB.isVisible('#vaultBiometricBtn') && (await pB.inputValue('#firstName')) === '');
@@ -601,12 +670,12 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await cdp.send('WebAuthn.setUserVerified', { authenticatorId, isUserVerified: false });
     await pB.click('#lockVaultBtn');
     await pB.click('#vaultBiometricBtn'); await pB.waitForTimeout(800);
-    ok('face or fingerprint not confirmed: stays locked, PIN offered', await pB.isVisible('#vaultModal') && (await tB('vaultError')).includes('Use your PIN') && (await pB.inputValue('#firstName')) === '', await tB('vaultError'));
+    ok('face or fingerprint not confirmed: stays locked, PIN offered, and the device\'s reason is shown', await pB.isVisible('#vaultModal') && /^Face or fingerprint not confirmed \([A-Za-z ]+\)\. Use your PIN\.$/.test(await tB('vaultError')) && (await pB.inputValue('#firstName')) === '', await tB('vaultError'));
     await pB.fill('#vaultPin', '2468');
     await pB.waitForSelector('#vaultModal', { state: 'hidden' });
     ok('the PIN still works as the fallback', (await pB.inputValue('#firstName')) === 'Bio');
     await openVault(pB);
-    await pB.click('#clearSessionPinBtn');
+    await pB.click('#pinSwitch');
     ok('removing the PIN removes biometric too', !(await pB.isVisible('#biometricRow')) && !(await pB.isVisible('#lockVaultBtn')));
     ok('biometric: nothing saved to browser storage', !(await pB.evaluate(() => JSON.stringify(localStorage) + JSON.stringify(sessionStorage))).includes('Bio'));
     ok('biometric: no network requests', externalB.length === 0, externalB.join(', '));
@@ -654,6 +723,9 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     const stillLook = await pL.evaluate(() => ({ fill: getComputedStyle(document.querySelector('.vh-body')).fill, shackle: document.querySelector('.vh-shackle').style.transform }));
     await padlockGone();
     ok('reduce motion: the end state (open, orange) shows still, then goes', still.playing === 'still' && still.state === 'unlocked' && stillLook.fill === 'rgb(249, 115, 22)' && stillLook.shackle === 'translateY(-7px)', JSON.stringify(stillLook));
+    const glow = await pL.evaluate(() => { const r = document.getElementById('vaultHandoff'), g = r.querySelector('.vault-handoff-glow'), svg = r.querySelector('.vault-handoff-lock');
+      return { glow: !!g && g.nextElementSibling === svg && getComputedStyle(g).backgroundImage.startsWith('radial-gradient') && getComputedStyle(g).pointerEvents === 'none', filter: getComputedStyle(svg).filter }; });
+    ok('the glow is its own layer behind the lock; the moving lock carries no filter (no cut-outs)', glow.glow && glow.filter === 'none', JSON.stringify(glow));
     ok('padlock: no page errors', errorsL.length === 0, errorsL.join(' | '));
     await ctxL.close();
   }
@@ -680,6 +752,18 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p11.click('#clearFormBtn');
     await p11.goBack(); await p11.waitForTimeout(500);
     ok('Back with an empty card leaves without asking', p11.url() === 'about:blank', p11.url());
+    // A reload keeps the guard entry: no second one is added, and Back still asks first
+    await p11.goto(ORIGIN); await p11.waitForTimeout(300);
+    await p11.click('#firstName'); await p11.keyboard.type('One');
+    const len11 = await p11.evaluate(() => history.length);
+    await p11.reload(); await p11.waitForTimeout(300);
+    await p11.click('#firstName'); await p11.keyboard.type('Reloaded');
+    ok('Back guard: a reload and another tap add no second guard entry', (await p11.evaluate(() => history.length)) === len11, `${len11} -> ${await p11.evaluate(() => history.length)}`);
+    await p11.goBack(); await p11.waitForTimeout(300);
+    ok('Back guard: after a reload, Back with a card still asks first', p11.url() === ORIGIN && await p11.isVisible('#leaveModal') && (await p11.inputValue('#firstName')) === 'Reloaded', p11.url());
+    await p11.click('#leaveStayBtn');
+    await p11.goBack(); await p11.waitForTimeout(300);
+    ok('Back guard: after a reload, Back asks again after Stay', await p11.isVisible('#leaveModal'));
     ok('Back guard: no page errors', errors11.length === 0, errors11.join(' | '));
     await ctx11.close();
   }
@@ -1505,7 +1589,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await pH.reload(); await pH.waitForTimeout(400);
     ok('welcome: shows again on the next start (nothing remembers it was seen)', (await state()).welcomeCurrent && (await stored()) === 0);
     await pH.click('#welcomePinBtn');
-    ok('welcome: Set Up PIN/BIO Lock Now opens the Vault page', (await state()).vault && await pH.isVisible('#setSessionPinBtn'));
+    ok('welcome: Set Up PIN/BIO Lock Now opens the Vault page', (await state()).vault && await pH.isVisible('#pinSwitch'));
     await pH.keyboard.press('Escape');
     ok('deck: Esc closes a sheet', !(await state()).vault);
     await pH.click('#welcomeSampleBtn'); await pH.waitForTimeout(700);
