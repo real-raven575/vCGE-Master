@@ -106,13 +106,17 @@ async function holdYes(page, ms, clock = null) {
   await page.waitForLoadState('load');
 }
 
-// After a fake-clock jump, advances the clock 1 s at a time (at most `steps` times) until `selector` reaches `state`.
-// A fastForward fires each due timer once, but on a loaded CI runner the app's 1 s ticks were seen to land after the
-// next read (a stale lock ring, a wipe that had not happened yet): this waits on the app's state, not on one tick.
-async function tickUntil(page, selector, state, steps = 5) {
-  for (let i = 0; i < steps; i++) {
-    if ((await page.isVisible(selector)) === (state === 'visible')) return;
-    await page.clock.runFor(1000);
+// Moves the page's fake clock forward by `ms` and makes sure the time really moved.
+// Playwright 1.56's clock keeps running in real time, and a real-time tick that is still finishing when fastForward runs
+// winds the clock back to where that tick began, so a whole jump can be lost (seen about 1 time in 15 in a busy page;
+// a lost 2-minute jump left the card locked when it should have been wiped). After a short settle it moves on any time lost.
+async function fastForward(page, ms) {
+  const start = await page.evaluate(() => Date.now());
+  let left = ms;
+  for (let i = 0; i < 5 && left > 0; i++) {
+    await page.clock.fastForward(left);
+    await page.waitForTimeout(100);
+    left = ms - ((await page.evaluate(() => Date.now())) - start);
   }
 }
 
@@ -452,29 +456,29 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('startup purges legacy plaintext keys', !st2.includes('Old Plaintext') && !st2.includes('vcge_state'), st2);
     ok('startup deletes a vault saved by an older build', !st2.includes('vCGE_secure_vault') && (await p2.textContent('#auditLog')).includes('Vault wiped (copy saved by an older build)'), st2);
     await p2.fill('#firstName', 'Idle'); await p2.fill('#lastName', 'Tester');
-    await p2.clock.fastForward(5000);
+    await fastForward(p2, 5000);
     ok('countdown shows remaining time', /Auto-clear in 11\d s/.test(await p2.textContent('#purgeCountdown')), await p2.textContent('#purgeCountdown'));
     const strip2 = await p2.evaluate(() => ({ v: document.documentElement.style.getPropertyValue('--vcge-vault-strip'), h: document.getElementById('vaultTimerBand').offsetHeight }));
     ok('timer strip: while shown, its height is published as --vcge-vault-strip (so the cards can sit below it)', strip2.h > 0 && strip2.v === `${strip2.h}px`, JSON.stringify(strip2));
     ok('timer strip: without a PIN it reads "Clears in" with the time left', await p2.isVisible('#vaultTimerStrip') && (await p2.textContent('#vaultTimerLabel')) === 'Clears in' && /^1:5\d$/.test(await p2.textContent('#vaultTimerTime')), await p2.textContent('#vaultTimerTime'));
-    await p2.clock.fastForward(60000);
+    await fastForward(p2, 60000);
     await p2.fill('#organization', 'Activity resets');
-    await p2.clock.fastForward(100000);
+    await fastForward(p2, 100000);
     ok('activity restarts the TTL (not purged at 165 s)', (await p2.inputValue('#firstName')) === 'Idle');
-    await p2.clock.fastForward(25000);
+    await fastForward(p2, 25000);
     ok('idle 120 s without a PIN wipes the card', (await p2.inputValue('#firstName')) === '' && (await p2.textContent('#previewFullName')).trim() === 'New Contact' && !(await p2.isVisible('#vaultModal')));
     ok('timer strip gone once the card is wiped', !(await p2.isVisible('#vaultTimerStrip')));
     ok('timer strip: its height is published for Shell\'s layout, 0px once it is gone', (await p2.evaluate(() => document.documentElement.style.getPropertyValue('--vcge-vault-strip'))) === '0px');
     ok('purge logged in audit log', (await p2.textContent('#auditLog')).includes('RAM purged (idle)'));
 
     // Out of view: 30 s wipes, a shorter absence keeps the card, and frozen background timers are caught on return
-    await p2.fill('#firstName', 'Hidden'); await p2.clock.fastForward(1000);
-    await setVisibility(p2, 'hidden'); await p2.clock.fastForward(20000); await setVisibility(p2, 'visible');
+    await p2.fill('#firstName', 'Hidden'); await fastForward(p2, 1000);
+    await setVisibility(p2, 'hidden'); await fastForward(p2, 20000); await setVisibility(p2, 'visible');
     ok('out of view for 20 s: card kept', (await p2.inputValue('#firstName')) === 'Hidden');
-    await setVisibility(p2, 'hidden'); await p2.clock.fastForward(31000);
+    await setVisibility(p2, 'hidden'); await fastForward(p2, 31000);
     ok('out of view for 30 s: card wiped', (await p2.inputValue('#firstName')) === '' && (await p2.textContent('#auditLog')).includes('Vault wiped (out of view for 30 s)'));
     await setVisibility(p2, 'visible');
-    await p2.fill('#firstName', 'Frozen'); await p2.clock.fastForward(1000);
+    await p2.fill('#firstName', 'Frozen'); await fastForward(p2, 1000);
     await setVisibility(p2, 'hidden');
     await p2.clock.setSystemTime(await p2.evaluate(() => Date.now() + 60000));   // time passes, no timer runs
     ok('frozen timers: card still there while out of view', (await p2.inputValue('#firstName')) === 'Frozen');
@@ -482,7 +486,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('frozen timers: wiped as the page comes back', (await p2.inputValue('#firstName')) === '' && (await p2.textContent('#toastMessage')).includes('out of view'));
     // A share the app opened (here: download) may bring another app to the front: the 2-minute rule applies instead
     await p2.fill('#firstName', 'Shared'); await p2.click('#downloadVcfBtn');
-    await setVisibility(p2, 'hidden'); await p2.clock.fastForward(60000); await setVisibility(p2, 'visible');
+    await setVisibility(p2, 'hidden'); await fastForward(p2, 60000); await setVisibility(p2, 'visible');
     ok('after a share, 60 s out of view keeps the card', (await p2.inputValue('#firstName')) === 'Shared');
     ok('storage stays empty throughout', !(await p2.evaluate(() => JSON.stringify(localStorage))).includes('vCGE_secure_vault'));
     await ctx2.close();
@@ -500,7 +504,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p8.clock.install();
     const t8 = id => p8.textContent('#' + id).then(t => t.trim());
     const IDLE_MS = 125000;
-    const idle = async () => { await p8.clock.fastForward(1000); await p8.clock.fastForward(IDLE_MS); };
+    const idle = async () => { await fastForward(p8, 1000); await fastForward(p8, IDLE_MS); };
     await p8.goto(ORIGIN); await p8.waitForTimeout(300);
 
     ok('no session PIN offer on its own', !(await p8.isVisible('#quickSetupModal')) && (await t8('sessionPinStatus')) === 'Session PIN: not set');
@@ -522,9 +526,9 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('Vault page: with a PIN the countdown reads "Auto-lock" (it locks before it clears)', /^Auto-lock (idle|in \d+ s)$/.test(await t8('purgeCountdown')), await t8('purgeCountdown'));
     await closeVault(p8);
     await p8.fill('#firstName', 'Quick'); await p8.fill('#lastName', 'Unlock');
-    await p8.clock.fastForward(1000);
+    await fastForward(p8, 1000);
     ok('timer strip: with a PIN it reads "Locks in", calm, no note', await p8.isVisible('#vaultTimerStrip') && (await t8('vaultTimerLabel')) === 'Locks in' && /^1:5\d$/.test(await t8('vaultTimerTime')) && !(await p8.isVisible('#vaultTimerNote')), await t8('vaultTimerTime'));
-    await p8.clock.fastForward(102000);
+    await fastForward(p8, 102000);
     const warn8 = await p8.evaluate(() => document.getElementById('vaultTimerBand').className + ' ' + document.getElementById('vaultTimerBar').className);
     ok('timer strip: last 20 s turn it amber (never red) with one quiet note', await p8.isVisible('#vaultTimerNote') && /^0:1\d$/.test(await t8('vaultTimerTime')) && warn8.includes('bg-amber-50/95') && warn8.includes('bg-amber-500') && !/red|rose/.test(warn8), warn8);
     await p8.click('#vaultTimerKeepBtn');
@@ -545,7 +549,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('right session PIN unlocks on the 4th digit, no extra tap', (await p8.inputValue('#firstName')) === 'Quick' && (await t8('auditLog')).includes('Vault unlocked (session PIN)') && (await t8('vaultBadge')) === 'Vault: UNLOCKED');
 
     // Screen timeout with a PIN: locks at once, the card survives, and the PIN brings it straight back
-    await p8.clock.fastForward(1000);
+    await fastForward(p8, 1000);
     await setVisibility(p8, 'hidden');
     ok('screen off with a PIN: locked at once, card off the page', await p8.isVisible('#vaultModal') && (await p8.inputValue('#firstName')) === '' && (await t8('auditLog')).includes('hidden behind the PIN (out of view)'));
     await p8.clock.setSystemTime(await p8.evaluate(() => Date.now() + 200000));   // 3+ minutes asleep, timers frozen
@@ -554,7 +558,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p8.fill('#vaultPin', '2468');
     await p8.waitForSelector('#vaultModal', { state: 'hidden' });
     ok('PIN after a screen timeout restores the card', (await p8.inputValue('#firstName')) === 'Quick');
-    await p8.clock.fastForward(1000);
+    await fastForward(p8, 1000);
     await setVisibility(p8, 'hidden');
     await p8.clock.setSystemTime(await p8.evaluate(() => Date.now() + 425000));   // 7+ minutes asleep
     await setVisibility(p8, 'visible');
@@ -564,13 +568,11 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p8.fill('#firstName', 'Seven');
     await idle();
     // The lock finishes its (real-time) async work before the clock moves on, and the wipe gets a moment to land.
-    await tickUntil(p8, '#vaultModal', 'visible', 2);
     await p8.waitForSelector('#vaultModal', { state: 'visible' });
     await p8.waitForFunction(() => document.getElementById('toastMessage').textContent.startsWith('Hidden after'), null, { timeout: 5000 }).catch(() => {});
-    await p8.clock.fastForward(301000);
+    await fastForward(p8, 301000);
     ok('idle lock: 5 minutes after it the card is still held (the 7 minutes run from the lock)', await p8.isVisible('#vaultModal') && /^(2:0\d|1:5\d)$/.test(await t8('vaultLockRingTime')), await t8('vaultLockRingTime'));
-    await p8.clock.fastForward(120000);   // 7 min 7 s after the lock was due
-    await tickUntil(p8, '#vaultModal', 'hidden', 2);
+    await fastForward(p8, 120000);   // 7 min 7 s after the lock was due
     await p8.waitForFunction(() => document.getElementById('toastMessage').textContent.startsWith('Reset: 7 minutes'), null, { timeout: 5000 }).catch(() => {});
     // A slow runner can still be closing the lock screen here; the next step needs the header, which it covers.
     await p8.waitForSelector('#vaultModal', { state: 'hidden', timeout: 5000 }).catch(() => {});
@@ -595,21 +597,20 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     // A lock noticed late (timers frozen while the photo picker had the screen): the 7 minutes run from when the 2 idle
     // minutes ran out, not from when the page came back.
     await setPin(p8, '4321');
-    await p8.fill('#firstName', 'Picker'); await p8.clock.fastForward(1000);
+    await p8.fill('#firstName', 'Picker'); await fastForward(p8, 1000);
     await p8.evaluate(() => document.getElementById('imageUpload').dispatchEvent(new MouseEvent('click')));   // the app opens the photo picker
     await p8.evaluate(() => document.getElementById('imageUpload').blur());
     await setVisibility(p8, 'hidden');
     await p8.clock.setSystemTime(await p8.evaluate(() => Date.now() + 360000));   // 6 minutes in the picker, timers frozen
-    await setVisibility(p8, 'visible'); await p8.clock.fastForward(1000);
+    await setVisibility(p8, 'visible'); await fastForward(p8, 1000);
     await p8.waitForSelector('#vaultModal', { state: 'visible' });
     ok('idle lock noticed late: about 3 minutes left (7 from when it was due), not a fresh 7', await p8.isVisible('#vaultModal') && /^(3:0\d|2:5\d)$/.test(await t8('vaultLockRingTime')), await t8('vaultLockRingTime'));
     await p8.fill('#vaultPin', '4321'); await p8.waitForSelector('#vaultModal', { state: 'hidden' });
-    await p8.fill('#firstName', 'Picker2'); await p8.clock.fastForward(1000);
+    await p8.fill('#firstName', 'Picker2'); await fastForward(p8, 1000);
     await p8.evaluate(() => { const u = document.getElementById('imageUpload'); u.dispatchEvent(new MouseEvent('click')); u.blur(); });
     await setVisibility(p8, 'hidden');
     await p8.clock.setSystemTime(await p8.evaluate(() => Date.now() + 400000));   // 6 min 40 s: under 7 since activity, but 2 + 7 is not over either
-    await setVisibility(p8, 'visible'); await p8.clock.fastForward(1000);
-    await tickUntil(p8, '#vaultModal', 'visible', 2);   // the lock lands on the tick; read its ring only after that
+    await setVisibility(p8, 'visible'); await fastForward(p8, 1000);
     ok('idle lock noticed late but within its 7 minutes: locked, not wiped', await p8.isVisible('#vaultModal') && /^(2:2\d|2:1\d)$/.test(await t8('vaultLockRingTime')), await t8('vaultLockRingTime'));
     await p8.fill('#vaultPin', '4321'); await p8.waitForSelector('#vaultModal', { state: 'hidden' });
 
@@ -797,7 +798,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     p10.on('console', m => { if (m.type() === 'error') errors10.push('console: ' + m.text()); });
     await p10.clock.install();
     const t10 = id => p10.textContent('#' + id).then(t => t.trim());
-    const idle = async () => { await p10.clock.fastForward(1000); await p10.clock.fastForward(125000); };
+    const idle = async () => { await fastForward(p10, 1000); await fastForward(p10, 125000); };
     const unlockPin = async () => { await p10.fill('#vaultPin', '2468'); await p10.waitForSelector('#vaultModal', { state: 'hidden' }); await p10.waitForTimeout(300); };
     await p10.goto(ORIGIN); await p10.waitForTimeout(300);
     await setPin(p10, '2468');
@@ -824,7 +825,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p10.click('#ocrCancelBtn');
 
     await idle();
-    await p10.clock.fastForward(421000); await p10.waitForTimeout(300);
+    await fastForward(p10, 421000); await p10.waitForTimeout(300);
     ok('7 minutes after the lock wipe the card and the kept scan', !(await p10.isVisible('#vaultModal')) && !(await p10.isVisible('#reopenScanBtn')) && !(await p10.isVisible('#cropReviewModal')) && (await p10.inputValue('#firstName')) === '');
     ok('kept scan: no page errors', errors10.length === 0, errors10.join(' | '));
     await ctx10.close();
