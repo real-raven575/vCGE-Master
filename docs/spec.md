@@ -1,6 +1,6 @@
 # vCard Generator Engine (vCGE): Architecture & Project Brief
 
-**Created by** raven575, with Gemini & Claude. Tagline: *Operation: Never Lose Contact*. Home: [vCGE.APP](https://vcge.app).
+**Created by** raven575, with Team vCGE (Claude), and Gemini for the first generation. Tagline: *Operation: Never Lose Contact*. Home: [vCGE.APP](https://vcge.app).
 
 ## 1. Core Goal & Privacy-First Design
 The vCard Generator Engine (vCGE) is a high-security, cross-platform digital business card processing system designed around zero-trust, offline-first, and privacy-focused principles. Its primary goal is to ingest physical or digital business cards, extract contact text locally via WebAssembly OCR, and generate interactive 3D business cards with scannable vCard QR codes without leaking sensitive information to external cloud servers.

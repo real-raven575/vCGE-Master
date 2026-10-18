@@ -145,7 +145,7 @@ vCGE-Master/
 
 ## 👥 Creators
 
-Created by [raven575](https://raven575.com), with Gemini & Claude. Home: [vCGE.APP](https://vcge.app).
+Created by [raven575](https://raven575.com), with Team vCGE (Claude), and Gemini for the first generation. Home: [vCGE.APP](https://vcge.app).
 
 ## 📄 License
 
