@@ -141,31 +141,19 @@ async function setPin(page, pin) {
 // Holds the green Yes of the hold-to-wipe dialog for `ms` (real time, or fake-clock time when `clock` is given).
 // A full hold (1.5 s or more) wipes and reloads the page: the call returns once the new page has loaded.
 async function holdYes(page, ms, clock = null) {
-  const t0 = Date.now(), took = [];   // diagnostic: how long each step took (temporary, for the WebKit runs)
-  const mark = (what) => took.push(`${what} ${Date.now() - t0}ms`);
   await page.evaluate(() => { window.__vcgeOldPage = true; });
   const box = await page.locator('#wipeYesBtn').boundingBox();
-  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down(); mark('down');
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.down();
   if (clock) await clock.runFor(ms);
   else if (ms < 1500) await page.waitForTimeout(ms);
   // A full hold: let go as soon as the dialog says the hold is complete (data-hold="done"), as a person does when the
   // sweep shows. Letting go later would race the page reload that follows the sweep (WebKit stalls on a mouse event
   // sent while the page is replaced). If the hold never completes the wait fails, so nothing is loosened.
   else await page.waitForFunction(() => document.getElementById('wipeDialog').dataset.hold === 'done', null, { timeout: ms + 1500 });
-  mark('held');
-  await page.mouse.up(); mark('up');
+  await page.mouse.up();
   if (ms < 1500) return;
   if (clock) await clock.runFor(600);
-  try {
-    await page.waitForFunction(() => !window.__vcgeOldPage, null, { timeout: 5000 });
-  } catch (e) {
-    const state = await page.evaluate(() => ({ url: location.href, ready: document.readyState, oldPage: !!window.__vcgeOldPage,
-      hold: document.getElementById('wipeDialog') && document.getElementById('wipeDialog').dataset.hold,
-      p: document.getElementById('wipeDialog') && document.getElementById('wipeDialog').style.getPropertyValue('--wipe-p') })).catch(err => String(err));
-    console.log('holdYes diag:', took.join(', '), JSON.stringify(state));
-    throw e;
-  }
-  mark('reloaded');
+  await page.waitForFunction(() => !window.__vcgeOldPage, null, { timeout: 5000 });
   await page.waitForLoadState('load');
 }
 
@@ -211,7 +199,6 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
   page.on('response', r => { if (r.status() >= 400) notFound.push(`${r.status()} ${r.url()}`); });
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
-  page.on('crash', () => console.log('diag: the page crashed at', new Date().toISOString()));   // temporary (WebKit runs)
   page.on('dialog', d => d.accept());
   const base = ORIGIN;
   const val = id => page.$eval('#' + id, el => el.value);
@@ -472,16 +459,6 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
   ok('colour-blind mode: Yes reads "Hold to wipe" and a fill bar shows', (await text('wipeYesText')) === 'Hold to wipe' && await visible('wipeHoldBar'));
   await page.click('#wipeNoBtn');
   await page.evaluate(() => { delete document.documentElement.dataset.cb; });
-  // VCGE_EXP is a temporary diagnostic for the WebKit page crash on the reload after the next full wipe (extra CI rows):
-  // "goto" loads the page afresh first, "jsreload" has the page reload itself first. Unset, the test runs as written.
-  const EXP = process.env.VCGE_EXP || '';
-  if (EXP === 'goto') { await page.goto(page.url()); await page.waitForTimeout(500); await page.fill('#firstName', nameBefore); await page.waitForTimeout(300); }
-  if (EXP === 'jsreload') {
-    await page.evaluate(() => { window.__vcgeOldPage = true; setTimeout(() => location.reload(), 50); });
-    await page.waitForFunction(() => !window.__vcgeOldPage, null, { timeout: 10000 }); await page.waitForLoadState('load');
-    console.log('diag: the page reloaded itself once more without crashing');
-    await page.waitForTimeout(500); await page.fill('#firstName', nameBefore); await page.waitForTimeout(300);
-  }
   await page.click('.deck-card.is-current .vcge-trash');
   await holdYes(page, 1700); await page.waitForTimeout(600);
   ok('holding Yes 1.5 s wipes everything and the page starts fresh', (await val('firstName')) === '' && !(await visible('reopenScanBtn')) && !(await visible('wipeDialog')) && !(await visible('vaultModal')) && (await text('vaultBadge')) === 'Vault: UNLOCKED');
@@ -1224,7 +1201,9 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     await pS.waitForSelector('#ocrProgress', { state: 'hidden', timeout: 10000 });
     ok('Cancel drops the photo from the Read card', !(await pS.getAttribute('#ocrReadPhoto', 'src')));
     await pS.waitForFunction(() => document.documentElement.dataset.card === 'capture', null, { timeout: 5000 }).catch(() => {});
-    ok('Cancel stops reading and goes back to the photo on the Capture card (Retake or OK again)', (await pS.evaluate(() => document.documentElement.dataset.card)) === 'capture' && await pS.isVisible('#captureReview') && !(await pS.isVisible('#cropReviewModal')) && await pS.isVisible('#retakePhotoBtn') && await pS.isVisible('#runOcrBtn') && !(await pS.isDisabled('#runOcrBtn')));
+    ok('Cancel stops reading and goes back to the photo on the Capture card (Retake or OK again)', (await pS.evaluate(() => document.documentElement.dataset.card)) === 'capture' && await pS.isVisible('#captureReview') && !(await pS.isVisible('#cropReviewModal')) && await pS.isVisible('#retakePhotoBtn') && await pS.isVisible('#runOcrBtn') && !(await pS.isDisabled('#runOcrBtn')),
+      JSON.stringify(await pS.evaluate(() => { const v = (id) => { const e = document.getElementById(id); return !!e && !!(e.offsetWidth || e.offsetHeight); };
+        return { card: document.documentElement.dataset.card, review: v('captureReview'), crop: v('cropReviewModal'), retake: v('retakePhotoBtn'), run: v('runOcrBtn'), runDisabled: document.getElementById('runOcrBtn').disabled, progress: v('ocrProgress') }; })));
     await pS.click('#runOcrBtn');
     await pS.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
     ok('after Cancel, Extract reads the photo with a fresh reader', (await pS.$$('#ocrLines select')).length >= 8);

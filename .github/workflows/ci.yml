@@ -61,19 +61,18 @@ jobs:
       matrix:
         include:
           - { name: Firefox, browser: firefox, install: firefox }
-          - { name: WebKit, browser: webkit, install: webkit, debug: 'pw:browser' }
-          # temporary diagnostic rows for the WebKit page crash (removed with VCGE_EXP once the cause is known)
-          - { name: WebKit exp goto, browser: webkit, install: webkit, debug: 'pw:browser', exp: goto }
-          - { name: WebKit exp jsreload, browser: webkit, install: webkit, debug: 'pw:browser', exp: jsreload }
+          - { name: WebKit, browser: webkit, install: webkit }
+          # temporary: short engine probes (tests/engine-probe.cjs) for the WebKit reload crash and Firefox's camera checks
+          - { name: WebKit probe, browser: webkit, install: webkit, debug: 'pw:browser', probe: true }
+          - { name: Firefox probe, browser: firefox, install: firefox, probe: true }
           - { name: Google Chrome, browser: chrome, install: chrome }
           - { name: Microsoft Edge, browser: msedge, install: msedge }
-          - { name: iPhone, browser: webkit, install: webkit, device: iPhone 15, debug: 'pw:browser' }
+          - { name: iPhone, browser: webkit, install: webkit, device: iPhone 15 }
           - { name: Android phone, browser: chromium, install: chromium, device: Galaxy S24 }
     env:
       VCGE_BROWSER: ${{ matrix.browser }}
       VCGE_DEVICE: ${{ matrix.device }}
-      VCGE_EXP: ${{ matrix.exp }}
-      DEBUG: ${{ matrix.debug }}   # temporary: prints the browser's own stderr to see why WebKit's page crashes
+      DEBUG: ${{ matrix.debug }}   # temporary: prints the browser's own stderr (WebKit probe)
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -85,10 +84,16 @@ jobs:
       - name: Install ${{ matrix.name }} for Playwright
         run: npx playwright install --with-deps ${{ matrix.install }}
 
+      - name: Engine probe (temporary)
+        if: ${{ matrix.probe }}
+        run: node tests/engine-probe.cjs
+
       - name: Browser e2e (source)
+        if: ${{ !matrix.probe }}
         run: npm run test:e2e
 
       - name: Browser e2e (Vite build)
+        if: ${{ !matrix.probe }}
         run: |
           npm run build
           SERVE_DIR=dist npm run test:e2e
