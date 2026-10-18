@@ -4,7 +4,7 @@
  *
  * One horizontal track of cards, one card per step: Welcome, Capture (MOD03), Read (MOD04), Fields (MOD05),
  * 3D Card (MOD06, with the QR on its back, MOD07) and Share (MOD08). The track is a native scroll container that
- * settles on a card once scrolling stops, so a swipe, a trackpad, the arrow keys or a header icon all move it. Only the card in view is
+ * settles on a card once scrolling stops (a swipe: as the finger lifts), so a swipe, a trackpad, the arrow keys or a header icon all move it. Only the card in view is
  * interactive: the others are hidden from screen readers and a tap on one brings it into view instead.
  *
  * Hooks for the other modules (set by main.js with `use`, never by importing another module here):
@@ -67,6 +67,7 @@ function stopTween() {
     if (tween) cancelAnimationFrame(tween);
     clearTimeout(tweenWatch);
     tween = tweenWatch = null;
+    if (track) track.style.overflowX = '';      // a fling stopped at the finger's lift (below) scrolls again
 }
 function tweenTo(left) {
     goTarget = left;
@@ -207,7 +208,10 @@ export function initDeck() {
     // mouse button is down (a press would land on the wrong spot, and a finger that pauses mid-swipe would have the deck
     // pulled out from under it): that settle waits for the release. A finger is counted by its touch events, because a
     // browser that takes a touch over for scrolling cancels its pointer events while the finger is still down.
-    let pointerHeld = false, touchesDown = 0, holdTimer = null;
+    // A finger that moved the deck settles it the moment it lifts: the fling it leaves behind is stopped and the deck
+    // eases to its card at once, instead of coasting first and settling only when the fling runs out (on the iPad a
+    // fling kept the deck sliding for a beat, then it turned back to the card).
+    let pointerHeld = false, touchesDown = 0, holdTimer = null, swiped = false;
     const held = () => pointerHeld || touchesDown > 0;
     const settle = () => {
         if (held()) { settlePending = true; track.dataset.deck = 'held'; return; }
@@ -233,13 +237,22 @@ export function initDeck() {
         if (goTarget !== null && Math.abs(track.scrollLeft - goTarget) <= 2) { settledLeft = goTarget; goTarget = null; }
         track.dataset.deck = 'moving';      // read by the tests: moving, held (a press is down) or still
         if (held()) armHold();              // a finger still moving the deck is not a hold
+        if (touchesDown > 0) swiped = true;
         clearTimeout(settleTimer); settleTimer = setTimeout(settle, 80);
     };
     const release = () => {
         if (touchesDown > 0) return;        // a finger is still down (its pointer was only cancelled for scrolling)
         clearTimeout(holdTimer); pointerHeld = false;
-        if (settlePending) { settlePending = false; settle(); }
+        const lift = swiped; swiped = false;
+        if (settlePending || lift) { settlePending = false; clearTimeout(settleTimer); settle(); }
+        if (lift) stopFling();
     };
+    // The fling stops when the track briefly cannot be scrolled by the user. The deck's own move still runs (it sets
+    // scrollLeft) and puts the track back when it ends or a finger takes over; with no move to run, it is back next frame.
+    function stopFling() {
+        track.style.overflowX = 'hidden';
+        requestAnimationFrame(() => { if (!tween) track.style.overflowX = ''; });
+    }
     // A press still down a second and a half after the deck last moved is a hold, not a swipe: the deck settles anyway
     // (and a webview that never reports the release cannot keep the deck from settling).
     function armHold() { clearTimeout(holdTimer); holdTimer = setTimeout(() => { touchesDown = 0; release(); }, 1500); }

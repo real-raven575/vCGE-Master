@@ -2332,7 +2332,40 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       ok('swipe: a short swipe goes on to the next card', (await deckState()).card === 'capture', JSON.stringify(await deckState()));
       await touch(1000, 20);
       ok('swipe: a long fling still stops at the next card, not two on', (await deckState()).card === 'read', JSON.stringify(await deckState()));
-    } else notRunHere('swipe: the deck under a finger (5 checks)', cdp ? 'real Chrome and Edge on a desktop turn a sent touch into the back-swipe, not a scroll' : 'touch is sent through the Chrome DevTools Protocol, which only Chromium has');
+      // raven575 (2026-10-18): on the iPad a fling kept the deck sliding past the card, then it turned back. The deck now
+      // settles as the finger lifts and stops the fling. The sent finger above cannot fling the way Safari does, so this
+      // one plays it out on the page: touch events, the finger's scroll, then a fling that coasts on after the lift
+      // (well past the next card) unless the track is made unscrollable, as Safari's fling is.
+      await pV.click('#navWelcome'); await pV.waitForTimeout(700);
+      const fling = await pV.evaluate(() => new Promise(done => {
+        const t = document.getElementById('deck'), at = (x) => [new Touch({ identifier: 1, target: t, clientX: x, clientY: 900 })];
+        const send = (type, touches) => t.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true, touches, targetTouches: touches, changedTouches: at(500) }));
+        const xs = [];
+        t.addEventListener('scroll', () => xs.push(t.scrollLeft), { passive: true });
+        send('touchstart', at(700));
+        let i = 0;
+        const drag = () => {
+          if (++i <= 12) { t.scrollLeft += 16; send('touchmove', at(700 - 16 * i)); requestAnimationFrame(drag); return; }
+          send('touchend', []);
+          const lifted = document.documentElement.dataset.card;
+          let v = 40, stopped = false, n = 0;
+          const coast = () => {
+            if (t.style.overflowX === 'hidden') stopped = true;
+            if (!stopped && n < 60) t.scrollLeft += v;
+            v *= 0.95;
+            if (++n < 90) requestAnimationFrame(coast);
+            else done({ lifted, xs });
+          };
+          requestAnimationFrame(coast);
+        };
+        requestAnimationFrame(drag);
+      }));
+      await deckSettled(pV); await pV.waitForTimeout(150);
+      const flung = await deckState(), from = fling.xs.indexOf(Math.max(...fling.xs));
+      const turnedBack = fling.xs.slice(from + 1).some(x => x < Math.max(...fling.xs) - 2);
+      ok('swipe: a fling stops as the finger lifts and the deck eases on to the next card, never sliding past it and turning back',
+        fling.lifted === 'capture' && flung.card === 'capture' && !turnedBack, JSON.stringify({ lifted: fling.lifted, flung, turnedBack, peak: Math.max(...fling.xs) }));
+    } else notRunHere('swipe: the deck under a finger (6 checks)', cdp ? 'real Chrome and Edge on a desktop turn a sent touch into the back-swipe, not a scroll' : 'touch is sent through the Chrome DevTools Protocol, which only Chromium has');
 
     // The 3D card's two header icons: only the one for the side that is up is lit, and Flipside turns it back
     // Each waits up to 3 s for its icon to light (a fixed 800 ms wait flaked under load), then checks the same thing
