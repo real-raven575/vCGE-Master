@@ -286,7 +286,13 @@ function fitHeader() {
     const fit = () => {
         queued = false;
         header.classList.remove('is-compact');
-        const spills = nav.scrollWidth > nav.clientWidth + 0.5 || buttons.some(b => b.scrollWidth > b.clientWidth + 0.5);
+        // Measured by where the buttons are, not only by scrollWidth: in WebKit (Safari, iPad) a mirrored nav (left hand,
+        // row-reverse) spills to its left, and scrollWidth does not count overflow on that side.
+        const box = nav.getBoundingClientRect();
+        const spills = nav.scrollWidth > nav.clientWidth + 0.5 || buttons.some(b => {
+            const r = b.getBoundingClientRect();
+            return b.scrollWidth > b.clientWidth + 0.5 || r.left < box.left - 0.5 || r.right > box.right + 0.5;
+        });
         header.classList.toggle('is-compact', spills);
     };
     const refit = () => { if (!queued) { queued = true; requestAnimationFrame(fit); } };

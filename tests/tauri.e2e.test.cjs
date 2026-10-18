@@ -276,6 +276,20 @@ async function stopDriver(driver) {
     ok('desktop: Larger text grows the text by a quarter, the header and its icons keep their size', Math.abs(sizeLarger.root / sizeNormal.root - 1.25) < 0.01 && Math.abs(sizeLarger.note / sizeNormal.note - 1.25) < 0.03
       && Math.abs(sizeLarger.header - sizeNormal.header) < 0.6 && Math.abs(sizeLarger.icon - sizeNormal.icon) < 0.6, JSON.stringify([sizeNormal, sizeLarger]));
     await pickSize('0'); await js(`localStorage.removeItem('vcge_settings');`);
+
+    // Left hand at tablet width in the system webview (WebKit, as on the iPad): the mirrored nav spills to its left,
+    // where WebKit's scrollWidth does not look, so the header kept the names, squeezed (raven575, 2026-10-18).
+    const navFit = () => js(`const h = document.querySelector('.deck-header'), box = h.querySelector('.deck-nav').getBoundingClientRect();
+      const out = Array.from(h.querySelectorAll('.deck-nav button')).filter(b => { const r = b.getBoundingClientRect(); return r.left < box.left - 0.5 || r.right > box.right + 0.5; }).map(b => b.id);
+      return { hand: document.documentElement.dataset.hand, compact: h.classList.contains('is-compact'), names: getComputedStyle(document.querySelector('#navCapture span')).display !== 'none', out };`);
+    const winRect = await wd('GET', S('/window/rect'));
+    await wd('POST', S('/window/rect'), { width: 820, height: winRect.height });
+    await until(async () => (await js('return innerWidth;')) <= 820, 5000);
+    await js(`document.getElementById('handLeftBtn').click();`);
+    const leftFits = await until(async () => { const f = await navFit(); return f.hand === 'left' && f.compact && !f.names && f.out.length === 0; }, 5000);
+    ok('desktop: left hand at tablet width shows icons only, like right hand, every button inside the header', leftFits, JSON.stringify(await navFit()));
+    await js(`document.getElementById('handRightBtn').click(); localStorage.removeItem('vcge_settings');`);
+    await wd('POST', S('/window/rect'), { width: winRect.width, height: winRect.height });
   } finally {
     await wd('DELETE', S('')).catch(() => {});
     await stopDriver(driver);

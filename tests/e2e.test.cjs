@@ -2149,7 +2149,7 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
       const boxes = Array.from(h.querySelectorAll('button')).filter(b => b.offsetParent).map(b => {
         const r = b.getBoundingClientRect(), inNav = !!b.closest('.deck-nav');
         return { id: b.id, l: inNav ? Math.max(r.left, nav.left) : r.left, r: inNav ? Math.min(r.right, nav.right) : r.right, spill: b.scrollWidth > b.clientWidth + 0.5 };
-      }).filter(b => b.r > b.l);
+      }).filter(b => b.r > b.l).sort((a, b) => a.l - b.l);   // in screen order: left hand mirrors the header
       const overlaps = boxes.slice(1).filter((b, i) => b.l < boxes[i].r - 0.5).map(b => b.id);
       done({ compact: h.classList.contains('is-compact'), names: getComputedStyle(h.querySelector('#navCapture span')).display !== 'none', overlaps, spills: boxes.filter(b => b.spill).map(b => b.id), wide: document.documentElement.scrollWidth > innerWidth });
     }))));
@@ -2160,6 +2160,15 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     await pV.setViewportSize({ width: 1024, height: 1366 });
     const port = await header();
     ok('header (iPad portrait, Lock button showing): icons only, nothing overlapping (video #16)', await pV.isVisible('#lockVaultBtn') && port.compact && !port.names && port.overlaps.length === 0 && port.spills.length === 0 && !port.wide, JSON.stringify(port));
+    // Left hand mirrors the header (row-reverse), so the nav spills to its left; it must drop to icons only exactly like
+    // right hand (raven575, 2026-10-18: on the iPad the names came back, squeezed). Every button stays inside the nav.
+    const inNav = () => pV.evaluate(() => { const box = document.querySelector('.deck-nav').getBoundingClientRect();
+      return Array.from(document.querySelectorAll('.deck-nav button')).filter(b => { const r = b.getBoundingClientRect(); return r.left < box.left - 0.5 || r.right > box.right + 0.5; }).map(b => b.id); });
+    await pV.evaluate(() => document.getElementById('handLeftBtn').click());
+    const portLeft = await header(), outLeft = await inNav();
+    ok('header (iPad portrait, left hand): icons only like right hand, every button inside the header', await pV.evaluate(() => document.documentElement.dataset.hand) === 'left'
+      && portLeft.compact && !portLeft.names && portLeft.overlaps.length === 0 && outLeft.length === 0 && !portLeft.wide, JSON.stringify({ portLeft, outLeft }));
+    await pV.evaluate(() => document.getElementById('handRightBtn').click());
     for (const w of [900, 390, 360]) {
       await pV.setViewportSize({ width: w, height: 800 });
       const hw = await header();
