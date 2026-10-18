@@ -1361,18 +1361,23 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
       return { h: Math.round(r.height), sheet: Math.round(document.getElementById('printSheet').getBoundingClientRect().height), cut };
     });
     await p9.emulateMedia({ media: null });
-    const tallPdf = (await p9.pdf({ preferCSSPageSize: true, printBackground: true })).toString('latin1');
-    const tallPages = (tallPdf.match(/\/Type\s*\/Page[^s]/g) || []).length;
-    const tallBox = /\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\s*\]/.exec(tallPdf);
-    // The page is as tall as the card needs (sheet plus 0.3 in margins), and exactly what the controller set
+    // The page is as tall as the card needs (sheet plus 0.3 in margins): the controller sets it in every browser
     const setIn = await p9.evaluate(() => Number((/size:\s*6in\s+([\d.]+)in/.exec(document.adoptedStyleSheets.map(sh => [...sh.cssRules].map(r => r.cssText).join(' ')).join(' ')) || [])[1]));
-    const boxIn = tallBox ? Number(tallBox[2]) / 72 : 0;
-    ok('a tall card grows (nothing cut) and the page grows to fit it: one 6 in wide page', tall.h > 192 && tall.cut.length === 0 && tallPages === 1 && tallBox && tallBox[1] === '432'
-      && boxIn >= tall.sheet / 96 + 0.6 - 0.01 && Math.abs(boxIn - setIn) < 0.01, `${JSON.stringify(tall)} ${tallPages} pages, box ${tallBox && tallBox.slice(1)}, set ${setIn} in`);
+    ok('a tall card grows (nothing cut) and the page is set tall enough to hold it', tall.h > 192 && tall.cut.length === 0 && setIn >= tall.sheet / 96 + 0.6 - 0.01, `${JSON.stringify(tall)} set ${setIn} in`);
+    if (ENGINE !== 'chromium') notRunHere('the tall card prints as one taller page, then a normal card on 6 x 3.5 in again', 'saving a page as PDF exists only in Chromium');
+    else {
+      const tallPdf = (await p9.pdf({ preferCSSPageSize: true, printBackground: true })).toString('latin1');
+      const tallPages = (tallPdf.match(/\/Type\s*\/Page[^s]/g) || []).length;
+      const tallBox = /\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\s*\]/.exec(tallPdf);
+      const boxIn = tallBox ? Number(tallBox[2]) / 72 : 0;
+      ok('the tall card prints as one 6 in wide page of the height the controller set', tallPages === 1 && tallBox && tallBox[1] === '432' && Math.abs(boxIn - setIn) < 0.01, `${tallPages} pages, box ${tallBox && tallBox.slice(1)}, set ${setIn} in`);
+    }
     await p9.evaluate(() => { document.documentElement.style.fontSize = ''; });
     await p9.click('#printCardBtn'); await p9.click('#printBwBtn');
-    const backPdf = (await p9.pdf({ preferCSSPageSize: true, printBackground: true })).toString('latin1');
-    ok('a normal card prints on the 6 x 3.5 in page again', (/\/MediaBox\s*\[\s*0\s+0\s+(\d+)\s+(\d+)/.exec(backPdf) || []).slice(1).join() === '432,252');
+    if (ENGINE === 'chromium') {
+      const backPdf = (await p9.pdf({ preferCSSPageSize: true, printBackground: true })).toString('latin1');
+      ok('a normal card prints on the 6 x 3.5 in page again', (/\/MediaBox\s*\[\s*0\s+0\s+(\d+)\s+(\d+)/.exec(backPdf) || []).slice(1).join() === '432,252');
+    }
     // PDF name (raven575 2026-10-18): opt-in each print. Unticked, the title (and so the PDF name) stays the app's;
     // ticked, the title is the contact's file name only until printing ends or the next tap
     const appTitle = await p9.title();
