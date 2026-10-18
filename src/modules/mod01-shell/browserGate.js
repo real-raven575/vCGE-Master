@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD01: browser gate
- * Created by raven575, Gemini & Claude
+ * Created by raven575, Team vCGE (Claude) & Gemini
  *
  * A classic script loaded by index.html right after netLock.js, before every other script. It only checks features:
  * nothing is sent, stored or fetched. It is written in ES5 so that even very old browsers (Internet Explorer 11)

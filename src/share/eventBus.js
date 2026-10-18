@@ -1,7 +1,7 @@
 /**
  * vCGE (vCard Generator Engine) - Pub/Sub Event Broker (`eventBus.js`)
  * Project Overseer Authorized Production Build
- * Attributions: Created by raven575, Gemini & Claude
+ * Attributions: Created by raven575, Team vCGE (Claude) & Gemini
  */
 
 export class EventBus {

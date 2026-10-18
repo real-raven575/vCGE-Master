@@ -1,7 +1,7 @@
 /**
  * vCGE (vCard Generator Engine) - Main Export Barrel (`index.js`)
  * Project Overseer Authorized Production Build
- * Attributions: Created by raven575, Gemini & Claude
+ * Attributions: Created by raven575, Team vCGE (Claude) & Gemini
  */
 
 export { globalEventBus, EventBus, Events } from './eventBus.js';

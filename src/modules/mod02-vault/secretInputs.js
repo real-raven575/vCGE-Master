@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD02: secret inputs (session PIN boxes)
- * Created by raven575, Gemini & Claude
+ * Created by raven575, Team vCGE (Claude) & Gemini
  *
  * Browsers offer to save anything typed into a password field, and Chrome ignores autocomplete="off" there.
  * Where the browser can mask a plain text field (CSS text-security), the PIN boxes become masked text

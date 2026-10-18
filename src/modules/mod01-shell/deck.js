@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD01: Postcard deck, header and the sheets that open over it (redesign step 2)
- * Created by raven575, Gemini & Claude
+ * Created by raven575, Team vCGE (Claude) & Gemini
  *
  * One horizontal track of cards, one card per step: Welcome, Capture (MOD03), Read (MOD04), Fields (MOD05),
  * 3D Card (MOD06, with the QR on its back, MOD07) and Share (MOD08). The track is a native scroll container that

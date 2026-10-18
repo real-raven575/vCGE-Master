@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD01: Welcome card, "Take a Tour" and the Thank You page
- * Created by raven575, Gemini & Claude
+ * Created by raven575, Team vCGE (Claude) & Gemini
  *
  * The first card of the deck, every time vCGE opens: Set Up PIN/BIO Lock Now, START (the big one), Take a Tour,
  * CANCEL, and a small "Play with sample fields" link. Nothing is stored (no "seen it" flag anywhere), so it greets

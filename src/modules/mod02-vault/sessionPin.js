@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD02: session PIN (quick unlock after a lock)
- * Created by raven575, Gemini & Claude
+ * Created by raven575, Team vCGE (Claude) & Gemini
  *
  * A 4-digit PIN chosen for this session only. With a PIN set, the screen turning off (the page going out of view) or
  * 2 minutes without activity hide the card and hold it in the temporary vault (memory only), and the PIN brings it

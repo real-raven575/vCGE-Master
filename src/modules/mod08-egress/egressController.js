@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD08: Export ("Airlock") controller (egressController.js)
- * Created by raven575, Gemini & Claude
+ * Created by raven575, Team vCGE (Claude) & Gemini
  *
  * The one hatch out. Every outbound action starts with a button press on the Share card: the .vcf file, the share sheet,
  * Copy, the QR PNG (styled in the Export QR pop-up, exportDialogs.js), Print / PDF (the 6 x 3.5 in sheet, print.css),

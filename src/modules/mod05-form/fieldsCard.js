@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD05 Fields card (redesign step 7)
- * Created by raven575, Gemini & Claude
+ * Created by raven575, Team vCGE (Claude) & Gemini
  *
  * The card where the details land after the Read card's hand-off: the form, the "Sample vCGE pilot contact" list (the
  * nine pilots, each with their animal; MOD06 supplies them as data), the phone style (how US and Canadian numbers are

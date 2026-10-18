@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD01: saved settings (redesign step 4)
- * Created by raven575, Gemini & Claude
+ * Created by raven575, Team vCGE (Claude) & Gemini
  *
  * The one thing vCGE keeps on the device: a single localStorage entry of preferences and nothing else (raven575,
  * 2026-10-17). One line of `name=number` pairs, for example `hand=0;cb=0;theme=0;font=0;size=0;wipe=0`. Missing or unreadable

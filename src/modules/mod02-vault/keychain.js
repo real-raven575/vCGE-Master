@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD02: OS keychain clean-up
- * Created by raven575, Gemini & Claude
+ * Created by raven575, Team vCGE (Claude) & Gemini
  *
  * Desktop builds before the memory-only vault kept a random device key in the OS credential store
  * (src-tauri/src/lib.rs) to bind the saved vault to the device. Nothing is saved now, so the key is only deleted:

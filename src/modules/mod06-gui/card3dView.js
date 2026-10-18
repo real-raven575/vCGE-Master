@@ -1,6 +1,6 @@
 /**
  * vCard Generator Engine (vCGE) - vCGE-MOD06 3D Card ("Flipside")
- * Created by raven575, Gemini & Claude
+ * Created by raven575, Team vCGE (Claude) & Gemini
  *
  * Owns the contact form, the card (3D spin, fall palettes, typography, logo) and the toasts.
  * Holds contact data in memory only; persistence is the vault's job (wired in src/main.js).

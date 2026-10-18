@@ -1,6 +1,6 @@
 /**
  * vCard Generator Engine (vCGE)
- * Copyright (c) 2026 raven575, Gemini & Claude
+ * Copyright (c) 2026 raven575, Team vCGE (Claude) & Gemini
  *
  * Repository: https://github.com/real-raven575/vCGE-Master
  * This source code is licensed under the MIT License found in the

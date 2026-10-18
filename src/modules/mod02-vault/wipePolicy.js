@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD02: wipe policy (when the vault store is locked or wiped)
- * Created by raven575, Gemini & Claude
+ * Created by raven575, Team vCGE (Claude) & Gemini
  *
  * The rules that today live in main.js, owned by the vault instead:
  *   - 2 minutes without activity: lock behind the session PIN if one is set, else wipe.
