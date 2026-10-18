@@ -27,12 +27,20 @@ export function holdProgress(startedAt, now, holdMs = HOLD_MS) {
 
 const colourBlind = () => typeof document !== 'undefined' && document.documentElement.dataset.cb === '1';
 
+// Starts the page fresh after a wipe by loading the same address in place of the current history entry. A plain
+// location.reload() of the Back guard's entry hangs WebKit (Safari's engine) on the second wipe: a probe on
+// Playwright's WebKit, desktop and iPhone 15, hung in round 2 with location.reload, while location.replace ran three
+// rounds and kept the guard entry (2026-10-18). The address without its #part, so a hash cannot turn it into a scroll.
+export function startFresh() {
+    location.replace(location.href.split('#')[0]);
+}
+
 export class WipeDialog {
     /**
      * @param {{ onWipe: (opts: { deleteSettings: boolean }) => void, onCancel?: () => void, reload?: () => void,
      *           now?: () => number, isColourBlind?: () => boolean }} opts
      */
-    constructor({ onWipe, onCancel = () => {}, reload = () => location.reload(), now = () => performance.now(), isColourBlind = colourBlind }) {
+    constructor({ onWipe, onCancel = () => {}, reload = startFresh, now = () => performance.now(), isColourBlind = colourBlind }) {
         this.onWipe = onWipe; this.onCancel = onCancel; this.reload = reload; this.now = now; this.isColourBlind = isColourBlind;
         this.root = null; this.startedAt = 0; this.raf = 0; this.done = false; this.settingsConfirmed = false; this.opener = null;
     }
