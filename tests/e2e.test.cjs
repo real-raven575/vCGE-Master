@@ -1200,6 +1200,15 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     ok('fields: Reddit is offered as a website type', (await pF.$$eval(`#websiteType${lastSite} option`, os => os.map(o => o.textContent))).includes('Reddit'));
     await pF.fill(`#websiteValue${lastSite}`, 'https://www.facebook.com/profile.php?id=100012345'); await pF.press(`#websiteValue${lastSite}`, 'Tab');
     ok('fields: a pasted Facebook profile link is typed Facebook', (await pF.inputValue(`#websiteType${lastSite}`)) === 'facebook');
+    // Categories box (raven575, 2026-10-18): typed by the person, carried in the .vcf and the QR, wiped with the card
+    await pF.fill('#categories', 'Client, Plumber, client');
+    await pF.waitForTimeout(200);
+    const catVcf = process.env.SERVE_DIR ? '' : await pF.evaluate(async () => (await import('/src/modules/mod08-egress/egressController.js')).egressController.currentVCard);
+    const catQr = await decodeQr(pF);
+    ok('fields: there is a Categories box under Notes with a hint', await pF.isVisible('#categories') && (await pF.textContent('#categoriesHint')).includes('commas'));
+    ok('fields: the categories go into the .vcf and the QR as one CATEGORIES line, repeats dropped', /CATEGORIES:Client,Plumber\r?\n/.test(catQr || '') && (process.env.SERVE_DIR || /CATEGORIES:Client,Plumber\r\n/.test(catVcf)), String(catQr).slice(-160));
+    await pF.click('#clearFormBtn');
+    ok('fields: Clear form empties the Categories box', (await pF.inputValue('#categories')) === '');
     ok('fields: no page errors', errorsF.length === 0, errorsF.join(' | '));
     await ctxF.close();
   }
@@ -1799,6 +1808,11 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
   // system or engine outside the app is weak
   {
     ok('a current browser gets no gate banner', !(await page.$('#browserGateBanner')));
+    // The page has no script tag for the app (so the browser cannot fetch it ahead of the checks); the gate added it
+    const served = await (await page.request.get(base)).text();
+    const appTags = await page.$$eval('script[type="module"]', els => els.map(el => el.getAttribute('src')));
+    ok('gate: the page has no script tag for the app; the gate loaded it once, after its checks', !/<script[^>]*type="module"/.test(served) && !/<script[^>]*(?:main\.js|assets\/index-)/.test(served)
+      && appTags.length === 1 && (process.env.SERVE_DIR ? /^\.\/assets\/index-[\w-]+\.js$/ : /^src\/main\.js$/).test(appTags[0]), appTags.join(' '));
     const blocked = async (setup, reason) => {
       const ctxG = await browser.newContext();
       const pG = await ctxG.newPage();
@@ -1823,8 +1837,7 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
       ctxG.route((u) => isMain(u.href), (r) => r.fulfill({ contentType: 'text/javascript', body: "window.name = 'vcge-main-ran';" }))]), 'wasm');
     ok('gate: no WebAssembly opens the "cannot run" page with the reason listed', noWasm.shown && noWasm.reasons.includes('wasm'), noWasm.url);
     ok('gate: blocked app never starts (main.js never runs)', noWasm.ranMain === false, String(noWasm.ranMain));
-    if (ENGINE === 'firefox') notRunHere('gate: blocked app never starts (main.js not even requested)', "Firefox's look-ahead parser downloads the page's later scripts before the gate turns the page away; it never runs them, checked above");
-    else ok('gate: blocked app never starts (main.js not even requested)', !noWasm.requested.some(isMain), noWasm.requested.filter(u => u.endsWith('.js')).join(' '));
+    ok('gate: blocked app never starts (main.js not even requested)', !noWasm.requested.some(u => /\/src\/main\.js|\/assets\/index-[\w-]+\.js/.test(u)), noWasm.requested.filter(u => u.endsWith('.js')).join(' '));
     ok('gate: free & open source browsers are listed first (Firefox, Firefox ESR, Brave)', noWasm.links.slice(0, 3).map(l => new URL(l.href).hostname).join() === 'www.firefox.com,support.mozilla.org,brave.com', noWasm.links.map(l => l.href).join(' '));
     ok('gate: links open in a new tab with no opener, no referrer and no query data', noWasm.links.length === 6 && noWasm.links.every(l => l.target === '_blank' && /noopener/.test(l.rel) && /noreferrer/.test(l.rel) && !new URL(l.href).search && !new URL(l.href).hash));
     ok('gate: the "cannot run" page makes no outside request and draws without errors', noWasm.external.length === 0 && noWasm.pageErrors.length === 0, noWasm.external.concat(noWasm.pageErrors).join(' | '));

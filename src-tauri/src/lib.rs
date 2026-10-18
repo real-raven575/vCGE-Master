@@ -1,5 +1,5 @@
 //! vCGE desktop shell (Tauri v2).
-//! Created by raven575, Gemini & Claude.
+//! Created by raven575, Team vCGE (Claude) & Gemini.
 //!
 //! The vault is memory only, so nothing is kept in the OS credential store. Builds before that bound the saved
 //! vault to a random device key in the macOS Keychain, Windows Credential Manager or Linux Secret Service; the web

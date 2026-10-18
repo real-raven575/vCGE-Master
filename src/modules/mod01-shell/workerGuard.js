@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD01: network lock for the OCR worker
- * Created by raven575, Gemini & Claude
+ * Created by raven575, Team vCGE (Claude) & Gemini
  *
  * A worker has its own fetch and XMLHttpRequest, which the page's interceptor (shell.js) cannot reach, and on a web
  * server the page's CSP meta tag does not apply inside it either. MOD04 starts Tesseract through this classic worker

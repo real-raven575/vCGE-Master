@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD01: network lock for the page
- * Created by raven575, Gemini & Claude
+ * Created by raven575, Team vCGE (Claude) & Gemini
  *
  * A classic script loaded by index.html at the top of <head>, so it runs before the bundled libraries and every module
  * (module scripts are deferred). Sub-modules may not reach any non-local host: same-origin requests (local assets) are

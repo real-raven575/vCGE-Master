@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD01: shared look and touch behaviour (redesign step 1)
- * Created by raven575, Gemini & Claude
+ * Created by raven575, Team vCGE (Claude) & Gemini
  *
  * Size breakpoints for the three layouts, and the near-miss guard for buttons: a finger tap that lands on the outer
  * edge of a button (the outer 4 px) is ignored, so a tap meant for its neighbour does not press it. Mouse, pen and

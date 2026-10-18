@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD01: browser gate
- * Created by raven575, Gemini & Claude
+ * Created by raven575, Team vCGE (Claude) & Gemini
  *
  * A classic script loaded by index.html right after netLock.js, before every other script. It only checks features:
  * nothing is sent, stored or fetched. It is written in ES5 so that even very old browsers (Internet Explorer 11)
@@ -8,6 +8,8 @@
  *
  * Block: when a protection vCGE relies on is missing, the app never starts and the "cannot run in this browser" page
  * opens (unsupported/index.html, with the reasons after the '#', which never leaves the device).
+ * Start: only when nothing blocks does the gate load the app (src/main.js) itself, once the page has been read. The
+ * page has no script tag for it, so the browser cannot fetch it ahead of the checks (decision: raven575, 2026-10-18).
  * Warn: when vCGE's own protections hold but something outside the app is weak (an out-of-support system or browser
  * engine) or a feature is missing (camera, 3D flip), the app runs and a banner says so.
  * Decision: raven575, 2026-10-15 (see /mnt/project-files/notes/legacy-browser-support.md).
@@ -15,6 +17,8 @@
 (function () {
     'use strict';
     var UNSUPPORTED_PAGE = 'src/modules/mod01-shell/unsupported/index.html';
+    // The app's entry: src/main.js in the source; the Vite build names its bundle in <meta name="vcge-app">.
+    var APP_ENTRY = 'src/main.js';
 
     // Returns the codes of missing protections. `env` is the window (or a test double).
     function blockReasons(env) {
@@ -96,6 +100,27 @@
         doc.body.insertBefore(banner, doc.body.firstChild);
     }
 
+    // Returns the URL of the app's code: the build's bundle when the page names one, else the source entry.
+    function appEntry(doc) {
+        var meta = doc.querySelector ? doc.querySelector('meta[name="vcge-app"]') : null;
+        return (meta && meta.getAttribute('content')) || APP_ENTRY;
+    }
+
+    // Loads the app as an ES module after the page has been read (as the old deferred module tag did), never once
+    // the "cannot run" page is opening.
+    function startApp(env) {
+        var doc = env.document;
+        function load() {
+            if (env.__vcgeGateBlocked) return;
+            var script = doc.createElement('script');
+            script.type = 'module';
+            script.src = appEntry(doc);
+            doc.body.appendChild(script);
+        }
+        if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', load);
+        else load();
+    }
+
     function run(env) {
         var blocked = blockReasons(env);
         if (blocked.length) { showUnsupported(env, blocked); return; }
@@ -108,6 +133,7 @@
         }
         env.addEventListener('error', onError, true);
         env.addEventListener('load', function () { env.removeEventListener('error', onError, true); });
+        startApp(env);
         var warn = warnReasons(env);
         if (!warn.length) return;
         if (env.document.readyState === 'loading') env.document.addEventListener('DOMContentLoaded', function () { showBanner(env, warn); });
@@ -115,7 +141,8 @@
     }
 
     if (typeof module === 'object' && module.exports) {
-        module.exports = { blockReasons: blockReasons, warnReasons: warnReasons, WARNINGS: WARNINGS, UNSUPPORTED_PAGE: UNSUPPORTED_PAGE };
+        module.exports = { blockReasons: blockReasons, warnReasons: warnReasons, WARNINGS: WARNINGS, UNSUPPORTED_PAGE: UNSUPPORTED_PAGE,
+            APP_ENTRY: APP_ENTRY, appEntry: appEntry, startApp: startApp };
     } else {
         run(window);
     }

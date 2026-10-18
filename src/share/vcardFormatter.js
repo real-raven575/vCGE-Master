@@ -1,7 +1,7 @@
 /**
  * vCGE (vCard Generator Engine) - vCard 3.0 / 4.0 Formatter (`vcardFormatter.js`)
  * Project Overseer Authorized Production Build
- * Attributions: Created by raven575, Gemini & Claude
+ * Attributions: Created by raven575, Team vCGE (Claude) & Gemini
  */
 
 // RFC 2426 §4: escape backslash, comma, semicolon and newlines in text values.
@@ -22,6 +22,17 @@ const EMAIL_TYPES = { work: 'INTERNET,WORK', personal: 'INTERNET,HOME', other: '
 const URL_TYPES = { work: 'WORK', personal: 'HOME' };
 // Social profiles: X-SOCIALPROFILE (read by Apple Contacts) plus a plain URL line (kept by Google Contacts and others).
 const SOCIAL_TYPES = { linkedin: 'linkedin', x: 'twitter', facebook: 'facebook', instagram: 'instagram', github: 'github', youtube: 'youtube', tiktok: 'tiktok', reddit: 'reddit' };
+
+/** "Client, Plumber,, client" -> ['Client', 'Plumber']: trimmed, empty and repeated tags (any case) dropped. */
+export function categoryTags(text) {
+    const seen = new Set();
+    return String(text || '').split(/[,;\n]/).map(t => t.trim().replace(/\s+/g, ' ')).filter(t => {
+        const key = t.toLowerCase();
+        if (!t || seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+}
 
 /** "4120 Lakeshore Road" + Suite 405 -> "4120 Lakeshore Road, Suite 405" (PO Box goes in its own ADR slot). */
 function streetLine(contact) {
@@ -57,6 +68,10 @@ export function formatVCard(contact) {
     }
 
     if (contact.notes) lines.push(`NOTE:${e(contact.notes)}`);
+    // Categories: each tag escaped on its own, joined by plain commas (RFC 2426 3.6.1). Google Contacts and Outlook
+    // show them as labels; iPhone Contacts drops them (notes/vcard-categories.md).
+    const tags = categoryTags(contact.categories);
+    if (tags.length) lines.push(`CATEGORIES:${tags.map(e).join(',')}`);
 
     // Contact apps read JPEG, PNG and GIF photos; anything else (an SVG saved by an older build) is left out.
     const photo = /^data:image\/(jpeg|jpg|png|gif);base64,(.+)$/.exec(contact.avatarBase64 || '');

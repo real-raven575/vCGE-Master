@@ -1,7 +1,7 @@
 /**
  * vCGE (vCard Generator Engine) - Contact Schema & Validation (`cardSchema.js`)
  * Project Overseer Authorized Production Build
- * Attributions: Created by raven575, Gemini & Claude
+ * Attributions: Created by raven575, Team vCGE (Claude) & Gemini
  */
 import { DEFAULT_COUNTRY } from './contactOptions.js';
 
@@ -11,7 +11,8 @@ export const ContactSchemaVersion = "3.1";
 export const CONTACT_FIELDS = Object.freeze([
     'namePrefix', 'firstName', 'middleName', 'lastName', 'nameSuffix', 'organization', 'jobTitle',
     'addressType', 'street', 'unitType', 'unitNumber', 'city', 'state', 'zip', 'country',
-    'nickname', 'birthday', 'notes'
+    'nickname', 'birthday', 'notes',
+    'categories'    // tags the person types, comma separated ("Client, Plumber"): the vCard's CATEGORIES
 ]);
 
 // Typed lists: each entry is { type, value } with a type from contactOptions (PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES).

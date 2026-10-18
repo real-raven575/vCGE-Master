@@ -2,7 +2,7 @@
 name = "vcge"
 version = "0.1.0"
 description = "vCard Generator Engine (vCGE) - offline-first digital business card engine"
-authors = ["raven575", "Gemini", "Claude"]
+authors = ["raven575", "Team vCGE (Claude)", "Gemini"]
 license = "MIT"
 repository = "https://github.com/real-raven575/vCGE-Master"
 edition = "2021"

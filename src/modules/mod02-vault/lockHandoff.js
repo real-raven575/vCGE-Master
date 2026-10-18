@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD02: the padlock hand-off (redesign step 3)
- * Created by raven575, Gemini & Claude
+ * Created by raven575, Team vCGE (Claude) & Gemini
  *
  * Vault has no card of its own. Each time the deck hands off from one step card to the next, a small padlock plays in
  * the middle of the screen and says nothing: the shackle closes as the details go into the vault, the dial turns a

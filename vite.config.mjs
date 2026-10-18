@@ -25,10 +25,40 @@ const copyVendor = {
     }
 };
 
+// MOD01's browser gate loads the app itself, so index.html has no script tag for src/main.js, only
+// <meta name="vcge-app" content="src/main.js">. For the build that meta becomes the module tag Vite bundles from, and
+// Vite's tag for the bundle becomes the meta again, now naming the bundle: the browser never fetches it before the gate.
+const APP_META = '<meta name="vcge-app" content="src/main.js">';
+const gateEntry = {
+    name: 'vcge-gate-entry',
+    apply: 'build',
+    transformIndexHtml: {
+        order: 'pre',
+        handler(html) {
+            if (html.split(APP_META).length !== 2) throw new Error('index.html must name the app once: ' + APP_META);
+            return html.replace(APP_META, '<script type="module" src="src/main.js"></script>');
+        }
+    }
+};
+const gateEntryOut = {
+    name: 'vcge-gate-entry-out',
+    apply: 'build',
+    enforce: 'post',
+    transformIndexHtml: {
+        order: 'post',
+        handler(html) {
+            const tags = html.match(/<script type="module"[^>]*><\/script>/g) || [];
+            const src = tags.length === 1 && /\ssrc="(\.\/assets\/[\w-]+\.js)"/.exec(tags[0]);
+            if (!src || /rel="modulepreload"/.test(html)) throw new Error('expected exactly one bundled module tag and no preloads, got: ' + tags.join(' '));
+            return html.replace(tags[0], `<meta name="vcge-app" content="${src[1]}">`);
+        }
+    }
+};
+
 export default defineConfig({
     base: './',
     clearScreen: false,
-    plugins: [copyVendor],
+    plugins: [gateEntry, gateEntryOut, copyVendor],
     server: { port: 1420, strictPort: true },
     build: {
         outDir: 'dist',

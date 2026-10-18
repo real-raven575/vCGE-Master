@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD01: Container Shell & Security Gatekeeper
- * Created by raven575, Gemini & Claude
+ * Created by raven575, Team vCGE (Claude) & Gemini
  *
  * The network lock itself is netLock.js, a classic script index.html loads before every other script, and
  * workerGuard.js inside the OCR worker. This module, imported first by src/main.js, puts the lock's blocks on the event

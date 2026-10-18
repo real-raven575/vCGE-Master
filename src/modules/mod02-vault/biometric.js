@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD02: biometric unlock (Face ID, Touch ID, fingerprint, Windows Hello)
- * Created by raven575, Gemini & Claude
+ * Created by raven575, Team vCGE (Claude) & Gemini
  *
  * A second way to unlock the card after a lock, next to the session PIN. It uses the device's own authenticator through
  * WebAuthn, on the device only: no network, no server. Enrolling creates a credential for this site on the device; the

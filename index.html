@@ -12,8 +12,11 @@
     <!-- MOD01 network lock: a classic script, so it runs before the bundled libraries below and every module -->
     <script src="src/modules/mod01-shell/netLock.js"></script>
     <!-- MOD01 browser gate (ES5): if a protection vCGE relies on is missing, the app never starts and a bundled
-         "cannot run in this browser" page opens; if only something outside the app is weak, the app runs with a banner -->
+         "cannot run in this browser" page opens; if only something outside the app is weak, the app runs with a banner.
+         It also starts the app (src/main.js) once the checks pass -->
     <script src="src/modules/mod01-shell/browserGate.js"></script>
+    <!-- The app's code (an ES module). No script tag: the gate above loads it only once the checks pass -->
+    <meta name="vcge-app" content="src/main.js">
     <link rel="stylesheet" href="src/modules/mod01-shell/browserGate.css">
     <title>vCard Generator Engine (vCGE)</title>
     <!-- Tailwind CSS, compiled locally (npm run build:css) so the app makes no runtime CDN request -->
@@ -273,6 +276,9 @@
 
                 <label class="block"><span class="field-label">Birthday</span><input id="birthday" type="date" class="field-input"></label>
                 <label class="block col-span-2"><span class="field-label">Notes</span><textarea id="notes" rows="2" class="field-input"></textarea></label>
+                <!-- Categories (MOD05): tags typed by the person, comma separated; written as the vCard's CATEGORIES -->
+                <label class="block col-span-2"><span class="field-label">Categories</span><input id="categories" type="text" autocomplete="off" class="field-input" placeholder="Client, Plumber, Met at expo" aria-describedby="categoriesHint"></label>
+                <p id="categoriesHint" class="fields-hint col-span-2">Separate them with commas. Google Contacts and Outlook show them as labels; iPhone Contacts leaves them out.</p>
             </div>
             </div>
             <div class="deck-card-foot">
@@ -643,6 +649,5 @@
     <!-- Bundled third-party libraries (pinned, MIT / Apache-2.0; see THIRD_PARTY_NOTICES.md) -->
     <script src="src/vendor/qrcode-generator/qrcode.js"></script>
     <script src="src/vendor/tesseract/tesseract.min.js"></script>
-    <script type="module" src="src/main.js"></script>
 </body>
 </html>

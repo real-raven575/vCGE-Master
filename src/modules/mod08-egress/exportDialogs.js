@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD08: the Export QR pop-up and the Print / PDF choice (redesign step 10)
- * Created by raven575, Gemini & Claude
+ * Created by raven575, Team vCGE (Claude) & Gemini
  *
  * Export QR: a small selector over the deck (markup in index.html, a Shell sheet: a sideways swipe, Esc or the X is
  * Cancel) with a live preview. Colours Themed or Black & White; dots Square or Round; frame None, Square, Rounded

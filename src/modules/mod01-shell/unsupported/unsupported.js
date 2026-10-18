@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD01: "cannot run in this browser" page
- * Created by raven575, Gemini & Claude
+ * Created by raven575, Team vCGE (Claude) & Gemini
  *
  * Lists what is missing, from the reason codes browserGate.js put after the '#' (it never leaves the device).
  * ES5 only, so it runs in the oldest browsers. Unknown codes are ignored; text is set as text, never as HTML.
