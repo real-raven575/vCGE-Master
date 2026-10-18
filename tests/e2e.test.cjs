@@ -2000,7 +2000,8 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     const look = await pU.evaluate(() => Array.from(document.querySelectorAll('.deck-card > .mod-tag span')).map(s => ({ pilot: s.dataset.pilot,
       before: getComputedStyle(s, '::before').content, axes: getComputedStyle(s).fontVariationSettings })));
     ok('MOD-XX tags: each names its pilot before the number ("GLYPH:  MOD-04"), in solid pixels with no scanlines or bleed', look.map(l => l.pilot).join('|') === 'Shutout|Iris|Glyph|Pidge|Flipside|Checkers|Airlock'
-      && look.every(l => l.before.includes(l.pilot + ':') && /"BLED" 0/.test(l.axes) && /"SCAN" 100/.test(l.axes)), JSON.stringify(look));
+      // Firefox reports the rule itself (attr(data-pilot) then the colon), not the text it draws; either way the name comes first
+      && look.every(l => (l.before.includes(l.pilot + ':') || /^attr\(data-pilot\) ":/.test(l.before)) && /"BLED" 0/.test(l.axes) && /"SCAN" 100/.test(l.axes)), JSON.stringify(look));
     await pU.click('#navFields'); await pU.waitForTimeout(600);
     const tagFade = async (y) => { await pU.$eval('#cardFields > .deck-card-body', (b, y) => { b.scrollTop = y; }, y); await pU.waitForTimeout(450);
       return pU.$eval('#cardFields > .mod-tag', t => ({ faded: t.classList.contains('is-faded'), opacity: parseFloat(getComputedStyle(t).opacity) })); };

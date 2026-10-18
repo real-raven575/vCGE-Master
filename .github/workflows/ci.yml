@@ -80,6 +80,12 @@ jobs:
       - name: Install ${{ matrix.name }} for Playwright
         run: npx playwright install --with-deps ${{ matrix.install }}
 
+      # temporary, one run (Vault's Back guard after a reload in Firefox): prints history per step, never fails the job
+      - name: Back guard reload probe (temporary)
+        if: ${{ matrix.browser == 'firefox' }}
+        continue-on-error: true
+        run: node tests/mod02-guard-reload-probe.cjs
+
       - name: Browser e2e (source)
         run: npm run test:e2e
 
