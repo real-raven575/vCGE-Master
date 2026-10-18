@@ -54,6 +54,23 @@ export const OCR_MIN_READABLE_WORDS = 3;
 // A word read with confidence below this is passed on as unsure, so the review step can ask the user to check it.
 export const OCR_UNSURE_WORD_CONFIDENCE = 50;
 
+// Second look (raven575's yes, 2026-10-18): a line with unsure words is read again as one enlarged strip, straight and
+// with its lean corrected both ways, and the surest reading is kept when it is clearly surer than the first. On a scan
+// whose text leaned backwards, the web line went from "TeamLogic\T.com Kalamazoo" (12) to "...KalamazooM|" (87).
+// Straight cards rarely have unsure lines, and a re-read that is not clearly surer changes nothing.
+export const SECOND_LOOK_PAGE_SEG_MODE = '7';                  // one line of text
+export const SECOND_LOOK_SCALE = 2;
+// Shear of the strip (x moves by shear * y): negative straightens text that leans backwards ("\"), positive forwards.
+export const SECOND_LOOK_SHEARS = [0, -0.15, -0.3, 0.15, 0.3];
+export const SECOND_LOOK_MAX_LINES = 3;
+// A new reading is kept only when its words average at least this, and this many points more than the first reading.
+export const SECOND_LOOK_MIN_CONFIDENCE = 60;
+export const SECOND_LOOK_MIN_GAIN = 15;
+// A reading this sure ends the line's sweep early.
+export const SECOND_LOOK_GOOD_ENOUGH = 85;
+// The second look starts no new strip after this long, so it never makes a slow phone much slower.
+export const SECOND_LOOK_BUDGET_MS = 12000;
+
 /** Thrown when the photo is too blurry or unclear to read; the caller should ask for a new photo. */
 export class OcrUnreadableError extends Error {
     constructor(confidence, readableWords) {
@@ -218,18 +235,150 @@ export function preProcessImageBuffer(imageSrc) {
     });
 }
 
+// Unsure words of `text`: only words still in the line count, so icon debris dropped from the text does not.
+const unsureWords = (text, words) => (words || []).filter(w => w.text.length > 1 && w.confidence < OCR_UNSURE_WORD_CONFIDENCE && text.split(' ').includes(w.text)).map(w => w.text);
+
+/**
+ * What a second look at `line` would re-read: from its first unsure word to the end of the line, with the words before
+ * it (kept as read) and how sure the engine was of the words it re-reads. Null when the line has no unsure word.
+ */
+export function secondLookTarget(line, unsure) {
+    const words = (line.words || []).filter(w => w.text && w.text.trim());
+    const first = words.findIndex(w => unsure.includes(w.text));
+    if (first < 0 || !line.bbox || !words[first].bbox) return null;
+    const reread = words.slice(first);
+    return {
+        box: { x0: words[first].bbox.x0, y0: line.bbox.y0, x1: line.bbox.x1, y1: line.bbox.y1 },
+        word: words[first].text,
+        before: words.slice(0, first),
+        confidence: reread.reduce((sum, w) => sum + (w.confidence || 0), 0) / reread.length
+    };
+}
+
+/**
+ * `text` with everything from the token `word` on replaced by `reread` (the second look's reading of that part), or
+ * null when `word` is not a token of `text`.
+ */
+export function joinSecondLook(text, word, reread) {
+    const tokens = String(text || '').split(' ');
+    const at = tokens.indexOf(word);
+    return at < 0 ? null : [...tokens.slice(0, at), reread].join(' ');
+}
+
+/**
+ * Second guesses for `text` (a second look's reading, with its own `alts`) that also carry the first reading
+ * (`firstText`, `firstAlts`): where the two readings line up letter for letter (a letter kept or swapped for one other),
+ * the first reading's letter and its runner-ups join the new letter's runner-ups. When the readings disagree the field
+ * mapper still sees both, and picks from the card's context as it does for any second guess (a straightened
+ * "TeamLogiclT" with "TeamLogiciT", "I" as runner-up, in the first reading becomes TeamLogicIT).
+ */
+export function mergeReadingAlts(firstText, firstAlts, text, alts) {
+    const a = String(firstText || ''), b = String(text || '');
+    // Edit-distance table, then walk back to pair the letters of `b` with those of `a` they were kept or swapped from.
+    const d = Array.from({ length: a.length + 1 }, (_, i) => Array.from({ length: b.length + 1 }, (_, j) => (i ? (j ? 0 : i) : j)));
+    for (let i = 1; i <= a.length; i++) {
+        for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+    const pairOf = new Map();
+    for (let i = a.length, j = b.length; i > 0 && j > 0;) {
+        if (d[i][j] === d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)) { pairOf.set(j - 1, i - 1); i--; j--; }
+        else if (d[i][j] === d[i - 1][j] + 1) i--;
+        else j--;
+    }
+    const firstAt = new Map((firstAlts || []).map(x => [x.at, x.chars]));
+    const ownAt = new Map((alts || []).map(x => [x.at, x.chars]));
+    const out = [];
+    for (let at = 0; at < b.length; at++) {
+        const from = pairOf.get(at);
+        const others = [...(ownAt.get(at) || []), ...(from === undefined ? [] : [a[from], ...(firstAt.get(from) || [])])];
+        const chars = [b[at], ...new Set(others.filter(c => c !== b[at] && c !== ' '))];
+        if (chars.length > 1) out.push({ at, chars });
+    }
+    return out;
+}
+
+/** Is a second reading (`best`: { text, confidence }) clearly surer than the first (`firstConfidence`)? */
+export function secondLookWins(firstConfidence, best) {
+    return !!best && !!best.text && best.confidence >= SECOND_LOOK_MIN_CONFIDENCE && best.confidence >= firstConfidence + SECOND_LOOK_MIN_GAIN;
+}
+
+/** The strip of `page` (an image) inside `box`, padded, enlarged and sheared, as a PNG data URL. */
+function stripImage(page, box, shear) {
+    const h = box.y1 - box.y0;
+    const x0 = Math.max(0, box.x0 - 0.15 * h), x1 = Math.min(page.naturalWidth, box.x1 + 0.35 * h);
+    const y0 = Math.max(0, box.y0 - 0.35 * h), y1 = Math.min(page.naturalHeight, box.y1 + 0.35 * h);
+    const width = Math.round((x1 - x0) * SECOND_LOOK_SCALE), height = Math.round((y1 - y0) * SECOND_LOOK_SCALE);
+    const extra = Math.ceil(Math.abs(shear) * height);
+    const canvas = document.createElement('canvas');
+    canvas.width = width + extra;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.setTransform(1, 0, shear, 1, shear < 0 ? extra : 0, 0);
+    ctx.drawImage(page, x0, y0, x1 - x0, y1 - y0, 0, 0, width, height);
+    return canvas.toDataURL('image/png');
+}
+
+/**
+ * Second look at the lines with unsure words (at most SECOND_LOOK_MAX_LINES, least sure first): each is read again as a
+ * strip at every SECOND_LOOK_SHEARS lean, and its text, second guesses and unsure words are replaced when the surest
+ * reading wins (secondLookWins). Changes `lines` in place. Best effort: a failure keeps the first reading; only a wipe
+ * (OcrCancelledError) ends the scan.
+ */
+async function secondLook(worker, processedImage, lines, started) {
+    const todo = lines.filter(l => l.look).sort((a, b) => a.look.confidence - b.look.confidence).slice(0, SECOND_LOOK_MAX_LINES);
+    if (!todo.length) return;
+    const until = Date.now() + SECOND_LOOK_BUDGET_MS;
+    try {
+        const page = new Image();
+        page.src = processedImage;
+        await page.decode();
+        await worker.setParameters({ tessedit_pageseg_mode: SECOND_LOOK_PAGE_SEG_MODE });
+        for (const line of todo) {
+            let best = null;
+            for (const shear of SECOND_LOOK_SHEARS) {
+                if (Date.now() > until) break;
+                const { data } = await readWithin(worker, stripImage(page, line.look.box, shear), OCR_READ_TIMEOUT_MS);
+                if (generation !== started) throw new OcrCancelledError();
+                const words = refineLines(data.lines || []).flatMap(l => l.words).filter(w => w.text && w.text.trim());
+                if (!words.length) continue;
+                const confidence = words.reduce((sum, w) => sum + (w.confidence || 0), 0) / words.length;
+                if (!best || confidence > best.confidence) best = { text: words.map(w => w.text).join(' '), words, confidence };
+                if (confidence >= SECOND_LOOK_GOOD_ENOUGH) break;
+            }
+            const text = secondLookWins(line.look.confidence, best) && joinSecondLook(line.text, line.look.word, best.text);
+            if (!text) continue;
+            console.log(`[${MODULE_ID}] Second look: a line read again with confidence ${Math.round(best.confidence)} (was ${Math.round(line.look.confidence)})`);
+            line.alts = mergeReadingAlts(line.text, line.alts, text, altsForText(text, [...line.look.before, ...best.words]));
+            line.text = text;
+            line.unsure = unsureWords(text, best.words);
+        }
+    } catch (error) {
+        if (error instanceof OcrCancelledError) throw error;
+        console.warn(`[${MODULE_ID}] Second look stopped, first reading kept:`, error);
+    } finally {
+        if (tesseractWorker === worker) await worker.setParameters({ tessedit_pageseg_mode: OCR_PAGE_SEG_MODE }).catch(() => {});
+    }
+}
+
 /**
  * Icons in front of each OCR line (phone handset, envelope, social logo...). Best effort: any failure means no icons,
- * never a failed scan. Returns [{ text, icon, alts, unsure }] in card order (lines that were only an icon are dropped);
+ * never a failed scan. Returns [{ text, icon, alts, unsure, look? }] in card order (lines that were only an icon are dropped);
  * `alts` are the engine's close second guesses for letters of `text` ([{ at, chars }], see glyphChoices.js), `unsure`
- * the words of 2+ characters it read with confidence below OCR_UNSURE_WORD_CONFIDENCE.
+ * the words of 2+ characters it read with confidence below OCR_UNSURE_WORD_CONFIDENCE, `look` what a second look would
+ * re-read (secondLookTarget; dropped before the lines are returned).
  */
 async function linesWithIcons(processedImage, data) {
     const lines = refineLines(data.lines || []);
     if (!lines.length) return String(data.text || '').split('\n').map(text => ({ text: text.trim(), icon: null, alts: [], unsure: [] })).filter(l => l.text);
-    // Only words still in the line: icon debris dropped from the text does not count.
-    const unsure = (text, words) => (words || []).filter(w => w.text.length > 1 && w.confidence < OCR_UNSURE_WORD_CONFIDENCE && text.split(' ').includes(w.text)).map(w => w.text);
-    const withAlts = (found) => found.map((l, i) => ({ text: l.text, icon: l.icon, alts: altsForText(l.text, lines[i].words), unsure: unsure(l.text, lines[i].words) })).filter(l => l.text);
+    const withAlts = (found) => found.map((l, i) => {
+        const out = { text: l.text, icon: l.icon, alts: altsForText(l.text, lines[i].words), unsure: unsureWords(l.text, lines[i].words) };
+        const look = secondLookTarget(lines[i], out.unsure);
+        return look ? { ...out, look } : out;
+    }).filter(l => l.text);
     try {
         const [templates, image] = await Promise.all([loadIconTemplates(), grayFromDataUrl(processedImage)]);
         return withAlts(detectLineIcons(image.gray, image.width, image.height, lines, templates));
@@ -277,8 +426,11 @@ async function scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started) {
     if (confidence < OCR_MIN_CONFIDENCE || readableWords < OCR_MIN_READABLE_WORDS) {
         throw new OcrUnreadableError(confidence, readableWords);
     }
-    const lines = await linesWithIcons(processedImage, result.data);
+    const found = await linesWithIcons(processedImage, result.data);
     if (generation !== started) throw new OcrCancelledError();
+    await secondLook(worker, processedImage, found, started);
+    if (generation !== started) throw new OcrCancelledError();
+    const lines = found.map(({ look, ...line }) => line);
     // A signal only: the text itself is contact data and goes back to the caller, never onto the bus.
     globalEventBus.publish(Events.OCR_TEXT_EXTRACTED, { sourceModule: MODULE_ID, confidence, icons: lines.filter(l => l.icon).length, timestamp: Date.now() });
     return { text, confidence, lines };

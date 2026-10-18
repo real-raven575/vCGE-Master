@@ -838,11 +838,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('OCR start-up that never finishes times out', slow && slow.code === 'OCR_UNAVAILABLE' && slow.message.includes('longer than'), slow && slow.message);
   ok('failed OCR publishes nothing to the form pipeline', evt === null);
 
-  let created = 0, terminated = 0, psm = null, params = null, result = null, hold = false;
+  let created = 0, terminated = 0, psm = null, params = null, result = null, hold = false, psms = [];
   const words = (n, conf) => Array.from({ length: n }, (_, i) => ({ text: `word${i}`, confidence: conf }));
   globalThis.Tesseract = { createWorker: async () => { created++; return {
-    setParameters: async (p) => { params = p; psm = p.tessedit_pageseg_mode; },
-    recognize: async () => (hold ? new Promise(() => {}) : { data: result }), terminate() { terminated++; } }; } };
+    setParameters: async (p) => { params = p; psm = p.tessedit_pageseg_mode; psms.push(psm); },
+    recognize: async (image) => (hold ? new Promise(() => {}) : { data: typeof result === 'function' ? result(image) : result }), terminate() { terminated++; } }; } };
   result = { text: 'Jane Doe\njane@example.com', confidence: 88, words: words(8, 90) };
   const r = await ocr.executeOCRScan('data:image/png;base64,x');
   ok('OCR returns raw text and confidence, publishes OCR_TEXT_EXTRACTED', r.text === 'Jane Doe\njane@example.com' && r.confidence === 88 && evt && evt.confidence === 88 && !('simulated' in r));
@@ -865,6 +865,55 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     lines: [{ text: 'W acme.comlKala', words: [word('W', 10), word('acme.comlKala', 20)] }, { text: 'Jane Doe', words: [word('Jane', 95), word('Doe', 30)] }] };
   const shaky = await ocr.executeOCRScan('data:image/png;base64,x');
   ok('OCR passes on the words it was unsure of (2+ characters, below the limit)', JSON.stringify(shaky.lines.map(l => l.unsure)) === JSON.stringify([['acme.comlKala'], ['Doe']]) && ocr.OCR_UNSURE_WORD_CONFIDENCE === 50, JSON.stringify(shaky.lines));
+
+  // Second look (bench run 2026-10-18): a line with unsure words is read again as a strip, straight and with its lean
+  // corrected, and the surest reading replaces it only when clearly surer
+  {
+    const box = (x0, y0, x1, y1) => ({ x0, y0, x1, y1 });
+    const sym = (text) => text.split('').map(t => ({ text: t, choices: [] }));
+    const firstRead = { text: 'W acme.comlKala\nJane Doe', confidence: 80, words: words(6, 90), lines: [
+      { text: 'W acme.comlKala', bbox: box(40, 300, 700, 340), words: [{ text: 'W', confidence: 95, bbox: box(40, 300, 70, 340), symbols: sym('W') }, { text: 'acme.comlKala', confidence: 20, bbox: box(90, 300, 700, 340), symbols: sym('acme.comlKala') }] },
+      { text: 'Jane Doe', bbox: box(40, 40, 400, 90), words: [{ text: 'Jane', confidence: 95, bbox: box(40, 40, 200, 90), symbols: sym('Jane') }, { text: 'Doe', confidence: 92, bbox: box(220, 40, 400, 90), symbols: sym('Doe') }] }] };
+    const strip = (text, confidence) => ({ text, confidence, lines: [{ text, words: [{ text, confidence, bbox: box(0, 0, 10, 10), symbols: sym(text) }] }] });
+    const savedImage = globalThis.Image, savedCreate = globalThis.document.createElement;
+    const drawn = [];
+    globalThis.Image = class { constructor() { this.naturalWidth = this.width = 900; this.naturalHeight = this.height = 520; } set src(v) { setTimeout(() => this.onload && this.onload(), 0); } decode() { return Promise.resolve(); } };
+    globalThis.document.createElement = () => ({ width: 0, height: 0, getContext: () => ({ drawImage(...a) { drawn.push(a); }, getImageData: () => ({ data: new Uint8ClampedArray(4) }), putImageData() {}, fillRect() {}, setTransform(...t) { drawn.push(['shear', t[2]]); } }), toDataURL: () => 'data:image/png;base64,strip' });
+    // Each read answers by call: first the whole card, then each strip in turn
+    const reads = (...strips) => { let n = 0; return () => (n++ === 0 ? firstRead : strips[Math.min(n - 2, strips.length - 1)]); };
+
+    psms = []; drawn.length = 0;
+    result = reads(strip('acme.com/KalamazooMI', 40), strip('acme.com/KalamazooMI', 88));
+    const looked = await ocr.executeOCRScan('data:image/png;base64,x');
+    const web = looked.lines.find(l => l.text.startsWith('W '));
+    ok('second look: an unsure line read clearly surer as a straightened strip takes the new reading, its unsure words cleared', web && web.text === 'W acme.com/KalamazooMI' && web.unsure.length === 0, JSON.stringify(looked.lines));
+    ok('second look: the sweep stops at the first reading that is sure enough (straight, then leaning backwards)', JSON.stringify(drawn.filter(d => d[0] === 'shear').map(d => d[1])) === JSON.stringify(ocr.SECOND_LOOK_SHEARS.slice(0, 2)) && ocr.SECOND_LOOK_SHEARS[0] === 0 && ocr.SECOND_LOOK_SHEARS[1] < 0, JSON.stringify(drawn.filter(d => d[0] === 'shear')));
+    ok('second look: re-reads one line of text, then the engine goes back to sparse text', psms.join() === '7,11', psms.join());
+    ok('second look: the first reading\'s letter stays as a runner-up where the readings disagree ("l" under the "/")', web && web.alts.some(a => a.at === 'W acme.com'.length && a.chars[0] === '/' && a.chars.includes('l')), JSON.stringify(web && web.alts));
+    ok('second look: a line read right the first time is not read again, and nothing extra is returned', looked.lines.find(l => l.text === 'Jane Doe').unsure.length === 0 && looked.lines.every(l => !('look' in l)), JSON.stringify(looked.lines));
+
+    drawn.length = 0;
+    result = reads(strip('acme.c0m/Kaiamaz', 25));
+    const kept = await ocr.executeOCRScan('data:image/png;base64,x');
+    ok('second look: a strip reading that is not clearly surer changes nothing (the line stays flagged)', kept.lines[0].text === 'W acme.comlKala' && kept.lines[0].unsure.join() === 'acme.comlKala', JSON.stringify(kept.lines[0]));
+    ok('second look: with no sure reading every lean is tried', drawn.filter(d => d[0] === 'shear').length === ocr.SECOND_LOOK_SHEARS.length, String(drawn.filter(d => d[0] === 'shear').length));
+
+    let calls = 0;
+    result = () => (calls++ === 0 ? firstRead : (() => { throw new Error('engine hiccup'); })());
+    psms = [];
+    const failed = await ocr.executeOCRScan('data:image/png;base64,x');
+    ok('second look: a failing strip read keeps the first reading and puts the engine back to sparse text', failed.lines[0].text === 'W acme.comlKala' && psms[psms.length - 1] === '11', JSON.stringify({ lines: failed.lines, psms }));
+    globalThis.Image = savedImage; globalThis.document.createElement = savedCreate;
+
+    ok('second look: only clearly surer readings win', ocr.secondLookWins(20, { text: 'x', confidence: 60 }) && !ocr.secondLookWins(50, { text: 'x', confidence: 60 }) && !ocr.secondLookWins(10, { text: 'x', confidence: 59 }) && !ocr.secondLookWins(10, { text: '', confidence: 90 }) && !ocr.secondLookWins(10, null));
+    ok('second look: the new reading replaces the line from its first unsure word on', ocr.joinSecondLook('E jo@acme.c0m', 'jo@acme.c0m', 'jo@acme.com') === 'E jo@acme.com' && ocr.joinSecondLook('W a.com b', 'a.com', 'a.com/b') === 'W a.com/b' && ocr.joinSecondLook('W a.com', 'zzz', 'q') === null);
+    ok('second look: the target starts at the first unsure word and spans to the line\'s end', JSON.stringify(ocr.secondLookTarget(firstRead.lines[0], ['acme.comlKala']).box) === JSON.stringify(box(90, 300, 700, 340)) && ocr.secondLookTarget(firstRead.lines[0], []) === null && ocr.secondLookTarget({ text: 'a b', words: [{ text: 'ab', confidence: 9 }] }, ['ab']) === null);
+    const merged = ocr.mergeReadingAlts('w TeamLogiciT.com/Kalamazoom\\', [{ at: 11, chars: ['i', 'I', '!', '|'] }], 'w TeamLogiclT.com/KalamazooM\\', []);
+    ok('second look: where the readings disagree, the first reading\'s letter and its runner-ups are kept as second guesses', JSON.stringify(merged.find(a => a.at === 11)) === JSON.stringify({ at: 11, chars: ['l', 'i', 'I', '!', '|'] }), JSON.stringify(merged));
+    const fm = new (await import(`${R}/modules/mod05-form/formMapper.js`)).ContactFormMapper();
+    const straightened = fm.buildFields(fm.classifyLines([{ text: 'Nick Zafer' }, { text: 'Portage, MI 49024' }, { text: 'w TeamLogiclT.com/KalamazooM\\', alts: merged }])).fields;
+    ok('second look + field mapping: the straightened "TeamLogiclT" becomes TeamLogicIT from the first reading\'s "I"', straightened.websites[0].value === 'TeamLogicIT.com/KalamazooMI' && straightened.organization === 'TeamLogicIT', JSON.stringify([straightened.websites, straightened.organization]));
+  }
 
   // "Preparing the reader…": reported only when the engine has to start first
   result = { text: 'Jane Doe\njane@example.com', confidence: 88, words: words(8, 90) };

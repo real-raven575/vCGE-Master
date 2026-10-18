@@ -1432,6 +1432,35 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     await ctxZ.close();
   }
 
+  // Second look (bench run 2026-10-18): a web line leaning backwards was read as "noriinvind.comiSeat\e" and flagged;
+  // re-read as a straightened strip it comes back right and sure. Text rendering differs between engines, so the
+  // reading itself is checked in Chromium, where it was measured.
+  if (ENGINE === 'chromium') {
+    const ctxL = await browser.newContext();
+    const pL = await ctxL.newPage();
+    const looks = [];
+    pL.on('console', m => { if (m.text().includes('Second look:')) looks.push(m.text()); });
+    await pL.goto(ORIGIN); await pL.waitForTimeout(300);
+    const dataUrl = await pL.evaluate(() => {
+      const c = document.createElement('canvas'); c.width = 900; c.height = 520; const x = c.getContext('2d');
+      x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111';
+      x.font = '44px Arial'; x.fillText('Jane Rivera', 40, 70); x.font = '30px Arial'; x.fillText('Studio Manager', 40, 115);
+      x.fillText('jane@northwind.com', 40, 200); x.fillText('206.555.0142', 40, 250);
+      // Leaning backwards: the top of each letter sits further left than its foot
+      x.setTransform(1, 0, 0.3, 1, -0.3 * 330, 0); x.font = '36px Arial'; x.fillText('northwind.com/Seattle', 40, 330);
+      return c.toDataURL('image/png');
+    });
+    await pL.setInputFiles('#imageUpload', { name: 'lean.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') }); await pL.waitForTimeout(300);
+    await pL.click('#runOcrBtn');
+    await pL.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
+    const lines = await pL.$$eval('#ocrLines input[id^="ocrLineText"]', els => els.map(e => e.value));
+    const row = lines.findIndex(t => t.includes('northwind.com/'));
+    ok('second look: a web line leaning backwards is read again straightened, and comes back right without a "please check" note',
+      looks.length >= 1 && row >= 0 && lines[row] === 'northwind.com/Seattle' && !(await pL.$(`#ocrLineCheck${row}`)), JSON.stringify({ looks, lines }));
+    ok('second look: lines read right the first time are left as they were', lines.includes('Jane Rivera') && lines.some(t => t.endsWith('jane@northwind.com')) && lines.some(t => t.endsWith('206.555.0142')), JSON.stringify(lines));
+    await ctxL.close();
+  }
+
   // Cancel while reading: the reader stops, the photo step comes back with Retake, and Extract works again
   {
     const ctxS = await browser.newContext();
