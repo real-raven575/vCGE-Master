@@ -453,6 +453,11 @@
             </div>
             <p id="sizeHint" class="vcge-sheet-hint">The text on the cards grows; the icons at the top stay the same size.</p>
             <div class="vcge-sheet-row">
+                <label for="wipeSelect">Wipe after the lock</label>
+                <select id="wipeSelect" class="vcge-select" aria-label="Wipe after the lock" aria-describedby="wipeHint"></select>
+            </div>
+            <p id="wipeHint" class="vcge-sheet-hint">With a PIN, vCGE locks after 2 minutes without activity, then wipes the card this long after the lock.</p>
+            <div class="vcge-sheet-row">
                 <span>Language</span>
                 <span class="vcge-sheet-soon">English (more coming later)</span>
             </div>
@@ -460,7 +465,7 @@
                 <span>PIN and fingerprint</span>
                 <button id="settingsVaultBtn" type="button" class="px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition" data-open-sheet="vaultPage">Open the Vault</button>
             </div>
-            <p id="settingsNote" class="vcge-sheet-note">vCGE keeps one small settings file on this device (hand, colors, theme, font, text size). Nothing you scan, upload or type is ever saved.</p>
+            <p id="settingsNote" class="vcge-sheet-note">vCGE keeps one small settings file on this device (hand, colors, theme, font, text size, wipe time). Nothing you scan, upload or type is ever saved.</p>
         </div>
     </div>
 

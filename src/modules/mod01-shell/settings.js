@@ -3,9 +3,9 @@
  * Created by raven575, Gemini & Claude
  *
  * The one thing vCGE keeps on the device: a single localStorage entry of preferences and nothing else (raven575,
- * 2026-10-17). One line of `name=number` pairs, for example `hand=0;cb=0;theme=0;font=0;size=0`. Missing or unreadable
+ * 2026-10-17). One line of `name=number` pairs, for example `hand=0;cb=0;theme=0;font=0;size=0;wipe=0`. Missing or unreadable
  * means the defaults. Nothing scanned, uploaded or typed, and no contact detail, ever goes in here: the whole entry is
- * five small numbers. It is written only when the person changes a setting, so a visit that touches nothing stores nothing.
+ * six small numbers. It is written only when the person changes a setting, so a visit that touches nothing stores nothing.
  *
  *   hand   0 right (default), 1 left: `html[data-hand="right|left"]` for the header mirror, the trash corner, the
  *          Welcome buttons' thumb line and any module that places a control by hand (MOD03's shutter and fader).
@@ -14,9 +14,12 @@
  *   font   the UI font by its fixed code (FONT_CODES; Inter = 0): `html[data-font]` plus the --vcge-ui-font variable.
  *   size   the text size by its fixed code (TEXT_SIZES; Normal = 0): `html[data-size]` plus --vcge-size, the factor every
  *          rem-sized thing on the page grows by, except the header, which keeps its own size (deck.css, video #6).
+ *   wipe   how long after a PIN lock the card is wiped (WIPE_TIMES; 0 = 7 minutes, the default, 1 = 10, 2 = 15):
+ *          `html[data-wipe="7|10|15"]`. MOD02 reads only that attribute, never this storage. The 2-minute lock itself
+ *          never changes (raven575, 2026-10-18, video #68).
  *
  * Each font and size keeps its number for good, so adding more later and re-sorting a list never changes a saved choice.
- * An entry saved before the size setting existed simply has no size: Normal.
+ * An entry saved before the size or wipe setting existed simply has none: Normal, 7 minutes.
  * The wipe dialog's "Also delete my saved settings" arrives as Events.SETTINGS_WIPE_REQUESTED on the bus and clears
  * the entry; Vault never touches this storage itself. The theme key saved before this step is read once and removed.
  */
@@ -35,8 +38,11 @@ export const TEXT_SIZES = Object.freeze([
     { code: 3, name: 'Small', scale: 0.875 }, { code: 0, name: 'Normal', scale: 1 },
     { code: 1, name: 'Large', scale: 1.125 }, { code: 2, name: 'Larger', scale: 1.25 }
 ]);
-export const DEFAULTS = Object.freeze({ hand: 0, cb: 0, theme: 0, font: FONT_CODES[DEFAULT_UI_FONT], size: 0 });
-const RANGE = { hand: 1, cb: 1, theme: 1, font: Math.max(...Object.values(FONT_CODES)), size: Math.max(...TEXT_SIZES.map(t => t.code)) };
+// Wipe after the lock: fixed codes, shortest first. 7 minutes is the time vCGE has always had; 15 is the longest.
+export const WIPE_TIMES = Object.freeze([{ code: 0, minutes: 7 }, { code: 1, minutes: 10 }, { code: 2, minutes: 15 }]);
+export const DEFAULTS = Object.freeze({ hand: 0, cb: 0, theme: 0, font: FONT_CODES[DEFAULT_UI_FONT], size: 0, wipe: 0 });
+const RANGE = { hand: 1, cb: 1, theme: 1, font: Math.max(...Object.values(FONT_CODES)), size: Math.max(...TEXT_SIZES.map(t => t.code)),
+    wipe: Math.max(...WIPE_TIMES.map(t => t.code)) };
 
 /** The text-size factor for a code (1 when the code is unknown). */
 export function scaleFor(code) {
@@ -44,12 +50,18 @@ export function scaleFor(code) {
     return size ? size.scale : 1;
 }
 
+/** The wipe time in minutes for a code (7 when the code is unknown). */
+export function wipeMinutesFor(code) {
+    const wipe = WIPE_TIMES.find(t => t.code === code);
+    return wipe ? wipe.minutes : 7;
+}
+
 /** The font name for a code, or the default font when the code is unknown. */
 export function fontFor(code) {
     return Object.keys(FONT_CODES).find(name => FONT_CODES[name] === code) || DEFAULT_UI_FONT;
 }
 
-/** `hand=0;cb=0;theme=0;font=0;size=0` -> settings. Unknown names are dropped; a missing or bad value is its default. */
+/** `hand=0;cb=0;theme=0;font=0;size=0;wipe=0` -> settings. Unknown names are dropped; a missing or bad value is its default. */
 export function parseSettings(line) {
     const out = { ...DEFAULTS };
     if (typeof line !== 'string') return out;
@@ -62,7 +74,7 @@ export function parseSettings(line) {
     return out;
 }
 
-/** settings -> `hand=0;cb=0;theme=0;font=0;size=0`, always every name in the same order. */
+/** settings -> `hand=0;cb=0;theme=0;font=0;size=0;wipe=0`, always every name in the same order. */
 export function serializeSettings(settings) {
     const s = parseSettings(serializeRaw(settings));   // clamps and fills in defaults
     return serializeRaw(s);
@@ -92,7 +104,7 @@ export function clearSettings(storage = localStorage) {
     try { storage.removeItem(SETTINGS_KEY); storage.removeItem(OLD_THEME_KEY); } catch { /* nothing to remove */ }
 }
 
-/** Put the settings on <html>: the hand, colour-blind, font and size hooks and the dark class. */
+/** Put the settings on <html>: the hand, colour-blind, font, size and wipe hooks and the dark class. */
 export function applySettings(settings, root = document.documentElement) {
     const s = parseSettings(serializeRaw(settings));
     root.dataset.hand = s.hand === 1 ? 'left' : 'right';
@@ -102,6 +114,7 @@ export function applySettings(settings, root = document.documentElement) {
     root.style.setProperty('--vcge-ui-font', `'${fontFor(s.font)}'`);
     root.dataset.size = String(s.size);
     root.style.setProperty('--vcge-size', String(scaleFor(s.size)));
+    root.dataset.wipe = String(wipeMinutesFor(s.wipe));
     return s;
 }
 
@@ -109,7 +122,7 @@ export function applySettings(settings, root = document.documentElement) {
 
 /**
  * Wire the sheet's controls (any of them may be missing), apply the saved settings and listen for the wipe signal.
- * Controls: #handRightBtn / #handLeftBtn, #cbToggle (checkbox), #themeToggle (button), #fontSelect and #sizeSelect (selects).
+ * Controls: #handRightBtn / #handLeftBtn, #cbToggle (checkbox), #themeToggle (button), #fontSelect, #sizeSelect and #wipeSelect (selects).
  */
 export function initSettings(doc = document) {
     const $ = (id) => doc.getElementById(id);
@@ -117,13 +130,14 @@ export function initSettings(doc = document) {
 
     const set = (change) => { s = applySettings({ ...s, ...change }); saveSettings(s); reflect(); };
     const reflect = () => {
-        const right = $('handRightBtn'), left = $('handLeftBtn'), cb = $('cbToggle'), theme = $('themeToggle'), font = $('fontSelect'), size = $('sizeSelect');
+        const right = $('handRightBtn'), left = $('handLeftBtn'), cb = $('cbToggle'), theme = $('themeToggle'), font = $('fontSelect'), size = $('sizeSelect'), wipe = $('wipeSelect');
         if (right) right.setAttribute('aria-pressed', String(s.hand === 0));
         if (left) left.setAttribute('aria-pressed', String(s.hand === 1));
         if (cb) cb.checked = s.cb === 1;
         if (theme) { theme.textContent = s.theme === 1 ? '☀️' : '🌙'; theme.setAttribute('aria-pressed', String(s.theme === 1)); }
         if (font) font.value = String(s.font);
         if (size) size.value = String(s.size);
+        if (wipe) wipe.value = String(s.wipe);
     };
 
     const font = $('fontSelect');
@@ -142,12 +156,21 @@ export function initSettings(doc = document) {
             size.append(o);
         }
     }
+    const wipe = $('wipeSelect');
+    if (wipe && !wipe.options.length) {
+        for (const t of WIPE_TIMES) {                       // shortest first, each with its fixed code
+            const o = doc.createElement('option');
+            o.value = String(t.code); o.textContent = `${t.minutes} minutes`;
+            wipe.append(o);
+        }
+    }
     $('handRightBtn')?.addEventListener('click', () => set({ hand: 0 }));
     $('handLeftBtn')?.addEventListener('click', () => set({ hand: 1 }));
     $('cbToggle')?.addEventListener('change', (e) => set({ cb: e.target.checked ? 1 : 0 }));
     $('themeToggle')?.addEventListener('click', () => set({ theme: s.theme === 1 ? 0 : 1 }));
     font?.addEventListener('change', (e) => set({ font: Number(e.target.value) }));
     size?.addEventListener('change', (e) => set({ size: Number(e.target.value) }));
+    wipe?.addEventListener('change', (e) => set({ wipe: Number(e.target.value) }));
     reflect();
 
     globalEventBus.subscribe(Events.SETTINGS_WIPE_REQUESTED, () => clearSettings());

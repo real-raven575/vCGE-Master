@@ -338,26 +338,26 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   await page.click('#navSettings');
   ok('the cog opens Settings: hand, colour-blind switch, theme, font, language "coming later", PIN button and the disclaimer', await page.isVisible('#settingsSheet') && await page.isVisible('#handRightBtn') && await page.isVisible('#cbToggle') && await page.isVisible('#themeToggle')
     && await page.isVisible('#fontSelect') && /coming later/.test(await page.textContent('#settingsSheet')) && await page.isVisible('#settingsVaultBtn')
-    && (await text('settingsNote')) === 'vCGE keeps one small settings file on this device (hand, colors, theme, font, text size). Nothing you scan, upload or type is ever saved.');
+    && (await text('settingsNote')) === 'vCGE keeps one small settings file on this device (hand, colors, theme, font, text size, wipe time). Nothing you scan, upload or type is ever saved.');
   ok('the font list is the seven fonts, alphabetical, Inter chosen', (await page.$$eval('#fontSelect option', os => os.map(o => o.textContent).join('|'))) === 'Atkinson Hyperlegible|Comic Neue|Inter|Lexend|Macondo|OpenDyslexic|Tinos'
     && (await page.$eval('#fontSelect', s => s.selectedOptions[0].textContent)) === 'Inter');
-  ok('every settings control is at least 44 px tall', (await page.$$eval('#handRightBtn, #handLeftBtn, #cbToggle, #themeToggle, #fontSelect', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44));
+  ok('every settings control is at least 44 px tall', (await page.$$eval('#handRightBtn, #handLeftBtn, #cbToggle, #themeToggle, #fontSelect, #sizeSelect, #wipeSelect', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44));
   await page.click('#themeToggle');
-  ok('theme toggles to light and the entry appears, one key, name=number pairs', !(await htmlState()).dark && (await settingsKeys()).join() === 'vcge_settings' && (await htmlState()).entry === 'hand=0;cb=0;theme=1;font=0;size=0');
+  ok('theme toggles to light and the entry appears, one key, name=number pairs', !(await htmlState()).dark && (await settingsKeys()).join() === 'vcge_settings' && (await htmlState()).entry === 'hand=0;cb=0;theme=1;font=0;size=0;wipe=0');
   await page.click('#handLeftBtn');
   const headerOrder = () => page.evaluate(() => ['navSettings', 'navVault', 'navCapture', 'navShare'].map(id => document.getElementById(id).getBoundingClientRect().left));
   const [xSettings, xVault, xCapture, xShare] = await headerOrder();
   const trashSide = () => page.evaluate(() => { const c = document.querySelector('.deck-card.is-current'), t = c.querySelector('.vcge-trash').getBoundingClientRect(), r = c.getBoundingClientRect(); return t.left + t.width / 2 > r.left + r.width / 2 ? 'right' : 'left'; });
   ok('Left hand mirrors the header (Settings far left, Vault beside it, Airlock before Iris) and moves the trash button to the lower right',
-    (await htmlState()).hand === 'left' && xSettings < xVault && xVault < xShare && xShare < xCapture && (await trashSide()) === 'right' && (await htmlState()).entry === 'hand=1;cb=0;theme=1;font=0;size=0', JSON.stringify([xSettings, xVault, xShare, xCapture, await trashSide()]));
+    (await htmlState()).hand === 'left' && xSettings < xVault && xVault < xShare && xShare < xCapture && (await trashSide()) === 'right' && (await htmlState()).entry === 'hand=1;cb=0;theme=1;font=0;size=0;wipe=0', JSON.stringify([xSettings, xVault, xShare, xCapture, await trashSide()]));
   await page.click('#handRightBtn');
   const [rSettings, rVault, rCapture] = await headerOrder();
   ok('Right hand puts it back: Iris first, Vault then Settings at the far right, trash lower left', rCapture < rVault && rVault < rSettings && (await trashSide()) === 'left' && (await htmlState()).hand === 'right');
   await page.check('#cbToggle');
-  ok('colour-blind mode sets html[data-cb="1"] (MOD02 reads it) and the lit icon shows a white bar under it', (await htmlState()).cb === '1' && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=0;size=0'
+  ok('colour-blind mode sets html[data-cb="1"] (MOD02 reads it) and the lit icon shows a white bar under it', (await htmlState()).cb === '1' && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=0;size=0;wipe=0'
     && /inset/.test(await page.$eval('.deck-nav button.is-on', b => getComputedStyle(b).boxShadow)));
   await page.selectOption('#fontSelect', { label: 'Lexend' });
-  ok('the UI font follows the drop-down (Lexend) and its fixed code is saved', /Lexend/.test((await htmlState()).body) && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2;size=0');
+  ok('the UI font follows the drop-down (Lexend) and its fixed code is saved', /Lexend/.test((await htmlState()).body) && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2;size=0;wipe=0');
   // Settings polish from raven575's iPad video: the cog by the title (#13) and a text size that leaves the header alone (#6)
   ok('Settings shows the cog left of its title', (await page.$eval('#settingsTitle use', u => u.getAttribute('href'))).endsWith('#settings')
     && await page.$eval('#settingsTitle', h => h.firstElementChild.tagName.toLowerCase() === 'svg'));
@@ -370,9 +370,16 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   await page.selectOption('#sizeSelect', { label: 'Larger' }); await page.waitForTimeout(200);
   const sizeLarger = await sizes();
   ok('Larger: the text grows by a quarter, the header and its icons keep their size, and its code is saved', Math.abs(sizeLarger.root / sizeNormal.root - 1.25) < 0.01 && Math.abs(sizeLarger.note / sizeNormal.note - 1.25) < 0.03
-    && Math.abs(sizeLarger.header - sizeNormal.header) < 0.6 && Math.abs(sizeLarger.icon - sizeNormal.icon) < 0.6 && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2;size=2', JSON.stringify([sizeNormal, sizeLarger]));
+    && Math.abs(sizeLarger.header - sizeNormal.header) < 0.6 && Math.abs(sizeLarger.icon - sizeNormal.icon) < 0.6 && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2;size=2;wipe=0', JSON.stringify([sizeNormal, sizeLarger]));
   await page.selectOption('#sizeSelect', { label: 'Normal' }); await page.waitForTimeout(200);
-  ok('Normal puts the text back', (await sizes()).root === sizeNormal.root && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2;size=0');
+  ok('Normal puts the text back', (await sizes()).root === sizeNormal.root && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2;size=0;wipe=0');
+  // Wipe after the lock (raven575, 2026-10-18, #68): 7 (default), 10 or 15 minutes, on html for MOD02; the 2-minute lock stays
+  ok('the wipe list is 7, 10, 15 minutes, 7 chosen, and html says 7', (await page.$$eval('#wipeSelect option', os => os.map(o => o.textContent).join('|'))) === '7 minutes|10 minutes|15 minutes'
+    && (await page.$eval('#wipeSelect', s => s.selectedOptions[0].textContent)) === '7 minutes' && (await page.evaluate(() => document.documentElement.dataset.wipe)) === '7');
+  await page.selectOption('#wipeSelect', { label: '15 minutes' });
+  ok('15 minutes: html[data-wipe="15"] and its code 2 is saved', (await page.evaluate(() => document.documentElement.dataset.wipe)) === '15' && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2;size=0;wipe=2');
+  await page.selectOption('#wipeSelect', { label: '7 minutes' });
+  ok('back to 7 minutes', (await page.evaluate(() => document.documentElement.dataset.wipe)) === '7' && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2;size=0;wipe=0');
   await page.click('#settingsSheet [data-sheet-close]');
   // A fresh start in the same browser (a second tab) comes back with the saved choices; the scan in this tab is untouched
   const pS = await context.newPage();
@@ -380,12 +387,12 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   const after = await pS.evaluate(() => ({ hand: document.documentElement.dataset.hand, cb: document.documentElement.dataset.cb, dark: document.documentElement.classList.contains('dark'),
     body: getComputedStyle(document.body).fontFamily, entry: localStorage.getItem('vcge_settings'), keys: Object.keys(localStorage).join() }));
   ok('next start: light theme, colour-blind mode and Lexend come back from the one entry; still exactly one key', !after.dark && after.cb === '1' && /Lexend/.test(after.body) && after.hand === 'right' && after.keys === 'vcge_settings', JSON.stringify(after));
-  ok('the entry holds five numbers and no text', /^hand=\d;cb=\d;theme=\d;font=\d;size=\d$/.test(after.entry), after.entry);
+  ok('the entry holds six numbers and no text', /^hand=\d;cb=\d;theme=\d;font=\d;size=\d;wipe=\d$/.test(after.entry), after.entry);
   await pS.click('#navSettings');
   ok('the sheet shows the saved choices', await pS.$eval('#cbToggle', c => c.checked) && (await pS.$eval('#fontSelect', s => s.selectedOptions[0].textContent)) === 'Lexend' && (await pS.$eval('#themeToggle', b => b.getAttribute('aria-pressed'))) === 'true');
   await pS.click('#themeToggle'); await pS.uncheck('#cbToggle'); await pS.selectOption('#fontSelect', { label: 'Inter' });
   await pS.waitForTimeout(300);
-  ok('back to dark, colour-blind off, Inter', await pS.evaluate(() => document.documentElement.classList.contains('dark') && !document.documentElement.dataset.cb && /Inter/.test(getComputedStyle(document.body).fontFamily) && localStorage.getItem('vcge_settings') === 'hand=0;cb=0;theme=0;font=0;size=0'));
+  ok('back to dark, colour-blind off, Inter', await pS.evaluate(() => document.documentElement.classList.contains('dark') && !document.documentElement.dataset.cb && /Inter/.test(getComputedStyle(document.body).fontFamily) && localStorage.getItem('vcge_settings') === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0'));
   await pS.close();
   await page.bringToFront();
   await page.click('#navSettings'); await page.click('#themeToggle'); await page.uncheck('#cbToggle'); await page.selectOption('#fontSelect', { label: 'Inter' }); await page.click('#settingsSheet [data-sheet-close]');
@@ -413,7 +420,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
   ok('No closes the dialog and keeps everything', !(await visible('wipeDialog')) && (await val('firstName')) === nameBefore && await visible('reopenScanBtn'));
   // "Also delete my saved settings" for real: Vault publishes the signal, Shell clears its one entry (MOD01 step 4)
   await page.click('#navSettings'); await page.click('#handLeftBtn'); await page.click('#settingsSheet [data-sheet-close]');
-  ok('a saved setting is in place before the wipe', (await page.evaluate(() => localStorage.getItem('vcge_settings'))) === 'hand=1;cb=0;theme=0;font=0;size=0');
+  ok('a saved setting is in place before the wipe', (await page.evaluate(() => localStorage.getItem('vcge_settings'))) === 'hand=1;cb=0;theme=0;font=0;size=0;wipe=0');
   await page.click('.deck-card.is-current .vcge-trash');
   await page.check('#wipeSettingsBox'); await page.click('#wipeSettingsYesBtn');
   await holdYes(page, 1700); await page.waitForTimeout(700);
