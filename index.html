@@ -123,20 +123,27 @@
                 </div>
                 <!-- Crop & straighten (MOD03): the handles start at the photo's full edge; Snap to card finds the edges on request -->
                 <div id="captureReview" class="hidden space-y-3">
-                    <p class="text-xs text-slate-500 dark:text-slate-400">The whole photo is read unless you move a corner. Drag the corners onto the card, or press Snap to card. The photo stays on this device.</p>
-                    <div id="cropStage" class="relative mx-auto w-fit max-w-full select-none">
-                        <img id="reviewImage" alt="Captured business card" class="block max-w-full max-h-80 rounded-lg bg-slate-100 dark:bg-slate-800">
-                        <svg id="cropOverlay" class="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none" aria-hidden="true">
-                            <polygon id="cropPolygon" class="crop-outline" points=""></polygon>
-                        </svg>
-                        <button type="button" class="crop-handle" data-corner="0"></button>
-                        <button type="button" class="crop-handle" data-corner="1"></button>
-                        <button type="button" class="crop-handle" data-corner="2"></button>
-                        <button type="button" class="crop-handle" data-corner="3"></button>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">The whole photo is read unless you move a corner. Drag the corners onto the card, or press Snap to card. Pinch the photo to zoom in. The photo stays on this device.</p>
+                    <!-- The stage clips the zoomed photo; a pinch on it zooms the photo, not the page (cropEditor.js) -->
+                    <div id="cropStage" class="crop-stage mx-auto w-fit max-w-full select-none">
+                        <div id="cropView" class="crop-view relative">
+                            <img id="reviewImage" alt="Captured business card" class="block max-w-full max-h-80 rounded-lg bg-slate-100 dark:bg-slate-800">
+                            <svg id="cropOverlay" class="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none" aria-hidden="true">
+                                <path id="cropShade" class="crop-shade" d=""></path>
+                                <polygon id="cropPolygon" class="crop-outline" points=""></polygon>
+                            </svg>
+                            <button type="button" class="crop-handle" data-corner="0"></button>
+                            <button type="button" class="crop-handle" data-corner="1"></button>
+                            <button type="button" class="crop-handle" data-corner="2"></button>
+                            <button type="button" class="crop-handle" data-corner="3"></button>
+                        </div>
                     </div>
                     <p id="ocrRetakeNotice" class="hidden text-sm text-amber-600 dark:text-amber-400" role="alert">This photo is too blurry or unclear to read. Retake it closer, in good light, and hold steady.</p>
                     <div id="captureActions" class="cap-review-actions">
-                        <button id="rotatePhotoBtn" type="button" class="cap-quiet mr-auto">Rotate 90°</button>
+                        <span class="cap-rotate mr-auto">
+                            <button id="rotateLeftBtn" type="button" class="cap-quiet" aria-label="Rotate left 90°, counter-clockwise" title="Rotate left 90° (counter-clockwise)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#rotate-2"></use></svg><span>Left</span></button>
+                            <button id="rotateRightBtn" type="button" class="cap-quiet" aria-label="Rotate right 90°, clockwise" title="Rotate right 90° (clockwise)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#rotate-clockwise-2"></use></svg><span>Right</span></button>
+                        </span>
                         <button id="snapCardBtn" type="button" class="cap-quiet">Snap to card</button>
                         <button id="retakePhotoBtn" type="button" class="cap-quiet hidden">Retake photo</button>
                         <button id="cancelReviewBtn" type="button" class="cap-quiet">Cancel</button>

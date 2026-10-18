@@ -1278,6 +1278,11 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p5.click('#snapCardBtn'); await p5.waitForTimeout(200);
     const snapped = (await p5.getAttribute('#cropPolygon', 'points')).split(' ').map(pt => pt.split(',').map(Number));
     ok('Snap to card moves the handles onto the card\'s corners', snapped.every(([x, y], i) => Math.hypot(x - crooked.corners[i].x, y - crooked.corners[i].y) < 12), JSON.stringify(snapped) + ' vs ' + JSON.stringify(crooked.corners));
+    // Finding 51: the snapped area has a clear edge (bold outline, the rest of the photo dimmed)
+    const edge = await p5.evaluate(() => { const o = getComputedStyle(document.getElementById('cropPolygon')), sh = getComputedStyle(document.getElementById('cropShade'));
+      return { stroke: o.strokeWidth, fill: o.fill, shadeFill: sh.fill, shadeRule: sh.fillRule, shadeD: document.getElementById('cropShade').getAttribute('d') }; });
+    ok('Snap to card: a bold edge round the card and the rest of the photo dimmed', edge.stroke === '3px' && edge.fill === 'none' && /rgba\(2, 6, 23, 0\.5\)/.test(edge.shadeFill) && edge.shadeRule === 'evenodd' && /^M0,0H1600V1200H0Z M/.test(edge.shadeD), JSON.stringify(edge));
+    await p5.waitForTimeout(600);
     await dragCorners(p5, crooked.corners);
     const outline = await p5.getAttribute('#cropPolygon', 'points');
     const placed = outline.split(' ').map(pt => pt.split(',').map(Number));
@@ -1308,12 +1313,43 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('Fill form applies the edited review', (await p5.inputValue('#firstName')) === 'Mariah' && (await rows(p5, 'website')).every(r => !r.value) && (await p5.inputValue('#notes')).includes('northwind.com') && (await rowValue(p5, 'email', 'work')) === 'maria.gonzalez@northwind.com',
       [await p5.inputValue('#firstName'), JSON.stringify(await rows(p5, 'website')), await p5.inputValue('#notes')].join(' | '));
     ok('review text cleared from the page after Fill form', (await p5.$$('#ocrLines input')).length === 0 && !(await p5.isVisible('#cropReviewModal')));
-    // Rotate: the photo turns 90° and the corners reset
-    await p5.setInputFiles('#imageUpload', crooked.file); await p5.waitForTimeout(500);
-    const before = await p5.$eval('#reviewImage', i => [i.naturalWidth, i.naturalHeight]);
-    await p5.click('#rotatePhotoBtn'); await p5.waitForTimeout(500);
-    const rotated = await p5.$eval('#reviewImage', i => [i.naturalWidth, i.naturalHeight]);
-    ok('Rotate 90° swaps the photo orientation', rotated[0] === before[1] && rotated[1] === before[0], `${before} -> ${rotated}`);
+    // Rotate left and Rotate right (finding 49): each turns the photo 90° its own way and the corners reset. The test
+    // photo is white with a red top-left corner, so where the red lands shows the direction.
+    const marked = await p5.evaluate(() => { const c = document.createElement('canvas'); c.width = 400; c.height = 200; const x = c.getContext('2d');
+      x.fillStyle = '#fff'; x.fillRect(0, 0, 400, 200); x.fillStyle = '#f00'; x.fillRect(0, 0, 100, 50); return c.toDataURL('image/png'); });
+    await p5.setInputFiles('#imageUpload', { name: 'marked.png', mimeType: 'image/png', buffer: Buffer.from(marked.split(',')[1], 'base64') }); await p5.waitForTimeout(500);
+    const redCorner = () => p5.evaluate(() => { const i = document.getElementById('reviewImage'), c = document.createElement('canvas'); c.width = i.naturalWidth; c.height = i.naturalHeight;
+      const x = c.getContext('2d'); x.drawImage(i, 0, 0); const red = (fx, fy) => x.getImageData(Math.floor(c.width * fx), Math.floor(c.height * fy), 1, 1).data[1] < 100;
+      return { size: `${c.width}x${c.height}`, at: red(0.05, 0.05) ? 'tl' : red(0.95, 0.05) ? 'tr' : red(0.95, 0.95) ? 'br' : red(0.05, 0.95) ? 'bl' : 'none' }; });
+    await p5.click('#rotateRightBtn'); await p5.waitForTimeout(500);
+    const right = await redCorner();
+    ok('Rotate right turns the photo 90° clockwise', right.size === '200x400' && right.at === 'tr', JSON.stringify(right));
+    ok('Rotate right: the corners reset to the full edge of the turned photo', (await p5.getAttribute('#cropPolygon', 'points')) === '0,0 200,0 200,400 0,400', await p5.getAttribute('#cropPolygon', 'points'));
+    await p5.click('#rotateLeftBtn'); await p5.waitForTimeout(500);
+    await p5.click('#rotateLeftBtn'); await p5.waitForTimeout(500);
+    const left = await redCorner();
+    ok('Rotate left turns the photo 90° counter-clockwise (right then left twice: one quarter turn back)', left.size === '200x400' && left.at === 'bl', JSON.stringify(left));
+    // Finding 51: after a snap the view zooms onto the card. A card in the middle of a big photo (a card in a screenshot, as on the iPad).
+    const smallCard = await p5.evaluate(() => { const c = document.createElement('canvas'); c.width = 1600; c.height = 1200; const x = c.getContext('2d');
+      x.fillStyle = '#6b7280'; x.fillRect(0, 0, 1600, 1200); x.fillStyle = '#fff'; x.fillRect(420, 383, 760, 434); x.fillStyle = '#111';
+      for (let i = 0; i < 6; i++) x.fillRect(470, 430 + i * 60, 520 - i * 50, 26); return c.toDataURL('image/png'); });
+    await p5.setInputFiles('#imageUpload', { name: 'small.png', mimeType: 'image/png', buffer: Buffer.from(smallCard.split(',')[1], 'base64') }); await p5.waitForTimeout(500);
+    await deckSettled(p5);
+    await p5.click('#snapCardBtn'); await p5.waitForTimeout(600);
+    const snapView = await p5.evaluate(() => {
+      const stage = document.getElementById('cropStage').getBoundingClientRect(), view = document.getElementById('cropView');
+      const handles = Array.from(document.querySelectorAll('#cropStage [data-corner]')).map(h => { const r = h.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width }; });
+      return { transform: view.style.transform, scale: Number(view.style.getPropertyValue('--crop-scale')), stage: { l: stage.left, t: stage.top, r: stage.right, b: stage.bottom }, handles,
+        points: document.getElementById('cropPolygon').getAttribute('points') };
+    });
+    ok('Snap to card: the view zooms in onto the card, all four corners still in view', snapView.scale > 1.6 && /scale\(/.test(snapView.transform)
+      && snapView.handles.every(h => h.x >= snapView.stage.l && h.x <= snapView.stage.r && h.y >= snapView.stage.t && h.y <= snapView.stage.b), JSON.stringify(snapView));
+    ok('Snap to card: the handles keep their size when zoomed', snapView.handles.every(h => Math.abs(h.w - 24) < 1), JSON.stringify(snapView.handles));
+    ok('Snap to card: the corners land on the card in the middle', snapView.points.split(' ').map(pt => pt.split(',').map(Number)).every(([x, y], i) => Math.hypot(x - [420, 1180, 1180, 420][i], y - [383, 383, 817, 817][i]) < 12), snapView.points);
+    // A double click (a double tap on a phone) goes back to the whole photo; the corners stay put
+    const img5 = await p5.locator('#reviewImage').boundingBox();
+    await p5.mouse.dblclick(img5.x + img5.width / 2, img5.y + img5.height / 2); await p5.waitForTimeout(600);
+    ok('a double click on the photo goes back to the whole photo, the corners stay put', (await p5.$eval('#cropView', v => v.style.transform)) === '' && (await p5.getAttribute('#cropPolygon', 'points')) === snapView.points, await p5.$eval('#cropView', v => v.style.transform));
     await ctx5.close();
   }
 
@@ -1404,7 +1440,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('shot: no copy of the photo is left in the capture canvas', (await pV.$eval('#captureCanvas', c => c.width + c.height)) === 0);
     await pV.click('#snapCardBtn'); await pV.waitForTimeout(200);
     ok('Snap to card on a photo with no card in it leaves the handles alone and says so', (await pV.textContent('#toastMessage')).includes('No card edges found') && (await pV.getAttribute('#cropPolygon', 'points')) === `0,0 ${shot.w},0 ${shot.w},${shot.h} 0,${shot.h}`, await pV.textContent('#toastMessage'));
-    ok('crop step: Rotate, Snap to card, Cancel and a green OK; OK is the only green one', (await pV.$$eval('#captureActions button', bs => bs.filter(b => b.offsetParent).map(b => b.textContent.trim()))).join('|') === 'Rotate 90°|Snap to card|Cancel|OK'
+    ok('crop step: Rotate left, Rotate right, Snap to card, Cancel and a green OK; OK is the only green one', (await pV.$$eval('#captureActions button', bs => bs.filter(b => b.offsetParent).map(b => b.textContent.trim()))).join('|') === 'Left|Right|Snap to card|Cancel|OK'
+      && (await pV.getAttribute('#rotateLeftBtn', 'aria-label')).includes('counter-clockwise') && (await pV.getAttribute('#rotateRightBtn', 'aria-label')).includes(', clockwise')
       && await pV.$eval('#runOcrBtn', b => getComputedStyle(b).backgroundColor === 'rgb(22, 163, 74)'));
     // Retake after a camera shot opens the camera again; Cancel drops the photo
     await pV.evaluate(() => document.getElementById('retakePhotoBtn').classList.remove('hidden'));
@@ -1414,6 +1451,35 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('Close camera stops the feed', await pV.evaluate(() => document.getElementById('cameraStream').srcObject === null && document.getElementById('cameraPanel').classList.contains('hidden')));
     await pV.setInputFiles('#imageUpload', await renderCardImage(pV)); await pV.waitForTimeout(300);
     ok('upload: the handles start at the full photo', await pV.isVisible('#captureReview') && (await pV.getAttribute('#cropPolygon', 'points')) === '0,0 1050,0 1050,600 0,600');
+    // Finding 52: a two-finger pinch on the photo zooms the photo like a camera; the page, the buttons and the handles keep
+    // their size; the corners do not move. At the whole photo a swipe is still the deck's (touch-action pan-x pan-y).
+    await deckSettled(pV);
+    const okBefore = await box('#runOcrBtn');
+    const actionAtFit = await pV.$eval('#cropStage', s => getComputedStyle(s).touchAction);
+    const pinch = await pV.evaluate(() => {
+      const img = document.getElementById('reviewImage'), r = img.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      const fire = (type, id, x, y) => img.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', isPrimary: id === 1, clientX: x, clientY: y, bubbles: true, cancelable: true }));
+      fire('pointerdown', 1, cx - 20, cy); fire('pointerdown', 2, cx + 20, cy);
+      for (let d = 25; d <= 40; d += 5) { fire('pointermove', 1, cx - d, cy); fire('pointermove', 2, cx + d, cy); }
+      const v = document.getElementById('cropView');
+      const out = { scale: Number(v.style.getPropertyValue('--crop-scale')), zoomed: document.getElementById('cropStage').dataset.zoomed, action: getComputedStyle(document.getElementById('cropStage')).touchAction,
+        handle: document.querySelector('#cropStage [data-corner="0"]').getBoundingClientRect().width, page: window.visualViewport ? window.visualViewport.scale : 1 };
+      fire('pointerup', 1, cx - 40, cy); fire('pointerup', 2, cx + 40, cy);
+      return out;
+    });
+    const okAfter = await box('#runOcrBtn');
+    ok('pinch on the photo zooms the photo (two fingers 40 px apart -> 80 px: twice the size)', Math.abs(pinch.scale - 2) < 0.01 && pinch.zoomed === '1', JSON.stringify(pinch));
+    ok('pinch on the photo: the page does not zoom and the buttons and handles keep their size', pinch.page === 1 && Math.abs(pinch.handle - 24) < 1 && okAfter.w === okBefore.w && okAfter.h === okBefore.h, JSON.stringify({ pinch, okBefore, okAfter }));
+    ok('pinch on the photo: the corners stay where they were', (await pV.getAttribute('#cropPolygon', 'points')) === '0,0 1050,0 1050,600 0,600');
+    ok('the photo takes every touch only while zoomed; at the whole photo a swipe still moves the deck', actionAtFit === 'pan-x pan-y' && pinch.action === 'none', `${actionAtFit} / ${pinch.action}`);
+    // One finger pans the zoomed photo
+    const panned = await pV.evaluate(() => {
+      const img = document.getElementById('reviewImage'), r = img.getBoundingClientRect(), v = document.getElementById('cropView'), before = v.style.transform;
+      const fire = (type, x, y) => img.dispatchEvent(new PointerEvent(type, { pointerId: 3, pointerType: 'touch', isPrimary: true, clientX: x, clientY: y, bubbles: true, cancelable: true }));
+      fire('pointerdown', r.left + r.width / 2, r.top + r.height / 2); fire('pointermove', r.left + r.width / 2 + 30, r.top + r.height / 2 + 10); fire('pointerup', r.left + r.width / 2 + 30, r.top + r.height / 2 + 10);
+      return { before, after: v.style.transform };
+    });
+    ok('one finger pans the zoomed photo', panned.before !== panned.after && /scale\(2\)/.test(panned.after), JSON.stringify(panned));
     await pV.click('#cancelReviewBtn');
     ok('Cancel on the crop step drops the photo and goes back to Take or Upload', !(await pV.isVisible('#captureReview')) && !(await pV.getAttribute('#reviewImage', 'src')) && await pV.isVisible('#startCameraBtn'));
 

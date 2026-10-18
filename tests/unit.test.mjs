@@ -591,6 +591,25 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('tween: under reduce motion the end value applies at once', instant.length === 1 && instant[0] === 3 && timers.length === 0);
 }
 
+// The zoom of the photo in the crop step (MOD03): pinch, pan and the zoom onto a snapped card
+{
+  const { clampView, zoomAbout, viewForCorners, CROP_ZOOM_MAX, SNAP_MARGIN } = await import(`${R}/modules/mod03-camera/cropView.js`);
+  ok('crop zoom: never smaller than the whole photo, never past the maximum', clampView({ scale: 0.5, x: 10, y: 10 }, 400, 300).scale === 1 && clampView({ scale: 9, x: 0, y: 0 }, 400, 300).scale === CROP_ZOOM_MAX);
+  ok('crop zoom: the photo always covers the view (no gap at an edge)', JSON.stringify(clampView({ scale: 2, x: 50, y: -900 }, 400, 300)) === JSON.stringify({ scale: 2, x: 0, y: -300 }), JSON.stringify(clampView({ scale: 2, x: 50, y: -900 }, 400, 300)));
+  const z = zoomAbout({ scale: 1, x: 0, y: 0 }, 2, 100, 100, 400, 300);
+  ok('crop zoom: a pinch keeps the point under the fingers in place', JSON.stringify(z) === JSON.stringify({ scale: 2, x: -100, y: -100 }), JSON.stringify(z));
+  ok('crop zoom: pinching out past the whole photo stops at it', JSON.stringify(zoomAbout({ scale: 2, x: -100, y: -100 }, 0.25, 0, 0, 400, 300)) === JSON.stringify({ scale: 1, x: 0, y: 0 }));
+  // A 1600 x 1200 photo shown at 400 x 300; the card's box is 400..1200 by 300..700 in the photo (100..300 by 75..175 on screen)
+  const card = [{ x: 400, y: 300 }, { x: 1200, y: 320 }, { x: 1180, y: 700 }, { x: 420, y: 680 }];
+  const v = viewForCorners(card, 1600, 1200, 400, 300);
+  const onScreen = card.map(c => ({ x: c.x / 4 * v.scale + v.x, y: c.y / 4 * v.scale + v.y }));
+  ok('snap zoom: zooms in onto the card', v.scale > 1.5 && v.scale <= CROP_ZOOM_MAX, JSON.stringify(v));
+  ok('snap zoom: the whole card is in view with a margin round it', onScreen.every(p => p.x >= 400 * SNAP_MARGIN / 2 && p.x <= 400 * (1 - SNAP_MARGIN / 2) && p.y >= 0 && p.y <= 300), JSON.stringify(onScreen));
+  ok('snap zoom: the card sits in the middle', Math.abs((Math.min(...onScreen.map(p => p.x)) + Math.max(...onScreen.map(p => p.x))) / 2 - 200) < 1, JSON.stringify(onScreen));
+  ok('snap zoom: a card that fills the photo leaves the whole photo in view', JSON.stringify(viewForCorners([{ x: 0, y: 0 }, { x: 1600, y: 0 }, { x: 1600, y: 1200 }, { x: 0, y: 1200 }], 1600, 1200, 400, 300)) === JSON.stringify({ scale: 1, x: 0, y: 0 }));
+  ok('snap zoom: missing sizes are harmless', viewForCorners(card, 0, 0, 400, 300).scale === 1 && viewForCorners(null, 1600, 1200, 400, 300).scale === 1);
+}
+
 // Snap to card: the on-device edge finder (MOD03)
 {
   const { findCardQuad, convexHull, orderCorners } = await import(`${R}/modules/mod03-camera/cardFinder.js`);

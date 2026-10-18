@@ -807,7 +807,8 @@ function wireIntake() {
     $('ocrStopBtn').addEventListener('click', stopOcr);
     $('ocrTryAgainBtn').addEventListener('click', () => closeTimeoutPrompt(true));
     $('ocrTimeoutCancelBtn').addEventListener('click', () => closeTimeoutPrompt(false));
-    $('rotatePhotoBtn').addEventListener('click', () => { showRetakePrompt(false); cropEditor.rotate(); });
+    $('rotateLeftBtn').addEventListener('click', () => { showRetakePrompt(false); cropEditor.rotate(-1); });
+    $('rotateRightBtn').addEventListener('click', () => { showRetakePrompt(false); cropEditor.rotate(1); });
     // Snap to card moves the handles only when it finds a card; otherwise it says so and leaves them alone.
     $('snapCardBtn').addEventListener('click', () => { if (!cropEditor.snapToCard()) deckToast('No card edges found. Drag the corners onto the card yourself.'); });
     // Cancel on the crop step drops the photo: back to Take a photo or Upload a photo.

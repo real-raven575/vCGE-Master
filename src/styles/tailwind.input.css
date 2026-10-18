@@ -9,14 +9,20 @@
     .field-input {
         @apply w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-brand-500 transition;
     }
-    /* Crop editor (MOD03): corner handles centred on their point, outline of the area that will be read */
+    /* Crop editor (MOD03): corner handles centred on their point, a bold edge round the area that will be read and the
+       rest of the photo dimmed, so the edge stands out on any photo (iPad finding 51) */
     .crop-handle {
         @apply absolute w-6 h-6 -ml-3 -mt-3 rounded-full bg-brand-500 border-2 border-white shadow-md cursor-grab touch-none focus:outline-none focus:ring-4 focus:ring-brand-400/60;
     }
     .crop-outline {
-        fill: rgb(34 197 94 / 0.12);
+        fill: none;
         stroke: rgb(34 197 94);
-        stroke-width: 2;
+        stroke-width: 3;
+        stroke-linejoin: round;
         vector-effect: non-scaling-stroke;
+    }
+    .crop-shade {
+        fill: rgb(2 6 23 / 0.5);
+        fill-rule: evenodd;
     }
 }

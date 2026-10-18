@@ -56,7 +56,7 @@ const FILES = [
 ];
 
 // App icons for the redesign's header and buttons: Tabler Icons outline set (MIT), copied as SVG files.
-const APP_ICONS = ['aperture', 'radar-2', 'lock', 'forms', 'id', 'qrcode', 'send', 'settings', 'trash', 'camera', 'upload', 'circle-check', 'home-shield'];
+const APP_ICONS = ['aperture', 'radar-2', 'lock', 'forms', 'id', 'qrcode', 'send', 'settings', 'trash', 'camera', 'upload', 'circle-check', 'home-shield', 'rotate-2', 'rotate-clockwise-2'];
 
 // Contact-icon templates for the OCR icon detector (mod04-ocr/iconDetector.js): generic shapes from Lucide (ISC),
 // brand logos from Simple Icons (CC0). LinkedIn's logo is not in either set; the detector draws its own "in" template.
