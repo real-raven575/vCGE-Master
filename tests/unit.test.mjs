@@ -154,6 +154,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 {
   const { SessionPin, MAX_PIN_ATTEMPTS, PIN_LENGTH, RESET_SECONDS, isValidPin } = await import(`${R}/modules/mod02-vault/sessionPin.js`);
   ok('reset after 7 minutes without activity, PIN is 4 digits', RESET_SECONDS === 420 && PIN_LENGTH === 4);
+  {
+    const { wipeSecondsFrom } = await import(`${R}/modules/mod02-vault/sessionPin.js`);
+    const got = ['7', '10', '15', undefined, '', '0', '20', '99', 'abc', '10.5', '-7'].map(v => wipeSecondsFrom(v)).join();
+    ok('wipe time from html[data-wipe]: 7, 10 or 15 minutes; anything else is 7 (never longer than 15)', got === '420,600,900,420,420,420,420,420,420,420,420', got);
+  }
   ok('only exactly 4 digits make a PIN', isValidPin('0420') && !isValidPin('123') && !isValidPin('12345') && !isValidPin('12a4') && !isValidPin(' 1234') && !isValidPin(1234));
   const pin = new SessionPin();
   ok('session PIN starts unset', !pin.isSet() && (await pin.verify('1234')).result === 'not_set');

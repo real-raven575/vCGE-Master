@@ -669,6 +669,35 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     if (await p8.isVisible('#tourSkipBtn')) await p8.click('#tourSkipBtn');
     await p8.waitForTimeout(700);
 
+    // Settings > Wipe after the lock (raven575, 2026-10-18): 10 or 15 minutes instead of 7; the 2-minute lock stays
+    const wipeChoice = async (label) => {
+      await p8.click('#navSettings'); await p8.waitForSelector('#settingsSheet', { state: 'visible' });
+      await p8.selectOption('#wipeSelect', { label });
+      await p8.click('#settingsSheet [data-sheet-close]'); await p8.waitForSelector('#settingsSheet', { state: 'hidden' });
+    };
+    await wipeChoice('10 minutes');
+    await openVault(p8);
+    ok('wipe 10: the Vault page says 10 minutes after the lock', (await t8('vaultWipeMinutes')) === '10', await t8('vaultWipeMinutes'));
+    await closeVault(p8);
+    await p8.fill('#firstName', 'Ten'); await p8.click('#lockVaultBtn');
+    ok('wipe 10: the lock ring starts at 10:00', /^(10:00|9:5\d)$/.test(await t8('vaultLockRingTime')) && /resets in (10:00|9:5\d)/.test(await t8('quickUnlockCountdown')), await t8('vaultLockRingTime'));
+    await p8.evaluate(() => { const s = document.getElementById('wipeSelect'); s.value = '2'; s.dispatchEvent(new Event('change', { bubbles: true })); });
+    await fastForward(p8, 1000);
+    ok('wipe: a change made while locked applies from the next lock (this one stays 10)', (await p8.evaluate(() => document.documentElement.dataset.wipe)) === '15' && /^9:5\d$/.test(await t8('vaultLockRingTime')), await t8('vaultLockRingTime'));
+    await fastForward(p8, 430000);   // 7 min 11 s after the lock
+    ok('wipe 10: still held 7 minutes after the lock', await p8.isVisible('#vaultModal') && /^2:\d\d$/.test(await t8('vaultLockRingTime')), await t8('vaultLockRingTime'));
+    await fastForward(p8, 170000);   // 10 min 1 s after the lock
+    ok('wipe 10: wiped 10 minutes after the lock', !(await p8.isVisible('#vaultModal')) && (await p8.inputValue('#firstName')) === '' && (await t8('toastMessage')).startsWith('Reset: 10 minutes without activity'), await t8('toastMessage'));
+    await setPin(p8, '4321');
+    await p8.fill('#firstName', 'Fifteen'); await p8.click('#lockVaultBtn');
+    ok('wipe 15: the next lock runs 15 minutes', /^(15:00|14:5\d)$/.test(await t8('vaultLockRingTime')), await t8('vaultLockRingTime'));
+    await p8.fill('#vaultPin', '4321'); await p8.waitForSelector('#vaultModal', { state: 'hidden' });
+    await p8.evaluate(() => { document.documentElement.dataset.wipe = '99'; });
+    await p8.click('#lockVaultBtn');
+    ok('wipe: a value that is not 7, 10 or 15 means 7', /^(7:00|6:5\d)$/.test(await t8('vaultLockRingTime')), await t8('vaultLockRingTime'));
+    await p8.fill('#vaultPin', '4321'); await p8.waitForSelector('#vaultModal', { state: 'hidden' });
+    await wipeChoice('7 minutes');
+
     await openVault(p8);
     ok('Security panel: Change offered and the switch is on', (await t8('setSessionPinBtn')) === 'Change' && (await sw8('pinSwitch')).on === 'true');
     await p8.click('#pinSwitch');

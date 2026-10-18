@@ -21,7 +21,7 @@ import { CONTACT_FIELDS, CONTACT_LIST_FIELDS, createEmptyContact } from './share
 import { temporaryVault, deleteLegacyVault } from './modules/mod02-vault/vault.js';
 import { TTLMemoryStreamManager } from './modules/mod02-vault/ttlManager.js';
 import { deleteDeviceSecret } from './modules/mod02-vault/keychain.js';
-import { SessionPin, RESET_SECONDS, PIN_LENGTH, MAX_PIN_ATTEMPTS, isValidPin } from './modules/mod02-vault/sessionPin.js';
+import { SessionPin, PIN_LENGTH, MAX_PIN_ATTEMPTS, isValidPin, wipeSecondsFrom } from './modules/mod02-vault/sessionPin.js';
 import { BiometricUnlock, biometricAvailable } from './modules/mod02-vault/biometric.js';
 import { maskSecretInputs } from './modules/mod02-vault/secretInputs.js';
 import { LockHandoff } from './modules/mod02-vault/lockHandoff.js';
@@ -63,6 +63,7 @@ let vaultMode = 'open';
 let holding = null;          // Promise from temporaryVault.hold() while a quick lock seals the card
 let hiddenDeadline = 0;      // wall-clock time at which a page that is out of view gets wiped (no PIN; 0 = none)
 let resetDeadline = 0;       // wall-clock time at which 7 minutes without activity wipe everything (0 = none)
+let resetSpan = 0;           // the seconds that deadline was set with (7, 10 or 15 minutes, chosen in Settings)
 let externalAppUntil = 0;    // until then, the page going out of view is the picker or share sheet the app opened
 let leaveGuardArmed = false; // an extra history entry is in place, so Back asks before leaving
 let leaving = false;
@@ -102,6 +103,14 @@ function refresh(contact = cardView.getContact()) {
 // ---- Temporary vault (MOD02): memory only ----------------------------------------------------------------------
 
 const minutes = (seconds) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
+// The wipe time chosen in Settings (Shell's html[data-wipe]: 7, 10 or 15 minutes; anything else is 7). Read each time a
+// deadline is set, so a change made while the card is locked applies from the next lock.
+const wipeSeconds = () => wipeSecondsFrom(document.documentElement.dataset.wipe);
+function setResetDeadline(from) {
+    resetSpan = wipeSeconds();
+    resetDeadline = from + resetSpan * 1000;
+}
+const resetMinutes = () => (resetSpan || wipeSeconds()) / 60;
 const resetRemaining = () => (resetDeadline ? Math.max(0, Math.ceil((resetDeadline - Date.now()) / 1000)) : 0);
 
 function setVaultIndicator() {
@@ -183,7 +192,7 @@ function updateQuickUnlockCountdown() {
     if (vaultMode !== 'quick') return;
     const left = resetRemaining();
     $('vaultLockRingTime').textContent = minutes(left);
-    $('vaultLockRing').setAttribute('stroke-dashoffset', (LOCK_RING_LENGTH * (1 - left / RESET_SECONDS)).toFixed(2));
+    $('vaultLockRing').setAttribute('stroke-dashoffset', (LOCK_RING_LENGTH * (1 - left / resetSpan)).toFixed(2));
     $('quickUnlockCountdown').textContent = `Your card is safe. Without activity, everything resets in ${minutes(left)}; then the card is wiped.`;
 }
 
@@ -239,7 +248,7 @@ function quickLock(reason = 'idle', lockedAt = Date.now()) {
     if (vaultMode !== 'open') return;
     const payload = { contact: cardView.getContact(), scan: scanSnapshot() };
     idleTtl.stop();
-    resetDeadline = lockedAt + RESET_SECONDS * 1000;   // the 7 minutes run from the lock (raven575, 2026-10-17)
+    setResetDeadline(lockedAt);   // the 7 (or 10, 15) minutes run from the lock (raven575, 2026-10-17)
     lockedOnCard = currentCard();
     closeQuickUnlockDialogs();
     clearCapturedImages();
@@ -304,6 +313,7 @@ function wipeSession(reason, message = null) {
     idleTtl.stop();
     hiddenDeadline = 0;
     resetDeadline = 0;
+    resetSpan = 0;
     sessionPin.clear();
     biometric.clear();
     temporaryVault.wipe();
@@ -330,7 +340,7 @@ function wipeVault() {
 // ---- Session PIN setup -----------------------------------------------------------------------------------------
 
 function openQuickSetup() {
-    $('quickSetupHint').textContent = `Choose a ${PIN_LENGTH}-digit PIN for this session. When the screen turns off or after ${IDLE_PURGE_SECONDS / 60} minutes without activity, the card is locked and the PIN brings it back. After ${RESET_SECONDS / 60} minutes without activity, or ${MAX_PIN_ATTEMPTS} wrong tries, everything is wiped. The PIN is forgotten when you leave or reload.`;
+    $('quickSetupHint').textContent = `Choose a ${PIN_LENGTH}-digit PIN for this session. When the screen turns off or after ${IDLE_PURGE_SECONDS / 60} minutes without activity, the card is locked and the PIN brings it back. ${wipeSeconds() / 60} minutes after the lock, or after ${MAX_PIN_ATTEMPTS} wrong tries, everything is wiped. The PIN is forgotten when you leave or reload.`;
     $('quickSetupError').textContent = '';
     $('sessionPinInput').value = '';
     $('quickSetupModal').classList.remove('hidden');
@@ -445,8 +455,9 @@ function purgeVolatileState(reason) {
         // The lock was due when the idle time ran out; phones freeze timers in the background, so that can be well
         // before now. If its 7 minutes are already over, the card is wiped instead of locked.
         const lockedAt = Math.min(Date.now(), idleTtl.expiresAt || Date.now());
-        if (Date.now() >= lockedAt + RESET_SECONDS * 1000) {
-            return wipeSession(`${RESET_SECONDS / 60} minutes without activity`, `Reset: ${RESET_SECONDS / 60} minutes without activity, so everything was wiped.`);
+        if (Date.now() >= lockedAt + wipeSeconds() * 1000) {
+            const m = wipeSeconds() / 60;
+            return wipeSession(`${m} minutes without activity`, `Reset: ${m} minutes without activity, so everything was wiped.`);
         }
         quickLock('idle', lockedAt);
         cardView.showToast(`Hidden after ${IDLE_PURGE_SECONDS / 60} minutes without activity.`);
@@ -456,6 +467,7 @@ function purgeVolatileState(reason) {
 }
 
 function updatePurgeCountdown() {
+    $('vaultWipeMinutes').textContent = String(wipeSeconds() / 60);   // follows Settings while the Vault page is open
     const el = $('purgeCountdown');
     // With a PIN the idle time locks the card first, so it reads "Auto-lock"; without one it clears it.
     const word = sessionPin.isSet() ? 'Auto-lock' : 'Auto-clear';
@@ -551,14 +563,15 @@ function checkHiddenDeadline() {
 function checkResetDeadline() {
     if (!resetDeadline || Date.now() < resetDeadline) return;
     resetDeadline = 0;
-    if (hasWork()) wipeSession(`${RESET_SECONDS / 60} minutes without activity`, `Reset: ${RESET_SECONDS / 60} minutes without activity, so everything was wiped.`);
+    const m = resetMinutes();
+    if (hasWork()) wipeSession(`${m} minutes without activity`, `Reset: ${m} minutes without activity, so everything was wiped.`);
 }
 
 // Activity while the card is open restarts the idle lock and the 7-minute reset. Typing at the lock screen does not.
 function markActivity() {
     if (vaultMode !== 'open') return;
     armIdleTtl();
-    resetDeadline = Date.now() + RESET_SECONDS * 1000;
+    setResetDeadline(Date.now());
 }
 
 // The app is about to open the photo picker or a share action (another app may come to the front).
@@ -985,6 +998,8 @@ function boot() {
     document.addEventListener('visibilitychange', onVisibilityChange);
     ['pointerdown', 'pointerup', 'keydown', 'input'].forEach(type => document.addEventListener(type, onActivity, true));
     setInterval(() => { updatePurgeCountdown(); checkHiddenDeadline(); checkResetDeadline(); }, 1000);
+    // The Vault page's wipe minutes follow Settings at once, not on the next tick.
+    new MutationObserver(updatePurgeCountdown).observe(document.documentElement, { attributes: true, attributeFilter: ['data-wipe'] });
     refresh();
     setVaultIndicator();
     updatePurgeCountdown();

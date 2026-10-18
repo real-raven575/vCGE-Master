@@ -406,7 +406,7 @@
                     <p id="biometricOffNote" class="vault-note">Turn on to unlock with your face or fingerprint.</p>
                     <p class="vault-note">Turning it on makes your browser save a passkey for this site on your device, because the browser requires it to check your face or fingerprint. The passkey holds no contact details. vCGE forgets it when the card is wiped, so after a wipe you turn it on again. Old ones can be deleted in your password manager.</p>
                 </div>
-                <p class="vault-note">vCGE saves none of your card. Leaving, closing or reloading the page wipes it. With a 4-digit PIN set, the screen turning off or 2 idle minutes lock it instead, and 7 minutes after the lock it is wiped. Without a PIN, 30 s out of view or 2 idle minutes wipe it.</p>
+                <p class="vault-note">vCGE saves none of your card. Leaving, closing or reloading the page wipes it. With a 4-digit PIN set, the screen turning off or 2 idle minutes lock it instead, and <span id="vaultWipeMinutes">7</span> minutes after the lock it is wiped (Settings can make that 10 or 15). Without a PIN, 30 s out of view or 2 idle minutes wipe it.</p>
             </div>
             <div class="vault-row">
                 <span><button id="wipeVaultBtn" type="button" class="vault-btn-quiet vault-btn-danger">Wipe everything and start over</button></span>
@@ -586,7 +586,7 @@
             <p id="vaultOr" class="vault-or hidden">or</p>
             <label id="vaultPinRow" class="block"><span class="field-label">Type your 4-digit PIN</span><input id="vaultPin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-bwignore data-form-type="other" class="field-input"></label>
             <p id="vaultError" class="text-xs text-rose-600 dark:text-rose-400 min-h-4" role="alert"></p>
-            <!-- Calm ring: time left before the 7-minute reset wipes the held card -->
+            <!-- Calm ring: time left before the reset (7, 10 or 15 minutes, chosen in Settings) wipes the held card -->
             <div class="vault-ring relative mx-auto">
                 <svg viewBox="0 0 120 120" class="w-full h-full -rotate-90" aria-hidden="true">
                     <circle cx="60" cy="60" r="52" fill="none" stroke-width="8" class="stroke-slate-200 dark:stroke-slate-700"></circle>
