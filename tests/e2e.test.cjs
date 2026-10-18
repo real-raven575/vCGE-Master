@@ -2437,6 +2437,21 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     ok('#73 swipe: a sideways finger drag on the card is kept from the deck (its first move is held back)', await touchMove(12, 3));
     ok('#73 swipe: an upright finger drag is left alone, so the page still scrolls', !(await touchMove(3, 12)));
     ok('#73 swipe: the card is still on its front and the deck on the 3D card', (await turn()) === 'rotateY(0deg)' && (await pV.evaluate(() => document.documentElement.dataset.card)) === 'card');
+    // A real finger drag (the browser's own touch input, so the pointer starts captured by the line of text under the
+    // finger, as on the iPad): it turns the card with the finger and settles on the far face (2026-10-18 iPad retest:
+    // the capture handed over to the card ended the drag after the first few pixels)
+    if (browser.browserType().name() === 'chromium') {
+      const cdpV = await ctxV.newCDPSession(pV);
+      const fr = await pV.locator('#card3DFlipper').boundingBox();
+      const fx = fr.x + fr.width * 0.3, fy = fr.y + fr.height / 2;
+      await cdpV.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: fx, y: fy }] });
+      for (let i = 1; i <= 10; i++) await cdpV.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: fx + fr.width * 0.05 * i, y: fy }] });
+      const halfway = await turn();
+      await cdpV.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await settled(pV);
+      ok('#73 swipe: a finger drag over the card\'s text turns it with the finger (half a card width, a quarter turn and more) and it settles on the back', /rotateY\((8[5-9]|9\d)(\.\d+)?deg\)/.test(halfway) && (await turn()) === 'rotateY(180deg)' && (await pV.evaluate(() => document.documentElement.dataset.card)) === 'card', `${halfway} -> ${await turn()}`);
+      await pV.click('#flipCardBtn'); await settled(pV);
+    }
 
     // #87: neither MOD tag lies on any of the card's controls
     const overlaps = await pV.evaluate(() => {

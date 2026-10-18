@@ -675,7 +675,9 @@ export class CardView {
         };
         flipper.addEventListener('pointerup', end);
         flipper.addEventListener('pointercancel', end);
-        flipper.addEventListener('lostpointercapture', end);
+        // A finger's pointer starts captured by the element under it (a line of text on the card); taking the capture for
+        // the card makes that element report lostpointercapture, which bubbles up here. Only the card's own loss ends the drag.
+        flipper.addEventListener('lostpointercapture', (e) => { if (e.target === flipper) end(e); });
         flipper.addEventListener('click', (e) => {
             if (suppressClick) { suppressClick = false; return; }
             // A click from the keyboard (no pointer position) takes the short way, as the Flip card button does.
