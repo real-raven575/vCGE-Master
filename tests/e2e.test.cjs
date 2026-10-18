@@ -903,7 +903,10 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     await p11.goto(ORIGIN); await p11.waitForTimeout(300);
     await p11.click('#firstName'); await p11.keyboard.type('One');
     const len11 = await p11.evaluate(() => history.length);
-    await p11.reload(); await p11.waitForTimeout(300);
+    // The page's own reload, as the browser's reload button does it. Playwright's page.reload in Firefox is a fresh
+    // navigation instead (a new history entry, no state; probe on PR #2, CI job 117624384771), which no user can do.
+    await Promise.all([p11.waitForEvent('load'), p11.evaluate(() => location.reload())]); await p11.waitForTimeout(300);
+    ok('Back guard: the reload is a real reload', (await p11.evaluate(() => performance.getEntriesByType('navigation')[0].type)) === 'reload');
     await p11.click('#firstName'); await p11.keyboard.type('Reloaded');
     ok('Back guard: a reload and another tap add no second guard entry', (await p11.evaluate(() => history.length)) === len11, `${len11} -> ${await p11.evaluate(() => history.length)}`);
     await p11.goBack(); await p11.waitForTimeout(300);
