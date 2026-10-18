@@ -1257,5 +1257,62 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     && /Black & White is used/.test(previewNote({ ok: true, themed: false }, defaultChoices())) && previewNote({ ok: true, themed: true }, defaultChoices()) === '' && previewNote({ ok: true, themed: false }, { ...defaultChoices(), colour: 'bw' }) === '');
 }
 
+// MOD08 Export, video review 2026-10-17 (#76, #77, #98, Commandment 6): folded .vcf files, the share sheet, the readable summary, signal-only audit events
+{
+  const { EgressController } = await import(`${R}/modules/mod08-egress/egressController.js`);
+  const { foldVCardLines, VCARD_LINE_OCTETS } = await import(`${R}/share/vcardFormatter.js`);
+  const octets = (l) => new TextEncoder().encode(l).length;
+  const unfold = (t) => t.replace(/\r\n[ \t]/g, '');
+  ok('vCard folding: short lines stay as they are and the file ends with CRLF', foldVCardLines('BEGIN:VCARD\r\nFN:A\r\nEND:VCARD') === 'BEGIN:VCARD\r\nFN:A\r\nEND:VCARD\r\n');
+  const photo = share.formatVCard({ firstName: 'A', lastName: 'B', avatarBase64: `data:image/jpeg;base64,/9j/${'Q'.repeat(5000)}` });
+  const folded = foldVCardLines(photo);
+  ok('vCard folding: no line is longer than 75 octets (RFC 2425 §5.8.1), continuations start with a space', folded.split('\r\n').every(l => octets(l) <= VCARD_LINE_OCTETS) && folded.split('\r\n').filter(l => l.startsWith(' ')).length > 60, String(Math.max(...folded.split('\r\n').map(octets))));
+  ok('vCard folding: unfolding gives back the vCard exactly', unfold(folded) === `${photo}\r\n`);
+  const accents = foldVCardLines(`NOTE:${'é'.repeat(100)}`);
+  ok('vCard folding never splits a UTF-8 character', accents.split('\r\n').every(l => octets(l) <= VCARD_LINE_OCTETS && !l.includes('�')) && unfold(accents) === `NOTE:${'é'.repeat(100)}\r\n`);
+  ok('vCard folding: folding twice changes nothing', foldVCardLines(folded) === folded);
+  ok('the QR text (formatVCard) stays unfolded', !share.formatVCard({ firstName: 'A', lastName: 'B', notes: 'x'.repeat(200) }).includes('\r\n '));
+
+  const contact = { firstName: 'Nick', lastName: 'Zafer', jobTitle: 'Owner & General Manager', organization: 'TeamLogicIT',
+    phones: [{ type: 'work', value: '+1 (269) 492-7400' }, { type: 'mobile', value: '+1 (269) 254-5403' }, { type: 'workFax', value: '555' }],
+    emails: [{ type: 'work', value: 'nzafer@TeamLogicIT.com' }], websites: [{ type: 'work', value: 'TeamLogicIT.com/KalamazooMI' }, { type: 'linkedin', value: 'linkedin.com/in/nz' }],
+    addressType: 'work', street: '7950 Moorsbridge Road', unitType: 'Suite', unitNumber: '405', city: 'Portage', state: 'MI', zip: '49024', country: 'United States' };
+  const e = new EgressController();
+  e.setPayload(share.formatVCard(contact), contact, { hasDetails: true, qrReal: true });
+  ok('MOD08 the payload is the folded vCard', e.currentVCard === foldVCardLines(share.formatVCard(contact)) && e.currentVCard.endsWith('END:VCARD\r\n'));
+  ok('MOD08 summary: name, title and company on their own lines, labelled details, two spaces after each colon (#98)', e.contactSummary() === [
+    'Nick Zafer', 'Owner & General Manager', 'TeamLogicIT', 'Work phone:  +1 (269) 492-7400', 'Mobile phone:  +1 (269) 254-5403', 'Work fax:  555',
+    'Work email:  nzafer@TeamLogicIT.com', 'Work website:  TeamLogicIT.com/KalamazooMI', 'LinkedIn:  linkedin.com/in/nz',
+    'Work address:  7950 Moorsbridge Road, Suite 405, Portage, MI 49024, United States'].join('\n'), JSON.stringify(e.contactSummary()));
+  const homeOnly = new EgressController();
+  homeOnly.setPayload('BEGIN:VCARD', { firstName: 'Kai', addressType: 'other', city: 'Boise', websites: [{ type: 'other', value: 'kai.dev' }] }, { hasDetails: true });
+  ok('MOD08 summary: an "Other" website and address read "Website" and "Address"', homeOnly.contactSummary() === 'Kai\nWebsite:  kai.dev\nAddress:  Boise', JSON.stringify(homeOnly.contactSummary()));
+
+  // The share sheet and the audit events, with a stand-in navigator
+  const realNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const setNavigator = (nav) => Object.defineProperty(globalThis, 'navigator', { value: nav, configurable: true, writable: true });
+  const events = [];
+  const off = share.globalEventBus.subscribe(share.Events.EXPORT_DISPATCHED, (d) => events.push(d));
+  const shared = [];
+  setNavigator({ share: async (data) => { shared.push(data); }, canShare: () => true, clipboard: { writeText: async () => {} } });
+  const fileShare = await e.triggerQuickShare();
+  ok('MOD08 file share (iOS): the .vcf goes alone, no text that arrives as a stray ".txt" file (#77)', fileShare.method === 'native_file' && shared[0].files.length === 1 && shared[0].files[0].name === 'Nick Zafer.vcf' && !('text' in shared[0]), JSON.stringify(Object.keys(shared[0])));
+  ok('MOD08 the shared .vcf holds the folded vCard', await shared[0].files[0].text() === e.currentVCard);
+  setNavigator({ share: async (data) => { shared.push(data); }, canShare: () => false, clipboard: { writeText: async () => {} } });
+  const textShare = await e.triggerQuickShare();
+  ok('MOD08 no file sharing (Android Chrome): the readable summary goes as text, never the raw vCard (#76)', textShare.method === 'native_text' && shared[1].text === e.contactSummary() && !shared[1].text.includes('BEGIN:VCARD') && shared[1].title === 'Contact: Nick Zafer', JSON.stringify(shared[1]).slice(0, 120));
+  await e.copyVCard();
+  e.navigate = () => {};
+  e.triggerSmsShare();
+  await e.triggerEmailShare();
+  if (realNavigator) Object.defineProperty(globalThis, 'navigator', realNavigator); else delete globalThis.navigator;
+  off();
+  const methods = events.map(d => d.method).join();
+  const leaks = ['Nick', 'Zafer', 'TeamLogic', '269', 'nzafer', 'Moorsbridge', '.vcf', '.png'];
+  ok('MOD08 audit events name what happened: share_file, share_text, clipboard, sms, email', methods === 'share_file,share_text,clipboard,sms,email', methods);
+  ok('MOD08 audit events carry signals only: no file name, name, number or address (Commandment 6)', events.every(d => Object.keys(d).every(k => ['module', 'method', 'timestamp', 'themed'].includes(k)))
+    && !leaks.some(w => JSON.stringify(events).includes(w)), JSON.stringify(events));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;

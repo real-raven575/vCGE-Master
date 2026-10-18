@@ -12,11 +12,20 @@
 
 import { globalEventBus, Events } from '../../share/eventBus.js';
 import { PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES } from '../../share/contactOptions.js';
+import { foldVCardLines } from '../../share/vcardFormatter.js';
 
 export const FILE_NAME_MAX = 80;         // characters of the name part, before the suffix
 export const PRINT_QR_PX = 600;          // the QR drawn for the print sheet (1.5 in on paper)
 
 const typeLabel = (types, type) => (types.find(([value]) => value === type) || [, type || 'Other'])[1];
+
+// Labels for the readable summary (SMS, email body, text share): what each line is, in plain words.
+const phoneLabel = (type) => ({ workFax: 'Work fax', homeFax: 'Home fax', pager: 'Pager' })[type] || `${typeLabel(PHONE_TYPES, type)} phone`;
+const emailLabel = (type) => `${typeLabel(EMAIL_TYPES, type)} email`;
+const websiteLabel = (type) => ({ work: 'Work website', personal: 'Personal website', other: 'Website' })[type] || typeLabel(WEBSITE_TYPES, type);
+const addressLabel = (type) => ({ work: 'Work address', home: 'Home address' })[type] || 'Address';
+// Two spaces after each colon leave room to start a touch selection on the value alone.
+const SUMMARY_GAP = ':  ';
 
 /**
  * A file name part safe on every system: path separators, the characters Windows forbids and control characters are
@@ -34,7 +43,8 @@ export function safeFileName(name, fallback = 'Contact') {
     return cleaned || fallback;
 }
 
-// Every outbound action is announced on the bus so the shell can show a complete egress audit trail.
+// Every outbound action is announced on the bus so the shell can show a complete egress audit trail. Signals only
+// (Commandment 6): the method and flags, never a file name, name, number or any other part of the contact.
 function audit(method, detail = {}) {
     globalEventBus.publish(Events.EXPORT_DISPATCHED, { module: 'vCGE-MOD08', method, timestamp: Date.now(), ...detail });
 }
@@ -68,7 +78,8 @@ export class EgressController {
      * hasDetails: MOD07's test for a card worth sharing; false for an empty card, which is not printed or saved as a QR.
      */
     setPayload(vcardString, contactAttributes, { qrReal = false, hasDetails = false } = {}) {
-        this.currentVCard = vcardString;
+        // Files and shares carry the folded text (long lines such as PHOTO wrapped at 75 octets, CRLF at the end).
+        this.currentVCard = vcardString ? foldVCardLines(vcardString) : '';
         this.contactData = contactAttributes || {};
         this.qrReal = qrReal;
         this.hasDetails = hasDetails;
@@ -113,6 +124,10 @@ export class EgressController {
 
     /**
      * Triggers the native OS Share Sheet. There is no automatic clipboard fallback: copying is its own button (copyVCard).
+     * Where the browser shares files (iPhone, iPad, Mac Safari) the .vcf goes alone: a text alongside it arrives as a
+     * second file ("….txt") in Files, Drive and mail. Android Chrome and desktop browsers refuse .vcf files, so there
+     * the readable summary is shared as text (the raw vCard is no use in a message) and the caller says how to get the
+     * contact file instead.
      */
     async triggerQuickShare() {
         if (!this.currentVCard) return false;
@@ -122,19 +137,12 @@ export class EgressController {
                 const file = this.vcfFile();
 
                 if (navigator.canShare && navigator.canShare({ files: [file] })) {
-                    await navigator.share({
-                        title: this.baseName(),
-                        text: 'Digital Business Card Contact',
-                        files: [file]
-                    });
+                    await navigator.share({ title: this.baseName(), files: [file] });
                     audit('share_file');
                     return { success: true, method: 'native_file' };
                 }
 
-                await navigator.share({
-                    title: 'Digital vCard',
-                    text: this.currentVCard
-                });
+                await navigator.share({ title: `Contact: ${this.displayName()}`, text: this.contactSummary() });
                 audit('share_text');
                 return { success: true, method: 'native_text' };
             } catch (error) {
@@ -207,18 +215,23 @@ export class EgressController {
         return this.vault.put('logo', { photo: logo.photo, display: logo.display || logo.photo }) === true;
     }
 
-    /** The contact as readable lines (for SMS and the email body): name, title and company, typed details, address. */
+    /**
+     * The contact as readable lines (for SMS, the email body and a text share): name, title and company each on a line,
+     * then labelled details ("Work phone:  …", "Work email:  …", "Work website:  …", "Work address:  …").
+     */
     contactSummary() {
         const c = this.contactData;
         const street = [c.street, [c.unitType, c.unitNumber].filter(Boolean).join(' ')].filter(Boolean).join(', ');
         const address = [street, c.city, [c.state, c.zip].filter(Boolean).join(' '), c.country].filter(Boolean).join(', ');
+        const line = (label, value) => `${label}${SUMMARY_GAP}${value}`;
         return [
             this.displayName(),
-            [c.jobTitle, c.organization].filter(Boolean).join(', '),
-            ...(c.phones || []).filter(p => p.value).map(p => `${typeLabel(PHONE_TYPES, p.type)}: ${p.value}`),
-            ...(c.emails || []).filter(e => e.value).map(e => `${typeLabel(EMAIL_TYPES, e.type)} email: ${e.value}`),
-            ...(c.websites || []).filter(w => w.value).map(w => `${typeLabel(WEBSITE_TYPES, w.type)}: ${w.value}`),
-            address
+            c.jobTitle,
+            c.organization,
+            ...(c.phones || []).filter(p => p.value).map(p => line(phoneLabel(p.type), p.value)),
+            ...(c.emails || []).filter(e => e.value).map(e => line(emailLabel(e.type), e.value)),
+            ...(c.websites || []).filter(w => w.value).map(w => line(websiteLabel(w.type), w.value)),
+            address && line(addressLabel(c.addressType), address)
         ].filter(Boolean).join('\n');
     }
 

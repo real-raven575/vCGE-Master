@@ -900,6 +900,8 @@ function wireEgress() {
         const result = await egressController.triggerQuickShare();
         if (result && result.reason === 'share_unavailable') cardView.showToast('Sharing is not available here: use .vcf, Email or Copy.');
         else if (result && result.reason === 'share_failed') cardView.showToast('Sharing did not work: use .vcf, Email or Copy.');
+        // Android Chrome and desktop browsers refuse .vcf files in the share sheet: the details went as readable text.
+        else if (result && result.method === 'native_text') cardView.showToast('This browser cannot share a contact file, so the details went as text. To add the contact, use Save .vcf file.');
     });
     // Copy only on request: the clipboard is outside the app, so a wipe cannot clear it.
     $('copyVcardBtn').addEventListener('click', async () => {
