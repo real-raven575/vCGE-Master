@@ -1599,18 +1599,34 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await pU.goto(ORIGIN); await pU.waitForTimeout(500);
     const tags = await pU.evaluate(async () => {
       await document.fonts.ready;
-      // The cards' tags (the Vault page's MOD-02 and the Settings sheet's MOD-01 show only when those sheets are open)
+      // The cards' tags (the Vault page's MOD-02 shows only when that sheet is open; Settings has none)
       return Array.from(document.querySelectorAll('.deck-card > .mod-tag')).map(t => {
         const span = t.querySelector('span'), host = t.parentElement.getBoundingClientRect(), r = t.getBoundingClientRect();
+        // On the card's top edge (half above it, so over none of the card's own content), near the right corner
         return { text: Array.from(t.children).map(c => c.textContent).join(' '), font: getComputedStyle(span).fontFamily, size: getComputedStyle(span).fontSize,
-          inCorner: r.top - host.top > 8 && r.top - host.top < 20 && host.right - r.right > 8 && host.right - r.right < 24 };
+          onEdge: Math.abs((r.top + r.bottom) / 2 - host.top) <= 2 && host.right - r.right > 8 && host.right - r.right < 24 };
       });
     });
     ok('MOD-XX tags: every card shows its module tag, in step order', tags.map(t => t.text).join('|') === 'MOD-01|MOD-03|MOD-04|MOD-05|MOD-06 MOD-07|MOD-08', tags.map(t => t.text).join('|'));
-    ok('MOD-XX tags: same spot (inside the top-right corner), same font (Sixtyfour) and size', tags.every(t => t.inCorner && /Sixtyfour/.test(t.font) && t.size === tags[0].size), JSON.stringify(tags));
+    ok('MOD-XX tags: same spot (on the top edge by the right corner), same font (Sixtyfour) and size', tags.every(t => t.onEdge && /Sixtyfour/.test(t.font) && t.size === tags[0].size), JSON.stringify(tags));
+    // No tag ever sits on something that can be pressed (video review #9, #10, #87): every card, and each sheet
+    const tagOverControl = () => pU.evaluate(() => {
+      const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom && a.width > 0 && b.width > 0;
+      return Array.from(document.querySelectorAll('.mod-tag')).filter(t => t.offsetParent).flatMap(t => {
+        const r = t.getBoundingClientRect();
+        return Array.from(t.parentElement.querySelectorAll('button, input, select, textarea, label, a[href]')).filter(c => c.offsetParent && hit(r, c.getBoundingClientRect())).map(c => `${t.textContent.trim()} on ${c.id || c.textContent.trim().slice(0, 20)}`);
+      });
+    });
+    const covered = [];
+    for (const nav of ['#navWelcome', '#navCapture', '#navRead', '#navFields', '#navCard', '#navShare']) { await pU.click(nav); await pU.waitForTimeout(600); covered.push(...await tagOverControl()); }
+    ok('MOD-XX tags: none sits on a button or a field of its card (Flip card included)', covered.length === 0, covered.join(' | '));
     await pU.click('#navVault');
-    ok('MOD-XX tags: the Vault page carries MOD-02', await pU.$eval('#vaultPage .mod-tag', t => t.textContent.trim() === 'MOD-02' && t.getBoundingClientRect().width > 0));
+    ok('MOD-XX tags: the Vault page carries MOD-02, in its title row clear of the close button', await pU.$eval('#vaultPage .mod-tag', t => t.textContent.trim() === 'MOD-02' && t.getBoundingClientRect().width > 0)
+      && (await tagOverControl()).length === 0 && await pU.$eval('#vaultPage .mod-tag', t => { const r = t.getBoundingClientRect(), p = t.parentElement.getBoundingClientRect(); return r.top >= p.top && r.right <= p.right; }));
     await pU.click('#vaultPage [data-sheet-close]');
+    await pU.click('#navSettings');
+    ok('MOD-XX tags: the Settings sheet carries none (raven575, video review #9)', await pU.$$eval('#settingsSheet .mod-tag', t => t.length) === 0 && await pU.isVisible('#settingsSheet'));
+    await pU.click('#settingsSheet [data-sheet-close]');
     ok('MOD-XX tags: the bundled Sixtyfour font loads', await pU.evaluate(async () => { await document.fonts.load('10px Sixtyfour'); return document.fonts.check('10px Sixtyfour'); }));
     const small = await pU.evaluate(() => Array.from(document.querySelectorAll('button:not(.crop-handle), label'))
       .filter(b => (b.tagName === 'BUTTON' || b.querySelector(':scope > input[type=file]')) && b.offsetParent)
@@ -1631,6 +1647,112 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('phone width: the app reports the phone layout and nothing scrolls sideways', await pU.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--vcge-layout').trim() === 'phone' && document.documentElement.scrollWidth <= innerWidth));
     ok('shared look: no missing files, no page errors', missingU.length === 0 && errorsU.length === 0, missingU.concat(errorsU).join(' | '));
     await ctxU.close();
+  }
+
+  // MOD01 fixes from raven575's iPad video (2026-10-17): the header never overlaps, the swipe waits for the finger and
+  // goes one card, the tablet's first card centres, Shutout's own icon, one lit icon for the 3D card, the timer strip
+  // never covers a card's title, and the tour stays under the lock screen
+  {
+    const ctxV = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 1024, height: 1366 } });
+    const pV = await ctxV.newPage();
+    const errorsV = [];
+    pV.on('pageerror', e => errorsV.push(e.message));
+    pV.on('console', m => { if (m.type() === 'error') errorsV.push('console: ' + m.text()); });
+    await pV.goto(ORIGIN); await pV.waitForTimeout(500);
+    const deckState = () => pV.evaluate(() => ({ left: Math.round(document.getElementById('deck').scrollLeft), deck: document.getElementById('deck').dataset.deck, card: document.documentElement.dataset.card }));
+    // Every header button is clear of its neighbours (as far as each shows), with or without the pilot names
+    const header = () => pV.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => {
+      const h = document.querySelector('.deck-header'), nav = h.querySelector('.deck-nav').getBoundingClientRect();
+      const boxes = Array.from(h.querySelectorAll('button')).filter(b => b.offsetParent).map(b => {
+        const r = b.getBoundingClientRect(), inNav = !!b.closest('.deck-nav');
+        return { id: b.id, l: inNav ? Math.max(r.left, nav.left) : r.left, r: inNav ? Math.min(r.right, nav.right) : r.right, spill: b.scrollWidth > b.clientWidth + 0.5 };
+      }).filter(b => b.r > b.l);
+      const overlaps = boxes.slice(1).filter((b, i) => b.l < boxes[i].r - 0.5).map(b => b.id);
+      done({ compact: h.classList.contains('is-compact'), names: getComputedStyle(h.querySelector('#navCapture span')).display !== 'none', overlaps, spills: boxes.filter(b => b.spill).map(b => b.id), wide: document.documentElement.scrollWidth > innerWidth });
+    }))));
+    await pV.setViewportSize({ width: 1366, height: 1024 });
+    const land = await header();
+    ok('header (iPad landscape): pilot names beside the icons, nothing overlapping', land.names && !land.compact && land.overlaps.length === 0 && land.spills.length === 0 && !land.wide, JSON.stringify(land));
+    await setPin(pV, '1357');
+    await pV.setViewportSize({ width: 1024, height: 1366 });
+    const port = await header();
+    ok('header (iPad portrait, Lock button showing): icons only, nothing overlapping (video #16)', await pV.isVisible('#lockVaultBtn') && port.compact && !port.names && port.overlaps.length === 0 && port.spills.length === 0 && !port.wide, JSON.stringify(port));
+    for (const w of [900, 390, 360]) {
+      await pV.setViewportSize({ width: w, height: 800 });
+      const hw = await header();
+      ok(`header at ${w} px: no button runs into another, nothing scrolls sideways`, hw.overlaps.length === 0 && hw.spills.length === 0 && !hw.wide, JSON.stringify(hw));
+    }
+    await pV.setViewportSize({ width: 1024, height: 1366 }); await pV.waitForTimeout(300);
+    await pV.click('#navWelcome'); await pV.waitForTimeout(700);
+    const centred = await pV.evaluate(() => { const r = document.getElementById('cardWelcome').getBoundingClientRect(); return { l: r.left, r: innerWidth - r.right }; });
+    ok('tablet: the Welcome card comes to the middle like every other card (it sat against the left edge)', Math.abs(centred.l - centred.r) <= 1.5 && centred.l > 20, JSON.stringify(centred));
+    ok('header: Shutout\'s own icon brings back the start page and is lit there (video #30, #91)', (await deckState()).card === 'welcome'
+      && await pV.$eval('#navWelcome', b => b.classList.contains('is-on') && b.getAttribute('aria-current') === 'page' && /Shutout/.test(b.getAttribute('aria-label'))));
+
+    // A finger swipe: the deck never moves under a finger that pauses, and on release goes one card in the swipe's direction
+    const cdp = await ctxV.newCDPSession(pV);
+    const touch = async (from, to, holdMs = 0) => {
+      const y = 900; let x = from;
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+      const step = (to - from) / 12;
+      for (let i = 0; i < 12; i++) { x += step; await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y }] }); await pV.waitForTimeout(16); }
+      if (holdMs) await pV.waitForTimeout(holdMs);
+      const during = await deckState();
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await pV.waitForTimeout(150);
+      await deckSettled(pV); await pV.waitForTimeout(150);
+      return during;
+    };
+    await pV.click('#navCapture'); await pV.waitForTimeout(700);
+    const rest = (await deckState()).left;
+    const paused = await touch(300, 600, 400);
+    ok('swipe: a finger that pauses mid-swipe keeps the deck where it put it (it snapped back under the finger, video #11)', paused.deck === 'held' && paused.left < rest - 200 && paused.card === 'capture', JSON.stringify({ rest, paused }));
+    ok('swipe: on release the deck eases to the card it was heading for, the start page (video #30)', (await deckState()).card === 'welcome' && (await deckState()).left === 0, JSON.stringify(await deckState()));
+    await touch(600, 580);
+    ok('swipe: a nudge shorter than 24 px goes back to the same card', (await deckState()).card === 'welcome', JSON.stringify(await deckState()));
+    await touch(700, 500);
+    ok('swipe: a short swipe goes on to the next card', (await deckState()).card === 'capture', JSON.stringify(await deckState()));
+    await touch(1000, 20);
+    ok('swipe: a long fling still stops at the next card, not two on', (await deckState()).card === 'read', JSON.stringify(await deckState()));
+
+    // The 3D card's two header icons: only the one for the side that is up is lit, and Flipside turns it back
+    await pV.click('#navQr'); await pV.waitForTimeout(800);
+    const lit = () => pV.$$eval('.deck-nav button.is-on', b => b.map(x => x.id).join(','));
+    ok('header: on the QR side only Checkers is lit (video #82)', (await lit()) === 'navQr', await lit());
+    await pV.click('#navCard'); await pV.waitForTimeout(800);
+    ok('header: Flipside turns the card back to its front and only Flipside is lit', (await lit()) === 'navCard' && (await pV.$eval('#card3DFlipper', el => el.style.transform)) === 'rotateY(0deg)', await lit());
+
+    // The timer strip under the header never covers a card's title (video #95): the deck keeps its height free
+    await pV.click('#navFields'); await pV.waitForTimeout(700);
+    await pV.fill('#firstName', 'Shutout'); await pV.waitForTimeout(1300);
+    const strip = await pV.evaluate(() => {
+      const band = document.getElementById('vaultTimerBand').getBoundingClientRect();
+      const tops = Array.from(document.querySelectorAll('.deck-card')).map(c => { const t = c.querySelector('.mod-tag').getBoundingClientRect(); return Math.min(c.getBoundingClientRect().top, t.top); });
+      return { shown: !document.getElementById('vaultTimerStrip').classList.contains('hidden'), bottom: band.bottom, top: Math.min(...tops) };
+    });
+    ok('timer strip: shown with a card in progress, and every card and its MOD tag start below it', strip.shown && strip.top >= strip.bottom, JSON.stringify(strip));
+
+    // The tour stays under the lock screen: a lock that comes down mid-tour is on top, its PIN box takes the keys
+    await pV.click('#navWelcome'); await pV.waitForTimeout(700);
+    await pV.click('#welcomeTourBtn'); await pV.waitForTimeout(700);
+    await pV.evaluate(() => document.getElementById('lockVaultBtn').click());     // as the idle timer would
+    await pV.waitForSelector('#vaultModal', { state: 'visible' });
+    const onTop = await pV.evaluate(() => { const r = document.getElementById('vaultPin').getBoundingClientRect(); const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!el && !!el.closest('#vaultModal'); });
+    ok('tour: the lock screen comes down on top of it and its PIN box can be reached (video #35)', onTop);
+    await pV.focus('#vaultPin'); await pV.keyboard.press('ArrowRight');
+    ok('tour: keys typed into the lock screen do not move the tour', (await pV.textContent('#tourStep')) === 'Step 1 of 6');
+    await pV.fill('#vaultPin', '1357'); await pV.waitForSelector('#vaultModal', { state: 'hidden' }); await pV.waitForTimeout(300);
+    // A sideways swipe on the tour goes to the next step, and back
+    const swipeTour = async (from, to) => {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: from, y: 300 }] });
+      for (let i = 1; i <= 8; i++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: from + (to - from) * i / 8, y: 300 }] });
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await pV.waitForTimeout(500);
+      return pV.textContent('#tourStep');
+    };
+    ok('tour: a swipe right to left goes to the next step, left to right back to the first (video #36)', (await swipeTour(800, 300)) === 'Step 2 of 6' && (await swipeTour(300, 800)) === 'Step 1 of 6');
+    await pV.click('#tourSkipBtn');
+    ok('video fixes: no page errors', errorsV.length === 0, errorsV.join(' | '));
+    await ctxV.close();
   }
 
   // 3D Card (MOD06, redesign step 8): fall themes on the card face, every line with its label, swipe-to-spin, toasts

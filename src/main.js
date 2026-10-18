@@ -7,7 +7,7 @@
  *   -> MOD02 temporary vault (memory only) and MOD08 egress (every outbound action).
  * MOD01's network lock (netLock.js) is loaded by index.html before every other script; shell.js, imported first, reports its blocks
  * and starts the postcard deck (deck.js): this controller moves the deck to the card a step lands on and hands the deck its
- * hooks (toast, wipe, cancel, QR flip) so MOD01 never imports another module.
+ * hooks (toast, wipe, cancel, QR flip and back) so MOD01 never imports another module.
  * Nothing is stored: leaving or reloading the page, or 7 minutes without activity, wipes it. With a session PIN set,
  * the screen turning off or 2 idle minutes lock the card (fingerprint, face or PIN brings it back) and 7 minutes after
  * the lock it is wiped; without one, 30 s out of view or 2 idle minutes wipe it. MOD02's padlock plays at every
@@ -15,7 +15,7 @@
  */
 import './modules/mod01-shell/shell.js';
 import { initSettings } from './modules/mod01-shell/settings.js';
-import { go as showCard, use as useDeck, onBeforeChange as beforeCardChange, closeSheet, toast as deckToast } from './modules/mod01-shell/deck.js';
+import { go as showCard, use as useDeck, onBeforeChange as beforeCardChange, closeSheet, toast as deckToast, setFace as setCardFace } from './modules/mod01-shell/deck.js';
 import { globalEventBus, Events } from './share/eventBus.js';
 import { CONTACT_FIELDS, CONTACT_LIST_FIELDS, createEmptyContact } from './share/cardSchema.js';
 import { temporaryVault, deleteLegacyVault } from './modules/mod02-vault/vault.js';
@@ -52,7 +52,7 @@ const EXTERNAL_APP_GRACE_MS = 5000;
 const LEGACY_PLAINTEXT_KEYS = ['vcge_contact_state', 'vcge_state', 'vcge_prefs'];
 
 const formMapper = new ContactFormMapper();
-const cardView = new CardView({ onChange: refresh, addressEngine: new AddressAutocompleteEngine(), formMapper });
+const cardView = new CardView({ onChange: refresh, onFace: setCardFace, addressEngine: new AddressAutocompleteEngine(), formMapper });
 // MOD03 speaks to the person through Shell's toast (deck.js hands the call to the hook set in boot), never by importing another module.
 const camera = new VCGEActiveCamera({ toast: deckToast });
 const cropEditor = new CropEditor();
@@ -891,7 +891,8 @@ function boot() {
         toast: (message) => cardView.showToast(message),
         wipe: () => wipeVault(),
         cancel: () => wipeSession('cancel'),
-        showQr: () => cardView.setFlipped(true)
+        showQr: () => cardView.setFlipped(true),
+        showFront: () => cardView.setFlipped(false)
     });
     cardView.init();
     lockHandoff.init();      // follows the deck's CARD_CHANGED signal

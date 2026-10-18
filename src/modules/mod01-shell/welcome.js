@@ -6,10 +6,11 @@
  * CANCEL, and a small "Play with sample fields" link. Nothing is stored (no "seen it" flag anywhere), so it greets
  * every new session. It touches no contact data and sends nothing on the bus. CANCEL wipes the session (through the
  * deck's cancel hook, which main.js points at the Vault's wipe) and shows the Thank You page.
- * The tour spotlights one card at a time and moves the deck as it goes. No sound, no flashing; the fade is off under
- * reduced motion.
+ * The tour spotlights one card at a time and moves the deck as it goes; a sideways swipe anywhere goes to the next or the
+ * previous step. It stays under the lock screen and every pop-up, and leaves their keys alone. No sound, no flashing;
+ * the fade is off under reduced motion.
  */
-import { go, openSheet, closeSheet, sheetOpen, cardEl, requestCancel } from './deck.js';
+import { go, openSheet, closeSheet, sheetOpen, cardEl, requestCancel, SWIPE_PX } from './deck.js';
 
 export const TOUR_STEPS = [
     { card: 'capture', title: 'Scan a business card',
@@ -130,6 +131,8 @@ function close() {
 
 function onKey(e) {
     if (!layer) return;
+    // Keys typed into something over the tour (the lock screen's PIN, a pop-up) are theirs, not the tour's.
+    if (e.target && e.target !== document.body && !layer.contains(e.target)) return;
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
     else if (stepIndex >= 0 && e.key === 'ArrowRight') { e.preventDefault(); e.stopPropagation(); goTo(stepIndex + 1); }
     else if (stepIndex > 0 && e.key === 'ArrowLeft') { e.preventDefault(); e.stopPropagation(); goTo(stepIndex - 1); }
@@ -139,6 +142,16 @@ export function startTour() {
     if (layer) return;
     layer = el('div', { id: 'welcomeLayer', className: 'vcge-welcome' });
     document.body.append(layer);
+    // A sideways swipe over the tour: right to left for the next step, left to right for the one before.
+    let start = null;
+    layer.addEventListener('pointerdown', (e) => { start = e.target.closest('button') ? null : { x: e.clientX, y: e.clientY }; });
+    layer.addEventListener('pointerup', (e) => {
+        if (!start || stepIndex < 0) return;
+        const dx = e.clientX - start.x, dy = e.clientY - start.y;
+        start = null;
+        if (Math.abs(dx) < SWIPE_PX || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+        if (dx < 0) goTo(stepIndex + 1); else if (stepIndex > 0) goTo(stepIndex - 1);
+    });
     document.addEventListener('keydown', onKey, true);
     goTo(0);
 }

@@ -1008,6 +1008,23 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const deckCode = fs.readFileSync(`${R}/modules/mod01-shell/deck.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
   ok('deck: stores nothing, imports only the bus, and publishes only CARD_CHANGED', !/localStorage|sessionStorage|indexedDB|document\.cookie|innerHTML|fetch\(/.test(deckCode)
     && (deckCode.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js')) && (deckCode.match(/publish\(Events\.(\w+)/g) || []).every(m => m === 'publish(Events.CARD_CHANGED'));
+  // A swipe goes one card on from where the deck rested, in the direction it moved, however far it was flung
+  const names = ['a', 'b', 'c', 'd'], centres = [0, 700, 1400, 2100];
+  ok('deck: a swipe longer than 24 px goes on one card; a shorter one goes back', deck.INTENT_PX === 24
+    && deck.pickCard(names, centres, 700 - 30, 700) === 'a' && deck.pickCard(names, centres, 700 + 30, 700) === 'c'
+    && deck.pickCard(names, centres, 700 - 20, 700) === 'b' && deck.pickCard(names, centres, 700 + 20, 700) === 'b');
+  ok('deck: a fling past two cards still stops at the next one, either way', deck.pickCard(names, centres, 1950, 700) === 'c'
+    && deck.pickCard(names, centres, 300, 1400) === 'b' && deck.pickCard(names, centres, 2050, 2100) === 'c' && deck.pickCard(names, centres, 40.5, 0) === 'b');
+  ok('deck: a scroll that ends on a card\'s centre (a card scrolled into view) keeps that card', deck.pickCard(names, centres, 2100, 700) === 'd' && deck.pickCard(names, centres, 1, 1400) === 'a');
+  // Layers: the tour sits over the sheets but under the padlock, the lock screen and every pop-up
+  const z = (file, sel) => Number(new RegExp(sel.replace(/[.]/g, '\\.') + '\\s*\\{[^}]*z-index:\\s*(\\d+)').exec(fs.readFileSync(`${R}/modules/${file}`, 'utf8'))[1]);
+  const tourZ = z('mod01-shell/welcome.css', '.vcge-welcome'), sheetZ = z('mod01-shell/deck.css', '.vcge-sheet'), padlockZ = z('mod02-vault/vault.css', '.vault-handoff'), wipeZ = z('mod02-vault/vault.css', '.wipe-dialog');
+  const indexHtml = fs.readFileSync(`${R}/../index.html`, 'utf8');
+  const vaultCss = fs.readFileSync(`${R}/modules/mod02-vault/vault.css`, 'utf8');
+  // A pop-up's layer is set either by its Tailwind class in index.html or by its own rule in vault.css
+  const modalZ = ['vaultModal', 'quickSetupModal', 'leaveModal', 'ocrTimeoutModal'].map(id => Number((new RegExp(`#${id}\\s*\\{[^}]*z-index:\\s*(\\d+)`).exec(vaultCss) || new RegExp(`id="${id}"[^>]*\\bz-\\[?(\\d+)`).exec(indexHtml) || [])[1]));
+  ok('welcome: the tour layer is over the sheets and under the padlock, the lock screen and every pop-up', tourZ > sheetZ && tourZ < padlockZ && tourZ < wipeZ && modalZ.every(m => tourZ < m), JSON.stringify({ tourZ, sheetZ, padlockZ, wipeZ, modalZ }));
+  ok('welcome: the tour leaves keys typed into the lock screen or a pop-up alone', /e\.target !== document\.body && !layer\.contains\(e\.target\)/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8')));
   ok('welcome: the tour gives no exact lock or wipe minutes (Vault owns the timers)', welcome.TOUR_STEPS.every(s => !/\d+\s*(min|minute|s\b|sec)/i.test(s.body)));
   const area = { left: 100, top: 100, right: 500, bottom: 300 };
   ok('welcome: on a wide screen the card goes beside the area', welcome.placeTip(area, 330, 200, 1440, 900).side === 'right' && welcome.placeTip({ left: 1000, top: 100, right: 1400, bottom: 300 }, 330, 200, 1440, 900).side === 'left');
@@ -1031,8 +1048,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const fontUrls = [...css.matchAll(/url\('\.\.\/\.\.\/vendor\/fonts\/([^']+)'\)/g)].map(m => m[1]);
   ok('ui: every declared font is bundled (Sixtyfour plus the Settings fonts)', fontUrls.length === 12 && fontUrls.every(f => fs.existsSync(`${R}/vendor/fonts/${f}`)), fontUrls.join(' '));
   ok('ui: each new font ships with its SIL Open Font License', ['sixtyfour', 'atkinson-hyperlegible', 'lexend', 'opendyslexic', 'tinos', 'comic-neue', 'macondo'].every(n => /SIL OPEN FONT LICENSE/i.test(fs.readFileSync(`${R}/vendor/fonts/LICENSE-${n}.txt`, 'utf8'))));
-  const icons = ['aperture', 'radar-2', 'lock', 'forms', 'id', 'qrcode', 'send', 'settings', 'trash', 'camera', 'upload', 'circle-check'];
-  ok('ui: the twelve app icons are bundled as SVG with the Tabler MIT licence', icons.every(n => fs.readFileSync(`${R}/vendor/icons/app/${n}.svg`, 'utf8').includes('<svg')) && /MIT License/.test(fs.readFileSync(`${R}/vendor/icons/app/LICENSE-tabler.txt`, 'utf8')));
+  const icons = ['aperture', 'radar-2', 'lock', 'forms', 'id', 'qrcode', 'send', 'settings', 'trash', 'camera', 'upload', 'circle-check', 'home-shield'];
+  ok('ui: the thirteen app icons are bundled as SVG with the Tabler MIT licence', icons.every(n => fs.readFileSync(`${R}/vendor/icons/app/${n}.svg`, 'utf8').includes('<svg')) && /MIT License/.test(fs.readFileSync(`${R}/vendor/icons/app/LICENSE-tabler.txt`, 'utf8')));
   ok('ui: icon stroke 2.3 and buttons at least 44 px with a 2 px outline', /--vcge-icon-stroke:\s*2\.3;/.test(css) && /--vcge-tap:\s*2\.75rem;/.test(css) && /border-width:\s*2px/.test(css));
   ok('ui: no font or icon comes from a host (only bundled files)', !/https?:/.test(css.replace(/\/\*[\s\S]*?\*\//g, '')));
   const html = fs.readFileSync(`${R}/../index.html`, 'utf8');

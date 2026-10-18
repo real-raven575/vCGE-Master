@@ -10,7 +10,8 @@
  * Hooks for the other modules (set by main.js with `use`, never by importing another module here):
  *   toast(message)   MOD06's toast; wipe(cardName) the red trash button on each card (MOD02 replaces it with
  *   hold-to-wipe); cancel() wipes the session for the Welcome card's CANCEL; showQr() flips the 3D card to its QR
- *   back (header Checkers icon).
+ *   back (header Checkers icon), showFront() back to its front (header Flipside icon). setFace(face) tells the header
+ *   which side of the 3D card is up, so only Flipside (front) or Checkers (back) is lit, never both.
  * Signals: the bus carries CARD_CHANGED { from, to } when the card in view changes (a hand-off MOD02's padlock
  * can follow) and `beforeChange` listeners run before a programmatic move (MOD04's blink-out), never any data.
  */
@@ -18,14 +19,16 @@ import { globalEventBus, Events } from '../../share/eventBus.js';
 
 export const CARDS = ['welcome', 'capture', 'read', 'fields', 'card', 'share'];
 export const SWIPE_PX = 80;              // a sideways drag this long over a sheet closes it (same as Cancel)
+export const INTENT_PX = 24;             // a swipe of the deck longer than this goes on to the next card; a shorter one goes back
 export const EDGE_PX = 48;               // no drag control within this much of the screen edge (browser back gesture)
 
 const $ = (id) => document.getElementById(id);
-const hooks = { toast: null, wipe: null, cancel: null, showQr: null };
+const hooks = { toast: null, wipe: null, cancel: null, showQr: null, showFront: null };
 const beforeChange = [];
 let currentName = null, track = null, cards = [], settleTimer = null, settlePending = false;
 let settledLeft = 0;          // where the deck last came to rest (the direction of a later scroll is read from here)
 let goTarget = null;          // where a smooth move of the deck's own is heading, until it arrives
+let cardFace = 'front';       // which side of the 3D card is up (MOD06 reports it through setFace)
 
 export function use(h) { Object.assign(hooks, h); }
 export function onBeforeChange(fn) { beforeChange.push(fn); return () => beforeChange.splice(beforeChange.indexOf(fn), 1); }
@@ -44,8 +47,8 @@ function nearest() {
     return best ? best.dataset.card : null;
 }
 
-// The scroll position that centres a card.
-const centreOf = (card) => card.offsetLeft + card.offsetWidth / 2 - track.clientWidth / 2;
+// The scroll position that centres a card (as near as the track can scroll, at either end).
+const centreOf = (card) => Math.max(0, Math.min(track.scrollWidth - track.clientWidth, card.offsetLeft + card.offsetWidth / 2 - track.clientWidth / 2));
 function centre(name, behavior) {
     const left = centreOf(cardEl(name));
     const away = Math.abs(track.scrollLeft - left) > 1;
@@ -80,18 +83,20 @@ function tweenTo(left) {
     tweenWatch = setTimeout(end, 150);
 }
 
-// Which card a scroll was heading for. A swipe or a move of the deck's own ends on a card's centre: the nearest card.
-// A scroll that stopped off centre only brought one element into view (a focused field, a button being pressed), just
-// inside the edge of the middle card slot the deck moved towards (deck.css scroll-padding): the card under that edge is
-// the one wanted, even when only a sliver of it shows.
-function pick() {
-    const name = nearest();
-    if (Math.abs(track.scrollLeft - centreOf(cardEl(name))) <= 2) return name;
-    const pad = Math.max(0, (track.clientWidth - cards[0].offsetWidth) / 2);
-    const x = track.scrollLeft > settledLeft ? track.scrollLeft + track.clientWidth - pad - 1 : track.scrollLeft + pad + 1;
-    const under = cards.find(c => c.offsetLeft <= x && x < c.offsetLeft + c.offsetWidth);
-    return under ? under.dataset.card : name;
+// Which card a scroll was heading for. A scroll that ended on a card's centre (a move of the deck's own, a card scrolled
+// into view) wanted that card. Anything else is a swipe, or one element brought into view (a focused field, a button
+// being pressed): it goes one card on from where the deck last rested, in the direction it moved, however far a fling
+// carried it, and a move shorter than INTENT_PX goes back (a finger that drifted while scrolling a card up and down).
+export function pickCard(names, centres, left, restedLeft) {
+    const near = names.findIndex((_, i) => Math.abs(left - centres[i]) <= 2);
+    if (near >= 0) return names[near];
+    let from = centres.findIndex(c => Math.abs(c - restedLeft) <= 2);
+    if (from < 0) from = centres.reduce((best, c, i) => Math.abs(c - restedLeft) < Math.abs(centres[best] - restedLeft) ? i : best, 0);
+    const moved = left - restedLeft;
+    if (Math.abs(moved) < INTENT_PX) return names[from];
+    return names[Math.max(0, Math.min(names.length - 1, from + Math.sign(moved)))];
 }
+const pick = () => pickCard(cards.map(c => c.dataset.card), cards.map(centreOf), track.scrollLeft, settledLeft);
 
 function setCurrent(name) {
     if (!name || name === currentName) return;
@@ -102,13 +107,25 @@ function setCurrent(name) {
         card.classList.toggle('is-current', on);
         card.setAttribute('aria-hidden', on ? 'false' : 'true');
     });
+    markNav();
+    document.documentElement.dataset.card = name;
+    globalEventBus.publish(Events.CARD_CHANGED, { from, to: name, timestamp: Date.now() });
+}
+
+// The header icon of the card in view is lit. The 3D card has two (Flipside for its front, Checkers for its QR back):
+// only the one for the side that is up.
+function markNav() {
     document.querySelectorAll('.deck-nav [data-card]').forEach(b => {
-        const on = b.dataset.card === name;
+        const on = b.dataset.card === currentName && (b.dataset.card !== 'card' || (b.dataset.qr !== undefined) === (cardFace === 'back'));
         b.classList.toggle('is-on', on);
         if (on) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
     });
-    document.documentElement.dataset.card = name;
-    globalEventBus.publish(Events.CARD_CHANGED, { from, to: name, timestamp: Date.now() });
+}
+
+/** @param {'front'|'back'} face  the side of the 3D card that is up */
+export function setFace(face) {
+    cardFace = face === 'back' ? 'back' : 'front';
+    markNav();
 }
 
 // Scrolls the track so `name` is in view. Listeners registered with onBeforeChange run first (they may delay).
@@ -177,21 +194,26 @@ export function initDeck() {
     });
     document.querySelectorAll('.deck-nav [data-card]').forEach(b => b.addEventListener('click', () => {
         go(b.dataset.card);
-        if (b.dataset.card === 'card' && b.dataset.qr !== undefined && hooks.showQr) hooks.showQr();
+        if (b.dataset.card !== 'card') return;
+        if (b.dataset.qr !== undefined) { if (hooks.showQr) hooks.showQr(); } else if (hooks.showFront) hooks.showFront();
+        setFace(b.dataset.qr !== undefined ? 'back' : 'front');    // MOD06 confirms it, and reports its own Flip button
     }));
     document.querySelectorAll('.vcge-sheet').forEach(wireSheet);
     document.querySelectorAll('[data-open-sheet]').forEach(b => b.addEventListener('click', () => openSheet(b.dataset.openSheet)));
 
     // The card in view follows the scroll position (a swipe, a trackpad, a focused field scrolled into view), settled a
-    // moment after scrolling stops: the deck picks a card and centres it. Nothing moves while a finger or mouse button
-    // is down (a press would land on the wrong spot): that settle waits for the release.
-    let pointerHeld = false, holdTimer = null;
+    // moment after scrolling stops: the deck picks a card and eases it into the middle. Nothing moves while a finger or
+    // mouse button is down (a press would land on the wrong spot, and a finger that pauses mid-swipe would have the deck
+    // pulled out from under it): that settle waits for the release. A finger is counted by its touch events, because a
+    // browser that takes a touch over for scrolling cancels its pointer events while the finger is still down.
+    let pointerHeld = false, touchesDown = 0, holdTimer = null;
+    const held = () => pointerHeld || touchesDown > 0;
     const settle = () => {
-        if (pointerHeld) { settlePending = true; track.dataset.deck = 'held'; return; }
+        if (held()) { settlePending = true; track.dataset.deck = 'held'; return; }
         // A move of the deck's own is still running: its next frame, or the 150 ms watchdog, ends it at the target.
         // Settling here would jump ahead and then let that frame drag the deck back between cards, and the settle
         // after it would pick the card in between (a slow webview showed this: Capture to Fields ended on Read).
-        if (tween) return;
+        if (tween) { settleTimer = setTimeout(settle, 80); return; }
         track.dataset.deck = 'still';
         if (goTarget !== null) {
             // A move of the deck's own: arrived, or its animation stalled (a slow frame, a headless webview) and the
@@ -203,22 +225,32 @@ export function initDeck() {
         }
         const name = pick();
         setCurrent(name);
-        centre(name, 'auto');
+        centre(name, reducedMotion() ? 'auto' : 'smooth');
     };
     const onScroll = () => {
         // A move of the deck's own that reaches its target is over at once, so a scroll that follows it is read as new.
         if (goTarget !== null && Math.abs(track.scrollLeft - goTarget) <= 2) { settledLeft = goTarget; goTarget = null; }
         track.dataset.deck = 'moving';      // read by the tests: moving, held (a press is down) or still
+        if (held()) armHold();              // a finger still moving the deck is not a hold
         clearTimeout(settleTimer); settleTimer = setTimeout(settle, 80);
     };
-    const release = () => { clearTimeout(holdTimer); pointerHeld = false; if (settlePending) { settlePending = false; settle(); } };
-    // A press still down after a second and a half is a hold, not a tap: the deck settles anyway.
-    document.addEventListener('pointerdown', () => { pointerHeld = true; clearTimeout(holdTimer); holdTimer = setTimeout(release, 1500); }, true);
+    const release = () => {
+        if (touchesDown > 0) return;        // a finger is still down (its pointer was only cancelled for scrolling)
+        clearTimeout(holdTimer); pointerHeld = false;
+        if (settlePending) { settlePending = false; settle(); }
+    };
+    // A press still down a second and a half after the deck last moved is a hold, not a swipe: the deck settles anyway
+    // (and a webview that never reports the release cannot keep the deck from settling).
+    function armHold() { clearTimeout(holdTimer); holdTimer = setTimeout(() => { touchesDown = 0; release(); }, 1500); }
+    document.addEventListener('pointerdown', () => { pointerHeld = true; armHold(); }, true);
+    document.addEventListener('touchstart', (e) => { touchesDown = e.touches.length; armHold(); }, { capture: true, passive: true });
+    ['touchend', 'touchcancel'].forEach(t => document.addEventListener(t, (e) => { touchesDown = e.touches.length; }, { capture: true, passive: true }));
     // A finger or a wheel on the track takes over from a move in flight.
     const takeOver = () => { stopTween(); goTarget = null; };
     track.addEventListener('pointerdown', takeOver, { passive: true });
     track.addEventListener('wheel', takeOver, { passive: true });
     // Every way a press can end (some webviews send only the mouse or touch form of it).
+    // (The touch counter above runs first: both listen on the document in the capture phase, in the order added.)
     ['pointerup', 'pointercancel', 'mouseup', 'touchend', 'touchcancel', 'click', 'dragend'].forEach(t => document.addEventListener(t, release, true));
     window.addEventListener('blur', release);
     track.addEventListener('scroll', onScroll, { passive: true });
@@ -240,7 +272,35 @@ export function initDeck() {
         if (open) { e.preventDefault(); closeSheet(open.id); }
     });
 
+    fitHeader();
     setCurrent(nearest() || CARDS[0]);
+}
+
+// The header shows the pilot names beside the icons only while every name fits in its button; otherwise (a narrow or
+// portrait window, a wide UI font, the Lock button showing) it is icons only, so no button ever runs into the next.
+function fitHeader() {
+    const header = document.querySelector('.deck-header'), nav = header && header.querySelector('.deck-nav');
+    if (!nav) return;
+    const buttons = Array.from(nav.querySelectorAll('button'));
+    let queued = false;
+    const fit = () => {
+        queued = false;
+        header.classList.remove('is-compact');
+        const spills = nav.scrollWidth > nav.clientWidth + 0.5 || buttons.some(b => b.scrollWidth > b.clientWidth + 0.5);
+        header.classList.toggle('is-compact', spills);
+    };
+    const refit = () => { if (!queued) { queued = true; requestAnimationFrame(fit); } };
+    fit();
+    if (window.ResizeObserver) {
+        const ro = new ResizeObserver(refit);
+        ro.observe(header);
+        header.querySelectorAll('.deck-brand, .deck-tools').forEach(el => ro.observe(el));
+    }
+    window.addEventListener('resize', refit);
+    // A new UI font (Settings) changes how wide the names are; so does a font file finishing loading.
+    new MutationObserver(refit).observe(document.documentElement, { attributes: true, attributeFilter: ['data-font', 'data-hand'] });
+    if (document.fonts && document.fonts.addEventListener) document.fonts.addEventListener('loadingdone', refit);
+
 }
 
 export function toast(message) { if (hooks.toast) hooks.toast(message); }

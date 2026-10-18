@@ -1,6 +1,8 @@
 /* vCGE-MOD01 welcome card text and the "Take a Tour" overlay. Light by default, .dark variants follow the app theme.
    No sound, no flashing: the only motion is a short fade-in of the tour card, off under reduced motion. */
-.vcge-welcome { position: fixed; inset: 0; z-index: 70; }
+/* The tour sits over the deck and its sheets (45) but under the padlock (48), the lock screen and every pop-up (50, 60):
+   a lock that comes down mid-tour is on top and its buttons work */
+.vcge-welcome { position: fixed; inset: 0; z-index: 46; touch-action: none; }   /* a swipe on it is the tour's */
 .vcge-tour-blocker { position: fixed; inset: 0; }
 .vcge-welcome-tag { display: inline-block; background: #22c55e; color: #020617; font-weight: 700; font-size: 13px; letter-spacing: 0.08em; padding: 3px 10px; border-radius: 8px; }
 /* The logo (src/assets/brand, bundled): a rounded square on the Welcome card and the Thank You page */

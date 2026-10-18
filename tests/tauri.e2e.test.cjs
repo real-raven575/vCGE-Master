@@ -78,6 +78,9 @@ async function stopDriver(driver) {
   };
   const click = async (css) => {
     await onCard(css);
+    // WebKitWebDriver scrolls only the page before a click, not the card's own scrolling body, so a button low on a
+    // long card is scrolled into view first, as a person would. It must still be the element under the tap.
+    await js(`document.querySelector(arguments[0]).scrollIntoView({ block: 'nearest', inline: 'nearest' });`, css);
     try { return await wd('POST', S(`/element/${await el(css)}/click`), {}); } catch (e) {
       // Say what sat in the way (the card in view, the deck position, the element under the target's centre).
       const where = await jsAsync(`const done = arguments[arguments.length - 1], css = arguments[0];
