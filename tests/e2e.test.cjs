@@ -2064,6 +2064,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('thank you: CLOSE WINDOW in a browser tab says the tab can be closed', (await pH.textContent('#thankYouNote')).includes('close this tab'));
     await pH.click('#thankYouStartOverBtn'); await pH.waitForTimeout(600);
     ok('thank you: START OVER starts fresh on the Welcome card', (await state()).welcomeCurrent && !(await state()).thanks && (await stored()) === 0);
+    // A second round: START OVER opens vCGE afresh the way a wipe does, in place of the page's history entry. A reload
+    // of the Back guard's entry hung WebKit (Safari's engine) on the second time round.
+    await pH.click('#welcomeCancelBtn'); await pH.waitForTimeout(300);
+    await pH.click('#thankYouStartOverBtn'); await pH.waitForTimeout(600);
+    ok('thank you: START OVER a second time starts fresh again', (await state()).welcomeCurrent && !(await state()).thanks && (await stored()) === 0);
 
     await pH.click('#welcomeTourBtn');
     await pH.waitForTimeout(700);
@@ -2301,10 +2306,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     } else notRunHere('swipe: the deck under a finger (5 checks)', cdp ? 'real Chrome and Edge on a desktop turn a sent touch into the back-swipe, not a scroll' : 'touch is sent through the Chrome DevTools Protocol, which only Chromium has');
 
     // The 3D card's two header icons: only the one for the side that is up is lit, and Flipside turns it back
-    await pV.click('#navQr'); await pV.waitForTimeout(800);
+    // Each waits up to 3 s for its icon to light (a fixed 800 ms wait flaked under load), then checks the same thing
     const lit = () => pV.$$eval('.deck-nav button.is-on', b => b.map(x => x.id).join(','));
+    const litOnly = (id) => pV.waitForFunction((id) => Array.from(document.querySelectorAll('.deck-nav button.is-on')).map(x => x.id).join(',') === id, id, { timeout: 3000 }).catch(() => {});
+    await pV.click('#navQr'); await litOnly('navQr');
     ok('header: on the QR side only Checkers is lit (video #82)', (await lit()) === 'navQr', await lit());
-    await pV.click('#navCard'); await pV.waitForTimeout(800);
+    await pV.click('#navCard'); await litOnly('navCard'); await pV.waitForTimeout(800);
     ok('header: Flipside turns the card back to its front and only Flipside is lit', (await lit()) === 'navCard' && (await pV.$eval('#card3DFlipper', el => el.style.transform)) === 'rotateY(0deg)', await lit());
 
     // The timer strip under the header never covers a card's title (video #95): the deck keeps its height free

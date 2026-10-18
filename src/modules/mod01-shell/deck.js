@@ -10,7 +10,8 @@
  * Hooks for the other modules (set by main.js with `use`, never by importing another module here):
  *   toast(message)   MOD06's toast; wipe(cardName) the red trash button on each card (MOD02 replaces it with
  *   hold-to-wipe); cancel() wipes the session for the Welcome card's CANCEL; showQr() flips the 3D card to its QR
- *   back (header Checkers icon), showFront() back to its front (header Flipside icon). setFace(face) tells the header
+ *   back (header Checkers icon), showFront() back to its front (header Flipside icon); startOver() opens vCGE afresh
+ *   (the Thank You page's START OVER; MOD02's startFresh). setFace(face) tells the header
  *   which side of the 3D card is up, so only Flipside (front) or Checkers (back) is lit, never both.
  * Signals: the bus carries CARD_CHANGED { from, to } when the card in view changes (a hand-off MOD02's padlock
  * can follow) and `beforeChange` listeners run before a programmatic move (MOD04's blink-out), never any data.
@@ -23,7 +24,7 @@ export const INTENT_PX = 24;             // a swipe of the deck longer than this
 export const EDGE_PX = 48;               // no drag control within this much of the screen edge (browser back gesture)
 
 const $ = (id) => document.getElementById(id);
-const hooks = { toast: null, wipe: null, cancel: null, showQr: null, showFront: null };
+const hooks = { toast: null, wipe: null, cancel: null, showQr: null, showFront: null, startOver: null };
 const beforeChange = [];
 let currentName = null, track = null, cards = [], settleTimer = null, settlePending = false;
 let settledLeft = 0;          // where the deck last came to rest (the direction of a later scroll is read from here)
@@ -311,3 +312,4 @@ function fitHeader() {
 
 export function toast(message) { if (hooks.toast) hooks.toast(message); }
 export function requestCancel() { if (hooks.cancel) hooks.cancel(); }
+export function requestStartOver() { if (hooks.startOver) hooks.startOver(); else location.reload(); }

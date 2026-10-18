@@ -1181,6 +1181,9 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const deck = await import(`${R}/modules/mod01-shell/deck.js`);
   ok('deck: six cards in step order, the Welcome card first', deck.CARDS.join('|') === 'welcome|capture|read|fields|card|share');
   ok('deck: tour steps name real cards', welcome.TOUR_STEPS.every(s => !s.card || deck.CARDS.includes(s.card)));
+  const welcomeCode = fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8'), mainCode = fs.readFileSync(`${R}/main.js`, 'utf8');
+  ok('welcome: START OVER goes through the deck hook to the Vault\'s startFresh, never a reload', /thankYouStartOverBtn'\)\.addEventListener\('click', \(\) => requestStartOver\(\)\)/.test(welcomeCode)
+    && !/location\.reload/.test(welcomeCode) && /startOver: startFresh/.test(mainCode));
   ok('deck: a sideways swipe of 80 px closes a sheet; 48 px edge kept for the browser back gesture', deck.SWIPE_PX === 80 && deck.EDGE_PX === 48);
   const deckCode = fs.readFileSync(`${R}/modules/mod01-shell/deck.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
   ok('deck: stores nothing, imports only the bus, and publishes only CARD_CHANGED', !/localStorage|sessionStorage|indexedDB|document\.cookie|innerHTML|fetch\(/.test(deckCode)

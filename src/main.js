@@ -25,7 +25,7 @@ import { SessionPin, PIN_LENGTH, MAX_PIN_ATTEMPTS, isValidPin, wipeSecondsFrom }
 import { BiometricUnlock, biometricAvailable } from './modules/mod02-vault/biometric.js';
 import { maskSecretInputs } from './modules/mod02-vault/secretInputs.js';
 import { LockHandoff } from './modules/mod02-vault/lockHandoff.js';
-import { WipeDialog } from './modules/mod02-vault/wipeDialog.js';
+import { WipeDialog, startFresh } from './modules/mod02-vault/wipeDialog.js';
 import { VCGEActiveCamera } from './modules/mod03-camera/camera.js';
 import { CropEditor } from './modules/mod03-camera/cropEditor.js';
 import { executeOCRScan, shutdownOCREngine } from './modules/mod04-ocr/ocrWorker.js';
@@ -962,7 +962,8 @@ function boot() {
         wipe: () => wipeVault(),
         cancel: () => wipeSession('cancel'),
         showQr: () => cardView.setFlipped(true),
-        showFront: () => cardView.setFlipped(false)
+        showFront: () => cardView.setFlipped(false),
+        startOver: startFresh    // START OVER opens vCGE afresh the way a wipe does (a reload hangs WebKit on the second)
     });
     cardView.init();
     lockHandoff.init();      // follows the deck's CARD_CHANGED signal

@@ -10,7 +10,7 @@
  * previous step. It stays under the lock screen and every pop-up, and leaves their keys alone. No sound, no flashing;
  * the fade is off under reduced motion.
  */
-import { go, openSheet, closeSheet, sheetOpen, cardEl, requestCancel, SWIPE_PX } from './deck.js';
+import { go, openSheet, closeSheet, sheetOpen, cardEl, requestCancel, requestStartOver, SWIPE_PX } from './deck.js';
 
 export const TOUR_STEPS = [
     { card: 'capture', title: 'Scan a business card',
@@ -77,7 +77,7 @@ export function renderWelcomeCard() {
         el('p', { className: 'welcome-fine' }, 'This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data: it keeps one small settings file on this device (hand, colors, theme, font, text size, wipe time), and nothing you scan, upload or type is ever saved.'));
     const thanks = document.getElementById('thankYouPage');
     if (thanks) {
-        document.getElementById('thankYouStartOverBtn').addEventListener('click', () => location.reload());
+        document.getElementById('thankYouStartOverBtn').addEventListener('click', () => requestStartOver());
         const closeBtn = document.getElementById('thankYouCloseBtn');
         closeBtn.textContent = isDesktopApp() ? 'EXIT PROGRAM' : 'CLOSE WINDOW';
         closeBtn.addEventListener('click', closeWindow);
