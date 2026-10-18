@@ -508,9 +508,13 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
   const hist0 = await page.evaluate(() => ({ len: history.length, guard: !!(history.state && history.state.vcgeLeaveGuard) }));
   await holdYes(page, 1700); await page.waitForTimeout(600);
   // The fresh start replaces the history entry in place (location.replace, not reload: a second reload of the guard's
-  // entry hangs WebKit), so the Back guard entry stays and no entry is added.
-  const hist1 = await page.evaluate(() => ({ len: history.length, guard: !!(history.state && history.state.vcgeLeaveGuard) }));
-  ok('the wipe starts fresh in place: same history length, the Back guard entry kept', hist0.guard && hist1.guard && hist1.len === hist0.len, JSON.stringify([hist0, hist1]));
+  // entry hangs WebKit). Firefox drops a replaced entry's state, so the app puts the guard back from the ?guard mark;
+  // a tap afterwards then adds no Back step, and the mark is gone from the address.
+  const hist1 = await page.evaluate(() => ({ len: history.length, guard: !!(history.state && history.state.vcgeLeaveGuard), url: location.href }));
+  await page.click('#firstName');
+  const hist2 = await page.evaluate(() => ({ len: history.length, guard: !!(history.state && history.state.vcgeLeaveGuard) }));
+  ok('the wipe starts fresh in place: same history length, the Back guard entry kept, and a tap adds no Back step', hist0.guard && hist1.guard && hist1.len === hist0.len
+    && hist2.guard && hist2.len === hist0.len && !hist1.url.includes('guard'), JSON.stringify([hist0, hist1, hist2]));
   ok('holding Yes 1.5 s wipes everything and the page starts fresh', (await val('firstName')) === '' && !(await visible('reopenScanBtn')) && !(await visible('wipeDialog')) && !(await visible('vaultModal')) && (await text('vaultBadge')) === 'Vault: UNLOCKED');
   ok('after the wipe: nothing in storage', !(await storage()).includes(nameBefore));
 

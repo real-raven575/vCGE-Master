@@ -991,6 +991,13 @@ function boot() {
     // Reloaded while on the guard entry (a reload keeps the entry and its state): it is still in place, so the guard is
     // armed without adding another. Entries no longer pile up one per reload; WebKit crashed on a reload after a
     // second guard entry had been added (browser matrix, 2026-10-18; inferred from its log, not proven).
+    // Started fresh on the guard entry after a wipe (?guard, wipeDialog.js startFresh): Firefox drops the state on
+    // location.replace, so it is put back here, and the mark comes off the address.
+    const freshUrl = new URL(location.href);
+    if (freshUrl.searchParams.has('guard')) {
+        freshUrl.searchParams.delete('guard');
+        history.replaceState({ vcgeLeaveGuard: true }, '', freshUrl.href);
+    }
     if (history.state && history.state.vcgeLeaveGuard) leaveGuardArmed = true;
     window.addEventListener('popstate', onPopState);
     window.addEventListener('pagehide', onPageHide);

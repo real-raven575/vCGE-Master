@@ -30,9 +30,16 @@ const colourBlind = () => typeof document !== 'undefined' && document.documentEl
 // Starts the page fresh after a wipe by loading the same address in place of the current history entry. A plain
 // location.reload() of the Back guard's entry hangs WebKit (Safari's engine) on the second wipe: a probe on
 // Playwright's WebKit, desktop and iPhone 15, hung in round 2 with location.reload, while location.replace ran three
-// rounds and kept the guard entry (2026-10-18). The address without its #part, so a hash cannot turn it into a scroll.
+// rounds (2026-10-18). Firefox drops the entry's state on location.replace, so the guard entry came back as a plain one
+// and the next tap stacked a new guard on it: one extra Back step per wipe (CI run 39172703243). So the address carries
+// ?guard when it replaces the guard entry, and main.js puts the guard's state back and takes the mark off the address.
+// Stepping back off the guard entry first was tried and dropped: Chromium skipped the entry beneath and left the site.
+// The address without its #part, so a hash cannot turn it into a scroll.
 export function startFresh() {
-    location.replace(location.href.split('#')[0]);
+    const url = new URL(location.href);
+    url.hash = '';
+    if (history.state && history.state.vcgeLeaveGuard) url.searchParams.set('guard', '1');
+    location.replace(url.href);
 }
 
 export class WipeDialog {
