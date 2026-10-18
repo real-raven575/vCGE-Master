@@ -63,8 +63,8 @@ jobs:
           - { name: Firefox, browser: firefox, install: firefox }
           - { name: WebKit, browser: webkit, install: webkit, debug: 'pw:browser' }
           # temporary diagnostic rows for the WebKit page crash (removed with VCGE_EXP once the cause is known)
-          - { name: WebKit exp novault, browser: webkit, install: webkit, debug: 'pw:browser', exp: novault }
-          - { name: WebKit exp blur, browser: webkit, install: webkit, debug: 'pw:browser', exp: blur }
+          - { name: WebKit exp goto, browser: webkit, install: webkit, debug: 'pw:browser', exp: goto }
+          - { name: WebKit exp jsreload, browser: webkit, install: webkit, debug: 'pw:browser', exp: jsreload }
           - { name: Google Chrome, browser: chrome, install: chrome }
           - { name: Microsoft Edge, browser: msedge, install: msedge }
           - { name: iPhone, browser: webkit, install: webkit, device: iPhone 15, debug: 'pw:browser' }

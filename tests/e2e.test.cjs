@@ -460,27 +460,28 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
   ok('wiping with the settings box ticked deletes the settings entry too: storage empty, right hand again', (await page.evaluate(() => localStorage.length + sessionStorage.length)) === 0
     && (await page.evaluate(() => document.documentElement.dataset.hand)) === 'right' && (await val('firstName')) === '' && !(await visible('wipeDialog')));
   await page.fill('#firstName', nameBefore); await page.waitForTimeout(300);
-  // VCGE_EXP is a temporary diagnostic for the WebKit page crash on the reload after the next full wipe (extra CI rows):
-  // "novault" skips the Vault-page wipe button and Esc, "blur" drops keyboard focus before the hold, "nocb" skips the
-  // colour-blind dialog. Unset, the test runs as written.
-  const EXP = process.env.VCGE_EXP || '';
-  if (EXP !== 'novault') {
   await openVault(page);
   await page.click('#wipeVaultBtn');
   ok('the Vault page wipe button opens the same question, above the page', await visible('wipeDialog') && (await page.evaluate(() => { const a = document.elementFromPoint(innerWidth / 2, innerHeight / 2); return !!a && !!a.closest('#wipeDialog'); })));
   await page.keyboard.press('Escape');
   ok('Esc is No', !(await visible('wipeDialog')) && await vaultOpen(page));
   await closeVault(page);
-  }
   // Colour-blind mode (Shell's settings set html[data-cb="1"]): words and a bar say what the colours say
-  if (EXP !== 'nocb') {
-    await page.evaluate(() => { document.documentElement.dataset.cb = '1'; });
-    await page.click('.deck-card.is-current .vcge-trash');
-    ok('colour-blind mode: Yes reads "Hold to wipe" and a fill bar shows', (await text('wipeYesText')) === 'Hold to wipe' && await visible('wipeHoldBar'));
-    await page.click('#wipeNoBtn');
-    await page.evaluate(() => { delete document.documentElement.dataset.cb; });
+  await page.evaluate(() => { document.documentElement.dataset.cb = '1'; });
+  await page.click('.deck-card.is-current .vcge-trash');
+  ok('colour-blind mode: Yes reads "Hold to wipe" and a fill bar shows', (await text('wipeYesText')) === 'Hold to wipe' && await visible('wipeHoldBar'));
+  await page.click('#wipeNoBtn');
+  await page.evaluate(() => { delete document.documentElement.dataset.cb; });
+  // VCGE_EXP is a temporary diagnostic for the WebKit page crash on the reload after the next full wipe (extra CI rows):
+  // "goto" loads the page afresh first, "jsreload" has the page reload itself first. Unset, the test runs as written.
+  const EXP = process.env.VCGE_EXP || '';
+  if (EXP === 'goto') { await page.goto(page.url()); await page.waitForTimeout(500); await page.fill('#firstName', nameBefore); await page.waitForTimeout(300); }
+  if (EXP === 'jsreload') {
+    await page.evaluate(() => { window.__vcgeOldPage = true; setTimeout(() => location.reload(), 50); });
+    await page.waitForFunction(() => !window.__vcgeOldPage, null, { timeout: 10000 }); await page.waitForLoadState('load');
+    console.log('diag: the page reloaded itself once more without crashing');
+    await page.waitForTimeout(500); await page.fill('#firstName', nameBefore); await page.waitForTimeout(300);
   }
-  if (EXP === 'blur') await page.evaluate(() => { if (document.activeElement) document.activeElement.blur(); });
   await page.click('.deck-card.is-current .vcge-trash');
   await holdYes(page, 1700); await page.waitForTimeout(600);
   ok('holding Yes 1.5 s wipes everything and the page starts fresh', (await val('firstName')) === '' && !(await visible('reopenScanBtn')) && !(await visible('wipeDialog')) && !(await visible('vaultModal')) && (await text('vaultBadge')) === 'Vault: UNLOCKED');
@@ -1352,9 +1353,10 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
   // from the screen edge, the green shutter that sinks and pops back, a shot that is exactly what the viewfinder showed,
   // handles at the full edge, Snap to card, bad uploads turned away with a toast, the left-hand mirror
   {
-    const ctxV = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
-    // temporary diagnostic (Firefox): every pointer, mouse and touch event the page sees, read when a press-based check fails
-    await ctxV.addInitScript(() => { window.__pev = []; ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'touchcancel', 'click'].forEach(t => document.addEventListener(t, (e) => { window.__pev.push(`${t}:${e.pointerType || ''}:${e.pointerId === undefined ? '' : e.pointerId}:${(e.target && e.target.id) || (e.target && e.target.className && String(e.target.className).slice(0, 20)) || ''}`); if (window.__pev.length > 40) window.__pev.shift(); }, true)); });
+    // Playwright's Firefox sends no pointer events for the mouse in a page with touch turned on (only mousedown, mouseup
+    // and click), so the presses below would never reach the app there. The app never looks for touch, so Firefox runs
+    // this page without it.
+    const ctxV = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: ENGINE !== 'firefox' });
     await ctxV.addInitScript(() => {
       // A 640 x 360 test feed: four colours, so the shot can be checked against the window the viewfinder showed
       navigator.mediaDevices.getUserMedia = async () => {
@@ -1404,7 +1406,7 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     const sunk = await pV.$eval('#captureBtn', b => b.style.transform);
     await pV.mouse.up(); await pV.waitForTimeout(500);
     const popped = await pV.$eval('#captureBtn', b => b.style.transform);
-    ok('shutter: sinks while pressed and pops back on release', sunk === 'scale(0.9)' && popped === '', `${sunk} -> ${popped} | events: ${await pV.evaluate(() => window.__pev.slice(-10).join(' '))}`);
+    ok('shutter: sinks while pressed and pops back on release', sunk === 'scale(0.9)' && popped === '', `${sunk} -> ${popped}`);
     ok('shutter: the shot opens the crop step and the camera closes', await pV.isVisible('#captureReview') && (await pV.evaluate(() => document.getElementById('cameraPanel').classList.contains('hidden') && document.getElementById('cameraStream').srcObject === null)) && (await card()) === 'capture');
     // The 390 x 464-ish portrait view covers the 640 x 360 feed (scale by height), zoomed 2x: the window is the middle of it
     const shot = await pV.evaluate(() => new Promise(resolve => {
@@ -1532,12 +1534,18 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
       const reasons = shown ? await pG.$$eval('#reasonList li', els => els.map(el => el.getAttribute('data-reason'))) : [];
       const links = shown ? await pG.$$eval('.links a', els => els.map(a => ({ href: a.href, target: a.target, rel: a.rel }))) : [];
       const external = requested.filter(u => !u.startsWith(ORIGIN));
+      const ranMain = await pG.evaluate(() => window.name === 'vcge-main-ran').catch(() => null);
       await ctxG.close();
-      return { shown, url, reasons, links, requested, external, pageErrors };
+      return { shown, url, reasons, links, requested, external, pageErrors, ranMain };
     };
-    const noWasm = await blocked((ctxG) => ctxG.addInitScript(() => { delete window.WebAssembly; }), 'wasm');
+    // The app's entry script is swapped for a one-line marker: if the browser ever runs it, the tab's name says so
+    const isMain = (u) => /\/src\/main\.js|\/assets\/index-[^/]*\.js/.test(u);
+    const noWasm = await blocked((ctxG) => Promise.all([ctxG.addInitScript(() => { delete window.WebAssembly; }),
+      ctxG.route((u) => isMain(u.href), (r) => r.fulfill({ contentType: 'text/javascript', body: "window.name = 'vcge-main-ran';" }))]), 'wasm');
     ok('gate: no WebAssembly opens the "cannot run" page with the reason listed', noWasm.shown && noWasm.reasons.includes('wasm'), noWasm.url);
-    ok('gate: blocked app never starts (main.js not even requested)', !noWasm.requested.some(u => /\/src\/main\.js|\/assets\/index-/.test(u)), noWasm.requested.filter(u => u.endsWith('.js')).join(' '));
+    ok('gate: blocked app never starts (main.js never runs)', noWasm.ranMain === false, String(noWasm.ranMain));
+    if (ENGINE === 'firefox') notRunHere('gate: blocked app never starts (main.js not even requested)', "Firefox's look-ahead parser downloads the page's later scripts before the gate turns the page away; it never runs them, checked above");
+    else ok('gate: blocked app never starts (main.js not even requested)', !noWasm.requested.some(isMain), noWasm.requested.filter(u => u.endsWith('.js')).join(' '));
     ok('gate: free & open source browsers are listed first (Firefox, Firefox ESR, Brave)', noWasm.links.slice(0, 3).map(l => new URL(l.href).hostname).join() === 'www.firefox.com,support.mozilla.org,brave.com', noWasm.links.map(l => l.href).join(' '));
     ok('gate: links open in a new tab with no opener, no referrer and no query data', noWasm.links.length === 6 && noWasm.links.every(l => l.target === '_blank' && /noopener/.test(l.rel) && /noreferrer/.test(l.rel) && !new URL(l.href).search && !new URL(l.href).hash));
     ok('gate: the "cannot run" page makes no outside request and draws without errors', noWasm.external.length === 0 && noWasm.pageErrors.length === 0, noWasm.external.concat(noWasm.pageErrors).join(' | '));
@@ -1698,8 +1706,6 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
   // MOD01 shared look: MOD-XX tags in Sixtyfour on every panel, 44 px buttons with 2 px outlines, the near-miss rim for taps
   {
     const ctxU = await browser.newContext({ hasTouch: true, viewport: { width: 1280, height: 800 } });
-    // temporary diagnostic (Firefox): every pointer, mouse and touch event the page sees, read when a press-based check fails
-    await ctxU.addInitScript(() => { window.__pev = []; ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'touchcancel', 'click'].forEach(t => document.addEventListener(t, (e) => { window.__pev.push(`${t}:${e.pointerType || ''}:${e.pointerId === undefined ? '' : e.pointerId}:${(e.target && e.target.id) || (e.target && e.target.className && String(e.target.className).slice(0, 20)) || ''}`); if (window.__pev.length > 40) window.__pev.shift(); }, true)); });
     const pU = await ctxU.newPage();
     const errorsU = [], missingU = [];
     pU.on('pageerror', e => errorsU.push(e.message));
@@ -1733,8 +1739,22 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     ok('near miss: a tap on a button\'s edge does nothing', (await turned()) !== 'rotateY(180deg)', await turned());
     await pU.touchscreen.tap(flip.x + flip.width / 2, flip.y + flip.height / 2); await settled(pU);
     ok('a tap in the middle of the button works', (await turned()) === 'rotateY(180deg)', await turned());
-    await pU.mouse.click(flip.x + flip.width / 2, flip.y + 1.5); await settled(pU);
-    ok('a mouse click on the edge still works (only fingers get the near-miss guard)', (await turned()) === 'rotateY(0deg)', `${await turned()} | events: ${await pU.evaluate(() => window.__pev.slice(-12).join(' '))}`);
+    if (ENGINE === 'firefox') {
+      // Playwright's Firefox sends no pointer events for the mouse in a page with touch turned on, so the app would never
+      // see this click start. The mouse click runs in a mouse-only page instead.
+      const ctxM = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+      const pM = await ctxM.newPage();
+      await pM.goto(ORIGIN); await pM.waitForTimeout(500);
+      await pM.click('#navCard'); await pM.waitForTimeout(700);
+      const flipM = await pM.locator('#flipCardBtn').boundingBox();
+      await pM.mouse.click(flipM.x + flipM.width / 2, flipM.y + 1.5); await settled(pM);
+      const turnedM = await pM.$eval('#card3DFlipper', el => el.style.transform);
+      ok('a mouse click on the edge still works (only fingers get the near-miss guard)', turnedM === 'rotateY(180deg)', `${turnedM} (mouse-only page)`);
+      await ctxM.close();
+    } else {
+      await pU.mouse.click(flip.x + flip.width / 2, flip.y + 1.5); await settled(pU);
+      ok('a mouse click on the edge still works (only fingers get the near-miss guard)', (await turned()) === 'rotateY(0deg)', await turned());
+    }
     await pU.setViewportSize({ width: 390, height: 844 });
     ok('phone width: the app reports the phone layout and nothing scrolls sideways', await pU.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--vcge-layout').trim() === 'phone' && document.documentElement.scrollWidth <= innerWidth));
     ok('shared look: no missing files, no page errors', missingU.length === 0 && errorsU.length === 0, missingU.concat(errorsU).join(' | '));
@@ -1744,9 +1764,10 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
   // 3D Card (MOD06, redesign step 8): fall themes on the card face, every line with its label, swipe-to-spin, toasts
   // at the top, the pilots as samples with their animal logos, the Logo controls on this card
   {
-    const ctx6 = await browser.newContext({ hasTouch: true });
-    // temporary diagnostic (Firefox): every pointer, mouse and touch event the page sees, read when a press-based check fails
-    await ctx6.addInitScript(() => { window.__pev = []; ['pointerdown', 'pointermove', 'pointerup', 'pointercancel', 'mousedown', 'mouseup', 'touchstart', 'touchend', 'touchcancel', 'click'].forEach(t => document.addEventListener(t, (e) => { window.__pev.push(`${t}:${e.pointerType || ''}:${e.pointerId === undefined ? '' : e.pointerId}:${(e.target && e.target.id) || (e.target && e.target.className && String(e.target.className).slice(0, 20)) || ''}`); if (window.__pev.length > 40) window.__pev.shift(); }, true)); });
+    // Playwright's Firefox sends no pointer events for the mouse in a page with touch turned on (only mousedown, mouseup
+    // and click), so the presses below would never reach the app there. The app never looks for touch, so Firefox runs
+    // this page without it.
+    const ctx6 = await browser.newContext({ hasTouch: ENGINE !== 'firefox' });
     const p6 = await ctx6.newPage();
     const errors6 = [], external6 = [], missing6 = [];
     p6.on('pageerror', e => errors6.push(e.message));
@@ -1793,7 +1814,7 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     for (let i = 1; i <= 8; i++) await p6.mouse.move(cx - flipper.width * 0.3 + flipper.width * 0.6 * i / 8, cy);
     const midway = await angle();
     await p6.mouse.up(); await settled(p6);
-    ok('card: a sideways drag across the card turns it with the finger and it settles on the front', /rotateY\(2[5-9]\d|rotateY\(3[0-5]\d/.test(midway) && (await angle()) === 'rotateY(0deg)', `${midway} -> ${await angle()} | events: ${await p6.evaluate(() => window.__pev.slice(-16).join(' '))}`);
+    ok('card: a sideways drag across the card turns it with the finger and it settles on the front', /rotateY\(2[5-9]\d|rotateY\(3[0-5]\d/.test(midway) && (await angle()) === 'rotateY(0deg)', `${midway} -> ${await angle()}`);
     await p6.mouse.move(cx, cy); await p6.mouse.down(); await p6.mouse.move(cx + 3, cy); await p6.mouse.up(); await settled(p6);
     ok('card: a drag shorter than a tap still counts as a tap (flips)', (await angle()) === 'rotateY(180deg)', await angle());
     const cardName = () => p6.evaluate(() => document.documentElement.dataset.card);
@@ -1819,13 +1840,13 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     ok('toast: gone after 3 s', await p6.$eval('#toast', t => t.classList.contains('opacity-0')));
     await p6.click('#paletteDropdownBtn'); await p6.click('#paletteListContainer [data-theme="maple"]');
     await p6.click('#toastMessage');
-    ok('toast: a tap dismisses it at once', await p6.$eval('#toast', t => t.classList.contains('opacity-0')), `events: ${await p6.evaluate(() => window.__pev.slice(-8).join(' '))}`);
+    ok('toast: a tap dismisses it at once', await p6.$eval('#toast', t => t.classList.contains('opacity-0')));
     await p6.click('#paletteDropdownBtn'); await p6.click('#paletteListContainer [data-theme="spruce"]');
     await p6.waitForTimeout(400);   // measured after the slide-in, or the press lands where the toast was, not where it is
     const tb = await p6.locator('#toast').boundingBox();
     await p6.mouse.move(tb.x + tb.width / 2, tb.y + tb.height / 2); await p6.mouse.down();
     await p6.waitForTimeout(3600);
-    ok('toast: held, it stays past 3 s', !(await p6.$eval('#toast', t => t.classList.contains('opacity-0'))), `events: ${await p6.evaluate(() => window.__pev.slice(-8).join(' '))}`);
+    ok('toast: held, it stays past 3 s', !(await p6.$eval('#toast', t => t.classList.contains('opacity-0'))));
     await p6.mouse.up();
     await p6.waitForTimeout(2500);
     ok('toast: still there 2.5 s after the release', !(await p6.$eval('#toast', t => t.classList.contains('opacity-0'))));
