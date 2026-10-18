@@ -28,6 +28,8 @@ export class ContactFormMapper {
             'Brazil': 'BR',
             'Mexico': 'MX'
         };
+        // How US and Canadian numbers are written (the Fields card's phone style; memory only, never saved).
+        this.phoneStyle = { ...DEFAULT_PHONE_STYLE };
     }
 
     /**
@@ -134,6 +136,8 @@ export class ContactFormMapper {
                 else if (local === (first[0] || '') + last || local === first + (last[0] || '')) score += 3;
             }
             if (TITLE_WORDS.test(core) || TAGLINE_START.test(core) || COMPANY_SUFFIX.test(core)) score -= 3;
+            // An all-capitals line is a name less often than a printed "Jane Doe" (company names and titles are set in capitals too).
+            if (!/[a-z]/.test(core)) score -= 0.5;
             if (!best || score > best.score) best = { line, index, score };
         });
         if (best && best.score > 0) best.line.role = 'name';
@@ -141,7 +145,8 @@ export class ContactFormMapper {
         // Job title: title vocabulary, preferring the line next to the name; taglines ("Your ...") are not titles
         let title = null;
         lines.forEach((line, index) => {
-            if (!free(line) || !TITLE_WORDS.test(line.text) || /[@\d]/.test(line.text)) return;
+            // A phrase in quotes is a slogan, whatever words it holds ("Your Technology Advisor").
+            if (!free(line) || !TITLE_WORDS.test(line.text) || /[@\d]/.test(line.text) || isQuoted(line.text)) return;
             let score = 2;
             if (best && best.score > 0 && Math.abs(index - best.index) === 1) score += 2;
             if (TAGLINE_START.test(line.text)) score -= 3;
@@ -154,7 +159,7 @@ export class ContactFormMapper {
         const domain = companyDomain(website, email).name;
         let org = null;
         lines.forEach(line => {
-            if (!free(line) || /[@]/.test(line.text) || !isWordy(line.text)) return;
+            if (!free(line) || /[@]/.test(line.text) || !isWordy(line.text) || isQuoted(line.text) || OCCASION.test(line.text)) return;
             // A slogan ("Your Technology Advisor") is not the company, whatever words it contains.
             if (SLOGAN_START.test(line.text) && !(domain && domainMatches(line.text, domain))) return;
             let score = 1;
@@ -167,7 +172,8 @@ export class ContactFormMapper {
 
         // The card's slogan ("Your Technology Advisor") or a phrase in quotes is kept in Notes, not ignored (raven575,
         // 2026-10-17). Only lines no other step claimed.
-        lines.forEach(line => { if (free(line) && isTagline(line.text)) line.role = 'notes'; });
+        // So do the words for an occasion next to the logo ("20th Anniversary", "Since 1998").
+        lines.forEach(line => { if (free(line) && (isTagline(line.text) || OCCASION.test(line.text))) line.role = 'notes'; });
 
         // A web path ending in the card's own state code, its I read as a bar ("Kalamazoom\" on a Michigan card), ends
         // in that code ("KalamazooMI").
@@ -249,7 +255,7 @@ export class ContactFormMapper {
                 case 'phoneMobile': addPhone('mobile', (findPhones(body)[0] || {}).number || body); break;
                 case 'phoneHome': addPhone('home', (findPhones(body)[0] || {}).number || body); break;
                 case 'phoneFax': addPhone('workFax', (findPhones(body)[0] || {}).number || body); break;
-                case 'street': streets.push(t); break;
+                case 'street': streets.push(streetOf(t, body)); break;
                 case 'unit': units.push(t); break;
                 case 'cityStateZip': {
                     const a = findAddressLine(t);
@@ -306,16 +312,16 @@ export class ContactFormMapper {
      * @param {string} formatType - Format key ('US', 'UK', 'DE', etc.).
      * @returns {string} Formatted phone string.
      */
-    formatPhone(rawNumber, formatType = 'US') {
+    formatPhone(rawNumber, formatType = 'US', style = this.phoneStyle) {
         let digits = rawNumber.replace(/\D/g, '');
         if (!digits) return rawNumber;
 
         if (formatType === 'US') {
-            if (digits.length === 10) {
-                return `+1 (${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
-            } else if (digits.length === 11 && digits.startsWith('1')) {
-                return `+1 (${digits.slice(1,4)}) ${digits.slice(4,7)}-${digits.slice(7)}`;
-            }
+            // An extension ("x12", "ext. 12") stays as written after the number.
+            const ext = (rawNumber.match(/\s*(?:x|ext\.?|#)\s*\d{1,6}\s*$/i) || [''])[0];
+            if (ext) digits = rawNumber.slice(0, rawNumber.length - ext.length).replace(/\D/g, '');
+            if (digits.length === 11 && digits.startsWith('1')) digits = digits.slice(1);
+            if (digits.length === 10) return formatNanp(digits, style) + (ext ? ` ${ext.trim()}` : '');
         } else if (formatType === 'UK') {
             if (digits.startsWith('44')) digits = digits.slice(2);
             if (digits.length >= 10) {
@@ -328,6 +334,10 @@ export class ContactFormMapper {
         return rawNumber;
     }
 }
+
+/** Phone styles offered on the Fields card for US and Canadian numbers: [style, example] (video review #71). */
+export const PHONE_FORMATS = Object.freeze([['paren', '(269) 492-7400'], ['dots', '269.492.7400'], ['digits', '2694927400']]);
+export const DEFAULT_PHONE_STYLE = Object.freeze({ format: 'paren', countryCode: true });
 
 /** Line roles offered in the OCR review screen, in display order: [role, label]. */
 export const LINE_ROLES = Object.freeze([
@@ -440,6 +450,26 @@ function isStreet(line, nextToCityLine) {
     if (!PHONE_ROLE[line.label] || findPhones(line.body).length || !looksLikeStreet(line.body, nextToCityLine)) return false;
     line.text = line.body;
     return true;
+}
+
+/** The street as filled from a line chosen as Street by hand: without a stray letter in front of the house number. */
+function streetOf(text, body) {
+    return !looksLikeStreet(text, true) && looksLikeStreet(body, true) ? body : text;
+}
+
+// Words for an occasion, printed next to the logo: "20th Anniversary", "Since 1998", "Est. 2004".
+const OCCASION = /\b(?:anniversary|since\s+(?:19|20)\d{2}|est(?:\.|ablished)?\s+(?:19|20)\d{2})\b/i;
+const isQuoted = (text) => /^["'].{2,}["']$/.test(text);
+
+/**
+ * US and Canadian numbers in the chosen style: "(269) 492-7400", "269.492.7400" or "2694927400", with or without the
+ * country code in front ("+1 (269) 492-7400", "+1 269.492.7400", "+12694927400").
+ */
+function formatNanp(digits, { format = 'paren', countryCode = true } = {}) {
+    const [a, b, c] = [digits.slice(0, 3), digits.slice(3, 6), digits.slice(6)];
+    const core = format === 'dots' ? `${a}.${b}.${c}` : format === 'digits' ? digits : `(${a}) ${b}-${c}`;
+    if (!countryCode) return core;
+    return format === 'digits' ? `+1${core}` : `+1 ${core}`;
 }
 
 /** A slogan ("Your ...", "Serving ...", "Since ...") or a phrase in quotes, of two words or more. */
@@ -604,6 +634,16 @@ function findPhones(text) {
             : /^(?:home|h)$/.test(word) ? 'home' : word ? 'work' : null;
         out.push({ number: ((m[2] || '') + m[3] + (m[4] || '')).trim(), label });
     }
+    // Numbers outside the US and Canada, written with their country code: "+44 20 7946 0958", "+49 30 1234567".
+    const intl = /(?:\b(tel|phone|ph|office|direct|main|work|mobile|mob|cell|fax|home|t|p|o|d|m|c|f|h)\s*[:.\-]?\s*)?(\+(?!1(?![0-9]))\d{1,3}(?:[\s.\-]*\(?\d{1,5}\)?){1,5})/gi;
+    while ((m = intl.exec(text))) {
+        const digits = m[2].replace(/\D/g, '');
+        if (digits.length < 8 || digits.length > 15 || out.some(p => p.number.replace(/\D/g, '') === digits)) continue;
+        const word = (m[1] || '').toLowerCase();
+        const label = /^(?:mobile|mob|cell|m|c)$/.test(word) ? 'mobile' : /^(?:fax|f)$/.test(word) ? 'fax'
+            : /^(?:home|h)$/.test(word) ? 'home' : word ? 'work' : null;
+        out.push({ number: m[2].trim(), label });
+    }
     return out;
 }
 
@@ -628,6 +668,7 @@ function findCityStateZip(text) {
     const parts = m[1].split(',').map(p => p.trim()).filter(Boolean);
     const city = (parts.pop() || '').replace(/^[^A-Za-z]+/, '');
     if (!/^[A-Za-z][A-Za-z .'-]*$/.test(city)) return null;
+    if (parts.length) parts[0] = parts[0].replace(/^[A-Za-z]\s+(?=\d)/, '');   // a stray letter before the house number
     const street = parts.length && /^\d/.test(parts[0]) ? parts.join(', ') : '';
     return { city, state, zip: m[3], street };
 }
@@ -680,21 +721,39 @@ function splitNameAffixes(text) {
     return { prefix, core: words.join(' '), suffix };
 }
 
-/** Name parts from a name line: 3 words are first, middle, last; 2 words first and last. */
+// Lowercase family-name particles: "Maria de la Cruz", "Jan van der Berg".
+const PARTICLES = new Set(['de', 'del', 'della', 'der', 'den', 'di', 'da', 'das', 'dos', 'du', 'la', 'le', 'van', 'von', 'bin', 'ibn', 'al', 'el', 'ter', 'ten']);
+
+/** "JOHN O'BRIEN-SMITH" -> "John O'Brien-Smith": a name printed in capitals is filled the way it is written by hand. */
+function nameCase(word) {
+    return /[a-z]/.test(word) || /^[A-Z]\.?$/.test(word) ? word : word.toLowerCase().replace(/(^|['\-])([a-z])/g, (m, sep, ch) => sep + ch.toUpperCase());
+}
+
+/**
+ * Name parts from a name line: 3 words are first, middle, last; 2 words first and last. A family name with particles
+ * keeps them ("Maria de la Cruz": Maria / de la Cruz).
+ */
 function parseName(text) {
     const { prefix, core, suffix } = splitNameAffixes(text);
-    const words = core.split(' ').filter(Boolean);
+    const words = core.split(' ').filter(Boolean).map(nameCase);
+    const p = words.findIndex((w, i) => i > 0 && i < words.length - 1 && PARTICLES.has(w));
+    if (p > 0) return { namePrefix: prefix, firstName: words[0], middleName: words.slice(1, p).join(' '), lastName: words.slice(p).join(' '), nameSuffix: suffix };
     return {
         namePrefix: prefix, firstName: words[0] || '', middleName: words.length > 2 ? words.slice(1, -1).join(' ') : '',
         lastName: words.length > 1 ? words[words.length - 1] : '', nameSuffix: suffix
     };
 }
 
-/** 2-3 words, each capitalised letters (allowing . ' -), as names are printed (prefix and suffix aside). */
+/**
+ * 2-3 words, each capitalised letters (allowing . ' -), as names are printed (prefix and suffix aside); or the same in
+ * all capitals ("JOHN SMITH"); or up to 5 words when lowercase particles sit between them ("Maria de la Cruz").
+ */
 function isNameShaped(text) {
     const words = splitNameAffixes(text).core.split(' ');
-    if (words.length < 2 || words.length > 3) return false;
-    return words.every(w => /^[A-Z][a-zA-Z.'\-]*$/.test(w) && /[a-z]/.test(w) || /^[A-Z]\.?$/.test(w));
+    const named = words.filter((w, i) => !(i > 0 && i < words.length - 1 && PARTICLES.has(w)));
+    if (named.length < 2 || named.length > 3 || words.length > 5) return false;
+    const capitals = named.every(w => /^[A-Z][A-Z.'\-]+$/.test(w) || /^[A-Z]\.?$/.test(w)) && named.some(w => w.replace(/[^A-Z]/g, '').length > 1);
+    return capitals || named.every(w => /^[A-Z][a-zA-Z.'\-]*$/.test(w) && /[a-z]/.test(w) || /^[A-Z]\.?$/.test(w));
 }
 
 /** A line made of real words (not logo debris such as "ya O/" or "ro. (CET"). */

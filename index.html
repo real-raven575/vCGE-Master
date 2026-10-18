@@ -208,9 +208,9 @@
             <div class="fields-head">
                 <h2>Contact details</h2>
             </div>
-            <!-- "Insert Fake Contact?": the sample contacts (MOD06 supplies them as data; fieldsCard.js fills the list) -->
+            <!-- "Sample vCGE pilot contact": the nine pilots (MOD06 supplies them as data; fieldsCard.js fills the list) -->
             <div class="fields-tools">
-                <label class="fields-fake"><select id="fakeContactSelect" class="field-input" aria-label="Insert Fake Contact?"></select></label>
+                <label class="fields-fake"><select id="fakeContactSelect" class="field-input" aria-label="Sample vCGE pilot contact"></select></label>
                 <button id="clearFormBtn" type="button" class="text-[11px] font-semibold px-3 py-1 rounded-lg hover:text-rose-500 transition">Clear form</button>
             </div>
 
@@ -232,6 +232,11 @@
                 <!-- Typed lists (MOD06 builds the rows): each row is a type picker, a value and a remove button -->
                 <fieldset class="col-span-2 space-y-1.5">
                     <legend class="field-label">Phones</legend>
+                    <!-- Phone style (MOD05): how US and Canadian numbers are written; memory only, never saved -->
+                    <div class="fields-phone-style">
+                        <label class="fields-cc"><span>Number style</span><select id="phoneFormatSelect" class="field-input" aria-label="Phone number style"></select></label>
+                        <label class="fields-cc"><input id="phoneCountryCode" type="checkbox" class="vcge-switch" checked><span>Include +1</span></label>
+                    </div>
                     <div id="phoneList" class="space-y-1.5"></div>
                     <button id="addPhoneBtn" type="button" class="text-xs font-semibold text-brand-700 dark:text-brand-400 hover:underline">+ Add phone</button>
                 </fieldset>

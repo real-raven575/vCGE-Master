@@ -21,7 +21,7 @@ const TEL_TYPES = {
 const EMAIL_TYPES = { work: 'INTERNET,WORK', personal: 'INTERNET,HOME', other: 'INTERNET' };
 const URL_TYPES = { work: 'WORK', personal: 'HOME' };
 // Social profiles: X-SOCIALPROFILE (read by Apple Contacts) plus a plain URL line (kept by Google Contacts and others).
-const SOCIAL_TYPES = { linkedin: 'linkedin', x: 'twitter', facebook: 'facebook', instagram: 'instagram', github: 'github', youtube: 'youtube', tiktok: 'tiktok' };
+const SOCIAL_TYPES = { linkedin: 'linkedin', x: 'twitter', facebook: 'facebook', instagram: 'instagram', github: 'github', youtube: 'youtube', tiktok: 'tiktok', reddit: 'reddit' };
 
 /** "4120 Lakeshore Road" + Suite 405 -> "4120 Lakeshore Road, Suite 405" (PO Box goes in its own ADR slot). */
 function streetLine(contact) {

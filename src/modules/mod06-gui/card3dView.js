@@ -611,8 +611,10 @@ export class CardView {
     /**
      * Runs a change that replaces form contents (preset, scan fill, clear) and offers Undo in the toast.
      * The previous card is kept in memory only until the next such change, Undo, or forgetUndo().
+     * @param {Object} [opts] `undone`: the toast after Undo; `after`: called once the card is back (the scan fill
+     *        reopens its lines on the Read card, so Undo never ends on an empty form)
      */
-    changeWithUndo(message, apply) {
+    changeWithUndo(message, apply, { undone = 'Undone.', after = null } = {}) {
         this.undoSnapshot = this.getContact();
         this.undoWasSample = this.holdsSample;
         apply();
@@ -626,7 +628,8 @@ export class CardView {
                 this.holdsSample = this.undoWasSample;
                 this.undoSnapshot = null;
                 this.changed();
-                this.showToast('Undone.');
+                this.showToast(undone);
+                if (after) after();
             }
         });
     }

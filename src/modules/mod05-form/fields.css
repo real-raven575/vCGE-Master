@@ -16,6 +16,11 @@
 .fields-fake { flex: 1 1 12rem; min-width: 0; }
 .fields-fake select { width: 100%; min-height: var(--vcge-tap, 2.75rem); font-weight: 600; }
 
+/* ---- Phone style: the format list and the +1 switch, on one line above the numbers ------------------------- */
+.fields-phone-style { display: flex; align-items: center; gap: var(--vcge-gap, 0.5rem); flex-wrap: wrap; }
+.fields-phone-style select { min-height: var(--vcge-tap, 2.75rem); width: auto; font-variant-numeric: tabular-nums; }
+.fields-cc { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.85rem; font-weight: 600; cursor: pointer; }
+
 /* ---- The form: pops in on arrival -------------------------------------------------------------------------- */
 .fields-form { transform-origin: 50% 20%; }
 .fields-form.is-popping { animation: fields-pop var(--fields-pop-ms) steps(var(--fields-pop-steps)) both; }

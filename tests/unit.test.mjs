@@ -521,6 +521,43 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const whole = fm.buildFields([{ text: '88 Elm Avenue, Burlington, VT 05401', role: 'address' }]);
   ok('Whole address role splits street and City/State/ZIP', whole.fields.street === '88 Elm Avenue' && whole.fields.city === 'Burlington' && whole.fields.zip === '05401');
   ok('no name line means no invented name', fm.parseOCRText('+1 (555) 201-3344').firstName === '');
+
+  // Video review 2026-10-17 (#53, #54, #94): the TeamLogic card as the iPad read it, and other card shapes
+  const ipad = fm.classifyLines('N20 weersooen\nYour Technology Advisor\nNick Zafer\nOwner & General Manager\nT 7950 Moorsbridge Road, Suite 405\nPortage, MI 49024\nnzafer@TeamLogicIT.com\n269.492.7400\n269.254.5403\nTeamLogicIT.com');
+  ok('MOD05 #54: a street with a stray letter in front ("T 7950 ...") is the street, shown and filled without the letter', ipad[4].role === 'street' && ipad[4].text === '7950 Moorsbridge Road, Suite 405'
+    && fm.buildFields(ipad).fields.street === '7950 Moorsbridge Road' && fm.buildFields(ipad).fields.unitNumber === '405', JSON.stringify(ipad[4]));
+  ok('MOD05 #54: chosen by hand as Street, the stray letter is still dropped; a one-line address too', fm.buildFields([{ text: 'T 7950 Moorsbridge Road', role: 'street' }]).fields.street === '7950 Moorsbridge Road'
+    && fm.parseOCRText('Jo Smith\nT 12 Main Street, Springfield, IL 62701').street === '12 Main Street');
+  ok('MOD05 #54: a labelled phone number is never taken as a street', fm.classifyLines('Jo Smith\nT 269.492.7400\nPortage, MI 49024')[1].role === 'phoneWork');
+  ok('MOD05 #53: the slogan goes to Notes, logo debris stays Ignore', ipad[1].role === 'notes' && ipad[0].role === 'ignore' && fm.buildFields(ipad).fields.notes === 'Your Technology Advisor');
+  const quoted = fm.classifyLines('"Your Technology Advisor"\nNick Zafer\nOwner & General Manager');
+  ok('MOD05 #53: a quoted phrase is never a job title or company: it goes to Notes', quoted[0].role === 'notes' && quoted[2].role === 'jobTitle', JSON.stringify(quoted));
+  const occasion = fm.classifyLines('20th Anniversary\nJo Smith\nSince 1998');
+  ok('MOD05 #53: "20th Anniversary" and "Since 1998" go to Notes, not Company', occasion[0].role === 'notes' && occasion[2].role === 'notes' && fm.buildFields(occasion).fields.organization === '', JSON.stringify(occasion));
+  ok('MOD05: a "The ..." company name is still the company, not a slogan', fm.classifyLines('The Home Depot\nDana Whitlock\nStore Manager\ndana@homedepot.com')[0].role === 'organization');
+  const caps = fm.parseOCRText('JOHN O\'BRIEN\nSALES DIRECTOR\nACME TOOLS INC\njohn@acmetools.com');
+  ok('MOD05 #94: a name in capitals is found and filled in name case', caps.firstName === 'John' && caps.lastName === "O'Brien" && caps.jobTitle === 'SALES DIRECTOR' && caps.organization === 'ACME TOOLS INC', JSON.stringify(caps));
+  ok('MOD05 #94: a printed "Jane Doe" still beats a line in capitals', fm.parseOCRText('ACME TOOLS\nJane Doe').firstName === 'Jane');
+  const cruz = fm.parseOCRText('Maria de la Cruz\nOwner');
+  ok('MOD05 #94: family-name particles (de la, van der) stay with the family name', cruz.firstName === 'Maria' && cruz.lastName === 'de la Cruz' && fm.parseOCRText('Jan van der Berg\nOwner').lastName === 'van der Berg', JSON.stringify(cruz));
+  const intlPhones = fm.parseOCRText('Jo Smith\nTel +44 20 7946 0958\nM +49 30 1234567\n+1 312 555 0147').phones;
+  ok('MOD05 #94: numbers with a country code outside the US are found and typed by their label (an unlabelled US number after work and mobile is Other)', JSON.stringify(intlPhones) === JSON.stringify([{ type: 'work', value: '+44 20 7946 0958' }, { type: 'mobile', value: '+49 30 1234567' }, { type: 'other', value: '+1 (312) 555-0147' }]), JSON.stringify(intlPhones));
+  ok('MOD05 #94: a ZIP code or a short number is not an international phone', fm.parseOCRText('Jo Smith\nRoom +12').phones.length === 0 && fm.parseOCRText('Jo Smith\nSpringfield, IL 62701').phones.length === 0);
+
+  // Video review #71: phone styles for US and Canadian numbers (memory only)
+  const { PHONE_FORMATS, DEFAULT_PHONE_STYLE } = await import(`${R}/modules/mod05-form/formMapper.js`);
+  const styled = new ContactFormMapper();
+  const fmt = (style, n = '269.492.7400') => { styled.phoneStyle = style; return styled.formatPhone(n, 'US'); };
+  ok('MOD05 #71: the three styles raven575 named, with and without +1', PHONE_FORMATS.map(([k]) => k).join() === 'paren,dots,digits'
+    && fmt({ format: 'paren', countryCode: true }) === '+1 (269) 492-7400' && fmt({ format: 'paren', countryCode: false }) === '(269) 492-7400'
+    && fmt({ format: 'dots', countryCode: true }) === '+1 269.492.7400' && fmt({ format: 'dots', countryCode: false }) === '269.492.7400'
+    && fmt({ format: 'digits', countryCode: true }) === '+12694927400' && fmt({ format: 'digits', countryCode: false }) === '2694927400');
+  ok('MOD05 #71: restyling a styled number works both ways, and an extension is kept', fmt({ format: 'dots', countryCode: false }, '+1 (269) 492-7400') === '269.492.7400' && fmt({ format: 'paren', countryCode: true }, '2694927400') === '+1 (269) 492-7400'
+    && fmt({ format: 'dots', countryCode: false }, '269 492 7400 x12') === '269.492.7400 x12');
+  ok('MOD05 #71: the default style is the one shipped before (+1 (269) 492-7400); other countries keep their own format', new ContactFormMapper().formatPhone('2694927400', 'US') === '+1 (269) 492-7400' && DEFAULT_PHONE_STYLE.format === 'paren' && DEFAULT_PHONE_STYLE.countryCode === true
+    && fmt({ format: 'digits', countryCode: false }, '+44 20 7946 0958x') === '+44 20 7946 0958x' && styled.formatPhone('+44 2079460958', 'UK') === '+44 20 7946 0958');
+  styled.phoneStyle = { format: 'dots', countryCode: false };
+  ok('MOD05 #71: a scan fills phones in the chosen style', styled.parseOCRText('Jo Smith\nT 269.492.7400').phones[0].value === '269.492.7400');
 }
 
 // Icon matching (MOD04 iconMatcher: pure shape maths) and icon clues in the mapper
@@ -560,6 +597,9 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const textWins = fm.buildFields(fm.classifyLines([{ text: 'T 206.555.1111', icon: 'mobile' }, { text: '206.555.2222', icon: 'email' }])).fields;
   ok('a written label beats the icon; an envelope next to a number is still a phone', textWins.phones[0].type === 'work' && textWins.phones.length === 2 && !textWins.emails.length, JSON.stringify(textWins));
   ok('classifyLines keeps each line\'s icon for the review screen', fm.classifyLines([{ text: '206.555.9876', icon: 'mobile' }])[0].icon === 'mobile');
+  ok('MOD05 #66: Reddit is a website type; reddit.com and fb.me links are typed; u/handle makes a Reddit link', share.WEBSITE_TYPES.some(([k, l]) => k === 'reddit' && l === 'Reddit')
+    && share.websiteTypeFor('https://www.reddit.com/user/kai') === 'reddit' && share.websiteTypeFor('https://fb.me/kai.t') === 'facebook' && share.websiteTypeFor('https://www.facebook.com/profile.php?id=100012345') === 'facebook'
+    && share.socialProfileUrl('reddit', 'u/kai_t') === 'https://www.reddit.com/user/kai_t' && share.formatVCard({ firstName: 'K', websites: [{ type: 'reddit', value: 'https://www.reddit.com/user/kai' }] }).includes('X-SOCIALPROFILE;TYPE=reddit:https://www.reddit.com/user/kai'));
   ok('socialProfileUrl builds links only from plausible handles', share.socialProfileUrl('tiktok', '@kai') === 'https://tiktok.com/@kai' && share.socialProfileUrl('youtube', 'studio craft') === '' && share.socialProfileUrl('unknown', 'kai') === '');
 }
 
@@ -1151,8 +1191,12 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 {
   const fc = await import(`${R}/modules/mod05-form/fieldsCard.js`);
   ok('the pop-in is 320 ms stepped at 26 fps (8 steps), like the padlock and the shimmer', fc.POP_MS === 320 && fc.POP_FPS === 26 && fc.POP_STEPS === 8);
-  ok('the list prompt and the green button read as raven575 asked', fc.FAKE_CONTACT_PROMPT === 'Insert Fake Contact?' && fc.DONE_LABEL === "Everything's correct");
-  ok('a sample is listed by name and company, never by its emoji label', fc.sampleLabel({ label: '🤖 AI Research Lead', firstName: 'Elena', lastName: 'Rostova', organization: 'NeuralShift AI' }) === 'Elena Rostova, NeuralShift AI'
+  ok('the list prompt and the green button read as raven575 asked (#61: "Sample vCGE pilot contact")', fc.SAMPLE_PROMPT === 'Sample vCGE pilot contact' && fc.DONE_LABEL === "Everything's correct");
+  ok('#61: a pilot is listed by name with their animal in front', fc.sampleLabel({ firstName: 'Pidge', lastName: 'Octopus', organization: 'Team vCGE', logo: 'src/vendor/icons/animals/octopus.svg' }) === '🐙 Pidge Octopus'
+    && fc.sampleLabel({ firstName: 'Iris', lastName: 'Lynx', logo: 'src/vendor/icons/animals/cat.svg' }) === '🐈 Iris Lynx' && Object.keys(fc.ANIMAL_EMOJI).length === 9);
+  const { PRESETS } = await import(`${R}/modules/mod06-gui/card3dView.js`).catch(() => ({ PRESETS: null }));
+  ok('#61: every pilot sample has an animal in the list', !PRESETS || PRESETS.every(p => /^\p{Extended_Pictographic} \S+(?: \S+)+$/u.test(fc.sampleLabel(p))), PRESETS && PRESETS.map(fc.sampleLabel).join('|'));
+  ok('a sample without an animal is listed by name and company, never by its emoji label', fc.sampleLabel({ label: '🤖 AI Research Lead', firstName: 'Elena', lastName: 'Rostova', organization: 'NeuralShift AI' }) === 'Elena Rostova, NeuralShift AI'
     && fc.sampleLabel({ label: '🎨 Solo', firstName: 'Kai' }) === 'Kai' && fc.sampleLabel({ label: ' Plain label ' }) === 'Plain label' && fc.sampleLabel({}) === 'Sample contact');
 }
 

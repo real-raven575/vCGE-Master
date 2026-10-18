@@ -979,7 +979,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await ctxS.close();
   }
 
-  // Fields card (MOD05, redesign step 7): the "Insert Fake Contact?" list, the pop-in on arrival, "Everything's correct"
+  // Fields card (MOD05, redesign step 7): the "Sample vCGE pilot contact" list, the pop-in on arrival, "Everything's correct"
   {
     const ctxF = await browser.newContext();
     const pF = await ctxF.newPage();
@@ -989,7 +989,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await pF.goto(ORIGIN); await pF.waitForTimeout(300);
     const pops = () => pF.$eval('#fieldsForm', f => Number(f.dataset.pops || 0));
     const card = () => pF.evaluate(() => document.documentElement.dataset.card);
-    ok('fields: the list reads "Insert Fake Contact?" and names each sample by name and company', (await pF.$$eval('#fakeContactSelect option', os => os.map(o => o.textContent).join('|'))) === 'Insert Fake Contact?|Shutout Box Turtle, Team vCGE|Ghost Raccoon, Team vCGE|Iris Lynx, Team vCGE|Glyph Owl, Team vCGE|Pidge Octopus, Team vCGE|Flipside Chameleon, Team vCGE|Checkers Zebra, Team vCGE|Airlock Falcon, Team vCGE|Cornerstone Elephant, Team vCGE'
+    ok('fields: the list reads "Sample vCGE pilot contact" and names each pilot with their animal (video review #61)', (await pF.$$eval('#fakeContactSelect option', os => os.map(o => o.textContent).join('|'))) === 'Sample vCGE pilot contact|🐢 Shutout Box Turtle|🦝 Ghost Raccoon|🐈 Iris Lynx|🦉 Glyph Owl|🐙 Pidge Octopus|🦎 Flipside Chameleon|🦓 Checkers Zebra|🦅 Airlock Falcon|🐘 Cornerstone Elephant'
+      && (await pF.getAttribute('#fakeContactSelect', 'aria-label')) === 'Sample vCGE pilot contact'
       && (await pF.$eval('#fakeContactSelect', s => s.value)) === '' && !(await pF.$('#presetButtonsContainer')), await pF.$$eval('#fakeContactSelect option', os => os.map(o => o.textContent).join('|')));
     ok('fields: nothing has popped yet (the Welcome START lands on Capture)', (await pops()) === 0);
     // A header icon is a move of the deck's own: the form pops on arrival (a swipe, below, does not)
@@ -1034,8 +1035,52 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     const before = await pops();
     await pF.selectOption('#fakeContactSelect', '0'); await pF.waitForTimeout(300);
     ok('fields: under reduce motion a sample is simply there (no pop class), the arrival still counted', (await pops()) === before + 1 && !(await pF.$eval('#fieldsForm', f => f.classList.contains('is-popping'))) && (await pF.inputValue('#firstName')) === 'Shutout', String(await pops()));
+    // Phone style (video review #71): the format list and the +1 switch restyle every number on the card at once,
+    // and a number typed afterwards follows the style. Memory only: nothing about it is saved.
+    await pF.emulateMedia({ reducedMotion: 'no-preference' });
+    ok('fields: the phone style list offers the three styles raven575 named, +1 on by default', (await pF.$$eval('#phoneFormatSelect option', os => os.map(o => o.textContent).join('|'))) === '(269) 492-7400|269.492.7400|2694927400'
+      && (await pF.$eval('#phoneCountryCode', c => c.checked)) && (await pF.inputValue('#phoneValue0')) === '+1 (202) 555-0101', await pF.inputValue('#phoneValue0'));
+    await pF.selectOption('#phoneFormatSelect', 'dots');
+    ok('fields: choosing dots restyles every number', JSON.stringify((await rows(pF, 'phone')).map(r => r.value)) === JSON.stringify(['+1 202.555.0101', '+1 202.555.0111']), JSON.stringify(await rows(pF, 'phone')));
+    await pF.click('#phoneCountryCode');
+    ok('fields: turning +1 off drops the country code from every number, and the card shows the same', JSON.stringify((await rows(pF, 'phone')).map(r => r.value)) === JSON.stringify(['202.555.0101', '202.555.0111'])
+      && (await pF.textContent('#previewPhones')).includes('202.555.0101'), JSON.stringify(await rows(pF, 'phone')));
+    await pF.click('#addPhoneBtn'); await pF.fill('#phoneValue2', '(616) 555 0199'); await pF.press('#phoneValue2', 'Tab');
+    ok('fields: a number typed afterwards follows the style', (await pF.inputValue('#phoneValue2')) === '616.555.0199', await pF.inputValue('#phoneValue2'));
+    await pF.selectOption('#phoneFormatSelect', 'paren'); await pF.click('#phoneCountryCode');
+    ok('fields: back to the first style, the numbers read as before', (await pF.inputValue('#phoneValue0')) === '+1 (202) 555-0101' && (await pF.inputValue('#phoneValue2')) === '+1 (616) 555-0199');
+    ok('fields: the phone style is not saved anywhere', !(await pF.evaluate(() => JSON.stringify(Object.assign({}, localStorage)))).includes('dots'));
+    // Reddit is a website type; a pasted Facebook profile link is typed as Facebook (video review #66)
+    await pF.click('#addWebsiteBtn');
+    const lastSite = (await rows(pF, 'website')).length - 1;
+    ok('fields: Reddit is offered as a website type', (await pF.$$eval(`#websiteType${lastSite} option`, os => os.map(o => o.textContent))).includes('Reddit'));
+    await pF.fill(`#websiteValue${lastSite}`, 'https://www.facebook.com/profile.php?id=100012345'); await pF.press(`#websiteValue${lastSite}`, 'Tab');
+    ok('fields: a pasted Facebook profile link is typed Facebook', (await pF.inputValue(`#websiteType${lastSite}`)) === 'facebook');
     ok('fields: no page errors', errorsF.length === 0, errorsF.join(' | '));
     await ctxF.close();
+  }
+
+  // Video review #62: on an iPad in portrait the Fields card's green button and trash are on the screen, below a
+  // long form, with the timer strip showing. iOS sizes 100vh to the page with the browser bars tucked away, so the
+  // page's height must come from 100dvh (checked in the stylesheet: desktop Chromium has no such gap to measure).
+  {
+    const ctxN = await browser.newContext({ viewport: { width: 820, height: 1180 }, hasTouch: true });
+    const pN = await ctxN.newPage();
+    await pN.goto(ORIGIN); await pN.waitForTimeout(300);
+    await pN.click('#navFields'); await pN.waitForTimeout(600);
+    await pN.selectOption('#fakeContactSelect', '3'); await pN.click('#notes');
+    await pN.waitForFunction(() => !document.getElementById('vaultTimerStrip').classList.contains('hidden'), null, { timeout: 3000 });
+    const inView = await pN.evaluate(() => {
+      const h = window.innerHeight, r = (sel) => document.querySelector(sel).getBoundingClientRect();
+      return { h, strip: !document.getElementById('vaultTimerStrip').classList.contains('hidden'), ok: r('#fieldsDoneBtn').bottom, trash: r('#cardFields .vcge-trash').bottom, deck: r('#deck').bottom, scrolls: document.querySelector('#cardFields .deck-card-body').scrollHeight > document.querySelector('#cardFields .deck-card-body').clientHeight };
+    });
+    ok('#62: iPad portrait, long form: "Everything\'s correct" and the trash are on the screen', inView.strip && inView.scrolls && inView.ok <= inView.h && inView.trash <= inView.h && inView.deck <= inView.h + 0.5, JSON.stringify(inView));
+    const heightRule = await pN.evaluate(() => [...document.styleSheets].flatMap(sh => { try { return [...sh.cssRules]; } catch (e) { return []; } })
+      .filter(r => r.selectorText === 'body.h-screen').map(r => r.style.height).join());
+    ok('#62: the page height is the height in view (100dvh), not 100vh', heightRule === '100dvh' && (await pN.evaluate(() => Math.round(document.body.getBoundingClientRect().height) === window.innerHeight)), heightRule);
+    await pN.click('#fieldsDoneBtn'); await pN.waitForTimeout(700);
+    ok('#62: the button is tappable there and moves on to the 3D Card', (await pN.evaluate(() => document.documentElement.dataset.card)) === 'card');
+    await ctxN.close();
   }
 
   // Tester feedback round 1: Undo after a sample / clear / scan fill, reopen the last scan, readable SMS and email, one-page print
@@ -1063,8 +1108,13 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p9.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
     await proceed(p9);
     ok('Fill form offers Undo and "Reopen last scan"', (await p9.inputValue('#firstName')) === 'Maria' && await p9.isVisible('#toastAction') && await p9.isVisible('#reopenScanBtn'));
-    await p9.click('#toastAction');
+    await p9.click('#toastAction'); await p9.waitForTimeout(600);
     ok('Undo after Fill form restores the card from before the scan', (await p9.inputValue('#firstName')) === 'Typed');
+    // Video review #59, #60: Undo never ends on an empty form: it reopens the scan's lines on the Read card, as edited
+    ok('Undo after Fill form reopens the lines on the Read card, nothing lost, no new OCR', (await p9.evaluate(() => document.documentElement.dataset.card)) === 'read' && await p9.isVisible('#ocrStepText')
+      && (await p9.$$('#ocrLines select')).length >= 8 && (await p9.textContent('#ocrSummary')).includes('maria.gonzalez@northwind.com') && (await p9.textContent('#toastMessage')).includes('Back to the lines'), await p9.textContent('#toastMessage'));
+    await proceed(p9);
+    ok('...and Proceed fills the form again from those lines', (await p9.inputValue('#firstName')) === 'Maria');
     await p9.click('#reopenScanBtn');
     ok('Reopen last scan shows the review step again (no OCR run)', await p9.isVisible('#ocrStepText') && (await p9.$$('#ocrLines select')).length >= 8 && (await p9.textContent('#ocrSummary')).includes('maria.gonzalez@northwind.com'));
     await proceed(p9);

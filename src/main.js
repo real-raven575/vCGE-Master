@@ -30,7 +30,7 @@ import { VCGEActiveCamera } from './modules/mod03-camera/camera.js';
 import { CropEditor } from './modules/mod03-camera/cropEditor.js';
 import { executeOCRScan, shutdownOCREngine } from './modules/mod04-ocr/ocrWorker.js';
 import { readIndicator, renderReviewRows, initReadCard, resetBlink, READER_UNAVAILABLE_MESSAGE } from './modules/mod04-ocr/readCard.js';
-import { ContactFormMapper, LINE_ROLES } from './modules/mod05-form/formMapper.js';
+import { ContactFormMapper, LINE_ROLES, PHONE_FORMATS } from './modules/mod05-form/formMapper.js';
 import { PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES } from './share/contactOptions.js';
 import { AddressAutocompleteEngine } from './modules/mod05-form/addressAutocomplete.js';
 import { initFieldsCard } from './modules/mod05-form/fieldsCard.js';
@@ -729,6 +729,8 @@ function backToPhoto() {
 
 // Proceed: the review text blinks out (MOD04's deck hook), the deck moves to Fields (MOD02's padlock follows the
 // CARD_CHANGED signal), then the details go into the form. A wipe during the blink-out ends it with nothing filled.
+// Undo puts the card back as it was before the fill and reopens the lines on the Read card, as last edited, so the
+// scan is never lost (raven575, video review 2026-10-17 #59, #60).
 let applying = false;
 async function applyOcrReview() {
     if (!ocrReview || applying) return;
@@ -740,7 +742,8 @@ async function applyOcrReview() {
         await showCard('fields');
         if (!ocrReview) return;
         closeReviewDialog();
-        cardView.changeWithUndo('Form filled. Please check the details.', () => cardView.mergeContact(fields));
+        cardView.changeWithUndo('Form filled. Please check the details.', () => cardView.mergeContact(fields),
+            { undone: 'Back to the lines: fix them, then press Proceed.', after: reopenLastScan });
     } finally {
         applying = false;
     }
@@ -819,7 +822,11 @@ function wireIntake() {
     initReadCard({ onBeforeChange: beforeCardChange });
     // Fields card (MOD05): the sample list (MOD06's data), the pop-in on arrival, and "Everything's correct" on to the
     // 3D Card (the padlock hand-off follows the deck's signal; the card view already holds the details in memory).
-    initFieldsCard({ samples: PRESETS, onSample: (preset) => cardView.loadSample(preset), onDone: () => showCard('card'), onBeforeChange: beforeCardChange });
+    // The phone style lives in the mapper (memory only): new scans and edited numbers follow it, and a change restyles
+    // every number already on the card.
+    initFieldsCard({ samples: PRESETS, onSample: (preset) => cardView.loadSample(preset), onDone: () => showCard('card'), onBeforeChange: beforeCardChange,
+        phoneFormats: PHONE_FORMATS, phoneStyle: formMapper.phoneStyle,
+        onPhoneStyle: (style) => { formMapper.phoneStyle = style; for (let i = 0; i < $('phoneList').children.length; i++) cardView.tidyListValue('phones', i); } });
     $('reopenScanBtn').addEventListener('click', reopenLastScan);
     // Retake: a camera shot opens the camera again; an upload opens the picker again (on phones it also offers the camera).
     $('retakePhotoBtn').addEventListener('click', () => {
