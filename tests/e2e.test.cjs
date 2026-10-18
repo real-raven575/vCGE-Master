@@ -1435,18 +1435,28 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
   // Camera in use by another app: busy at start, a virtual camera, the feed taken or muted mid-scan -> camera off + pop-up
   {
     const ctxC = await newContext();
-    await ctxC.addInitScript(() => {
+    // Firefox never delivers an 'ended' or 'mute' event that a page sends to a camera track (the engine probe showed
+    // neither the app's listener nor the test's own one hearing it), so there the stream hands the app a stand-in
+    // track: the real one's properties and methods, with events the test can send.
+    await ctxC.addInitScript((standIn) => {
       window.__camMode = 'normal';
       navigator.mediaDevices.getUserMedia = async () => {
         if (window.__camMode === 'busy') throw new DOMException('Could not start video source', 'NotReadableError');
         const c = document.createElement('canvas'); c.width = 640; c.height = 360;
         const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
-        const stream = c.captureStream(5), track = stream.getVideoTracks()[0];
-        Object.defineProperty(track, 'label', { value: window.__camMode === 'virtual' ? 'OBS Virtual Camera' : 'Integrated Camera' });
+        const stream = c.captureStream(5), real = stream.getVideoTracks()[0];
+        let track = real;
+        if (standIn) {
+          track = new EventTarget();
+          for (const k of ['kind', 'id', 'readyState', 'enabled', 'muted', 'contentHint']) Object.defineProperty(track, k, { configurable: true, get: () => real[k] });
+          for (const m of ['stop', 'clone', 'getSettings', 'getConstraints', 'getCapabilities', 'applyConstraints']) if (typeof real[m] === 'function') track[m] = (...a) => real[m](...a);
+          stream.getVideoTracks = () => [track];
+        }
+        Object.defineProperty(track, 'label', { configurable: true, value: window.__camMode === 'virtual' ? 'OBS Virtual Camera' : 'Integrated Camera' });
         window.__camTrack = track;
         return stream;
       };
-    });
+    }, ENGINE === 'firefox');
     const pC = await ctxC.newPage();
     await pC.goto(ORIGIN); await pC.waitForTimeout(300);
     const popup = () => pC.isVisible('#cameraInUseModal');
