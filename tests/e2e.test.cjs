@@ -734,7 +734,18 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     ok('lock during the tour: hold-to-wipe opens above the lock screen', wipeOnTop8);
     await p8.click('#wipeNoBtn');
     await p8.fill('#vaultPin', '4321'); await p8.waitForSelector('#vaultModal', { state: 'hidden' });
-    if (await p8.isVisible('#tourSkipBtn')) await p8.click('#tourSkipBtn');
+    // Unlocking leaves the tour as it was, on the step it was on; then Skip closes it. (This used to skip only when
+    // Skip happened to be visible at one instant, so a Firefox run once went on with the tour still covering the page.)
+    const tourState8 = () => p8.evaluate(() => {
+      const box = (id) => { const e = document.getElementById(id); if (!e) return null; const r = e.getBoundingClientRect(); return [Math.round(r.left), Math.round(r.top), Math.round(r.width), Math.round(r.height)]; };
+      return { layer: !!document.getElementById('welcomeLayer'), step: (document.getElementById('tourStep') || {}).textContent || null, tip: box('tourTip'), skip: box('tourSkipBtn'), focus: document.activeElement && document.activeElement.id };
+    });
+    const skipShown8 = await p8.waitForSelector('#tourSkipBtn', { state: 'visible', timeout: 5000 }).then(() => true, () => false);
+    const afterUnlock8 = await tourState8();
+    ok('unlock during the tour: the tour is still there, on the step it was on', skipShown8 && afterUnlock8.step === 'Step 1 of 6', JSON.stringify(afterUnlock8));
+    if (skipShown8) await p8.click('#tourSkipBtn');
+    else { await p8.evaluate(() => document.activeElement && document.activeElement.blur()); await p8.keyboard.press('Escape'); }   // close it anyway so the checks after this one still run
+    await p8.waitForSelector('#welcomeLayer', { state: 'detached', timeout: 5000 });
     await p8.waitForTimeout(700);
 
     // Settings > Wipe after the lock (raven575, 2026-10-18): 10 or 15 minutes instead of 7; the 2-minute lock stays
