@@ -2067,7 +2067,8 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
   // goes one card, the tablet's first card centres, Shutout's own icon, one lit icon for the 3D card, the timer strip
   // never covers a card's title, and the tour stays under the lock screen
   {
-    const ctxV = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 1024, height: 1366 } });
+    // Playwright's Firefox has no mobile mode (isMobile); the iPad size and touch still apply there
+    const ctxV = await browser.newContext({ hasTouch: true, ...(ENGINE === 'firefox' ? {} : { isMobile: true }), viewport: { width: 1024, height: 1366 } });
     const pV = await ctxV.newPage();
     const errorsV = [];
     pV.on('pageerror', e => errorsV.push(e.message));
@@ -2104,30 +2105,35 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
       && await pV.$eval('#navWelcome', b => b.classList.contains('is-on') && b.getAttribute('aria-current') === 'page' && /Shutout/.test(b.getAttribute('aria-label'))));
 
     // A finger swipe: the deck never moves under a finger that pauses, and on release goes one card in the swipe's direction
-    const cdp = await ctxV.newCDPSession(pV);
-    const touch = async (from, to, holdMs = 0) => {
-      const y = 900; let x = from;
-      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
-      const step = (to - from) / 12;
-      for (let i = 0; i < 12; i++) { x += step; await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y }] }); await pV.waitForTimeout(16); }
-      if (holdMs) await pV.waitForTimeout(holdMs);
-      const during = await deckState();
-      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-      await pV.waitForTimeout(150);
-      await deckSettled(pV); await pV.waitForTimeout(150);
-      return during;
-    };
-    await pV.click('#navCapture'); await pV.waitForTimeout(700);
-    const rest = (await deckState()).left;
-    const paused = await touch(300, 600, 400);
-    ok('swipe: a finger that pauses mid-swipe keeps the deck where it put it (it snapped back under the finger, video #11)', paused.deck === 'held' && paused.left < rest - 200 && paused.card === 'capture', JSON.stringify({ rest, paused }));
-    ok('swipe: on release the deck eases to the card it was heading for, the start page (video #30)', (await deckState()).card === 'welcome' && (await deckState()).left === 0, JSON.stringify(await deckState()));
-    await touch(600, 580);
-    ok('swipe: a nudge shorter than 24 px goes back to the same card', (await deckState()).card === 'welcome', JSON.stringify(await deckState()));
-    await touch(700, 500);
-    ok('swipe: a short swipe goes on to the next card', (await deckState()).card === 'capture', JSON.stringify(await deckState()));
-    await touch(1000, 20);
-    ok('swipe: a long fling still stops at the next card, not two on', (await deckState()).card === 'read', JSON.stringify(await deckState()));
+    // The finger is sent through the Chrome DevTools Protocol, which only Chromium has. Real Chrome and Edge on a desktop
+    // turn that sent touch into the browser's back-swipe instead of scrolling the deck (the page gets the same touch
+    // events; the deck never scrolls and the tab goes back), so the deck swipes run in Playwright's Chromium only.
+    const cdp = ENGINE === 'chromium' ? await ctxV.newCDPSession(pV) : null;
+    if (cdp && !CHANNELS[BROWSER]) {
+      const touch = async (from, to, holdMs = 0) => {
+        const y = 900; let x = from;
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+        const step = (to - from) / 12;
+        for (let i = 0; i < 12; i++) { x += step; await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y }] }); await pV.waitForTimeout(16); }
+        if (holdMs) await pV.waitForTimeout(holdMs);
+        const during = await deckState();
+        await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+        await pV.waitForTimeout(150);
+        await deckSettled(pV); await pV.waitForTimeout(150);
+        return during;
+      };
+      await pV.click('#navCapture'); await pV.waitForTimeout(700);
+      const rest = (await deckState()).left;
+      const paused = await touch(300, 600, 400);
+      ok('swipe: a finger that pauses mid-swipe keeps the deck where it put it (it snapped back under the finger, video #11)', paused.deck === 'held' && paused.left < rest - 200 && paused.card === 'capture', JSON.stringify({ rest, paused }));
+      ok('swipe: on release the deck eases to the card it was heading for, the start page (video #30)', (await deckState()).card === 'welcome' && (await deckState()).left === 0, JSON.stringify(await deckState()));
+      await touch(600, 580);
+      ok('swipe: a nudge shorter than 24 px goes back to the same card', (await deckState()).card === 'welcome', JSON.stringify(await deckState()));
+      await touch(700, 500);
+      ok('swipe: a short swipe goes on to the next card', (await deckState()).card === 'capture', JSON.stringify(await deckState()));
+      await touch(1000, 20);
+      ok('swipe: a long fling still stops at the next card, not two on', (await deckState()).card === 'read', JSON.stringify(await deckState()));
+    } else notRunHere('swipe: the deck under a finger (5 checks)', cdp ? 'real Chrome and Edge on a desktop turn a sent touch into the back-swipe, not a scroll' : 'touch is sent through the Chrome DevTools Protocol, which only Chromium has');
 
     // The 3D card's two header icons: only the one for the side that is up is lit, and Flipside turns it back
     await pV.click('#navQr'); await pV.waitForTimeout(800);
@@ -2163,7 +2169,8 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
       await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await pV.waitForTimeout(500);
       return pV.textContent('#tourStep');
     };
-    ok('tour: a swipe right to left goes to the next step, left to right back to the first (video #36)', (await swipeTour(800, 300)) === 'Step 2 of 6' && (await swipeTour(300, 800)) === 'Step 1 of 6');
+    if (cdp) ok('tour: a swipe right to left goes to the next step, left to right back to the first (video #36)', (await swipeTour(800, 300)) === 'Step 2 of 6' && (await swipeTour(300, 800)) === 'Step 1 of 6');
+    else notRunHere('tour: a swipe right to left goes to the next step, left to right back to the first (video #36)', 'touch is sent through the Chrome DevTools Protocol, which only Chromium has');
     await pV.click('#tourSkipBtn');
     ok('video fixes: no page errors', errorsV.length === 0, errorsV.join(' | '));
     await ctxV.close();
