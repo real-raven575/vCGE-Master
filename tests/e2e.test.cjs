@@ -1014,7 +1014,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const x = c.getContext('2d');
       if (kind === 'round') { x.fillStyle = '#e11'; x.beginPath(); x.arc(150, 150, 40, 0, 7); x.fill(); return c.toDataURL('image/png'); }
       if (kind === 'opaque') { x.fillStyle = '#c00'; x.fillRect(0, 0, 400, 100); }
-      if (kind === 'whitebg' || kind === 'whitebg-colour') { x.fillStyle = '#fff'; x.fillRect(0, 0, 400, 100); }
+      if (kind.startsWith('whitebg')) { x.fillStyle = '#fff'; x.fillRect(0, 0, 400, 100); }
       x.font = 'bold 60px Arial';
       if (kind === 'rainbow' || kind === 'pastel' || kind === 'whitebg-colour') {
         const colours = kind === 'pastel' ? ['#ffa0a0', '#a0ffa0', '#a0a0ff'] : ['#d00', '#07c', '#fc0'];
@@ -1023,7 +1023,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       }
       x.fillStyle = kind === 'light' ? '#f5f5f5' : kind === 'opaque' ? '#fff' : '#123';
       x.fillText('TeamLogic', 10, 70);
-      return c.toDataURL(kind === 'whitebg' ? 'image/jpeg' : 'image/png');
+      // 'whitebg-rough': a heavily compressed photo of a logo (the colour fringes JPEG leaves around dark lettering).
+      return kind === 'whitebg-rough' ? c.toDataURL('image/jpeg', 0.4) : c.toDataURL(kind === 'whitebg' ? 'image/jpeg' : 'image/png');
     }, kind);
     // Uploads a logo; returns the vCard PHOTO (from the .vcf), what the card shows and what the toast said.
     const upload = async (kind, name) => {
@@ -1079,6 +1080,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('opaque banner: the one-colour lettering is traced, no plate', opaque.traced && !opaque.plate && opaque.display.w / opaque.display.h > 3, JSON.stringify(opaque));
     const whitebg = await upload('whitebg', 'scan.jpg');
     ok('a JPEG on white: the white is removed, then the logo is traced; the toast says both', whitebg.traced && /white background removed, traced/.test(whitebg.toast) && near(whitebg.photo.corner, [255, 255, 255]), JSON.stringify({ toast: whitebg.toast, traced: whitebg.traced }));
+    const rough = await upload('whitebg-rough', 'scan-rough.jpg');
+    ok('a heavily compressed JPEG of a one-colour logo on white is still traced (its solid ink is not taken for a third colour)', rough.traced && /white background removed, traced/.test(rough.toast), JSON.stringify({ toast: rough.toast, traced: rough.traced }));
     const whiteColour = await upload('whitebg-colour', 'scan-colour.jpg');
     ok('a colour JPEG on white: the white is removed and the picture kept with transparency (PNG), toast says both', !whiteColour.traced && whiteColour.display.png && /white background removed, kept as is/.test(whiteColour.toast), JSON.stringify({ toast: whiteColour.toast, display: whiteColour.display }));
     const svg = await upload('svg', 'logo.svg');

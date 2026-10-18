@@ -1257,12 +1257,16 @@ const TRACE_MAX_MIXED = 0.25;   // more of the ink than this far from the ink's 
 const TRACE_MAX_LOOPS = 300;    // more outlines than this: a photo or a texture, not a logo
 const TRACE_MAX_OFF_LINE = 70;  // a pixel farther (RGB distance) than this from the ink-to-background line is another colour
 
-/** The distance from colour `p` to the segment between colours `a` and `b` (RGB). */
-export function distanceToSegment(p, a, b) {
-    const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], ap = [p[0] - a[0], p[1] - a[1], p[2] - a[2]];
-    const len2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
-    const t = len2 ? Math.max(0, Math.min(1, (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / len2)) : 0;
-    return Math.hypot(ap[0] - ab[0] * t, ap[1] - ab[1] * t, ap[2] - ab[2] * t);
+/**
+ * The distance from colour `p` to the line from the background colour `back` through the ink colour `ink` (RGB), open
+ * past the ink: `ink` is the ink's average, which its soft edges pull towards the background, so the solid ink lies
+ * beyond it on the same line.
+ */
+export function distanceToInkLine(p, ink, back) {
+    const bi = [ink[0] - back[0], ink[1] - back[1], ink[2] - back[2]], bp = [p[0] - back[0], p[1] - back[1], p[2] - back[2]];
+    const len2 = bi[0] * bi[0] + bi[1] * bi[1] + bi[2] * bi[2];
+    const t = len2 ? Math.max(0, (bp[0] * bi[0] + bp[1] * bi[1] + bp[2] * bi[2]) / len2) : 0;
+    return Math.hypot(bp[0] - bi[0] * t, bp[1] - bi[1] * t, bp[2] - bi[2] * t);
 }
 
 /**
@@ -1285,14 +1289,14 @@ export function traceLogo(px, w, box, { max = TRACE_MAX } = {}) {
     }
     if (count < TRACE_MIN_INK * box.w * box.h) return { reason: 'faint' };
     const mean = [sr / count, sg / count, sb / count];
-    // A two-colour logo's pixels lie between its ink and its background (the soft edges of lettering, JPEG ringing):
-    // a pixel far from that line is a third colour. A transparent logo's background counts as white.
+    // A two-colour logo's pixels lie on the line from its background through its ink (the soft edges of lettering, JPEG
+    // ringing, and the solid ink past the average): a pixel far from that line is a third colour. A transparent logo's background counts as white.
     const back = transparent ? [255, 255, 255] : edgeRgb;
     let mixed = 0;
     for (let y = box.y; y < box.y + box.h; y++) {
         for (let x = box.x; x < box.x + box.w; x++) {
             const k = (y * w + x) * 4;
-            if (ink(k) && distanceToSegment([px[k], px[k + 1], px[k + 2]], mean, back) > TRACE_MAX_OFF_LINE) mixed++;
+            if (ink(k) && distanceToInkLine([px[k], px[k + 1], px[k + 2]], mean, back) > TRACE_MAX_OFF_LINE) mixed++;
         }
     }
     if (mixed / count > TRACE_MAX_MIXED) return { reason: 'colours' };

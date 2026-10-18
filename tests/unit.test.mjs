@@ -1079,7 +1079,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const mixed = image([255, 255, 255, 255], [20, 20, 20, 255]);
   for (let x = 8; x < 10; x++) for (let y = 4; y < 6; y++) mixed.set([250, 240, 30, 255], (y * 20 + x) * 4);   // half the mark yellow
   ok('a mark of two colours is not traced (kept as is)', card.traceLogo(mixed, 20, box).reason === 'colours');
-  ok('colour distance to the ink-to-background line: on it 0, off it the gap', card.distanceToSegment([128, 128, 128], [0, 0, 0], [255, 255, 255]) === 0 && Math.round(card.distanceToSegment([255, 0, 0], [0, 0, 0], [255, 255, 255])) === 208 && card.distanceToSegment([10, 10, 10], [0, 0, 0], [0, 0, 0]) > 17);
+  ok('colour distance to the ink-to-background line: on it 0, off it the gap', card.distanceToInkLine([128, 128, 128], [0, 0, 0], [255, 255, 255]) === 0 && Math.round(card.distanceToInkLine([255, 0, 0], [0, 0, 0], [255, 255, 255])) === 208 && card.distanceToInkLine([10, 10, 10], [0, 0, 0], [0, 0, 0]) > 17);
+  ok('the line runs on past the ink\'s average: the solid ink, darker than the average, is on it; nothing is on it behind the background', card.distanceToInkLine([17, 34, 51], [59, 72, 84], [255, 255, 255]) < 15 && Math.round(card.distanceToInkLine([255, 255, 255], [59, 72, 84], [255, 255, 255])) === 0 && card.distanceToInkLine([0, 0, 0], [255, 255, 255], [128, 128, 128]) > 200);
   ok('a hold on a toast is 0.4 s or longer', card.TOAST_HOLD_MS === 400);
   ok('a blank image is too faint to trace', card.traceLogo(image([255, 255, 255, 255], [255, 255, 255, 255]), 20, box).reason === 'faint');
   const half = new Uint8ClampedArray(20 * 10 * 4).fill(255);
