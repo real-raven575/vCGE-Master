@@ -99,6 +99,7 @@ export async function verifyAssertion({ publicKey, algorithm, challenge, origin,
 export class BiometricUnlock {
     constructor() {
         this.credential = null;   // { id, publicKey, algorithm } for this session only
+        this.lastError = null;    // why the last check failed (an error name such as NotAllowedError), never any data
     }
 
     isEnrolled() {
@@ -130,7 +131,8 @@ export class BiometricUnlock {
 
     /** Asks the device to check the user; true only for a valid signature from the enrolled credential. */
     async verify() {
-        if (!this.credential) return false;
+        this.lastError = null;
+        if (!this.credential) { this.lastError = 'not set up'; return false; }
         const challenge = random(32);
         let assertion;
         try {
@@ -143,10 +145,11 @@ export class BiometricUnlock {
                 }
             });
         } catch (e) {
-            return false;   // cancelled, timed out or not recognised
+            this.lastError = (e && e.name) || 'unknown error';   // cancelled, timed out or not recognised
+            return false;
         }
-        if (!assertion || !sameBytes(new Uint8Array(assertion.rawId), this.credential.id)) return false;
-        return verifyAssertion({
+        if (!assertion || !sameBytes(new Uint8Array(assertion.rawId), this.credential.id)) { this.lastError = 'other passkey'; return false; }
+        const valid = await verifyAssertion({
             publicKey: this.credential.publicKey,
             algorithm: this.credential.algorithm,
             challenge,
@@ -156,6 +159,8 @@ export class BiometricUnlock {
             clientDataJSON: assertion.response.clientDataJSON,
             signature: assertion.response.signature
         });
+        if (!valid) this.lastError = 'signature not valid';
+        return valid;
     }
 
     clear() {

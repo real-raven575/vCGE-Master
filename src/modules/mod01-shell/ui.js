@@ -8,6 +8,12 @@
  */
 
 export const BREAKPOINTS = { tablet: 600, desktop: 1200 };
+
+// The pilot on each MOD tag (the roster): the tag reads "GLYPH:  MOD-04" (ui.css draws the name from data-pilot).
+export const PILOTS = Object.freeze({
+    'MOD-01': 'Shutout', 'MOD-02': 'Ghost', 'MOD-03': 'Iris', 'MOD-04': 'Glyph', 'MOD-05': 'Pidge',
+    'MOD-06': 'Flipside', 'MOD-07': 'Checkers', 'MOD-08': 'Airlock'
+});
 export const RIM_PX = 4;
 
 // Settings > Font choices, alphabetical (raven575, 2026-10-17). Inter is the default. All are bundled in vendor/fonts.
@@ -34,7 +40,22 @@ function pressable(target) {
     return label && label.querySelector(':scope > input[type="file"]') ? label : null;
 }
 
+// Names the pilot on every MOD tag, and fades a card's tag while its content is scrolled up under it.
+export function initTags(doc = document) {
+    doc.querySelectorAll('.mod-tag span').forEach(span => {
+        const pilot = PILOTS[span.textContent.trim()];
+        if (pilot) span.dataset.pilot = pilot;
+    });
+    doc.addEventListener('scroll', (e) => {
+        const body = e.target;
+        if (!body || !body.classList || !body.classList.contains('deck-card-body')) return;
+        const tag = body.parentElement && body.parentElement.querySelector(':scope > .mod-tag');
+        if (tag) tag.classList.toggle('is-faded', body.scrollTop > 0);
+    }, { capture: true, passive: true });
+}
+
 if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+    initTags();
     let touching = false;
     document.addEventListener('pointerdown', (e) => { touching = e.pointerType === 'touch'; }, true);
     document.addEventListener('click', (e) => {

@@ -21,7 +21,7 @@ const TEL_TYPES = {
 const EMAIL_TYPES = { work: 'INTERNET,WORK', personal: 'INTERNET,HOME', other: 'INTERNET' };
 const URL_TYPES = { work: 'WORK', personal: 'HOME' };
 // Social profiles: X-SOCIALPROFILE (read by Apple Contacts) plus a plain URL line (kept by Google Contacts and others).
-const SOCIAL_TYPES = { linkedin: 'linkedin', x: 'twitter', facebook: 'facebook', instagram: 'instagram', github: 'github', youtube: 'youtube', tiktok: 'tiktok' };
+const SOCIAL_TYPES = { linkedin: 'linkedin', x: 'twitter', facebook: 'facebook', instagram: 'instagram', github: 'github', youtube: 'youtube', tiktok: 'tiktok', reddit: 'reddit' };
 
 /** "4120 Lakeshore Road" + Suite 405 -> "4120 Lakeshore Road, Suite 405" (PO Box goes in its own ADR slot). */
 function streetLine(contact) {
@@ -67,4 +67,32 @@ export function formatVCard(contact) {
     lines.push("END:VCARD");
     // RFC 2425 §5.8.1: content lines are delimited by CRLF.
     return lines.join("\r\n");
+}
+
+/**
+ * RFC 2425 §5.8.1 / RFC 6350 §3.2: a vCard file folds each content line longer than 75 octets (CRLF plus one space
+ * starts the continuation) and ends with CRLF. Folds never split a UTF-8 character. For files and shares only: the QR
+ * keeps the unfolded text from formatVCard, which is shorter.
+ */
+export const VCARD_LINE_OCTETS = 75;
+export function foldVCardLines(vcard) {
+    const encoder = new TextEncoder();
+    const folded = String(vcard ?? '').split(/\r?\n/).filter((line, i, all) => line || i < all.length - 1).map(line => {
+        const parts = [];
+        let part = '', octets = 0, limit = VCARD_LINE_OCTETS;
+        for (const ch of line) {
+            const size = encoder.encode(ch).length;
+            if (octets + size > limit) {
+                parts.push(part);
+                part = '';
+                octets = 0;
+                limit = VCARD_LINE_OCTETS - 1;      // the leading space of a continuation counts
+            }
+            part += ch;
+            octets += size;
+        }
+        parts.push(part);
+        return parts.join('\r\n ');
+    });
+    return folded.length ? `${folded.join('\r\n')}\r\n` : '';
 }

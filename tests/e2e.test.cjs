@@ -132,7 +132,7 @@ async function lockOffered(page) {
 async function setPin(page, pin) {
   const wasOpen = await vaultOpen(page);
   await openVault(page);
-  await page.click('#setSessionPinBtn');
+  await page.click('#pinSwitch');
   await page.fill('#sessionPinInput', pin); await page.click('#quickSetupSaveBtn');
   await page.waitForSelector('#quickSetupModal', { state: 'hidden' });
   if (!wasOpen) await closeVault(page);
@@ -155,6 +155,20 @@ async function holdYes(page, ms, clock = null) {
   if (clock) await clock.runFor(600);
   await page.waitForFunction(() => !window.__vcgeOldPage, null, { timeout: 5000 });
   await page.waitForLoadState('load');
+}
+
+// Moves the page's fake clock forward by `ms` and makes sure the time really moved.
+// Playwright 1.56's clock keeps running in real time, and a real-time tick that is still finishing when fastForward runs
+// winds the clock back to where that tick began, so a whole jump can be lost (seen about 1 time in 15 in a busy page;
+// a lost 2-minute jump left the card locked when it should have been wiped). After a short settle it moves on any time lost.
+async function fastForward(page, ms) {
+  const start = await page.evaluate(() => Date.now());
+  let left = ms;
+  for (let i = 0; i < 5 && left > 0; i++) {
+    await page.clock.fastForward(left);
+    await page.waitForTimeout(100);
+    left = ms - ((await page.evaluate(() => Date.now())) - start);
+  }
 }
 
 // Makes the page look hidden (another app in front, screen off) or visible again.
@@ -268,7 +282,9 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
   await page.waitForTimeout(700);
   ok('preview shows full name with prefix/suffix and the unit', (await text('previewFullName')) === 'Dr. Jane Q. Doe, PhD' && (await text('previewAddress')).includes('Suite 4100'), (await text('previewFullName')) + ' | ' + (await text('previewAddress')));
   const [dl2] = await Promise.all([page.waitForEvent('download'), page.click('#downloadVcfBtn')]);
-  const vcf2 = fs.readFileSync(await dl2.path(), 'utf8').split('\r\n');
+  const vcf2raw = fs.readFileSync(await dl2.path(), 'utf8');
+  ok('.vcf lines are folded at 75 octets and the file ends with CRLF (RFC 2425)', vcf2raw.split('\r\n').every(l => Buffer.byteLength(l) <= 75) && vcf2raw.includes('\r\n ') && vcf2raw.endsWith('END:VCARD\r\n'), JSON.stringify(vcf2raw.slice(-40)));
+  const vcf2 = vcf2raw.replace(/\r\n[ \t]/g, '').split('\r\n');
   ok('.vcf has name parts, typed phones and emails', vcf2.includes('N:Doe;Jane;Q.;Dr.;PhD') && vcf2.includes('TEL;TYPE=CELL,VOICE:+1 (415) 555-0101') && vcf2.includes('TEL;TYPE=WORK,FAX:+1 (415) 555-0109')
     && vcf2.includes('EMAIL;TYPE=INTERNET,WORK:jane@smithjones.co') && vcf2.includes('EMAIL;TYPE=INTERNET,HOME:jane.doe@gmail.com'), vcf2.join(' | '));
   ok('.vcf has social profile and unit address', vcf2.includes('X-SOCIALPROFILE;TYPE=linkedin:https://www.linkedin.com/in/janedoe') && vcf2.includes('ADR;TYPE=WORK:;;233 South Wacker Drive\\, Suite 4100;Chicago;IL;60606;United States'), vcf2.filter(l => /^(X-SOCIAL|ADR)/.test(l)).join(' | '));
@@ -317,6 +333,13 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
   ok('review step lists the OCR lines with a field picker each', (await page.$$('#ocrLines select')).length >= 8 && (await page.inputValue('#ocrLineRole0')) === 'name', String((await page.$$('#ocrLines select')).length));
   ok('nothing reaches the form before Fill form', !(await rows(page, 'email')).some(r => r.value.includes('northwind')));
   ok('"Will fill" summary shows the mapped fields', (await text('ocrSummary')).includes('maria.gonzalez@northwind.com') && (await text('ocrSummary')).includes('Northwind Systems'));
+  const readGap = await page.evaluate(() => {
+    const label = document.querySelector('#cardRead > .deck-card-body > h2').getBoundingClientRect();
+    const head = document.querySelector('#ocrStepText > h2').getBoundingClientRect();
+    return Math.round(head.top - label.bottom);
+  });
+  ok('the review heading sits close under the "Read the card" label', readGap >= 0 && readGap <= 8, String(readGap));
+  ok('the review reminds that more fields can be added on the next card', (await visible('ocrMoreFields')) && /more fields on the next card/.test(await text('ocrMoreFields')), await text('ocrMoreFields'));
   await page.evaluate(() => {
     window.__blink = { opacities: [], cardAtClear: null };
     const step = document.getElementById('ocrStepText');
@@ -380,26 +403,48 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
   await page.click('#navSettings');
   ok('the cog opens Settings: hand, colour-blind switch, theme, font, language "coming later", PIN button and the disclaimer', await page.isVisible('#settingsSheet') && await page.isVisible('#handRightBtn') && await page.isVisible('#cbToggle') && await page.isVisible('#themeToggle')
     && await page.isVisible('#fontSelect') && /coming later/.test(await page.textContent('#settingsSheet')) && await page.isVisible('#settingsVaultBtn')
-    && (await text('settingsNote')) === 'vCGE keeps one small settings file on this device (hand, colors, theme, font). Nothing you scan, upload or type is ever saved.');
+    && (await text('settingsNote')) === 'vCGE keeps one small settings file on this device (hand, colors, theme, font, text size, wipe time). Nothing you scan, upload or type is ever saved.');
   ok('the font list is the seven fonts, alphabetical, Inter chosen', (await page.$$eval('#fontSelect option', os => os.map(o => o.textContent).join('|'))) === 'Atkinson Hyperlegible|Comic Neue|Inter|Lexend|Macondo|OpenDyslexic|Tinos'
     && (await page.$eval('#fontSelect', s => s.selectedOptions[0].textContent)) === 'Inter');
-  ok('every settings control is at least 44 px tall', (await page.$$eval('#handRightBtn, #handLeftBtn, #cbToggle, #themeToggle, #fontSelect', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44));
+  ok('every settings control is at least 44 px tall', (await page.$$eval('#handRightBtn, #handLeftBtn, #cbToggle, #themeToggle, #fontSelect, #sizeSelect, #wipeSelect', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44));
   await page.click('#themeToggle');
-  ok('theme toggles to light and the entry appears, one key, name=number pairs', !(await htmlState()).dark && (await settingsKeys()).join() === 'vcge_settings' && (await htmlState()).entry === 'hand=0;cb=0;theme=1;font=0');
+  ok('theme toggles to light and the entry appears, one key, name=number pairs', !(await htmlState()).dark && (await settingsKeys()).join() === 'vcge_settings' && (await htmlState()).entry === 'hand=0;cb=0;theme=1;font=0;size=0;wipe=0');
   await page.click('#handLeftBtn');
   const headerOrder = () => page.evaluate(() => ['navSettings', 'navVault', 'navCapture', 'navShare'].map(id => document.getElementById(id).getBoundingClientRect().left));
   const [xSettings, xVault, xCapture, xShare] = await headerOrder();
   const trashSide = () => page.evaluate(() => { const c = document.querySelector('.deck-card.is-current'), t = c.querySelector('.vcge-trash').getBoundingClientRect(), r = c.getBoundingClientRect(); return t.left + t.width / 2 > r.left + r.width / 2 ? 'right' : 'left'; });
   ok('Left hand mirrors the header (Settings far left, Vault beside it, Airlock before Iris) and moves the trash button to the lower right',
-    (await htmlState()).hand === 'left' && xSettings < xVault && xVault < xShare && xShare < xCapture && (await trashSide()) === 'right' && (await htmlState()).entry === 'hand=1;cb=0;theme=1;font=0', JSON.stringify([xSettings, xVault, xShare, xCapture, await trashSide()]));
+    (await htmlState()).hand === 'left' && xSettings < xVault && xVault < xShare && xShare < xCapture && (await trashSide()) === 'right' && (await htmlState()).entry === 'hand=1;cb=0;theme=1;font=0;size=0;wipe=0', JSON.stringify([xSettings, xVault, xShare, xCapture, await trashSide()]));
   await page.click('#handRightBtn');
   const [rSettings, rVault, rCapture] = await headerOrder();
   ok('Right hand puts it back: Iris first, Vault then Settings at the far right, trash lower left', rCapture < rVault && rVault < rSettings && (await trashSide()) === 'left' && (await htmlState()).hand === 'right');
   await page.check('#cbToggle');
-  ok('colour-blind mode sets html[data-cb="1"] (MOD02 reads it) and the lit icon shows a white bar under it', (await htmlState()).cb === '1' && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=0'
+  ok('colour-blind mode sets html[data-cb="1"] (MOD02 reads it) and the lit icon shows a white bar under it', (await htmlState()).cb === '1' && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=0;size=0;wipe=0'
     && /inset/.test(await page.$eval('.deck-nav button.is-on', b => getComputedStyle(b).boxShadow)));
   await page.selectOption('#fontSelect', { label: 'Lexend' });
-  ok('the UI font follows the drop-down (Lexend) and its fixed code is saved', /Lexend/.test((await htmlState()).body) && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2');
+  ok('the UI font follows the drop-down (Lexend) and its fixed code is saved', /Lexend/.test((await htmlState()).body) && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2;size=0;wipe=0');
+  // Settings polish from raven575's iPad video: the cog by the title (#13) and a text size that leaves the header alone (#6)
+  ok('Settings shows the cog left of its title', (await page.$eval('#settingsTitle use', u => u.getAttribute('href'))).endsWith('#settings')
+    && await page.$eval('#settingsTitle', h => h.firstElementChild.tagName.toLowerCase() === 'svg'));
+  ok('the text size list is Small, Normal, Large, Larger, Normal chosen', (await page.$$eval('#sizeSelect option', os => os.map(o => o.textContent).join('|'))) === 'Small|Normal|Large|Larger'
+    && (await page.$eval('#sizeSelect', s => s.selectedOptions[0].textContent)) === 'Normal');
+  const sizes = () => page.evaluate(() => { const r = e => e.getBoundingClientRect();
+    return { root: parseFloat(getComputedStyle(document.documentElement).fontSize), note: parseFloat(getComputedStyle(document.getElementById('settingsNote')).fontSize),
+      header: r(document.querySelector('.deck-header')).height, icon: r(document.querySelector('#navSettings .vcge-icon')).width }; });
+  const sizeNormal = await sizes();
+  await page.selectOption('#sizeSelect', { label: 'Larger' }); await page.waitForTimeout(200);
+  const sizeLarger = await sizes();
+  ok('Larger: the text grows by a quarter, the header and its icons keep their size, and its code is saved', Math.abs(sizeLarger.root / sizeNormal.root - 1.25) < 0.01 && Math.abs(sizeLarger.note / sizeNormal.note - 1.25) < 0.03
+    && Math.abs(sizeLarger.header - sizeNormal.header) < 0.6 && Math.abs(sizeLarger.icon - sizeNormal.icon) < 0.6 && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2;size=2;wipe=0', JSON.stringify([sizeNormal, sizeLarger]));
+  await page.selectOption('#sizeSelect', { label: 'Normal' }); await page.waitForTimeout(200);
+  ok('Normal puts the text back', (await sizes()).root === sizeNormal.root && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2;size=0;wipe=0');
+  // Wipe after the lock (raven575, 2026-10-18, #68): 7 (default), 10 or 15 minutes, on html for MOD02; the 2-minute lock stays
+  ok('the wipe list is 7, 10, 15 minutes, 7 chosen, and html says 7', (await page.$$eval('#wipeSelect option', os => os.map(o => o.textContent).join('|'))) === '7 minutes|10 minutes|15 minutes'
+    && (await page.$eval('#wipeSelect', s => s.selectedOptions[0].textContent)) === '7 minutes' && (await page.evaluate(() => document.documentElement.dataset.wipe)) === '7');
+  await page.selectOption('#wipeSelect', { label: '15 minutes' });
+  ok('15 minutes: html[data-wipe="15"] and its code 2 is saved', (await page.evaluate(() => document.documentElement.dataset.wipe)) === '15' && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2;size=0;wipe=2');
+  await page.selectOption('#wipeSelect', { label: '7 minutes' });
+  ok('back to 7 minutes', (await page.evaluate(() => document.documentElement.dataset.wipe)) === '7' && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2;size=0;wipe=0');
   await page.click('#settingsSheet [data-sheet-close]');
   // A fresh start in the same browser (a second tab) comes back with the saved choices; the scan in this tab is untouched
   const pS = await context.newPage();
@@ -407,12 +452,12 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
   const after = await pS.evaluate(() => ({ hand: document.documentElement.dataset.hand, cb: document.documentElement.dataset.cb, dark: document.documentElement.classList.contains('dark'),
     body: getComputedStyle(document.body).fontFamily, entry: localStorage.getItem('vcge_settings'), keys: Object.keys(localStorage).join() }));
   ok('next start: light theme, colour-blind mode and Lexend come back from the one entry; still exactly one key', !after.dark && after.cb === '1' && /Lexend/.test(after.body) && after.hand === 'right' && after.keys === 'vcge_settings', JSON.stringify(after));
-  ok('the entry holds four numbers and no text', /^hand=\d;cb=\d;theme=\d;font=\d$/.test(after.entry), after.entry);
+  ok('the entry holds six numbers and no text', /^hand=\d;cb=\d;theme=\d;font=\d;size=\d;wipe=\d$/.test(after.entry), after.entry);
   await pS.click('#navSettings');
   ok('the sheet shows the saved choices', await pS.$eval('#cbToggle', c => c.checked) && (await pS.$eval('#fontSelect', s => s.selectedOptions[0].textContent)) === 'Lexend' && (await pS.$eval('#themeToggle', b => b.getAttribute('aria-pressed'))) === 'true');
   await pS.click('#themeToggle'); await pS.uncheck('#cbToggle'); await pS.selectOption('#fontSelect', { label: 'Inter' });
   await pS.waitForTimeout(300);
-  ok('back to dark, colour-blind off, Inter', await pS.evaluate(() => document.documentElement.classList.contains('dark') && !document.documentElement.dataset.cb && /Inter/.test(getComputedStyle(document.body).fontFamily) && localStorage.getItem('vcge_settings') === 'hand=0;cb=0;theme=0;font=0'));
+  ok('back to dark, colour-blind off, Inter', await pS.evaluate(() => document.documentElement.classList.contains('dark') && !document.documentElement.dataset.cb && /Inter/.test(getComputedStyle(document.body).fontFamily) && localStorage.getItem('vcge_settings') === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0'));
   await pS.close();
   await page.bringToFront();
   await page.click('#navSettings'); await page.click('#themeToggle'); await page.uncheck('#cbToggle'); await page.selectOption('#fontSelect', { label: 'Inter' }); await page.click('#settingsSheet [data-sheet-close]');
@@ -440,7 +485,7 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
   ok('No closes the dialog and keeps everything', !(await visible('wipeDialog')) && (await val('firstName')) === nameBefore && await visible('reopenScanBtn'));
   // "Also delete my saved settings" for real: Vault publishes the signal, Shell clears its one entry (MOD01 step 4)
   await page.click('#navSettings'); await page.click('#handLeftBtn'); await page.click('#settingsSheet [data-sheet-close]');
-  ok('a saved setting is in place before the wipe', (await page.evaluate(() => localStorage.getItem('vcge_settings'))) === 'hand=1;cb=0;theme=0;font=0');
+  ok('a saved setting is in place before the wipe', (await page.evaluate(() => localStorage.getItem('vcge_settings'))) === 'hand=1;cb=0;theme=0;font=0;size=0;wipe=0');
   await page.click('.deck-card.is-current .vcge-trash');
   await page.check('#wipeSettingsBox'); await page.click('#wipeSettingsYesBtn');
   await holdYes(page, 1700); await page.waitForTimeout(700);
@@ -502,26 +547,29 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     ok('startup purges legacy plaintext keys', !st2.includes('Old Plaintext') && !st2.includes('vcge_state'), st2);
     ok('startup deletes a vault saved by an older build', !st2.includes('vCGE_secure_vault') && (await p2.textContent('#auditLog')).includes('Vault wiped (copy saved by an older build)'), st2);
     await p2.fill('#firstName', 'Idle'); await p2.fill('#lastName', 'Tester');
-    await p2.clock.fastForward(5000);
+    await fastForward(p2, 5000);
     ok('countdown shows remaining time', /Auto-clear in 11\d s/.test(await p2.textContent('#purgeCountdown')), await p2.textContent('#purgeCountdown'));
+    const strip2 = await p2.evaluate(() => ({ v: document.documentElement.style.getPropertyValue('--vcge-vault-strip'), h: document.getElementById('vaultTimerBand').offsetHeight }));
+    ok('timer strip: while shown, its height is published as --vcge-vault-strip (so the cards can sit below it)', strip2.h > 0 && strip2.v === `${strip2.h}px`, JSON.stringify(strip2));
     ok('timer strip: without a PIN it reads "Clears in" with the time left', await p2.isVisible('#vaultTimerStrip') && (await p2.textContent('#vaultTimerLabel')) === 'Clears in' && /^1:5\d$/.test(await p2.textContent('#vaultTimerTime')), await p2.textContent('#vaultTimerTime'));
-    await p2.clock.fastForward(60000);
+    await fastForward(p2, 60000);
     await p2.fill('#organization', 'Activity resets');
-    await p2.clock.fastForward(100000);
+    await fastForward(p2, 100000);
     ok('activity restarts the TTL (not purged at 165 s)', (await p2.inputValue('#firstName')) === 'Idle');
-    await p2.clock.fastForward(25000);
+    await fastForward(p2, 25000);
     ok('idle 120 s without a PIN wipes the card', (await p2.inputValue('#firstName')) === '' && (await p2.textContent('#previewFullName')).trim() === 'New Contact' && !(await p2.isVisible('#vaultModal')));
     ok('timer strip gone once the card is wiped', !(await p2.isVisible('#vaultTimerStrip')));
+    ok('timer strip: its height is published for Shell\'s layout, 0px once it is gone', (await p2.evaluate(() => document.documentElement.style.getPropertyValue('--vcge-vault-strip'))) === '0px');
     ok('purge logged in audit log', (await p2.textContent('#auditLog')).includes('RAM purged (idle)'));
 
     // Out of view: 30 s wipes, a shorter absence keeps the card, and frozen background timers are caught on return
-    await p2.fill('#firstName', 'Hidden'); await p2.clock.fastForward(1000);
-    await setVisibility(p2, 'hidden'); await p2.clock.fastForward(20000); await setVisibility(p2, 'visible');
+    await p2.fill('#firstName', 'Hidden'); await fastForward(p2, 1000);
+    await setVisibility(p2, 'hidden'); await fastForward(p2, 20000); await setVisibility(p2, 'visible');
     ok('out of view for 20 s: card kept', (await p2.inputValue('#firstName')) === 'Hidden');
-    await setVisibility(p2, 'hidden'); await p2.clock.fastForward(31000);
+    await setVisibility(p2, 'hidden'); await fastForward(p2, 31000);
     ok('out of view for 30 s: card wiped', (await p2.inputValue('#firstName')) === '' && (await p2.textContent('#auditLog')).includes('Vault wiped (out of view for 30 s)'));
     await setVisibility(p2, 'visible');
-    await p2.fill('#firstName', 'Frozen'); await p2.clock.fastForward(1000);
+    await p2.fill('#firstName', 'Frozen'); await fastForward(p2, 1000);
     await setVisibility(p2, 'hidden');
     await p2.clock.setSystemTime(await p2.evaluate(() => Date.now() + 60000));   // time passes, no timer runs
     ok('frozen timers: card still there while out of view', (await p2.inputValue('#firstName')) === 'Frozen');
@@ -529,7 +577,7 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     ok('frozen timers: wiped as the page comes back', (await p2.inputValue('#firstName')) === '' && (await p2.textContent('#toastMessage')).includes('out of view'));
     // A share the app opened (here: download) may bring another app to the front: the 2-minute rule applies instead
     await p2.fill('#firstName', 'Shared'); await p2.click('#downloadVcfBtn');
-    await setVisibility(p2, 'hidden'); await p2.clock.fastForward(60000); await setVisibility(p2, 'visible');
+    await setVisibility(p2, 'hidden'); await fastForward(p2, 60000); await setVisibility(p2, 'visible');
     ok('after a share, 60 s out of view keeps the card', (await p2.inputValue('#firstName')) === 'Shared');
     ok('storage stays empty throughout', !(await p2.evaluate(() => JSON.stringify(localStorage))).includes('vCGE_secure_vault'));
     await ctx2.close();
@@ -547,28 +595,38 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     await p8.clock.install();
     const t8 = id => p8.textContent('#' + id).then(t => t.trim());
     const IDLE_MS = 125000;
-    const idle = async () => { await p8.clock.fastForward(1000); await p8.clock.fastForward(IDLE_MS); };
+    const idle = async () => { await fastForward(p8, 1000); await fastForward(p8, IDLE_MS); };
     await p8.goto(ORIGIN); await p8.waitForTimeout(300);
 
     ok('no session PIN offer on its own', !(await p8.isVisible('#quickSetupModal')) && (await t8('sessionPinStatus')) === 'Session PIN: not set');
     await openVault(p8);
-    await p8.click('#setSessionPinBtn');
+    const sw8 = (id) => p8.evaluate((id) => { const b = document.getElementById(id); return { on: b.getAttribute('aria-checked'), word: b.textContent.trim(), bg: getComputedStyle(b).backgroundColor }; }, id);
+    const pinOff8 = await sw8('pinSwitch');
+    ok('Vault page: the PIN is a switch, red with "Off" and a note to turn it on, no green button while it is off', pinOff8.on === 'false' && pinOff8.word === 'Off' && ['rgb(254, 226, 226)', 'rgba(127, 29, 29, 0.45)'].includes(pinOff8.bg)
+      && await p8.isVisible('#pinOffNote') && !(await p8.isVisible('#setSessionPinBtn')) && !(await p8.isVisible('#vaultLockNowBtn')), JSON.stringify(pinOff8));
+    ok('Vault page: the title has its lock icon on the left', await p8.$eval('#vaultPageTitle', h => h.firstElementChild && h.firstElementChild.tagName === 'svg' && h.textContent.trim() === 'Vault'));
+    await p8.click('#pinSwitch');
     await p8.fill('#sessionPinInput', '12'); await p8.click('#quickSetupSaveBtn');
     ok('session PIN: too-short PIN refused', (await t8('quickSetupError')) === 'Use exactly 4 digits.', await t8('quickSetupError'));
     await p8.fill('#sessionPinInput', '2468'); await p8.click('#quickSetupSaveBtn');
     await p8.waitForSelector('#quickSetupModal', { state: 'hidden' });
     ok('session PIN set: Security panel shows it and Lock appears', (await t8('sessionPinStatus')) === 'Session PIN: set' && await lockOffered(p8));
+    const pinOn8 = await sw8('pinSwitch');
+    ok('Vault page: the PIN switch turns green with "On", Change and Lock now appear, the note goes', pinOn8.on === 'true' && pinOn8.word === 'On' && pinOn8.bg === 'rgb(22, 163, 74)'
+      && (await t8('setSessionPinBtn')) === 'Change' && await p8.isVisible('#vaultLockNowBtn') && !(await p8.isVisible('#pinOffNote')), JSON.stringify(pinOn8));
+    ok('Vault page: with a PIN the countdown reads "Auto-lock" (it locks before it clears)', /^Auto-lock (idle|in \d+ s)$/.test(await t8('purgeCountdown')), await t8('purgeCountdown'));
     await closeVault(p8);
     await p8.fill('#firstName', 'Quick'); await p8.fill('#lastName', 'Unlock');
-    await p8.clock.fastForward(1000);
+    await fastForward(p8, 1000);
     ok('timer strip: with a PIN it reads "Locks in", calm, no note', await p8.isVisible('#vaultTimerStrip') && (await t8('vaultTimerLabel')) === 'Locks in' && /^1:5\d$/.test(await t8('vaultTimerTime')) && !(await p8.isVisible('#vaultTimerNote')), await t8('vaultTimerTime'));
-    await p8.clock.fastForward(102000);
+    await fastForward(p8, 102000);
     const warn8 = await p8.evaluate(() => document.getElementById('vaultTimerBand').className + ' ' + document.getElementById('vaultTimerBar').className);
     ok('timer strip: last 20 s turn it amber (never red) with one quiet note', await p8.isVisible('#vaultTimerNote') && /^0:1\d$/.test(await t8('vaultTimerTime')) && warn8.includes('bg-amber-50/95') && warn8.includes('bg-amber-500') && !/red|rose/.test(warn8), warn8);
     await p8.click('#vaultTimerKeepBtn');
     ok('timer strip: Keep open refills it and the note goes away', /^(2:00|1:59)$/.test(await t8('vaultTimerTime')) && !(await p8.isVisible('#vaultTimerNote')) && (await p8.evaluate(() => document.getElementById('vaultTimerBar').className)).includes('bg-brand-500'), await t8('vaultTimerTime'));
     await idle();
     ok('idle with a session PIN: card hidden, PIN prompt', await p8.isVisible('#vaultModal') && (await t8('vaultModalTitle')) === 'Locked' && await p8.isVisible('#vaultPin') && (await p8.inputValue('#firstName')) === '');
+    ok('lock screen: the title has its lock icon on the left', await p8.$eval('#vaultModalTitle', h => h.firstElementChild && h.firstElementChild.tagName === 'svg'));
     ok('quick lock: badge, indicator and countdown show the 7 minutes that run from the lock', (await t8('vaultBadge')) === 'Vault: LOCKED' && /^LOCKED \(resets in (7:00|6:5\d)\)$/.test(await t8('vaultStateIndicator')) && /everything resets in (7:00|6:5\d)/.test(await t8('quickUnlockCountdown')), await t8('vaultStateIndicator'));
     const ring8 = await p8.evaluate(() => Number(document.getElementById('vaultLockRing').getAttribute('stroke-dashoffset')));
     ok('lock screen: calm green ring shows the time left until it is cleared', /^(7:00|6:5\d)$/.test(await t8('vaultLockRingTime')) && ring8 >= 0 && ring8 < 10 && !(await p8.isVisible('#vaultTimerStrip')), `${await t8('vaultLockRingTime')} ${ring8}`);
@@ -582,7 +640,7 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     ok('right session PIN unlocks on the 4th digit, no extra tap', (await p8.inputValue('#firstName')) === 'Quick' && (await t8('auditLog')).includes('Vault unlocked (session PIN)') && (await t8('vaultBadge')) === 'Vault: UNLOCKED');
 
     // Screen timeout with a PIN: locks at once, the card survives, and the PIN brings it straight back
-    await p8.clock.fastForward(1000);
+    await fastForward(p8, 1000);
     await setVisibility(p8, 'hidden');
     ok('screen off with a PIN: locked at once, card off the page', await p8.isVisible('#vaultModal') && (await p8.inputValue('#firstName')) === '' && (await t8('auditLog')).includes('hidden behind the PIN (out of view)'));
     await p8.clock.setSystemTime(await p8.evaluate(() => Date.now() + 200000));   // 3+ minutes asleep, timers frozen
@@ -591,7 +649,7 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     await p8.fill('#vaultPin', '2468');
     await p8.waitForSelector('#vaultModal', { state: 'hidden' });
     ok('PIN after a screen timeout restores the card', (await p8.inputValue('#firstName')) === 'Quick');
-    await p8.clock.fastForward(1000);
+    await fastForward(p8, 1000);
     await setVisibility(p8, 'hidden');
     await p8.clock.setSystemTime(await p8.evaluate(() => Date.now() + 425000));   // 7+ minutes asleep
     await setVisibility(p8, 'visible');
@@ -603,10 +661,12 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     // The lock finishes its (real-time) async work before the clock moves on, and the wipe gets a moment to land.
     await p8.waitForSelector('#vaultModal', { state: 'visible' });
     await p8.waitForFunction(() => document.getElementById('toastMessage').textContent.startsWith('Hidden after'), null, { timeout: 5000 }).catch(() => {});
-    await p8.clock.fastForward(301000);
+    await fastForward(p8, 301000);
     ok('idle lock: 5 minutes after it the card is still held (the 7 minutes run from the lock)', await p8.isVisible('#vaultModal') && /^(2:0\d|1:5\d)$/.test(await t8('vaultLockRingTime')), await t8('vaultLockRingTime'));
-    await p8.clock.fastForward(120000);
+    await fastForward(p8, 120000);   // 7 min 7 s after the lock was due
     await p8.waitForFunction(() => document.getElementById('toastMessage').textContent.startsWith('Reset: 7 minutes'), null, { timeout: 5000 }).catch(() => {});
+    // A slow runner can still be closing the lock screen here; the next step needs the header, which it covers.
+    await p8.waitForSelector('#vaultModal', { state: 'hidden', timeout: 5000 }).catch(() => {});
     ok('idle lock, then 7 minutes after the lock: card and PIN wiped, no dialog', !(await p8.isVisible('#vaultModal')) && (await p8.inputValue('#firstName')) === '' && (await t8('toastMessage')).startsWith('Reset: 7 minutes without activity') && (await t8('sessionPinStatus')) === 'Session PIN: not set', await t8('toastMessage'));
 
     await setPin(p8, '1357');
@@ -619,15 +679,97 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     await p8.fill('#firstName', 'Locked');
     await pressLock(p8);
     ok('Lock button hides the card behind the PIN', await p8.isVisible('#vaultPin') && (await p8.inputValue('#firstName')) === '');
+    ok('Lock button: the lock screen says the Lock button locked it (not "2 minutes without activity")', (await t8('vaultModalHint')).startsWith('Locked with the Lock button.'), await t8('vaultModalHint'));
     await p8.click('#vaultStartOverBtn');
     ok('"Wipe and start over" on the lock screen asks the hold-to-wipe question above it', await p8.isVisible('#wipeDialog') && await p8.isVisible('#vaultModal'));
     await holdYes(p8, 1700, p8.clock); await p8.waitForTimeout(300);
     ok('"Wipe and start over" (held) wipes the held card and starts fresh', !(await p8.isVisible('#vaultModal')) && !(await p8.isVisible('#wipeDialog')) && (await p8.inputValue('#firstName')) === '' && (await t8('vaultBadge')) === 'Vault: UNLOCKED');
 
+    // A lock noticed late (timers frozen while the photo picker had the screen): the 7 minutes run from when the 2 idle
+    // minutes ran out, not from when the page came back.
     await setPin(p8, '4321');
+    await p8.fill('#firstName', 'Picker'); await fastForward(p8, 1000);
+    await p8.evaluate(() => document.getElementById('imageUpload').dispatchEvent(new MouseEvent('click')));   // the app opens the photo picker
+    await p8.evaluate(() => document.getElementById('imageUpload').blur());
+    await setVisibility(p8, 'hidden');
+    await p8.clock.setSystemTime(await p8.evaluate(() => Date.now() + 360000));   // 6 minutes in the picker, timers frozen
+    await setVisibility(p8, 'visible'); await fastForward(p8, 1000);
+    await p8.waitForSelector('#vaultModal', { state: 'visible' });
+    ok('idle lock noticed late: about 3 minutes left (7 from when it was due), not a fresh 7', await p8.isVisible('#vaultModal') && /^(3:0\d|2:5\d)$/.test(await t8('vaultLockRingTime')), await t8('vaultLockRingTime'));
+    await p8.fill('#vaultPin', '4321'); await p8.waitForSelector('#vaultModal', { state: 'hidden' });
+    await p8.fill('#firstName', 'Picker2'); await fastForward(p8, 1000);
+    await p8.evaluate(() => { const u = document.getElementById('imageUpload'); u.dispatchEvent(new MouseEvent('click')); u.blur(); });
+    await setVisibility(p8, 'hidden');
+    await p8.clock.setSystemTime(await p8.evaluate(() => Date.now() + 400000));   // 6 min 40 s: under 7 since activity, but 2 + 7 is not over either
+    await setVisibility(p8, 'visible'); await fastForward(p8, 1000);
+    ok('idle lock noticed late but within its 7 minutes: locked, not wiped', await p8.isVisible('#vaultModal') && /^(2:2\d|2:1\d)$/.test(await t8('vaultLockRingTime')), await t8('vaultLockRingTime'));
+    await p8.fill('#vaultPin', '4321'); await p8.waitForSelector('#vaultModal', { state: 'hidden' });
+
+    // Unlocking goes back to the card that was in view, and to the Vault page when its Lock now locked it
+    await p8.click('#navShare'); await deckSettled(p8);
+    // On a phone the header Lock is hidden, so a lock that starts on a card is the idle lock: the same button, pressed by the app
+    if (isPhone()) await p8.evaluate(() => document.getElementById('lockVaultBtn').click()); else await p8.click('#lockVaultBtn');
+    await p8.evaluate(() => document.getElementById('navCard').click());   // the deck moved while locked
+    await deckSettled(p8);
+    await p8.fill('#vaultPin', '4321'); await p8.waitForSelector('#vaultModal', { state: 'hidden' }); await deckSettled(p8);
+    ok('unlock returns to the card that was in view when it locked', (await p8.$eval('.deck-card.is-current', c => c.dataset.card)) === 'share' && !(await vaultOpen(p8)));
     await openVault(p8);
-    ok('Security panel: Change and Remove offered', (await t8('setSessionPinBtn')) === 'Change' && await p8.isVisible('#clearSessionPinBtn'));
-    await p8.click('#clearSessionPinBtn');
+    await p8.click('#vaultLockNowBtn');
+    ok('Lock now on the Vault page closes it and locks', await p8.isVisible('#vaultModal') && !(await vaultOpen(p8)));
+    await p8.fill('#vaultPin', '4321'); await p8.waitForSelector('#vaultModal', { state: 'hidden' });
+    ok('unlock after Lock now opens the Vault page again (close it to carry on)', await vaultOpen(p8) && (await p8.$eval('.deck-card.is-current', c => c.dataset.card)) === 'share');
+    await closeVault(p8);
+
+    // The lock is the top layer: it comes down during the welcome tour and its PIN box can still be pressed
+    await p8.evaluate(() => document.getElementById('welcomeTourBtn').click());
+    await p8.waitForSelector('#tourTip', { state: 'visible' });
+    await p8.evaluate(() => document.getElementById('lockVaultBtn').click());
+    const onTop8 = await p8.evaluate(() => {
+      const pick = (id) => { const r = document.getElementById(id).getBoundingClientRect(), e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!e && !!e.closest('#vaultModal'); };
+      return { pin: pick('vaultPin'), start: pick('vaultStartOverBtn'), z: [getComputedStyle(document.getElementById('vaultModal')).zIndex, getComputedStyle(document.getElementById('welcomeLayer')).zIndex] };
+    });
+    ok('lock during the tour: the lock screen is on top and its controls take the tap', onTop8.pin && onTop8.start && Number(onTop8.z[0]) > Number(onTop8.z[1]), JSON.stringify(onTop8));
+    await p8.click('#vaultStartOverBtn');
+    const wipeOnTop8 = await p8.evaluate(() => { const r = document.getElementById('wipeYesBtn').getBoundingClientRect(), e = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!e && !!e.closest('#wipeDialog'); });
+    ok('lock during the tour: hold-to-wipe opens above the lock screen', wipeOnTop8);
+    await p8.click('#wipeNoBtn');
+    await p8.fill('#vaultPin', '4321'); await p8.waitForSelector('#vaultModal', { state: 'hidden' });
+    if (await p8.isVisible('#tourSkipBtn')) await p8.click('#tourSkipBtn');
+    await p8.waitForTimeout(700);
+
+    // Settings > Wipe after the lock (raven575, 2026-10-18): 10 or 15 minutes instead of 7; the 2-minute lock stays
+    const wipeChoice = async (label) => {
+      if (await vaultOpen(p8)) await closeVault(p8);   // on a phone, unlocking after Lock now reopens the Vault page
+      await p8.click('#navSettings'); await p8.waitForSelector('#settingsSheet', { state: 'visible' });
+      await p8.selectOption('#wipeSelect', { label });
+      await p8.click('#settingsSheet [data-sheet-close]'); await p8.waitForSelector('#settingsSheet', { state: 'hidden' });
+    };
+    await wipeChoice('10 minutes');
+    await openVault(p8);
+    ok('wipe 10: the Vault page says 10 minutes after the lock', (await t8('vaultWipeMinutes')) === '10', await t8('vaultWipeMinutes'));
+    await closeVault(p8);
+    await p8.fill('#firstName', 'Ten'); await pressLock(p8);
+    ok('wipe 10: the lock ring starts at 10:00', /^(10:00|9:5\d)$/.test(await t8('vaultLockRingTime')) && /resets in (10:00|9:5\d)/.test(await t8('quickUnlockCountdown')), await t8('vaultLockRingTime'));
+    await p8.evaluate(() => { const s = document.getElementById('wipeSelect'); s.value = '2'; s.dispatchEvent(new Event('change', { bubbles: true })); });
+    await fastForward(p8, 1000);
+    ok('wipe: a change made while locked applies from the next lock (this one stays 10)', (await p8.evaluate(() => document.documentElement.dataset.wipe)) === '15' && /^9:5\d$/.test(await t8('vaultLockRingTime')), await t8('vaultLockRingTime'));
+    await fastForward(p8, 430000);   // 7 min 11 s after the lock
+    ok('wipe 10: still held 7 minutes after the lock', await p8.isVisible('#vaultModal') && /^2:\d\d$/.test(await t8('vaultLockRingTime')), await t8('vaultLockRingTime'));
+    await fastForward(p8, 170000);   // 10 min 1 s after the lock
+    ok('wipe 10: wiped 10 minutes after the lock', !(await p8.isVisible('#vaultModal')) && (await p8.inputValue('#firstName')) === '' && (await t8('toastMessage')).startsWith('Reset: 10 minutes without activity'), await t8('toastMessage'));
+    await setPin(p8, '4321');
+    await p8.fill('#firstName', 'Fifteen'); await pressLock(p8);
+    ok('wipe 15: the next lock runs 15 minutes', /^(15:00|14:5\d)$/.test(await t8('vaultLockRingTime')), await t8('vaultLockRingTime'));
+    await p8.fill('#vaultPin', '4321'); await p8.waitForSelector('#vaultModal', { state: 'hidden' });
+    await p8.evaluate(() => { document.documentElement.dataset.wipe = '99'; });
+    await pressLock(p8);
+    ok('wipe: a value that is not 7, 10 or 15 means 7', /^(7:00|6:5\d)$/.test(await t8('vaultLockRingTime')), await t8('vaultLockRingTime'));
+    await p8.fill('#vaultPin', '4321'); await p8.waitForSelector('#vaultModal', { state: 'hidden' });
+    await wipeChoice('7 minutes');
+
+    await openVault(p8);
+    ok('Security panel: Change offered and the switch is on', (await t8('setSessionPinBtn')) === 'Change' && (await sw8('pinSwitch')).on === 'true');
+    await p8.click('#pinSwitch');
     ok('Security panel: Remove forgets the PIN and hides Lock', (await t8('sessionPinStatus')) === 'Session PIN: not set' && (await t8('auditLog')).includes('Session PIN removed') && !(await lockOffered(p8)));
     ok('quick unlock: no page errors', errors8.length === 0, errors8.join(' | '));
     await ctx8.close();
@@ -654,11 +796,14 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     await setPin(pB, '2468');
     ok('biometric offered once a PIN is set', await pB.isVisible('#biometricRow') && (await tB('biometricStatus')) === 'Face ID / fingerprint: off');
     await cdp.send('WebAuthn.setUserVerified', { authenticatorId, isUserVerified: false });
-    await pB.click('#addBiometricBtn'); await pB.waitForTimeout(800);
+    ok('biometric: the switch is off (red) with a note, and the page says a passkey is saved on the device and holds no contact details',
+      (await pB.getAttribute('#biometricSwitch', 'aria-checked')) === 'false' && await pB.isVisible('#biometricOffNote') && /saves? a passkey[\s\S]*no contact details[\s\S]*after a wipe you turn it on again/.test(await tB('biometricNotes')), await tB('biometricNotes'));
+    await pB.click('#biometricSwitch'); await pB.waitForTimeout(800);
     ok('a device that cannot confirm the person does not turn biometric on, and the real reason is shown', (await tB('biometricStatus')) === 'Face ID / fingerprint: off' && /was not added \([A-Za-z_]+\)/.test(await tB('toastMessage')) && !(await tB('auditLog')).includes('fingerprint added'), await tB('toastMessage'));
     await cdp.send('WebAuthn.setUserVerified', { authenticatorId, isUserVerified: true });
-    await pB.click('#addBiometricBtn'); await pB.waitForTimeout(500);
+    await pB.click('#biometricSwitch'); await pB.waitForTimeout(500);
     ok('biometric added for this session, after a check that passed', (await tB('biometricStatus')) === 'Face ID / fingerprint: on' && (await tB('auditLog')).includes('Face ID / fingerprint added'), await tB('toastMessage'));
+    ok('biometric: the switch is green with "On" and the turn-on note goes', (await pB.getAttribute('#biometricSwitch', 'aria-checked')) === 'true' && (await tB('biometricSwitch')) === 'On' && !(await pB.isVisible('#biometricOffNote')));
     await closeVault(pB);
     await pB.fill('#firstName', 'Bio'); await pressLock(pB);
     ok('lock screen offers Face ID / fingerprint', await pB.isVisible('#vaultBiometricBtn') && (await pB.inputValue('#firstName')) === '');
@@ -670,12 +815,12 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     await cdp.send('WebAuthn.setUserVerified', { authenticatorId, isUserVerified: false });
     await pressLock(pB);
     await pB.click('#vaultBiometricBtn'); await pB.waitForTimeout(800);
-    ok('face or fingerprint not confirmed: stays locked, PIN offered', await pB.isVisible('#vaultModal') && (await tB('vaultError')).includes('Use your PIN') && (await pB.inputValue('#firstName')) === '', await tB('vaultError'));
+    ok('face or fingerprint not confirmed: stays locked, PIN offered, and the device\'s reason is shown', await pB.isVisible('#vaultModal') && /^Face or fingerprint not confirmed \([A-Za-z ]+\)\. Use your PIN\.$/.test(await tB('vaultError')) && (await pB.inputValue('#firstName')) === '', await tB('vaultError'));
     await pB.fill('#vaultPin', '2468');
     await pB.waitForSelector('#vaultModal', { state: 'hidden' });
     ok('the PIN still works as the fallback', (await pB.inputValue('#firstName')) === 'Bio');
     await openVault(pB);
-    await pB.click('#clearSessionPinBtn');
+    await pB.click('#pinSwitch');
     ok('removing the PIN removes biometric too', !(await pB.isVisible('#biometricRow')) && !(await lockOffered(pB)));
     ok('biometric: nothing saved to browser storage', !(await pB.evaluate(() => JSON.stringify(localStorage) + JSON.stringify(sessionStorage))).includes('Bio'));
     ok('biometric: no network requests', externalB.length === 0, externalB.join(', '));
@@ -723,6 +868,9 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     const stillLook = await pL.evaluate(() => ({ fill: getComputedStyle(document.querySelector('.vh-body')).fill, shackle: document.querySelector('.vh-shackle').style.transform }));
     await padlockGone();
     ok('reduce motion: the end state (open, orange) shows still, then goes', still.playing === 'still' && still.state === 'unlocked' && stillLook.fill === 'rgb(249, 115, 22)' && stillLook.shackle === 'translateY(-7px)', JSON.stringify(stillLook));
+    const glow = await pL.evaluate(() => { const r = document.getElementById('vaultHandoff'), g = r.querySelector('.vault-handoff-glow'), svg = r.querySelector('.vault-handoff-lock');
+      return { glow: !!g && g.nextElementSibling === svg && getComputedStyle(g).backgroundImage.startsWith('radial-gradient') && getComputedStyle(g).pointerEvents === 'none', filter: getComputedStyle(svg).filter }; });
+    ok('the glow is its own layer behind the lock; the moving lock carries no filter (no cut-outs)', glow.glow && glow.filter === 'none', JSON.stringify(glow));
     ok('padlock: no page errors', errorsL.length === 0, errorsL.join(' | '));
     await ctxL.close();
   }
@@ -751,6 +899,18 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     await p11.click('#clearFormBtn');
     await p11.goBack(); await p11.waitForTimeout(500);
     ok('Back with an empty card leaves without asking', p11.url() === START, p11.url());
+    // A reload keeps the guard entry: no second one is added, and Back still asks first
+    await p11.goto(ORIGIN); await p11.waitForTimeout(300);
+    await p11.click('#firstName'); await p11.keyboard.type('One');
+    const len11 = await p11.evaluate(() => history.length);
+    await p11.reload(); await p11.waitForTimeout(300);
+    await p11.click('#firstName'); await p11.keyboard.type('Reloaded');
+    ok('Back guard: a reload and another tap add no second guard entry', (await p11.evaluate(() => history.length)) === len11, `${len11} -> ${await p11.evaluate(() => history.length)}`);
+    await p11.goBack(); await p11.waitForTimeout(300);
+    ok('Back guard: after a reload, Back with a card still asks first', p11.url() === ORIGIN && await p11.isVisible('#leaveModal') && (await p11.inputValue('#firstName')) === 'Reloaded', p11.url());
+    await p11.click('#leaveStayBtn');
+    await p11.goBack(); await p11.waitForTimeout(300);
+    ok('Back guard: after a reload, Back asks again after Stay', await p11.isVisible('#leaveModal'));
     ok('Back guard: no page errors', errors11.length === 0, errors11.join(' | '));
     await ctx11.close();
   }
@@ -764,7 +924,7 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     p10.on('console', m => { if (m.type() === 'error') errors10.push('console: ' + m.text()); });
     await p10.clock.install();
     const t10 = id => p10.textContent('#' + id).then(t => t.trim());
-    const idle = async () => { await p10.clock.fastForward(1000); await p10.clock.fastForward(125000); };
+    const idle = async () => { await fastForward(p10, 1000); await fastForward(p10, 125000); };
     const unlockPin = async () => { await p10.fill('#vaultPin', '2468'); await p10.waitForSelector('#vaultModal', { state: 'hidden' }); await p10.waitForTimeout(300); };
     await p10.goto(ORIGIN); await p10.waitForTimeout(300);
     await setPin(p10, '2468');
@@ -791,7 +951,7 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     await p10.click('#ocrCancelBtn');
 
     await idle();
-    await p10.clock.fastForward(421000); await p10.waitForTimeout(300);
+    await fastForward(p10, 421000); await p10.waitForTimeout(300);
     ok('7 minutes after the lock wipe the card and the kept scan', !(await p10.isVisible('#vaultModal')) && !(await p10.isVisible('#reopenScanBtn')) && !(await p10.isVisible('#cropReviewModal')) && (await p10.inputValue('#firstName')) === '');
     ok('kept scan: no page errors', errors10.length === 0, errors10.join(' | '));
     await ctx10.close();
@@ -949,7 +1109,7 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     await ctxS.close();
   }
 
-  // Fields card (MOD05, redesign step 7): the "Insert Fake Contact?" list, the pop-in on arrival, "Everything's correct"
+  // Fields card (MOD05, redesign step 7): the "Sample vCGE pilot contact" list, the pop-in on arrival, "Everything's correct"
   {
     const ctxF = await browser.newContext();
     const pF = await ctxF.newPage();
@@ -959,7 +1119,8 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     await pF.goto(ORIGIN); await pF.waitForTimeout(300);
     const pops = () => pF.$eval('#fieldsForm', f => Number(f.dataset.pops || 0));
     const card = () => pF.evaluate(() => document.documentElement.dataset.card);
-    ok('fields: the list reads "Insert Fake Contact?" and names each sample by name and company', (await pF.$$eval('#fakeContactSelect option', os => os.map(o => o.textContent).join('|'))) === 'Insert Fake Contact?|Shutout Box Turtle, Team vCGE|Ghost Raccoon, Team vCGE|Iris Lynx, Team vCGE|Glyph Owl, Team vCGE|Pidge Octopus, Team vCGE|Flipside Chameleon, Team vCGE|Checkers Zebra, Team vCGE|Airlock Falcon, Team vCGE|Cornerstone Elephant, Team vCGE'
+    ok('fields: the list reads "Sample vCGE pilot contact" and names each pilot with their animal (video review #61)', (await pF.$$eval('#fakeContactSelect option', os => os.map(o => o.textContent).join('|'))) === 'Sample vCGE pilot contact|🐢 Shutout Box Turtle|🦝 Ghost Raccoon|🐈 Iris Lynx|🦉 Glyph Owl|🐙 Pidge Octopus|🦎 Flipside Chameleon|🦓 Checkers Zebra|🦅 Airlock Falcon|🐘 Cornerstone Elephant'
+      && (await pF.getAttribute('#fakeContactSelect', 'aria-label')) === 'Sample vCGE pilot contact'
       && (await pF.$eval('#fakeContactSelect', s => s.value)) === '' && !(await pF.$('#presetButtonsContainer')), await pF.$$eval('#fakeContactSelect option', os => os.map(o => o.textContent).join('|')));
     ok('fields: nothing has popped yet (the Welcome START lands on Capture)', (await pops()) === 0);
     // A header icon is a move of the deck's own: the form pops on arrival (a swipe, below, does not)
@@ -1004,8 +1165,52 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     const before = await pops();
     await pF.selectOption('#fakeContactSelect', '0'); await pF.waitForTimeout(300);
     ok('fields: under reduce motion a sample is simply there (no pop class), the arrival still counted', (await pops()) === before + 1 && !(await pF.$eval('#fieldsForm', f => f.classList.contains('is-popping'))) && (await pF.inputValue('#firstName')) === 'Shutout', String(await pops()));
+    // Phone style (video review #71): the format list and the +1 switch restyle every number on the card at once,
+    // and a number typed afterwards follows the style. Memory only: nothing about it is saved.
+    await pF.emulateMedia({ reducedMotion: 'no-preference' });
+    ok('fields: the phone style list offers the three styles raven575 named, +1 on by default', (await pF.$$eval('#phoneFormatSelect option', os => os.map(o => o.textContent).join('|'))) === '(269) 492-7400|269.492.7400|2694927400'
+      && (await pF.$eval('#phoneCountryCode', c => c.checked)) && (await pF.inputValue('#phoneValue0')) === '+1 (202) 555-0101', await pF.inputValue('#phoneValue0'));
+    await pF.selectOption('#phoneFormatSelect', 'dots');
+    ok('fields: choosing dots restyles every number', JSON.stringify((await rows(pF, 'phone')).map(r => r.value)) === JSON.stringify(['+1 202.555.0101', '+1 202.555.0111']), JSON.stringify(await rows(pF, 'phone')));
+    await pF.click('#phoneCountryCode');
+    ok('fields: turning +1 off drops the country code from every number, and the card shows the same', JSON.stringify((await rows(pF, 'phone')).map(r => r.value)) === JSON.stringify(['202.555.0101', '202.555.0111'])
+      && (await pF.textContent('#previewPhones')).includes('202.555.0101'), JSON.stringify(await rows(pF, 'phone')));
+    await pF.click('#addPhoneBtn'); await pF.fill('#phoneValue2', '(616) 555 0199'); await pF.press('#phoneValue2', 'Tab');
+    ok('fields: a number typed afterwards follows the style', (await pF.inputValue('#phoneValue2')) === '616.555.0199', await pF.inputValue('#phoneValue2'));
+    await pF.selectOption('#phoneFormatSelect', 'paren'); await pF.click('#phoneCountryCode');
+    ok('fields: back to the first style, the numbers read as before', (await pF.inputValue('#phoneValue0')) === '+1 (202) 555-0101' && (await pF.inputValue('#phoneValue2')) === '+1 (616) 555-0199');
+    ok('fields: the phone style is not saved anywhere', !(await pF.evaluate(() => JSON.stringify(Object.assign({}, localStorage)))).includes('dots'));
+    // Reddit is a website type; a pasted Facebook profile link is typed as Facebook (video review #66)
+    await pF.click('#addWebsiteBtn');
+    const lastSite = (await rows(pF, 'website')).length - 1;
+    ok('fields: Reddit is offered as a website type', (await pF.$$eval(`#websiteType${lastSite} option`, os => os.map(o => o.textContent))).includes('Reddit'));
+    await pF.fill(`#websiteValue${lastSite}`, 'https://www.facebook.com/profile.php?id=100012345'); await pF.press(`#websiteValue${lastSite}`, 'Tab');
+    ok('fields: a pasted Facebook profile link is typed Facebook', (await pF.inputValue(`#websiteType${lastSite}`)) === 'facebook');
     ok('fields: no page errors', errorsF.length === 0, errorsF.join(' | '));
     await ctxF.close();
+  }
+
+  // Video review #62: on an iPad in portrait the Fields card's green button and trash are on the screen, below a
+  // long form, with the timer strip showing. iOS sizes 100vh to the page with the browser bars tucked away, so the
+  // page's height must come from 100dvh (checked in the stylesheet: desktop Chromium has no such gap to measure).
+  {
+    const ctxN = await browser.newContext({ viewport: { width: 820, height: 1180 }, hasTouch: true });
+    const pN = await ctxN.newPage();
+    await pN.goto(ORIGIN); await pN.waitForTimeout(300);
+    await pN.click('#navFields'); await pN.waitForTimeout(600);
+    await pN.selectOption('#fakeContactSelect', '3'); await pN.click('#notes');
+    await pN.waitForFunction(() => !document.getElementById('vaultTimerStrip').classList.contains('hidden'), null, { timeout: 3000 });
+    const inView = await pN.evaluate(() => {
+      const h = window.innerHeight, r = (sel) => document.querySelector(sel).getBoundingClientRect();
+      return { h, strip: !document.getElementById('vaultTimerStrip').classList.contains('hidden'), ok: r('#fieldsDoneBtn').bottom, trash: r('#cardFields .vcge-trash').bottom, deck: r('#deck').bottom, scrolls: document.querySelector('#cardFields .deck-card-body').scrollHeight > document.querySelector('#cardFields .deck-card-body').clientHeight };
+    });
+    ok('#62: iPad portrait, long form: "Everything\'s correct" and the trash are on the screen', inView.strip && inView.scrolls && inView.ok <= inView.h && inView.trash <= inView.h && inView.deck <= inView.h + 0.5, JSON.stringify(inView));
+    const heightRule = await pN.evaluate(() => [...document.styleSheets].flatMap(sh => { try { return [...sh.cssRules]; } catch (e) { return []; } })
+      .filter(r => r.selectorText === 'body.h-screen').map(r => r.style.height).join());
+    ok('#62: the page height is the height in view (100dvh), not 100vh', heightRule === '100dvh' && (await pN.evaluate(() => Math.round(document.body.getBoundingClientRect().height) === window.innerHeight)), heightRule);
+    await pN.click('#fieldsDoneBtn'); await pN.waitForTimeout(700);
+    ok('#62: the button is tappable there and moves on to the 3D Card', (await pN.evaluate(() => document.documentElement.dataset.card)) === 'card');
+    await ctxN.close();
   }
 
   // Tester feedback round 1: Undo after a sample / clear / scan fill, reopen the last scan, readable SMS and email, one-page print
@@ -1033,8 +1238,13 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     await p9.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
     await proceed(p9);
     ok('Fill form offers Undo and "Reopen last scan"', (await p9.inputValue('#firstName')) === 'Maria' && await p9.isVisible('#toastAction') && await p9.isVisible('#reopenScanBtn'));
-    await p9.click('#toastAction');
+    await p9.click('#toastAction'); await p9.waitForTimeout(600);
     ok('Undo after Fill form restores the card from before the scan', (await p9.inputValue('#firstName')) === 'Typed');
+    // Video review #59, #60: Undo never ends on an empty form: it reopens the scan's lines on the Read card, as edited
+    ok('Undo after Fill form reopens the lines on the Read card, nothing lost, no new OCR', (await p9.evaluate(() => document.documentElement.dataset.card)) === 'read' && await p9.isVisible('#ocrStepText')
+      && (await p9.$$('#ocrLines select')).length >= 8 && (await p9.textContent('#ocrSummary')).includes('maria.gonzalez@northwind.com') && (await p9.textContent('#toastMessage')).includes('Back to the lines'), await p9.textContent('#toastMessage'));
+    await proceed(p9);
+    ok('...and Proceed fills the form again from those lines', (await p9.inputValue('#firstName')) === 'Maria');
     await p9.click('#reopenScanBtn');
     ok('Reopen last scan shows the review step again (no OCR run)', await p9.isVisible('#ocrStepText') && (await p9.$$('#ocrLines select')).length >= 8 && (await p9.textContent('#ocrSummary')).includes('maria.gonzalez@northwind.com'));
     await proceed(p9);
@@ -1051,7 +1261,7 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
         return sent.map(u => decodeURIComponent(u));
       });
       const sms = urls[0] || '', mail = urls[1] || '';
-      ok('SMS carries every detail as readable lines', sms.startsWith('sms:?body=Maria Gonzalez\nDirector of Engineering, Northwind Systems\nWork: +1 (312) 555-0147\nWork email: maria.gonzalez@northwind.com\nWork: https://northwind.com\n233 South Wacker Drive, Chicago, IL 60606, United States'), JSON.stringify(sms));
+      ok('SMS carries every detail as readable lines', sms.startsWith('sms:?body=Maria Gonzalez\nDirector of Engineering\nNorthwind Systems\nWork phone:  +1 (312) 555-0147\nWork email:  maria.gonzalez@northwind.com\nWork website:  https://northwind.com\nWork address:  233 South Wacker Drive, Chicago, IL 60606, United States'), JSON.stringify(sms));
       ok('email: readable summary plus the vCard text', mail.startsWith('mailto:?subject=Contact: Maria Gonzalez&body=Maria Gonzalez\n') && mail.includes('save the text below as a .vcf file') && mail.includes('BEGIN:VCARD'), JSON.stringify(mail.slice(0, 160)));
     }
 
@@ -1273,6 +1483,11 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     await p5.click('#snapCardBtn'); await p5.waitForTimeout(200);
     const snapped = (await p5.getAttribute('#cropPolygon', 'points')).split(' ').map(pt => pt.split(',').map(Number));
     ok('Snap to card moves the handles onto the card\'s corners', snapped.every(([x, y], i) => Math.hypot(x - crooked.corners[i].x, y - crooked.corners[i].y) < 12), JSON.stringify(snapped) + ' vs ' + JSON.stringify(crooked.corners));
+    // Finding 51: the snapped area has a clear edge (bold outline, the rest of the photo dimmed)
+    const edge = await p5.evaluate(() => { const o = getComputedStyle(document.getElementById('cropPolygon')), sh = getComputedStyle(document.getElementById('cropShade'));
+      return { stroke: o.strokeWidth, fill: o.fill, shadeFill: sh.fill, shadeRule: sh.fillRule, shadeD: document.getElementById('cropShade').getAttribute('d') }; });
+    ok('Snap to card: a bold edge round the card and the rest of the photo dimmed', edge.stroke === '3px' && edge.fill === 'none' && /rgba\(2, 6, 23, 0\.5\)/.test(edge.shadeFill) && edge.shadeRule === 'evenodd' && /^M0,0H1600V1200H0Z M/.test(edge.shadeD), JSON.stringify(edge));
+    await p5.waitForTimeout(600);
     await dragCorners(p5, crooked.corners);
     const outline = await p5.getAttribute('#cropPolygon', 'points');
     const placed = outline.split(' ').map(pt => pt.split(',').map(Number));
@@ -1303,12 +1518,43 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     ok('Fill form applies the edited review', (await p5.inputValue('#firstName')) === 'Mariah' && (await rows(p5, 'website')).every(r => !r.value) && (await p5.inputValue('#notes')).includes('northwind.com') && (await rowValue(p5, 'email', 'work')) === 'maria.gonzalez@northwind.com',
       [await p5.inputValue('#firstName'), JSON.stringify(await rows(p5, 'website')), await p5.inputValue('#notes')].join(' | '));
     ok('review text cleared from the page after Fill form', (await p5.$$('#ocrLines input')).length === 0 && !(await p5.isVisible('#cropReviewModal')));
-    // Rotate: the photo turns 90° and the corners reset
-    await p5.setInputFiles('#imageUpload', crooked.file); await p5.waitForTimeout(500);
-    const before = await p5.$eval('#reviewImage', i => [i.naturalWidth, i.naturalHeight]);
-    await p5.click('#rotatePhotoBtn'); await p5.waitForTimeout(500);
-    const rotated = await p5.$eval('#reviewImage', i => [i.naturalWidth, i.naturalHeight]);
-    ok('Rotate 90° swaps the photo orientation', rotated[0] === before[1] && rotated[1] === before[0], `${before} -> ${rotated}`);
+    // Rotate left and Rotate right (finding 49): each turns the photo 90° its own way and the corners reset. The test
+    // photo is white with a red top-left corner, so where the red lands shows the direction.
+    const marked = await p5.evaluate(() => { const c = document.createElement('canvas'); c.width = 400; c.height = 200; const x = c.getContext('2d');
+      x.fillStyle = '#fff'; x.fillRect(0, 0, 400, 200); x.fillStyle = '#f00'; x.fillRect(0, 0, 100, 50); return c.toDataURL('image/png'); });
+    await p5.setInputFiles('#imageUpload', { name: 'marked.png', mimeType: 'image/png', buffer: Buffer.from(marked.split(',')[1], 'base64') }); await p5.waitForTimeout(500);
+    const redCorner = () => p5.evaluate(() => { const i = document.getElementById('reviewImage'), c = document.createElement('canvas'); c.width = i.naturalWidth; c.height = i.naturalHeight;
+      const x = c.getContext('2d'); x.drawImage(i, 0, 0); const red = (fx, fy) => x.getImageData(Math.floor(c.width * fx), Math.floor(c.height * fy), 1, 1).data[1] < 100;
+      return { size: `${c.width}x${c.height}`, at: red(0.05, 0.05) ? 'tl' : red(0.95, 0.05) ? 'tr' : red(0.95, 0.95) ? 'br' : red(0.05, 0.95) ? 'bl' : 'none' }; });
+    await p5.click('#rotateRightBtn'); await p5.waitForTimeout(500);
+    const right = await redCorner();
+    ok('Rotate right turns the photo 90° clockwise', right.size === '200x400' && right.at === 'tr', JSON.stringify(right));
+    ok('Rotate right: the corners reset to the full edge of the turned photo', (await p5.getAttribute('#cropPolygon', 'points')) === '0,0 200,0 200,400 0,400', await p5.getAttribute('#cropPolygon', 'points'));
+    await p5.click('#rotateLeftBtn'); await p5.waitForTimeout(500);
+    await p5.click('#rotateLeftBtn'); await p5.waitForTimeout(500);
+    const left = await redCorner();
+    ok('Rotate left turns the photo 90° counter-clockwise (right then left twice: one quarter turn back)', left.size === '200x400' && left.at === 'bl', JSON.stringify(left));
+    // Finding 51: after a snap the view zooms onto the card. A card in the middle of a big photo (a card in a screenshot, as on the iPad).
+    const smallCard = await p5.evaluate(() => { const c = document.createElement('canvas'); c.width = 1600; c.height = 1200; const x = c.getContext('2d');
+      x.fillStyle = '#6b7280'; x.fillRect(0, 0, 1600, 1200); x.fillStyle = '#fff'; x.fillRect(420, 383, 760, 434); x.fillStyle = '#111';
+      for (let i = 0; i < 6; i++) x.fillRect(470, 430 + i * 60, 520 - i * 50, 26); return c.toDataURL('image/png'); });
+    await p5.setInputFiles('#imageUpload', { name: 'small.png', mimeType: 'image/png', buffer: Buffer.from(smallCard.split(',')[1], 'base64') }); await p5.waitForTimeout(500);
+    await deckSettled(p5);
+    await p5.click('#snapCardBtn'); await p5.waitForTimeout(600);
+    const snapView = await p5.evaluate(() => {
+      const stage = document.getElementById('cropStage').getBoundingClientRect(), view = document.getElementById('cropView');
+      const handles = Array.from(document.querySelectorAll('#cropStage [data-corner]')).map(h => { const r = h.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width }; });
+      return { transform: view.style.transform, scale: Number(view.style.getPropertyValue('--crop-scale')), stage: { l: stage.left, t: stage.top, r: stage.right, b: stage.bottom }, handles,
+        points: document.getElementById('cropPolygon').getAttribute('points') };
+    });
+    ok('Snap to card: the view zooms in onto the card, all four corners still in view', snapView.scale > 1.6 && /scale\(/.test(snapView.transform)
+      && snapView.handles.every(h => h.x >= snapView.stage.l && h.x <= snapView.stage.r && h.y >= snapView.stage.t && h.y <= snapView.stage.b), JSON.stringify(snapView));
+    ok('Snap to card: the handles keep their size when zoomed', snapView.handles.every(h => Math.abs(h.w - 24) < 1), JSON.stringify(snapView.handles));
+    ok('Snap to card: the corners land on the card in the middle', snapView.points.split(' ').map(pt => pt.split(',').map(Number)).every(([x, y], i) => Math.hypot(x - [420, 1180, 1180, 420][i], y - [383, 383, 817, 817][i]) < 12), snapView.points);
+    // A double click (a double tap on a phone) goes back to the whole photo; the corners stay put
+    const img5 = await p5.locator('#reviewImage').boundingBox();
+    await p5.mouse.dblclick(img5.x + img5.width / 2, img5.y + img5.height / 2); await p5.waitForTimeout(600);
+    ok('a double click on the photo goes back to the whole photo, the corners stay put', (await p5.$eval('#cropView', v => v.style.transform)) === '' && (await p5.getAttribute('#cropPolygon', 'points')) === snapView.points, await p5.$eval('#cropView', v => v.style.transform));
     await ctx5.close();
   }
 
@@ -1402,7 +1648,8 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     ok('shot: no copy of the photo is left in the capture canvas', (await pV.$eval('#captureCanvas', c => c.width + c.height)) === 0);
     await pV.click('#snapCardBtn'); await pV.waitForTimeout(200);
     ok('Snap to card on a photo with no card in it leaves the handles alone and says so', (await pV.textContent('#toastMessage')).includes('No card edges found') && (await pV.getAttribute('#cropPolygon', 'points')) === `0,0 ${shot.w},0 ${shot.w},${shot.h} 0,${shot.h}`, await pV.textContent('#toastMessage'));
-    ok('crop step: Rotate, Snap to card, Cancel and a green OK; OK is the only green one', (await pV.$$eval('#captureActions button', bs => bs.filter(b => b.offsetParent).map(b => b.textContent.trim()))).join('|') === 'Rotate 90°|Snap to card|Cancel|OK'
+    ok('crop step: Rotate left, Rotate right, Snap to card, Cancel and a green OK; OK is the only green one', (await pV.$$eval('#captureActions button', bs => bs.filter(b => b.offsetParent).map(b => b.textContent.trim()))).join('|') === 'Left|Right|Snap to card|Cancel|OK'
+      && (await pV.getAttribute('#rotateLeftBtn', 'aria-label')).includes('counter-clockwise') && (await pV.getAttribute('#rotateRightBtn', 'aria-label')).includes(', clockwise')
       && await pV.$eval('#runOcrBtn', b => getComputedStyle(b).backgroundColor === 'rgb(22, 163, 74)'));
     // Retake after a camera shot opens the camera again; Cancel drops the photo
     await pV.evaluate(() => document.getElementById('retakePhotoBtn').classList.remove('hidden'));
@@ -1412,6 +1659,35 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     ok('Close camera stops the feed', await pV.evaluate(() => document.getElementById('cameraStream').srcObject === null && document.getElementById('cameraPanel').classList.contains('hidden')));
     await pV.setInputFiles('#imageUpload', await renderCardImage(pV)); await pV.waitForTimeout(300);
     ok('upload: the handles start at the full photo', await pV.isVisible('#captureReview') && (await pV.getAttribute('#cropPolygon', 'points')) === '0,0 1050,0 1050,600 0,600');
+    // Finding 52: a two-finger pinch on the photo zooms the photo like a camera; the page, the buttons and the handles keep
+    // their size; the corners do not move. At the whole photo a swipe is still the deck's (touch-action pan-x pan-y).
+    await deckSettled(pV);
+    const okBefore = await box('#runOcrBtn');
+    const actionAtFit = await pV.$eval('#cropStage', s => getComputedStyle(s).touchAction);
+    const pinch = await pV.evaluate(() => {
+      const img = document.getElementById('reviewImage'), r = img.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      const fire = (type, id, x, y) => img.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', isPrimary: id === 1, clientX: x, clientY: y, bubbles: true, cancelable: true }));
+      fire('pointerdown', 1, cx - 20, cy); fire('pointerdown', 2, cx + 20, cy);
+      for (let d = 25; d <= 40; d += 5) { fire('pointermove', 1, cx - d, cy); fire('pointermove', 2, cx + d, cy); }
+      const v = document.getElementById('cropView');
+      const out = { scale: Number(v.style.getPropertyValue('--crop-scale')), zoomed: document.getElementById('cropStage').dataset.zoomed, action: getComputedStyle(document.getElementById('cropStage')).touchAction,
+        handle: document.querySelector('#cropStage [data-corner="0"]').getBoundingClientRect().width, page: window.visualViewport ? window.visualViewport.scale : 1 };
+      fire('pointerup', 1, cx - 40, cy); fire('pointerup', 2, cx + 40, cy);
+      return out;
+    });
+    const okAfter = await box('#runOcrBtn');
+    ok('pinch on the photo zooms the photo (two fingers 40 px apart -> 80 px: twice the size)', Math.abs(pinch.scale - 2) < 0.01 && pinch.zoomed === '1', JSON.stringify(pinch));
+    ok('pinch on the photo: the page does not zoom and the buttons and handles keep their size', pinch.page === 1 && Math.abs(pinch.handle - 24) < 1 && okAfter.w === okBefore.w && okAfter.h === okBefore.h, JSON.stringify({ pinch, okBefore, okAfter }));
+    ok('pinch on the photo: the corners stay where they were', (await pV.getAttribute('#cropPolygon', 'points')) === '0,0 1050,0 1050,600 0,600');
+    ok('the photo takes every touch only while zoomed; at the whole photo a swipe still moves the deck', actionAtFit === 'pan-x pan-y' && pinch.action === 'none', `${actionAtFit} / ${pinch.action}`);
+    // One finger pans the zoomed photo
+    const panned = await pV.evaluate(() => {
+      const img = document.getElementById('reviewImage'), r = img.getBoundingClientRect(), v = document.getElementById('cropView'), before = v.style.transform;
+      const fire = (type, x, y) => img.dispatchEvent(new PointerEvent(type, { pointerId: 3, pointerType: 'touch', isPrimary: true, clientX: x, clientY: y, bubbles: true, cancelable: true }));
+      fire('pointerdown', r.left + r.width / 2, r.top + r.height / 2); fire('pointermove', r.left + r.width / 2 + 30, r.top + r.height / 2 + 10); fire('pointerup', r.left + r.width / 2 + 30, r.top + r.height / 2 + 10);
+      return { before, after: v.style.transform };
+    });
+    ok('one finger pans the zoomed photo', panned.before !== panned.after && /scale\(2\)/.test(panned.after), JSON.stringify(panned));
     await pV.click('#cancelReviewBtn');
     ok('Cancel on the crop step drops the photo and goes back to Take or Upload', !(await pV.isVisible('#captureReview')) && !(await pV.getAttribute('#reviewImage', 'src')) && await pV.isVisible('#startCameraBtn'));
 
@@ -1608,7 +1884,7 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     await pH.reload(); await pH.waitForTimeout(400);
     ok('welcome: shows again on the next start (nothing remembers it was seen)', (await state()).welcomeCurrent && (await stored()) === 0);
     await pH.click('#welcomePinBtn');
-    ok('welcome: Set Up PIN/BIO Lock Now opens the Vault page', (await state()).vault && await pH.isVisible('#setSessionPinBtn'));
+    ok('welcome: Set Up PIN/BIO Lock Now opens the Vault page', (await state()).vault && await pH.isVisible('#pinSwitch'));
     await pH.keyboard.press('Escape');
     ok('deck: Esc closes a sheet', !(await state()).vault);
     await pH.click('#welcomeSampleBtn'); await pH.waitForTimeout(700);
@@ -1635,6 +1911,14 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     ok('thank you: START OVER starts fresh on the Welcome card', (await state()).welcomeCurrent && !(await state()).thanks && (await stored()) === 0);
 
     await pH.click('#welcomeTourBtn');
+    await pH.waitForTimeout(700);
+    // Bigger tour text in a wider panel (#33), and Skip tour a full button like Back and Next, only quieter (#34)
+    const tipLook = await pH.evaluate(() => { const tip = document.getElementById('tourTip'), skip = document.getElementById('tourSkipBtn'), next = document.getElementById('tourNextBtn'), s = getComputedStyle(skip);
+      return { w: tip.getBoundingClientRect().width, vw: document.documentElement.clientWidth, title: parseFloat(getComputedStyle(document.getElementById('tourTitle')).fontSize),
+        body: parseFloat(getComputedStyle(document.getElementById('tourBody')).fontSize), skipH: skip.getBoundingClientRect().height, nextH: next.getBoundingClientRect().height,
+        pad: parseFloat(s.paddingLeft), bg: s.backgroundColor, border: s.borderTopStyle }; });
+    ok('tour: the panel is up to 30rem wide with bigger type', Math.abs(tipLook.w - Math.min(480, tipLook.vw - 32)) < 1 && tipLook.title >= 22 && tipLook.body >= 16.5, JSON.stringify(tipLook));
+    ok('tour: Skip tour is a full button (padding, fill and edge) as tall as Next', tipLook.pad >= 16 && tipLook.bg !== 'rgba(0, 0, 0, 0)' && tipLook.border !== 'none' && Math.abs(tipLook.skipH - tipLook.nextH) < 1, JSON.stringify(tipLook));
     const titles = [];
     for (let i = 0; i < 6; i++) {
       await pH.waitForTimeout(700);
@@ -1702,18 +1986,45 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     await pU.goto(ORIGIN); await pU.waitForTimeout(500);
     const tags = await pU.evaluate(async () => {
       await document.fonts.ready;
-      // The cards' tags (the Vault page's MOD-02 and the Settings sheet's MOD-01 show only when those sheets are open)
+      // The cards' tags (the Vault page's MOD-02 shows only when that sheet is open; Settings has none)
       return Array.from(document.querySelectorAll('.deck-card > .mod-tag')).map(t => {
         const span = t.querySelector('span'), host = t.parentElement.getBoundingClientRect(), r = t.getBoundingClientRect();
+        // On the card's top edge (half above it, so over none of the card's own content), near the right corner
         return { text: Array.from(t.children).map(c => c.textContent).join(' '), font: getComputedStyle(span).fontFamily, size: getComputedStyle(span).fontSize,
-          inCorner: r.top - host.top > 8 && r.top - host.top < 20 && host.right - r.right > 8 && host.right - r.right < 24 };
+          onEdge: Math.abs((r.top + r.bottom) / 2 - host.top) <= 2 && host.right - r.right > 8 && host.right - r.right < 24 };
       });
     });
     ok('MOD-XX tags: every card shows its module tag, in step order', tags.map(t => t.text).join('|') === 'MOD-01|MOD-03|MOD-04|MOD-05|MOD-06 MOD-07|MOD-08', tags.map(t => t.text).join('|'));
-    ok('MOD-XX tags: same spot (inside the top-right corner), same font (Sixtyfour) and size', tags.every(t => t.inCorner && /Sixtyfour/.test(t.font) && t.size === tags[0].size), JSON.stringify(tags));
+    ok('MOD-XX tags: same spot (on the top edge by the right corner), same font (Sixtyfour) and size', tags.every(t => t.onEdge && /Sixtyfour/.test(t.font) && t.size === tags[0].size), JSON.stringify(tags));
+    // One block per tag: the pilot's name, then the number, in solid pixels (#2, #3, #45, #96)
+    const look = await pU.evaluate(() => Array.from(document.querySelectorAll('.deck-card > .mod-tag span')).map(s => ({ pilot: s.dataset.pilot,
+      before: getComputedStyle(s, '::before').content, axes: getComputedStyle(s).fontVariationSettings })));
+    ok('MOD-XX tags: each names its pilot before the number ("GLYPH:  MOD-04"), in solid pixels with no scanlines or bleed', look.map(l => l.pilot).join('|') === 'Shutout|Iris|Glyph|Pidge|Flipside|Checkers|Airlock'
+      && look.every(l => l.before.includes(l.pilot + ':') && /"BLED" 0/.test(l.axes) && /"SCAN" 100/.test(l.axes)), JSON.stringify(look));
+    await pU.click('#navFields'); await pU.waitForTimeout(600);
+    const tagFade = async (y) => { await pU.$eval('#cardFields > .deck-card-body', (b, y) => { b.scrollTop = y; }, y); await pU.waitForTimeout(450);
+      return pU.$eval('#cardFields > .mod-tag', t => ({ faded: t.classList.contains('is-faded'), opacity: parseFloat(getComputedStyle(t).opacity) })); };
+    const fadedDown = await tagFade(120), fadedTop = await tagFade(0);
+    ok('MOD-XX tags: a card\'s tag fades to 36% while its content is scrolled up under it, and comes back at the top', fadedDown.faded && Math.abs(fadedDown.opacity - 0.36) < 0.02 && !fadedTop.faded && fadedTop.opacity === 1,
+      JSON.stringify([fadedDown, fadedTop]));
+    // No tag ever sits on something that can be pressed (video review #9, #10, #87): every card, and each sheet
+    const tagOverControl = () => pU.evaluate(() => {
+      const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom && a.width > 0 && b.width > 0;
+      return Array.from(document.querySelectorAll('.mod-tag')).filter(t => t.offsetParent).flatMap(t => {
+        const r = t.getBoundingClientRect();
+        return Array.from(t.parentElement.querySelectorAll('button, input, select, textarea, label, a[href]')).filter(c => c.offsetParent && hit(r, c.getBoundingClientRect())).map(c => `${t.textContent.trim()} on ${c.id || c.textContent.trim().slice(0, 20)}`);
+      });
+    });
+    const covered = [];
+    for (const nav of ['#navWelcome', '#navCapture', '#navRead', '#navFields', '#navCard', '#navShare']) { await pU.click(nav); await pU.waitForTimeout(600); covered.push(...await tagOverControl()); }
+    ok('MOD-XX tags: none sits on a button or a field of its card (Flip card included)', covered.length === 0, covered.join(' | '));
     await pU.click('#navVault');
-    ok('MOD-XX tags: the Vault page carries MOD-02', await pU.$eval('#vaultPage .mod-tag', t => t.textContent.trim() === 'MOD-02' && t.getBoundingClientRect().width > 0));
+    ok('MOD-XX tags: the Vault page carries MOD-02, in its title row clear of the close button', await pU.$eval('#vaultPage .mod-tag', t => t.textContent.trim() === 'MOD-02' && t.getBoundingClientRect().width > 0)
+      && (await tagOverControl()).length === 0 && await pU.$eval('#vaultPage .mod-tag', t => { const r = t.getBoundingClientRect(), p = t.parentElement.getBoundingClientRect(); return r.top >= p.top && r.right <= p.right; }));
     await pU.click('#vaultPage [data-sheet-close]');
+    await pU.click('#navSettings');
+    ok('MOD-XX tags: the Settings sheet carries none (raven575, video review #9)', await pU.$$eval('#settingsSheet .mod-tag', t => t.length) === 0 && await pU.isVisible('#settingsSheet'));
+    await pU.click('#settingsSheet [data-sheet-close]');
     ok('MOD-XX tags: the bundled Sixtyfour font loads', await pU.evaluate(async () => { await document.fonts.load('10px Sixtyfour'); return document.fonts.check('10px Sixtyfour'); }));
     const small = await pU.evaluate(() => Array.from(document.querySelectorAll('button:not(.crop-handle), label'))
       .filter(b => (b.tagName === 'BUTTON' || b.querySelector(':scope > input[type=file]')) && b.offsetParent)
@@ -1745,9 +2056,117 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
       ok('a mouse click on the edge still works (only fingers get the near-miss guard)', (await turned()) === 'rotateY(0deg)', await turned());
     }
     await pU.setViewportSize({ width: 390, height: 844 });
+    // Read after two frames, as the header checks do: the header drops its names on its resize observer's frame.
+    await pU.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
     ok('phone width: the app reports the phone layout and nothing scrolls sideways', await pU.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--vcge-layout').trim() === 'phone' && document.documentElement.scrollWidth <= innerWidth));
     ok('shared look: no missing files, no page errors', missingU.length === 0 && errorsU.length === 0, missingU.concat(errorsU).join(' | '));
     await ctxU.close();
+  }
+
+  // MOD01 fixes from raven575's iPad video (2026-10-17): the header never overlaps, the swipe waits for the finger and
+  // goes one card, the tablet's first card centres, Shutout's own icon, one lit icon for the 3D card, the timer strip
+  // never covers a card's title, and the tour stays under the lock screen
+  {
+    const ctxV = await browser.newContext({ hasTouch: true, isMobile: true, viewport: { width: 1024, height: 1366 } });
+    const pV = await ctxV.newPage();
+    const errorsV = [];
+    pV.on('pageerror', e => errorsV.push(e.message));
+    pV.on('console', m => { if (m.type() === 'error') errorsV.push('console: ' + m.text()); });
+    await pV.goto(ORIGIN); await pV.waitForTimeout(500);
+    const deckState = () => pV.evaluate(() => ({ left: Math.round(document.getElementById('deck').scrollLeft), deck: document.getElementById('deck').dataset.deck, card: document.documentElement.dataset.card }));
+    // Every header button is clear of its neighbours (as far as each shows), with or without the pilot names
+    const header = () => pV.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => {
+      const h = document.querySelector('.deck-header'), nav = h.querySelector('.deck-nav').getBoundingClientRect();
+      const boxes = Array.from(h.querySelectorAll('button')).filter(b => b.offsetParent).map(b => {
+        const r = b.getBoundingClientRect(), inNav = !!b.closest('.deck-nav');
+        return { id: b.id, l: inNav ? Math.max(r.left, nav.left) : r.left, r: inNav ? Math.min(r.right, nav.right) : r.right, spill: b.scrollWidth > b.clientWidth + 0.5 };
+      }).filter(b => b.r > b.l);
+      const overlaps = boxes.slice(1).filter((b, i) => b.l < boxes[i].r - 0.5).map(b => b.id);
+      done({ compact: h.classList.contains('is-compact'), names: getComputedStyle(h.querySelector('#navCapture span')).display !== 'none', overlaps, spills: boxes.filter(b => b.spill).map(b => b.id), wide: document.documentElement.scrollWidth > innerWidth });
+    }))));
+    await pV.setViewportSize({ width: 1366, height: 1024 });
+    const land = await header();
+    ok('header (iPad landscape): pilot names beside the icons, nothing overlapping', land.names && !land.compact && land.overlaps.length === 0 && land.spills.length === 0 && !land.wide, JSON.stringify(land));
+    await setPin(pV, '1357');
+    await pV.setViewportSize({ width: 1024, height: 1366 });
+    const port = await header();
+    ok('header (iPad portrait, Lock button showing): icons only, nothing overlapping (video #16)', await pV.isVisible('#lockVaultBtn') && port.compact && !port.names && port.overlaps.length === 0 && port.spills.length === 0 && !port.wide, JSON.stringify(port));
+    for (const w of [900, 390, 360]) {
+      await pV.setViewportSize({ width: w, height: 800 });
+      const hw = await header();
+      ok(`header at ${w} px: no button runs into another, nothing scrolls sideways`, hw.overlaps.length === 0 && hw.spills.length === 0 && !hw.wide, JSON.stringify(hw));
+    }
+    await pV.setViewportSize({ width: 1024, height: 1366 }); await pV.waitForTimeout(300);
+    await pV.click('#navWelcome'); await pV.waitForTimeout(700);
+    const centred = await pV.evaluate(() => { const r = document.getElementById('cardWelcome').getBoundingClientRect(); return { l: r.left, r: innerWidth - r.right }; });
+    ok('tablet: the Welcome card comes to the middle like every other card (it sat against the left edge)', Math.abs(centred.l - centred.r) <= 1.5 && centred.l > 20, JSON.stringify(centred));
+    ok('header: Shutout\'s own icon brings back the start page and is lit there (video #30, #91)', (await deckState()).card === 'welcome'
+      && await pV.$eval('#navWelcome', b => b.classList.contains('is-on') && b.getAttribute('aria-current') === 'page' && /Shutout/.test(b.getAttribute('aria-label'))));
+
+    // A finger swipe: the deck never moves under a finger that pauses, and on release goes one card in the swipe's direction
+    const cdp = await ctxV.newCDPSession(pV);
+    const touch = async (from, to, holdMs = 0) => {
+      const y = 900; let x = from;
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+      const step = (to - from) / 12;
+      for (let i = 0; i < 12; i++) { x += step; await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y }] }); await pV.waitForTimeout(16); }
+      if (holdMs) await pV.waitForTimeout(holdMs);
+      const during = await deckState();
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+      await pV.waitForTimeout(150);
+      await deckSettled(pV); await pV.waitForTimeout(150);
+      return during;
+    };
+    await pV.click('#navCapture'); await pV.waitForTimeout(700);
+    const rest = (await deckState()).left;
+    const paused = await touch(300, 600, 400);
+    ok('swipe: a finger that pauses mid-swipe keeps the deck where it put it (it snapped back under the finger, video #11)', paused.deck === 'held' && paused.left < rest - 200 && paused.card === 'capture', JSON.stringify({ rest, paused }));
+    ok('swipe: on release the deck eases to the card it was heading for, the start page (video #30)', (await deckState()).card === 'welcome' && (await deckState()).left === 0, JSON.stringify(await deckState()));
+    await touch(600, 580);
+    ok('swipe: a nudge shorter than 24 px goes back to the same card', (await deckState()).card === 'welcome', JSON.stringify(await deckState()));
+    await touch(700, 500);
+    ok('swipe: a short swipe goes on to the next card', (await deckState()).card === 'capture', JSON.stringify(await deckState()));
+    await touch(1000, 20);
+    ok('swipe: a long fling still stops at the next card, not two on', (await deckState()).card === 'read', JSON.stringify(await deckState()));
+
+    // The 3D card's two header icons: only the one for the side that is up is lit, and Flipside turns it back
+    await pV.click('#navQr'); await pV.waitForTimeout(800);
+    const lit = () => pV.$$eval('.deck-nav button.is-on', b => b.map(x => x.id).join(','));
+    ok('header: on the QR side only Checkers is lit (video #82)', (await lit()) === 'navQr', await lit());
+    await pV.click('#navCard'); await pV.waitForTimeout(800);
+    ok('header: Flipside turns the card back to its front and only Flipside is lit', (await lit()) === 'navCard' && (await pV.$eval('#card3DFlipper', el => el.style.transform)) === 'rotateY(0deg)', await lit());
+
+    // The timer strip under the header never covers a card's title (video #95): the deck keeps its height free
+    await pV.click('#navFields'); await pV.waitForTimeout(700);
+    await pV.fill('#firstName', 'Shutout'); await pV.waitForTimeout(1300);
+    const strip = await pV.evaluate(() => {
+      const band = document.getElementById('vaultTimerBand').getBoundingClientRect();
+      const tops = Array.from(document.querySelectorAll('.deck-card')).map(c => { const t = c.querySelector('.mod-tag').getBoundingClientRect(); return Math.min(c.getBoundingClientRect().top, t.top); });
+      return { shown: !document.getElementById('vaultTimerStrip').classList.contains('hidden'), bottom: band.bottom, top: Math.min(...tops) };
+    });
+    ok('timer strip: shown with a card in progress, and every card and its MOD tag start below it', strip.shown && strip.top >= strip.bottom, JSON.stringify(strip));
+
+    // The tour stays under the lock screen: a lock that comes down mid-tour is on top, its PIN box takes the keys
+    await pV.click('#navWelcome'); await pV.waitForTimeout(700);
+    await pV.click('#welcomeTourBtn'); await pV.waitForTimeout(700);
+    await pV.evaluate(() => document.getElementById('lockVaultBtn').click());     // as the idle timer would
+    await pV.waitForSelector('#vaultModal', { state: 'visible' });
+    const onTop = await pV.evaluate(() => { const r = document.getElementById('vaultPin').getBoundingClientRect(); const el = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!el && !!el.closest('#vaultModal'); });
+    ok('tour: the lock screen comes down on top of it and its PIN box can be reached (video #35)', onTop);
+    await pV.focus('#vaultPin'); await pV.keyboard.press('ArrowRight');
+    ok('tour: keys typed into the lock screen do not move the tour', (await pV.textContent('#tourStep')) === 'Step 1 of 6');
+    await pV.fill('#vaultPin', '1357'); await pV.waitForSelector('#vaultModal', { state: 'hidden' }); await pV.waitForTimeout(300);
+    // A sideways swipe on the tour goes to the next step, and back
+    const swipeTour = async (from, to) => {
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: from, y: 300 }] });
+      for (let i = 1; i <= 8; i++) await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: from + (to - from) * i / 8, y: 300 }] });
+      await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] }); await pV.waitForTimeout(500);
+      return pV.textContent('#tourStep');
+    };
+    ok('tour: a swipe right to left goes to the next step, left to right back to the first (video #36)', (await swipeTour(800, 300)) === 'Step 2 of 6' && (await swipeTour(300, 800)) === 'Step 1 of 6');
+    await pV.click('#tourSkipBtn');
+    ok('video fixes: no page errors', errorsV.length === 0, errorsV.join(' | '));
+    await ctxV.close();
   }
 
   // 3D Card (MOD06, redesign step 8): fall themes on the card face, every line with its label, swipe-to-spin, toasts
@@ -1858,7 +2277,13 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     await p6.click('#navCard'); await p6.waitForTimeout(500);
     const sides = await p6.evaluate(() => { const r = document.getElementById('removeAvatarBtn').getBoundingClientRect(), u = document.getElementById('avatarUpload').parentElement.getBoundingClientRect(); return { gap: u.left - r.right, removeText: document.getElementById('removeAvatarBtn').textContent.trim() }; });
     ok('logo: "Remove logo" sits well away from the upload (on the far left)', sides.removeText === 'Remove logo' && sides.gap > 80, JSON.stringify(sides));
+    // Remove logo asks first (video finding #83): No keeps the logo, Yes removes it
     await p6.click('#removeAvatarBtn');
+    const asked = await p6.evaluate(() => ({ question: !document.getElementById('removeLogoConfirm').classList.contains('hidden') && document.getElementById('removeLogoConfirm').textContent.includes('Remove the logo?'), button: !document.getElementById('removeAvatarBtn').classList.contains('hidden'), focus: document.activeElement.id, logo: !!document.querySelector('#previewAvatar img') }));
+    ok('logo: Remove logo asks "Remove the logo?" first, focus on No, the logo still on', asked.question && !asked.button && asked.focus === 'removeLogoNo' && asked.logo, JSON.stringify(asked));
+    await p6.click('#removeLogoNo');
+    ok('logo: No keeps the logo and brings the Remove logo button back', !!(await p6.$('#previewAvatar img')) && await p6.isVisible('#removeAvatarBtn') && !(await p6.isVisible('#removeLogoConfirm')));
+    await p6.click('#removeAvatarBtn'); await p6.click('#removeLogoYes');
     ok('logo: Remove takes the logo off and says so; the initials are back', !(await p6.$('#previewAvatar img')) && (await p6.textContent('#previewAvatar')).trim() === 'GR' && (await p6.textContent('#toastMessage')) === 'Logo removed.');
     await p6.click('#toastAction').catch(() => {});
     await p6.click('#navFields'); await p6.waitForTimeout(300);
@@ -1867,6 +2292,157 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     ok('sample: Undo after Clear brings the sample back without its logo (removed before) and with its theme', (await p6.inputValue('#firstName')) === 'Ghost' && (await p6.textContent('#currentPaletteLabel')) === 'Twilight' && !(await p6.$('#previewAvatar img')));
     ok('card: no page errors, nothing fetched from outside, no missing files', errors6.length === 0 && external6.length === 0 && missing6.length === 0, errors6.concat(external6, missing6).join(' | '));
     await ctx6.close();
+  }
+
+  // 3D Card (MOD06), the iPad test video of 2026-10-17: the header lights one side of the card and takes it back to the
+  // front (#82), a tap turns the card the way a push there would and a sideways finger drag is the card's (#73), a logo
+  // never clipped by its rounded tile (#74), more typefaces and a text size (#85), line icons with every value lined
+  // up (#86), and the MOD tags clear of the card's controls (#87)
+  {
+    const ctxV = await browser.newContext({ hasTouch: true, viewport: { width: 1280, height: 900 } });
+    const pV = await ctxV.newPage();
+    const errorsV = [], externalV = [], missingV = [];
+    pV.on('pageerror', e => errorsV.push(e.message));
+    pV.on('console', m => { if (m.type() === 'error') errorsV.push('console: ' + m.text()); });
+    pV.on('request', r => { if (!r.url().startsWith(ORIGIN) && !/^(data|blob):/.test(r.url())) externalV.push(r.url()); });
+    pV.on('response', r => { if (r.status() >= 400) missingV.push(`${r.status()} ${r.url()}`); });
+    await pV.goto(ORIGIN); await pV.waitForTimeout(300);
+    const lit = () => pV.evaluate(() => ['navCard', 'navQr'].filter(id => document.getElementById(id).classList.contains('is-on')).join(','));
+    const turn = () => pV.$eval('#card3DFlipper', el => el.style.transform);
+
+    // #82: Flipside lights the front, Checkers the QR back, never both; Flipside turns the card back to its front
+    await pV.click('#navCard'); await pV.waitForTimeout(700);
+    ok('#82 header: on the 3D card only Flipside is lit while the front is up', (await lit()) === 'navCard' && (await pV.getAttribute('#navCard', 'aria-current')) === 'page', await lit());
+    await pV.click('#navQr'); await settled(pV);
+    ok('#82 header: Checkers turns the card to its QR side and only Checkers is lit', (await turn()) === 'rotateY(180deg)' && (await lit()) === 'navQr' && (await pV.getAttribute('#navQr', 'aria-current')) === 'page' && !(await pV.getAttribute('#navCard', 'aria-current')), `${await turn()} ${await lit()}`);
+    await pV.click('#navCard'); await settled(pV);
+    ok('#82 header: Flipside turns the card back to its front and only Flipside is lit', (await turn()) === 'rotateY(0deg)' && (await lit()) === 'navCard', `${await turn()} ${await lit()}`);
+    await pV.click('#flipCardBtn'); await settled(pV);
+    ok('#82 header: the Flip card button moves the light with the card', (await lit()) === 'navQr', await lit());
+    await pV.click('#navFields'); await pV.waitForTimeout(600);
+    ok('#82 header: away from the 3D card neither Flipside nor Checkers is lit', (await lit()) === '', await lit());
+    await pV.click('#navCard'); await settled(pV); await pV.waitForTimeout(300);
+    ok('#82 header: Flipside from another card arrives on the front', (await turn()) === 'rotateY(0deg)' && (await lit()) === 'navCard', `${await turn()} ${await lit()}`);
+
+    // #73: a tap on the right half turns the card to the right (its right edge goes away: the angle rises), on the left
+    // half the other way; the card still settles exactly on a face
+    const fl = await pV.locator('#card3DFlipper').boundingBox();
+    const spinFrames = async (x) => {
+      await pV.evaluate(() => { window.__turn = []; window.__turnObs = new MutationObserver(() => window.__turn.push(parseFloat(/rotateY\(([-\d.]+)deg\)/.exec(document.getElementById('card3DFlipper').style.transform)[1]))); window.__turnObs.observe(document.getElementById('card3DFlipper'), { attributes: true, attributeFilter: ['style'] }); });
+      await pV.mouse.click(x, fl.y + fl.height / 2); await settled(pV);
+      return pV.evaluate(() => { window.__turnObs.disconnect(); return window.__turn; });
+    };
+    const right = await spinFrames(fl.x + fl.width * 0.8);
+    ok('#73 tap: on the right half the card turns to the right (angles rise past 90 on the way to 180)', right.slice(0, -1).every(a => a >= 0) && right.some(a => a > 90 && a < 180) && (await turn()) === 'rotateY(180deg)', JSON.stringify(right));
+    const left = await spinFrames(fl.x + fl.width * 0.2);
+    ok('#73 tap: on the left half it turns the other way (the angle falls from 180 to 0) and settles on the front', left.slice(0, -1).every(a => a <= 180) && left.some(a => a > 0 && a < 90) && (await turn()) === 'rotateY(0deg)', JSON.stringify(left));
+    const left2 = await spinFrames(fl.x + fl.width * 0.2);
+    ok('#73 tap: on the left half from the front the angles go below 0 (the left edge goes away)', left2.slice(0, -1).some(a => a < -90) && (await turn()) === 'rotateY(180deg)', JSON.stringify(left2));
+    await pV.click('#flipCardBtn'); await settled(pV);
+    // A finger drag that starts sideways is held back from the deck's scroll (iOS gives it to the deck otherwise); one
+    // that starts upright is left to scroll
+    const touchMove = (dx, dy) => pV.evaluate(([dx, dy]) => {
+      const el = document.getElementById('card3DFlipper'), r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+      const t = (cx, cy) => new Touch({ identifier: 7, target: el, clientX: cx, clientY: cy });
+      el.dispatchEvent(new TouchEvent('touchstart', { touches: [t(x, y)], changedTouches: [t(x, y)], bubbles: true, cancelable: true }));
+      const move = new TouchEvent('touchmove', { touches: [t(x + dx, y + dy)], changedTouches: [t(x + dx, y + dy)], bubbles: true, cancelable: true });
+      el.dispatchEvent(move);
+      el.dispatchEvent(new TouchEvent('touchend', { touches: [], changedTouches: [t(x + dx, y + dy)], bubbles: true, cancelable: true }));
+      return move.defaultPrevented;
+    }, [dx, dy]);
+    ok('#73 swipe: a sideways finger drag on the card is kept from the deck (its first move is held back)', await touchMove(12, 3));
+    ok('#73 swipe: an upright finger drag is left alone, so the page still scrolls', !(await touchMove(3, 12)));
+    ok('#73 swipe: the card is still on its front and the deck on the 3D card', (await turn()) === 'rotateY(0deg)' && (await pV.evaluate(() => document.documentElement.dataset.card)) === 'card');
+
+    // #87: neither MOD tag lies on any of the card's controls
+    const overlaps = await pV.evaluate(() => {
+      const tags = Array.from(document.querySelectorAll('#cardCard > .mod-tag span')).map(t => t.getBoundingClientRect());
+      const controls = Array.from(document.querySelectorAll('#cardCard button, #cardCard select, #cardCard label')).filter(c => c.offsetParent).map(c => [c.id || c.textContent.trim(), c.getBoundingClientRect()]);
+      const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+      return controls.filter(([, r]) => tags.some(t => hit(t, r))).map(([id]) => id);
+    });
+    ok('#87 tags: the MOD-06 / MOD-07 tags lie on none of the 3D Card\'s buttons (Flip card included)', overlaps.length === 0, JSON.stringify(overlaps));
+    await pV.setViewportSize({ width: 390, height: 844 }); await pV.waitForTimeout(500);
+    const overlapsPhone = await pV.evaluate(() => {
+      const tags = Array.from(document.querySelectorAll('#cardCard > .mod-tag span')).map(t => t.getBoundingClientRect());
+      const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+      return Array.from(document.querySelectorAll('#cardCard button, #cardCard select, #cardCard label')).filter(c => c.offsetParent && tags.some(t => hit(t, c.getBoundingClientRect()))).map(c => c.id);
+    });
+    ok('#87 tags: on a phone too', overlapsPhone.length === 0, JSON.stringify(overlapsPhone));
+    await pV.setViewportSize({ width: 1280, height: 900 }); await pV.waitForTimeout(500);
+
+    // #86: an icon in front of every line (handset, mobile, fax, envelope, globe, building or house), every value lined up
+    await pV.click('#navFields'); await pV.waitForTimeout(500);
+    await pV.fill('#firstName', 'Line'); await pV.fill('#lastName', 'Up');
+    await pV.click('#addPhoneBtn'); await pV.click('#addPhoneBtn');
+    await pV.selectOption('#phoneType0', 'work'); await pV.fill('#phoneValue0', '+1 (312) 555-0101');
+    await pV.selectOption('#phoneType1', 'mobile'); await pV.fill('#phoneValue1', '+1 (312) 555-0102');
+    await pV.selectOption('#phoneType2', 'workFax'); await pV.fill('#phoneValue2', '+1 (312) 555-0103');
+    await pV.fill('#emailValue0', 'line@example.com'); await pV.fill('#websiteValue0', 'https://example.com');
+    await pV.fill('#street', '233 South Wacker Drive'); await pV.fill('#city', 'Chicago');
+    await pV.click('#navCard'); await pV.waitForTimeout(700);
+    const readLines = () => pV.evaluate(() => Array.from(document.querySelectorAll('#cardFront .card-line')).map(p => {
+      const icon = p.querySelector('.card-line-icon'), v = p.querySelector('.card-line-value');
+      return { icon: icon ? icon.querySelector('use').getAttribute('href').split('#')[1] : null, iconShown: !!icon && getComputedStyle(icon).display !== 'none' && icon.getBoundingClientRect().width > 0,
+        label: p.querySelector('.card-line-label').textContent, value: v.textContent, left: Math.round(v.getBoundingClientRect().left) };
+    }));
+    const withIcons = await readLines();
+    ok('#86 lines: each line has the icon of its kind (handset, mobile, fax, envelope, globe, building for a work address)', withIcons.map(l => l.icon).join(',') === 'phone,device-mobile,printer,mail,world,building' && withIcons.every(l => l.iconShown), JSON.stringify(withIcons));
+    ok('#86 lines: every value starts at the same place, the address too (it has its own label now)', new Set(withIcons.map(l => l.left)).size === 1 && withIcons[5].label === 'Work' && withIcons[5].value.startsWith('233 South Wacker Drive'), JSON.stringify(withIcons.map(l => [l.label, l.left])));
+    ok('#86 lines: the icons are the header\'s own set, bundled (the sprite has every one)', await pV.evaluate(async () => { const t = await (await fetch('src/vendor/icons/app/sprite.svg')).text(); return ['phone', 'device-mobile', 'printer', 'mail', 'world', 'home', 'building'].every(id => t.includes(`<symbol id="${id}"`)); }));
+    await pV.click('#cardIconsBtn');
+    const noIcons = await readLines();
+    ok('#86 lines: Icons off hides them and the labels name the line instead ("Work phone", "Mobile phone", "Work email")', noIcons.every(l => !l.iconShown) && noIcons.map(l => l.label).join('|') === 'Work phone|Mobile phone|Work fax|Work email|Work website|Work address' && (await pV.getAttribute('#cardIconsBtn', 'aria-pressed')) === 'false', JSON.stringify(noIcons.map(l => l.label)));
+    ok('#86 lines: without icons the values still line up', new Set(noIcons.map(l => l.left)).size === 1, JSON.stringify(noIcons.map(l => l.left)));
+    await pV.click('#cardIconsBtn');
+    await pV.selectOption('#addressType', 'home').catch(() => {});
+    await pV.evaluate(() => { const s = document.getElementById('addressType'); s.value = 'home'; s.dispatchEvent(new Event('change', { bubbles: true })); document.getElementById('street').dispatchEvent(new Event('input')); });
+    ok('#86 lines: a home address gets the house', (await readLines())[5].icon === 'home');
+
+    // #85: more typefaces (bundled ones the app already loads, and system fonts) and a text size, both on screen only
+    const fontOptions = await pV.$$eval('#cardFontSelect option', os => os.map(o => o.value));
+    ok('#85 fonts: eleven typefaces, the original three first', fontOptions.length === 11 && fontOptions.slice(0, 3).join(',') === 'font-sans,font-serif,font-mono', fontOptions.join(','));
+    await pV.selectOption('#cardFontSelect', 'card-font-lexend');
+    const lexend = await pV.evaluate(async () => { await document.fonts.load('16px Lexend'); return { family: getComputedStyle(document.getElementById('previewFullName')).fontFamily, loaded: document.fonts.check('16px Lexend'), back: document.getElementById('cardBack').classList.contains('card-font-lexend') }; });
+    ok('#85 fonts: Lexend sets the card face and back, from the bundled file', /^"?Lexend/.test(lexend.family) && lexend.loaded && lexend.back, JSON.stringify(lexend));
+    const sizeOf = () => pV.$eval('#previewFullName', el => parseFloat(getComputedStyle(el).fontSize));
+    const medium = await sizeOf();
+    await pV.selectOption('#cardSizeSelect', 'lg');
+    const large = await sizeOf();
+    await pV.selectOption('#cardSizeSelect', 'sm');
+    const smallText = await sizeOf();
+    ok('#85 size: Large and Small scale the card text (name 20 px medium)', medium === 20 && Math.abs(large - 23) < 0.1 && Math.abs(smallText - 17.5) < 0.1, `${medium} ${large} ${smallText}`);
+    await pV.selectOption('#cardSizeSelect', 'xl');
+    await pV.emulateMedia({ media: 'print' });
+    const printed = await sizeOf();
+    await pV.emulateMedia({ media: 'screen' });
+    ok('#85 size: the printed card keeps its own size (a big setting cannot push lines off 3.5 x 2 in)', printed === 20, String(printed));
+    await pV.click('#navFields'); await pV.waitForTimeout(400);
+    await pV.click('#clearFormBtn');
+    const clearedLook = await pV.evaluate(() => ({ font: document.getElementById('cardFontSelect').value, size: document.getElementById('cardSizeSelect').value }));
+    await pV.click('#toastAction'); await pV.waitForTimeout(200);
+    const undoneLook = await pV.evaluate(() => ({ font: document.getElementById('cardFontSelect').value, size: document.getElementById('cardSizeSelect').value, icons: document.getElementById('cardIconsBtn').getAttribute('aria-pressed') }));
+    ok('#85 Clear goes back to Sans and medium text; Undo brings back the typeface and the size', clearedLook.font === 'font-sans' && clearedLook.size === 'md' && undoneLook.font === 'card-font-lexend' && undoneLook.size === 'xl' && undoneLook.icons === 'true', JSON.stringify([clearedLook, undoneLook]));
+    await pV.selectOption('#cardSizeSelect', 'md');
+
+    // #74: a logo that fills its square (an opaque, many-coloured picture reaching its edges) sits inside the tile's
+    // rounded corners: every corner of the picture is within the corner's arc, and the tile around it is the logo's edge colour
+    await pV.click('#navCard'); await pV.waitForTimeout(600);
+    const busy = await pV.evaluate(() => { const c = document.createElement('canvas'); c.width = c.height = 300; const x = c.getContext('2d'); x.fillStyle = '#16213a'; x.fillRect(0, 0, 300, 300);
+      for (let i = 10; i < 290; i += 12) { x.fillStyle = ['#38d6f0', '#f5d020', '#e0287a', '#7a3cf0'][(i - 10) / 12 % 4]; x.fillRect(i, 10, 6, 280); }
+      return c.toDataURL('image/png'); });
+    await pV.setInputFiles('#avatarUpload', { name: 'striped.png', mimeType: 'image/png', buffer: Buffer.from(busy.split(',')[1], 'base64') });
+    // The tile is drawn again once the logo's shape is read: wait for the picture with its tile colour (not the initials)
+    await pV.waitForFunction(() => ['previewAvatar', 'formAvatarPreview'].every(id => { const b = document.getElementById(id); return b.querySelector('img') && b.style.background !== ''; }), null, { timeout: 5000 });
+    const fit = await pV.evaluate(() => ['previewAvatar', 'formAvatarPreview'].map(id => {
+      const box = document.getElementById(id), r = box.getBoundingClientRect(), i = box.firstElementChild.getBoundingClientRect(), rad = parseFloat(getComputedStyle(box).borderTopLeftRadius);
+      const inArc = (x, y) => { const cx = x < r.left + rad ? r.left + rad : x > r.right - rad ? r.right - rad : x, cy = y < r.top + rad ? r.top + rad : y > r.bottom - rad ? r.bottom - rad : y; return Math.hypot(x - cx, y - cy) <= rad + 0.01; };
+      return { id, inside: [[i.left, i.top], [i.right, i.top], [i.left, i.bottom], [i.right, i.bottom]].every(([x, y]) => inArc(x, y)), rad, inset: i.left - r.left, bg: box.style.background };
+    }));
+    ok('#74 logo: the picture\'s corners stay inside the rounded corners of the card tile and the small preview', fit.every(f => f.inside && f.rad >= 12), JSON.stringify(fit));
+    ok('#74 logo: around an opaque logo the tile takes the logo\'s own edge colour (#16213a, within rounding)', fit.every(f => { const c = (/rgb\((\d+), (\d+), (\d+)\)/.exec(f.bg) || []).slice(1).map(Number); return c.length === 3 && [22, 33, 58].every((v, i) => Math.abs(c[i] - v) <= 2); }), JSON.stringify(fit.map(f => f.bg)));
+    ok('3D Card video fixes: no page errors, nothing fetched from outside, no missing files', errorsV.length === 0 && externalV.length === 0 && missingV.length === 0, errorsV.concat(externalV, missingV).join(' | '));
+    await ctxV.close();
   }
 
   // Step 10 (Airlock): the Share card, Ready to share, file names, the Export QR pop-up (styles, logo, Vault hand-off)

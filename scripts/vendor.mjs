@@ -33,7 +33,7 @@ const FILES = [
     ['@fontsource/fira-code/files/fira-code-latin-700-normal.woff2', 'fonts/fira-code-latin-700.woff2'],
     ['@fontsource/fira-code/LICENSE', 'fonts/LICENSE-fira-code.txt'],
     // MOD-XX tags (SIL OFL 1.1): Sixtyfour, Latin subset, variable "Bleed" axis (set to 100 for a bold look); mod01-shell/ui.css.
-    ['@fontsource-variable/sixtyfour/files/sixtyfour-latin-bled-normal.woff2', 'fonts/sixtyfour-latin-bled.woff2'],
+    ['@fontsource-variable/sixtyfour/files/sixtyfour-latin-full-normal.woff2', 'fonts/sixtyfour-latin-full.woff2'],
     ['@fontsource-variable/sixtyfour/LICENSE', 'fonts/LICENSE-sixtyfour.txt'],
     // UI font choices for Settings (SIL OFL 1.1), Latin subset, weights 400/700; declared in mod01-shell/ui.css.
     ['@fontsource/atkinson-hyperlegible/files/atkinson-hyperlegible-latin-400-normal.woff2', 'fonts/atkinson-hyperlegible-latin-400.woff2'],
@@ -56,7 +56,9 @@ const FILES = [
 ];
 
 // App icons for the redesign's header and buttons: Tabler Icons outline set (MIT), copied as SVG files.
-const APP_ICONS = ['aperture', 'radar-2', 'lock', 'forms', 'id', 'qrcode', 'send', 'settings', 'trash', 'camera', 'upload', 'circle-check'];
+const APP_ICONS = ['aperture', 'radar-2', 'lock', 'forms', 'id', 'qrcode', 'send', 'settings', 'trash', 'camera', 'upload', 'circle-check', 'home-shield', 'rotate-2', 'rotate-clockwise-2',
+    // 3D Card (MOD06) line icons: the kind of each line on the card (phone, mobile, fax, email, website, home or work address)
+    'phone', 'device-mobile', 'printer', 'mail', 'world', 'home', 'building'];
 
 // Contact-icon templates for the OCR icon detector (mod04-ocr/iconDetector.js): generic shapes from Lucide (ISC),
 // brand logos from Simple Icons (CC0). LinkedIn's logo is not in either set; the detector draws its own "in" template.

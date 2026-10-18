@@ -46,6 +46,7 @@
             <span class="deck-brand-text text-xs text-slate-500 dark:text-slate-400">vCard Generator Engine</span>
         </div>
         <nav class="deck-nav" aria-label="Cards">
+            <button id="navWelcome" type="button" data-card="welcome" aria-label="Start page: welcome and the tour (Shutout)" title="Start page: welcome and the tour (Shutout)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#home-shield"></use></svg><span>Shutout</span></button>
             <button id="navCapture" type="button" data-card="capture" aria-label="Capture: take or upload a photo (Iris)" title="Capture: take or upload a photo (Iris)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#aperture"></use></svg><span>Iris</span></button>
             <button id="navRead" type="button" data-card="read" aria-label="Read: check what was read (Glyph)" title="Read: check what was read (Glyph)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#radar-2"></use></svg><span>Glyph</span></button>
             <button id="navFields" type="button" data-card="fields" aria-label="Fields: the contact details (Pidge)" title="Fields: the contact details (Pidge)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#forms"></use></svg><span>Pidge</span></button>
@@ -122,20 +123,27 @@
                 </div>
                 <!-- Crop & straighten (MOD03): the handles start at the photo's full edge; Snap to card finds the edges on request -->
                 <div id="captureReview" class="hidden space-y-3">
-                    <p class="text-xs text-slate-500 dark:text-slate-400">The whole photo is read unless you move a corner. Drag the corners onto the card, or press Snap to card. The photo stays on this device.</p>
-                    <div id="cropStage" class="relative mx-auto w-fit max-w-full select-none">
-                        <img id="reviewImage" alt="Captured business card" class="block max-w-full max-h-80 rounded-lg bg-slate-100 dark:bg-slate-800">
-                        <svg id="cropOverlay" class="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none" aria-hidden="true">
-                            <polygon id="cropPolygon" class="crop-outline" points=""></polygon>
-                        </svg>
-                        <button type="button" class="crop-handle" data-corner="0"></button>
-                        <button type="button" class="crop-handle" data-corner="1"></button>
-                        <button type="button" class="crop-handle" data-corner="2"></button>
-                        <button type="button" class="crop-handle" data-corner="3"></button>
+                    <p class="text-xs text-slate-500 dark:text-slate-400">The whole photo is read unless you move a corner. Drag the corners onto the card, or press Snap to card. Pinch the photo to zoom in. The photo stays on this device.</p>
+                    <!-- The stage clips the zoomed photo; a pinch on it zooms the photo, not the page (cropEditor.js) -->
+                    <div id="cropStage" class="crop-stage mx-auto w-fit max-w-full select-none">
+                        <div id="cropView" class="crop-view relative">
+                            <img id="reviewImage" alt="Captured business card" class="block max-w-full max-h-80 rounded-lg bg-slate-100 dark:bg-slate-800">
+                            <svg id="cropOverlay" class="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none" aria-hidden="true">
+                                <path id="cropShade" class="crop-shade" d=""></path>
+                                <polygon id="cropPolygon" class="crop-outline" points=""></polygon>
+                            </svg>
+                            <button type="button" class="crop-handle" data-corner="0"></button>
+                            <button type="button" class="crop-handle" data-corner="1"></button>
+                            <button type="button" class="crop-handle" data-corner="2"></button>
+                            <button type="button" class="crop-handle" data-corner="3"></button>
+                        </div>
                     </div>
                     <p id="ocrRetakeNotice" class="hidden text-sm text-amber-600 dark:text-amber-400" role="alert">This photo is too blurry or unclear to read. Retake it closer, in good light, and hold steady.</p>
                     <div id="captureActions" class="cap-review-actions">
-                        <button id="rotatePhotoBtn" type="button" class="cap-quiet mr-auto">Rotate 90°</button>
+                        <span class="cap-rotate mr-auto">
+                            <button id="rotateLeftBtn" type="button" class="cap-quiet" aria-label="Rotate left 90°, counter-clockwise" title="Rotate left 90° (counter-clockwise)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#rotate-2"></use></svg><span>Left</span></button>
+                            <button id="rotateRightBtn" type="button" class="cap-quiet" aria-label="Rotate right 90°, clockwise" title="Rotate right 90° (clockwise)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#rotate-clockwise-2"></use></svg><span>Right</span></button>
+                        </span>
                         <button id="snapCardBtn" type="button" class="cap-quiet">Snap to card</button>
                         <button id="retakePhotoBtn" type="button" class="cap-quiet hidden">Retake photo</button>
                         <button id="cancelReviewBtn" type="button" class="cap-quiet">Cancel</button>
@@ -179,6 +187,7 @@
                     <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Will fill</h3>
                     <dl id="ocrSummary" class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-0.5 text-sm"></dl>
                 </div>
+                <p id="ocrMoreFields" class="read-more text-xs">Something missing, like a birthday, a second address or a social profile? You can add more fields on the next card.</p>
                 <div class="flex flex-wrap justify-end gap-2">
                     <button id="ocrBackBtn" type="button" class="mr-auto px-3 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Back to photo</button>
                     <button id="ocrCancelBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Cancel</button>
@@ -199,9 +208,9 @@
             <div class="fields-head">
                 <h2>Contact details</h2>
             </div>
-            <!-- "Insert Fake Contact?": the sample contacts (MOD06 supplies them as data; fieldsCard.js fills the list) -->
+            <!-- "Sample vCGE pilot contact": the nine pilots (MOD06 supplies them as data; fieldsCard.js fills the list) -->
             <div class="fields-tools">
-                <label class="fields-fake"><select id="fakeContactSelect" class="field-input" aria-label="Insert Fake Contact?"></select></label>
+                <label class="fields-fake"><select id="fakeContactSelect" class="field-input" aria-label="Sample vCGE pilot contact"></select></label>
                 <button id="clearFormBtn" type="button" class="text-[11px] font-semibold px-3 py-1 rounded-lg hover:text-rose-500 transition">Clear form</button>
             </div>
 
@@ -223,6 +232,11 @@
                 <!-- Typed lists (MOD06 builds the rows): each row is a type picker, a value and a remove button -->
                 <fieldset class="col-span-2 space-y-1.5">
                     <legend class="field-label">Phones</legend>
+                    <!-- Phone style (MOD05): how US and Canadian numbers are written; memory only, never saved -->
+                    <div class="fields-phone-style">
+                        <label class="fields-cc"><span>Number style</span><select id="phoneFormatSelect" class="field-input" aria-label="Phone number style"></select></label>
+                        <label class="fields-cc"><input id="phoneCountryCode" type="checkbox" class="vcge-switch" checked><span>Include +1</span></label>
+                    </div>
                     <div id="phoneList" class="space-y-1.5"></div>
                     <button id="addPhoneBtn" type="button" class="text-xs font-semibold text-brand-700 dark:text-brand-400 hover:underline">+ Add phone</button>
                 </fieldset>
@@ -279,16 +293,21 @@
                             <div id="paletteListContainer"></div>
                         </div>
                     </div>
-                    <select id="cardFontSelect" class="px-2 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-xs font-semibold" aria-label="Card typography">
-                        <option value="font-sans">Sans</option>
-                        <option value="font-serif">Serif</option>
-                        <option value="font-mono">Mono</option>
-                    </select>
+                    <!-- Typefaces and text sizes: card3dView.js CARD_FONTS and CARD_SIZES fill these -->
+                    <select id="cardFontSelect" class="px-2 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-xs font-semibold" aria-label="Card typography"></select>
+                    <select id="cardSizeSelect" class="px-2 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-xs font-semibold" aria-label="Card text size"></select>
+                    <button id="cardIconsBtn" type="button" aria-pressed="true" title="Icons in front of the card's lines" class="px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition">Icons: on</button>
                     <button id="flipCardBtn" type="button" class="ml-auto px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition">Flip card</button>
                 </div>
                 <!-- Logo (MOD06): upload sits on the right with the preview; Remove on the far left, away from it -->
                 <div class="flex flex-wrap items-center gap-2">
                     <button id="removeAvatarBtn" type="button" class="hidden px-3 py-1.5 rounded-lg text-xs font-semibold hover:text-rose-500 transition">Remove logo</button>
+                    <!-- Remove logo asks first (raven575, 2026-10-17 test): No keeps it, Yes removes it -->
+                    <div id="removeLogoConfirm" role="group" aria-label="Remove the logo?" class="hidden flex flex-wrap items-center gap-2">
+                        <span class="text-xs font-semibold">Remove the logo?</span>
+                        <button id="removeLogoYes" type="button" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white transition">Yes, remove</button>
+                        <button id="removeLogoNo" type="button" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition">No, keep it</button>
+                    </div>
                     <div class="ml-auto flex items-center gap-2">
                         <div id="formAvatarPreview" class="w-11 h-11"></div>
                         <label class="cursor-pointer text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition text-center">
@@ -357,33 +376,37 @@
     <div id="vaultPage" class="vcge-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="vaultPageTitle">
         <div class="vcge-sheet-panel mod-tag-host space-y-3">
             <div class="vcge-sheet-head">
-                <h2 id="vaultPageTitle">Vault</h2>
+                <h2 id="vaultPageTitle" class="vault-title"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#lock"></use></svg>Vault</h2>
                 <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close">&#x2715;</button>
             </div>
             <p class="vault-lead">Your card is held in memory only and is never saved. Set a PIN, and a fingerprint or face if your device has one, so the card locks instead of being wiped when you step away. Both are set up fresh every visit and forgotten when you leave.</p>
             <div class="vault-row">
-                <span class="font-medium">MOD02 Vault</span>
-                <span id="vaultStateIndicator" class="text-xs font-mono text-emerald-500">UNLOCKED / memory only</span>
+                <span><span class="font-medium">MOD02 Vault</span> <span id="vaultStateIndicator" class="text-xs font-mono text-emerald-500">UNLOCKED / memory only</span></span>
+                <span><button id="vaultLockNowBtn" type="button" class="vault-btn-quiet hidden"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#lock"></use></svg>Lock now</button></span>
             </div>
             <p id="purgeCountdown" class="text-[11px] font-mono text-slate-500 dark:text-slate-400">Auto-clear idle</p>
             <div id="quickUnlockPanel" class="vault-section hidden">
                 <h3>PIN and fingerprint</h3>
+                <!-- Switches: green "On" when on, red "Off" when off. The PIN switch asks for a PIN; Change sits beside it once set. -->
                 <div class="vault-row">
-                    <span id="sessionPinStatus">Session PIN: not set</span>
+                    <span id="sessionPinStatus" class="vault-sr-only">Session PIN: not set</span>
+                    <span id="pinSwitchLabel">Session PIN</span>
                     <span>
-                        <button id="setSessionPinBtn" type="button" class="vault-btn">Set PIN</button>
-                        <button id="clearSessionPinBtn" type="button" class="vault-btn-quiet hidden">Remove</button>
-                        <button id="vaultLockNowBtn" type="button" class="vault-btn-quiet hidden">Lock now</button>
+                        <button id="setSessionPinBtn" type="button" class="vault-btn-quiet hidden">Change</button>
+                        <button id="pinSwitch" type="button" role="switch" aria-checked="false" aria-labelledby="pinSwitchLabel" class="vault-switch"><span class="vault-switch-word">Off</span><span class="vault-switch-knob" aria-hidden="true"></span></button>
                     </span>
                 </div>
+                <p id="pinOffNote" class="vault-note">Turn on to lock the card instead of wiping it when you step away.</p>
                 <div id="biometricRow" class="vault-row hidden">
-                    <span id="biometricStatus">Face ID / fingerprint: off</span>
-                    <span>
-                        <button id="addBiometricBtn" type="button" class="vault-btn">Turn on</button>
-                        <button id="clearBiometricBtn" type="button" class="vault-btn-quiet hidden">Turn off</button>
-                    </span>
+                    <span id="biometricStatus" class="vault-sr-only">Face ID / fingerprint: off</span>
+                    <span id="biometricSwitchLabel">Face ID / fingerprint</span>
+                    <span><button id="biometricSwitch" type="button" role="switch" aria-checked="false" aria-labelledby="biometricSwitchLabel" class="vault-switch"><span class="vault-switch-word">Off</span><span class="vault-switch-knob" aria-hidden="true"></span></button></span>
                 </div>
-                <p class="vault-note">Nothing is saved. Leaving or reloading the page wipes the card. With a 4-digit PIN set, the screen turning off or 2 idle minutes lock it instead, and 7 minutes after the lock it is wiped. Without a PIN, 30 s out of view or 2 idle minutes wipe it.</p>
+                <div id="biometricNotes" class="hidden">
+                    <p id="biometricOffNote" class="vault-note">Turn on to unlock with your face or fingerprint.</p>
+                    <p class="vault-note">Turning it on makes your browser save a passkey for this site on your device, because the browser requires it to check your face or fingerprint. The passkey holds no contact details. vCGE forgets it when the card is wiped, so after a wipe you turn it on again. Old ones can be deleted in your password manager.</p>
+                </div>
+                <p class="vault-note">vCGE saves none of your card. Leaving, closing or reloading the page wipes it. With a 4-digit PIN set, the screen turning off or 2 idle minutes lock it instead, and <span id="vaultWipeMinutes">7</span> minutes after the lock it is wiped (Settings can make that 10 or 15). Without a PIN, 30 s out of view or 2 idle minutes wipe it.</p>
             </div>
             <div class="vault-row">
                 <span><button id="wipeVaultBtn" type="button" class="vault-btn-quiet vault-btn-danger">Wipe everything and start over</button></span>
@@ -397,11 +420,11 @@
         </div>
     </div>
 
-    <!-- Settings (MOD01): theme today; hand, colour-blind mode and font come with the settings step -->
+    <!-- Settings (MOD01): hand, colour-blind mode, theme, UI font and text size, kept in the one settings entry -->
     <div id="settingsSheet" class="vcge-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
         <div class="vcge-sheet-panel mod-tag-host">
             <div class="vcge-sheet-head">
-                <h2 id="settingsTitle">Settings</h2>
+                <h2 id="settingsTitle" class="vcge-sheet-title"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#settings"></use></svg>Settings</h2>
                 <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close">&#x2715;</button>
             </div>
             <div class="vcge-sheet-row">
@@ -425,6 +448,16 @@
                 <select id="fontSelect" class="vcge-select" aria-label="UI font"></select>
             </div>
             <div class="vcge-sheet-row">
+                <label for="sizeSelect">Text size</label>
+                <select id="sizeSelect" class="vcge-select" aria-label="Text size" aria-describedby="sizeHint"></select>
+            </div>
+            <p id="sizeHint" class="vcge-sheet-hint">The text on the cards grows; the icons at the top stay the same size.</p>
+            <div class="vcge-sheet-row">
+                <label for="wipeSelect">Wipe after the lock</label>
+                <select id="wipeSelect" class="vcge-select" aria-label="Wipe after the lock" aria-describedby="wipeHint"></select>
+            </div>
+            <p id="wipeHint" class="vcge-sheet-hint">With a PIN, vCGE locks after 2 minutes without activity, then wipes the card this long after the lock.</p>
+            <div class="vcge-sheet-row">
                 <span>Language</span>
                 <span class="vcge-sheet-soon">English (more coming later)</span>
             </div>
@@ -432,8 +465,7 @@
                 <span>PIN and fingerprint</span>
                 <button id="settingsVaultBtn" type="button" class="px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition" data-open-sheet="vaultPage">Open the Vault</button>
             </div>
-            <p id="settingsNote" class="vcge-sheet-note">vCGE keeps one small settings file on this device (hand, colors, theme, font). Nothing you scan, upload or type is ever saved.</p>
-            <div class="mod-tag mod-tag-inset" aria-hidden="true"><span>MOD-01</span></div>
+            <p id="settingsNote" class="vcge-sheet-note">vCGE keeps one small settings file on this device (hand, colors, theme, font, text size, wipe time). Nothing you scan, upload or type is ever saved.</p>
         </div>
     </div>
 
@@ -542,9 +574,10 @@
 
     <!-- Lock screen (MOD02): the card is held in the temporary vault until the fingerprint, face or session PIN brings it back.
          Fingerprint first and big, the PIN under it; no Unlock button (the 4th digit unlocks); the keyboard never covers a control. -->
-    <div id="vaultModal" class="hidden fixed inset-0 z-50 bg-black/70 flex justify-center p-4">
+    <!-- Always the top layer (above the welcome tour; vault.css sets its z-index) so its buttons can always be pressed -->
+    <div id="vaultModal" class="hidden fixed inset-0 bg-black/70 flex justify-center p-4">
         <form id="vaultForm" class="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-sm w-full space-y-3 shadow-2xl" aria-labelledby="vaultModalTitle" aria-describedby="vaultModalHint">
-            <h2 id="vaultModalTitle" class="text-lg font-bold">Locked</h2>
+            <h2 id="vaultModalTitle" class="vault-title text-lg font-bold"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#lock"></use></svg>Locked</h2>
             <p id="vaultModalHint" class="text-xs text-slate-500 dark:text-slate-400"></p>
             <button id="vaultBiometricBtn" type="button" class="vault-bio-btn hidden">
                 <svg class="vcge-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18.9 7a8 8 0 0 1 1.1 5v1a6 6 0 0 0 .8 3"/><path d="M8 11a4 4 0 0 1 8 0v1a10 10 0 0 0 2 6"/><path d="M12 11v2a14 14 0 0 0 2.5 8"/><path d="M8 15a18 18 0 0 0 1.8 6"/><path d="M4.9 19a22 22 0 0 1-.9-7v-1a8 8 0 0 1 12-6.95"/></svg>
@@ -553,7 +586,7 @@
             <p id="vaultOr" class="vault-or hidden">or</p>
             <label id="vaultPinRow" class="block"><span class="field-label">Type your 4-digit PIN</span><input id="vaultPin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-bwignore data-form-type="other" class="field-input"></label>
             <p id="vaultError" class="text-xs text-rose-600 dark:text-rose-400 min-h-4" role="alert"></p>
-            <!-- Calm ring: time left before the 7-minute reset wipes the held card -->
+            <!-- Calm ring: time left before the reset (7, 10 or 15 minutes, chosen in Settings) wipes the held card -->
             <div class="vault-ring relative mx-auto">
                 <svg viewBox="0 0 120 120" class="w-full h-full -rotate-90" aria-hidden="true">
                     <circle cx="60" cy="60" r="52" fill="none" stroke-width="8" class="stroke-slate-200 dark:stroke-slate-700"></circle>

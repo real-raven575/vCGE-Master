@@ -8,8 +8,16 @@
  * the held card and the PIN are both wiped. The PIN is never stored: only a salted PBKDF2 hash, in memory.
  */
 
-// 7 minutes without activity (open or locked) wipes everything and the app starts new.
+// 7 minutes without activity (open or locked) wipes everything and the app starts new. Settings can make it 10 or 15
+// (raven575, 2026-10-18, video #68): Shell puts the choice on html[data-wipe] and Vault reads only that.
 export const RESET_SECONDS = 420;
+export const WIPE_MINUTES = Object.freeze([7, 10, 15]);
+
+/** The wipe time in seconds for html[data-wipe]: 7, 10 or 15 minutes; anything else is the default 7. */
+export function wipeSecondsFrom(attr) {
+    const m = Number(attr);
+    return WIPE_MINUTES.includes(m) ? m * 60 : RESET_SECONDS;
+}
 export const PIN_LENGTH = 4;
 export const MAX_PIN_ATTEMPTS = 5;
 const PIN_ITERATIONS = 100000;

@@ -1,6 +1,8 @@
 /* vCGE-MOD01 welcome card text and the "Take a Tour" overlay. Light by default, .dark variants follow the app theme.
    No sound, no flashing: the only motion is a short fade-in of the tour card, off under reduced motion. */
-.vcge-welcome { position: fixed; inset: 0; z-index: 70; }
+/* The tour sits over the deck and its sheets (45) but under the padlock (48), the lock screen and every pop-up (50, 60):
+   a lock that comes down mid-tour is on top and its buttons work */
+.vcge-welcome { position: fixed; inset: 0; z-index: 46; touch-action: none; }   /* a swipe on it is the tour's */
 .vcge-tour-blocker { position: fixed; inset: 0; }
 .vcge-welcome-tag { display: inline-block; background: #22c55e; color: #020617; font-weight: 700; font-size: 13px; letter-spacing: 0.08em; padding: 3px 10px; border-radius: 8px; }
 /* The logo (src/assets/brand, bundled): a rounded square on the Welcome card and the Thank You page */
@@ -12,19 +14,22 @@
 .vcge-welcome button:focus-visible, .welcome-body button:focus-visible { outline: 3px solid #4ade80; outline-offset: 2px; }
 
 .vcge-tour-spot { position: fixed; border-radius: 18px; box-shadow: 0 0 0 9999px rgba(2, 6, 23, 0.55); outline: 3px solid #22c55e; outline-offset: 0; pointer-events: none; }
-.vcge-tour-tip { position: fixed; background: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 18px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.45); width: min(330px, calc(100vw - 32px)); padding: 20px; box-sizing: border-box; }
-.vcge-tour-dots { display: flex; gap: 5px; margin: 0 0 12px; }
-.vcge-tour-dots i { width: 7px; height: 7px; border-radius: 50%; background: #cbd5e1; }
+/* The tour card is a quick visual guide, not a form: big, easy text, and it may sit over the card it talks about
+   (raven575, video #33). Sizes in rem, so the Settings text size grows it too. */
+.vcge-tour-tip { position: fixed; background: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; border-radius: 18px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.45); width: min(30rem, calc(100vw - 32px)); padding: 1.5rem; box-sizing: border-box; }
+.vcge-tour-dots { display: flex; gap: 6px; margin: 0 0 12px; }
+.vcge-tour-dots i { width: 9px; height: 9px; border-radius: 50%; background: #cbd5e1; }
 .vcge-tour-dots i.on { background: #16a34a; }
-.vcge-tour-step { margin: 0; font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #64748b; }
-.vcge-tour-tip h3 { font-size: 17px; font-weight: 700; margin: 4px 0 6px; }
-.vcge-tour-body { font-size: 14px; line-height: 1.5; margin: 0 0 14px; color: #334155; }
+.vcge-tour-step { margin: 0; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: #64748b; }
+.vcge-tour-tip h3 { font-size: 1.4rem; font-weight: 700; margin: 0.25rem 0 0.5rem; line-height: 1.25; }
+.vcge-tour-body { font-size: 1.05rem; line-height: 1.55; margin: 0 0 1.1rem; color: #334155; }
 .vcge-tour-nav { display: flex; align-items: center; gap: 8px; justify-content: flex-end; }
-.vcge-tour-skip { margin-right: auto; font-size: 12px; color: #64748b; background: none; border-color: transparent; padding: 4px 0; cursor: pointer; }
-.vcge-tour-skip:hover { text-decoration: underline; }
-.vcge-tour-back { background: #f1f5f9; color: #0f172a; border-color: #cbd5e1; border-radius: 10px; padding: 7px 14px; font-size: 13px; cursor: pointer; }
+/* Skip tour: a full button like Back, quieter (lighter, greyer) and with room either side of its words (video #34) */
+.vcge-tour-skip { margin-right: auto; background: #f8fafc; color: #64748b; border-color: #e2e8f0; border-radius: 10px; padding: 0.45rem 1.1rem; font-size: 0.9rem; cursor: pointer; }
+.vcge-tour-skip:hover { background: #f1f5f9; color: #475569; }
+.vcge-tour-back { background: #f1f5f9; color: #0f172a; border-color: #cbd5e1; border-radius: 10px; padding: 0.45rem 1.1rem; font-size: 0.9rem; cursor: pointer; }
 .vcge-tour-back:hover { background: #e2e8f0; }
-.vcge-tour-next { background: #16a34a; color: #020617; font-weight: 700; border-color: #15803d; border-radius: 10px; padding: 7px 14px; font-size: 13px; cursor: pointer; }
+.vcge-tour-next { background: #16a34a; color: #020617; font-weight: 700; border-color: #15803d; border-radius: 10px; padding: 0.45rem 1.1rem; font-size: 0.9rem; cursor: pointer; }
 .vcge-tour-next:hover { background: #22c55e; }
 
 .dark .vcge-tour-spot { box-shadow: 0 0 0 9999px rgba(2, 6, 23, 0.65); outline-color: #4ade80; }
@@ -32,7 +37,9 @@
 .dark .vcge-welcome-tagline, .dark .vcge-welcome-points li::marker { color: #4ade80; }
 .dark .vcge-tour-back { background: #1e293b; color: #f1f5f9; border-color: #334155; }
 .dark .vcge-tour-back:hover { background: #334155; }
-.dark .vcge-tour-step, .dark .vcge-tour-skip { color: #94a3b8; }
+.dark .vcge-tour-step { color: #94a3b8; }
+.dark .vcge-tour-skip { background: #172033; color: #94a3b8; border-color: #263247; }
+.dark .vcge-tour-skip:hover { background: #1e293b; color: #cbd5e1; }
 .dark .vcge-tour-body { color: #cbd5e1; }
 .dark .vcge-tour-dots i { background: #334155; }
 .dark .vcge-tour-dots i.on { background: #4ade80; }

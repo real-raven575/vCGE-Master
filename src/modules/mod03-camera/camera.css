@@ -86,9 +86,12 @@ html[data-cb="1"] .cap-shutter { border-color: #0f172a; }
 html[data-cb="1"] .cap-shutter-label { display: block; }
 .cap-shutter-label { display: none; position: absolute; left: 50%; top: 100%; transform: translate(-50%, 0.25rem); font-size: 0.7rem; font-weight: 700; color: #fff; white-space: nowrap; }
 
-/* ---- Crop step: the photo with its handles at the full edge, then Rotate, Snap to card, Retake, Cancel, OK ---- */
+/* ---- Crop step: the photo with its handles at the full edge, then Rotate left / right, Snap to card, Retake, Cancel, OK */
 .cap-review-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--vcge-gap, 0.5rem); }
 .cap-review-actions .cap-quiet { padding: 0 0.75rem; border-radius: 0.75rem; font-size: 0.85rem; font-weight: 600; background: #f1f5f9; color: #0f172a; border-color: #cbd5e1; cursor: pointer; }
+.cap-rotate { display: inline-flex; gap: var(--vcge-gap, 0.5rem); }
+.cap-rotate .cap-quiet { display: inline-flex; align-items: center; gap: 0.35rem; }
+.cap-rotate .vcge-icon { width: 1.25rem; height: 1.25rem; }
 .dark .cap-review-actions .cap-quiet { background: #1e293b; color: #f1f5f9; border-color: #334155; }
 .cap-ok {
     display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; padding: 0 1.25rem; min-width: 6rem;
@@ -103,8 +106,14 @@ html[data-cb="1"] .cap-ok, html[data-cb="1"] .cap-btn-primary { background: #256
 .cap-choice.hidden, .cap-btn.hidden, .cap-fader.hidden, .cap-shutter-slot.hidden, .cap-finder-tools.hidden,
 .cap-review-actions.hidden, .cap-quiet.hidden, .cap-ok.hidden, .cap-shutter-label.hidden { display: none; }
 
-/* The crop stage: the handles sit on the very edge, so the stage leaves room for their outer half */
-#captureReview #cropStage { margin: 0.75rem auto; }
+/* The crop stage: the handles sit on the very edge, so the stage leaves room for their outer half. It clips the photo
+   when zoomed. At the whole photo a swipe still moves the deck and scrolls the page, but a pinch is the photo's; zoomed
+   in, every touch is the photo's (one finger pans it). The view scales about its top-left corner; the handles scale
+   back so they keep their size at any zoom. */
+.crop-stage { overflow: hidden; padding: 1rem; touch-action: pan-x pan-y; }
+.crop-stage[data-zoomed] { touch-action: none; }
+.crop-view { transform-origin: 0 0; }
+.crop-view .crop-handle { transform: scale(calc(1 / var(--crop-scale, 1))); }
 
 @media (prefers-reduced-motion: reduce) {
     .cap-btn, .cap-shutter { transition: none; }

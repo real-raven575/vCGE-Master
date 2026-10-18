@@ -6,10 +6,11 @@
  * CANCEL, and a small "Play with sample fields" link. Nothing is stored (no "seen it" flag anywhere), so it greets
  * every new session. It touches no contact data and sends nothing on the bus. CANCEL wipes the session (through the
  * deck's cancel hook, which main.js points at the Vault's wipe) and shows the Thank You page.
- * The tour spotlights one card at a time and moves the deck as it goes. No sound, no flashing; the fade is off under
- * reduced motion.
+ * The tour spotlights one card at a time and moves the deck as it goes; a sideways swipe anywhere goes to the next or the
+ * previous step. It stays under the lock screen and every pop-up, and leaves their keys alone. No sound, no flashing;
+ * the fade is off under reduced motion.
  */
-import { go, openSheet, closeSheet, sheetOpen, cardEl, requestCancel } from './deck.js';
+import { go, openSheet, closeSheet, sheetOpen, cardEl, requestCancel, SWIPE_PX } from './deck.js';
 
 export const TOUR_STEPS = [
     { card: 'capture', title: 'Scan a business card',
@@ -33,6 +34,7 @@ const WELCOME_POINTS = [
 ];
 
 const GAP = 16;
+const BESIDE_MIN_PX = 352;
 let layer = null, stepIndex = -1, onViewportChange = null;
 
 function el(tag, props = {}, ...children) {
@@ -72,7 +74,7 @@ export function renderWelcomeCard() {
         list,
         el('div', { className: 'welcome-actions' }, pin, start, tour, cancel),
         sample,
-        el('p', { className: 'welcome-fine' }, 'This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data: it keeps one small settings file on this device (hand, colors, theme, font), and nothing you scan, upload or type is ever saved.'));
+        el('p', { className: 'welcome-fine' }, 'This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data: it keeps one small settings file on this device (hand, colors, theme, font, text size, wipe time), and nothing you scan, upload or type is ever saved.'));
     const thanks = document.getElementById('thankYouPage');
     if (thanks) {
         document.getElementById('thankYouStartOverBtn').addEventListener('click', () => location.reload());
@@ -130,6 +132,8 @@ function close() {
 
 function onKey(e) {
     if (!layer) return;
+    // Keys typed into something over the tour (the lock screen's PIN, a pop-up) are theirs, not the tour's.
+    if (e.target && e.target !== document.body && !layer.contains(e.target)) return;
     if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
     else if (stepIndex >= 0 && e.key === 'ArrowRight') { e.preventDefault(); e.stopPropagation(); goTo(stepIndex + 1); }
     else if (stepIndex > 0 && e.key === 'ArrowLeft') { e.preventDefault(); e.stopPropagation(); goTo(stepIndex - 1); }
@@ -139,6 +143,16 @@ export function startTour() {
     if (layer) return;
     layer = el('div', { id: 'welcomeLayer', className: 'vcge-welcome' });
     document.body.append(layer);
+    // A sideways swipe over the tour: right to left for the next step, left to right for the one before.
+    let start = null;
+    layer.addEventListener('pointerdown', (e) => { start = e.target.closest('button') ? null : { x: e.clientX, y: e.clientY }; });
+    layer.addEventListener('pointerup', (e) => {
+        if (!start || stepIndex < 0) return;
+        const dx = e.clientX - start.x, dy = e.clientY - start.y;
+        start = null;
+        if (Math.abs(dx) < SWIPE_PX || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+        if (dx < 0) goTo(stepIndex + 1); else if (stepIndex > 0) goTo(stepIndex - 1);
+    });
     document.addEventListener('keydown', onKey, true);
     goTo(0);
 }
@@ -217,6 +231,11 @@ function placeStep() {
     const right = Math.min(vw - 4, r.right + pad), bottom = Math.min(vh - 4, r.bottom + pad);
     const spot = layer.querySelector('#tourSpot'), tip = layer.querySelector('#tourTip');
     Object.assign(spot.style, { left: `${left}px`, top: `${top}px`, width: `${Math.max(0, right - left)}px`, height: `${Math.max(0, bottom - top)}px` });
+    // On a wide screen a small area (the Vault page) keeps the tour card beside it: the card narrows to the room
+    // there, down to BESIDE_MIN_PX, rather than covering what it talks about.
+    tip.style.width = '';
+    const room = Math.max(left, vw - right) - 2 * GAP;
+    if (vw >= 900 && room < tip.offsetWidth && room >= BESIDE_MIN_PX) tip.style.width = `${room}px`;
     const pos = placeTip({ left, top, right, bottom }, tip.offsetWidth, tip.offsetHeight, vw, vh);
     Object.assign(tip.style, { left: `${pos.left}px`, top: `${pos.top}px` });
     tip.dataset.side = pos.side;

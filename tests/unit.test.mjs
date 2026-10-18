@@ -154,6 +154,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 {
   const { SessionPin, MAX_PIN_ATTEMPTS, PIN_LENGTH, RESET_SECONDS, isValidPin } = await import(`${R}/modules/mod02-vault/sessionPin.js`);
   ok('reset after 7 minutes without activity, PIN is 4 digits', RESET_SECONDS === 420 && PIN_LENGTH === 4);
+  {
+    const { wipeSecondsFrom } = await import(`${R}/modules/mod02-vault/sessionPin.js`);
+    const got = ['7', '10', '15', undefined, '', '0', '20', '99', 'abc', '10.5', '-7'].map(v => wipeSecondsFrom(v)).join();
+    ok('wipe time from html[data-wipe]: 7, 10 or 15 minutes; anything else is 7 (never longer than 15)', got === '420,600,900,420,420,420,420,420,420,420,420', got);
+  }
   ok('only exactly 4 digits make a PIN', isValidPin('0420') && !isValidPin('123') && !isValidPin('12345') && !isValidPin('12a4') && !isValidPin(' 1234') && !isValidPin(1234));
   const pin = new SessionPin();
   ok('session PIN starts unset', !pin.isSet() && (await pin.verify('1234')).result === 'not_set');
@@ -436,11 +441,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const text = 'ya O/\nYour Technology Partner\nDana Whitlock\nOwner & General Manager\n4120 Lakeshore Road, Suite 210\nSpringfield, MI 49011\nE dwhitlock@BrightPathIT.com\nT 616.555.0142\nM 616.555.0187\nW BrightPathIT.com/Holland';
   const lines = fm.classifyLines(text);
   ok('classifyLines gives one role per line', lines.length === 10 && lines.every(l => LINE_ROLES.some(([r]) => r === l.role)), JSON.stringify(lines));
-  ok('classifyLines roles for a labelled card', JSON.stringify(lines.map(l => l.role)) === JSON.stringify(['ignore', 'ignore', 'name', 'jobTitle', 'street', 'cityStateZip', 'email', 'phoneWork', 'phoneMobile', 'website']), lines.map(l => l.role).join());
+  ok('classifyLines roles for a labelled card', JSON.stringify(lines.map(l => l.role)) === JSON.stringify(['ignore', 'notes', 'name', 'jobTitle', 'street', 'cityStateZip', 'email', 'phoneWork', 'phoneMobile', 'website']), lines.map(l => l.role).join());
   // A real phone photo's misreads (fictional details): "I" read as "\" in the domain, the "/" of the web path read as a
   // space, lowercase "w" label, slogan with a company word ("Technology") and no readable company name (logo only).
   const slips = fm.classifyLines('2OO brightpathlogo\nYour Technology Partner\nDana Whitlock\nOwner & General Manager\n4120 Lakeshore Road, Suite 210\nSpringfield, MI 49011\nE dwhitlock@BrightPath\\T.com\nT 616.555.0142\nM 616.555.0187\nw BrightPath\\T.com Holland');
-  ok('misread card: roles (slogan ignored, email and website found, phone types in the picker)', JSON.stringify(slips.map(l => l.role)) === JSON.stringify(['ignore', 'ignore', 'name', 'jobTitle', 'street', 'cityStateZip', 'email', 'phoneWork', 'phoneMobile', 'website']), slips.map(l => l.role).join());
+  ok('misread card: roles (slogan to Notes, email and website found, phone types in the picker)', JSON.stringify(slips.map(l => l.role)) === JSON.stringify(['ignore', 'notes', 'name', 'jobTitle', 'street', 'cityStateZip', 'email', 'phoneWork', 'phoneMobile', 'website']), slips.map(l => l.role).join());
   ok('misread card: review shows the repaired email and web address, without labels', slips[6].text === 'dwhitlock@BrightPathIT.com' && slips[9].text === 'BrightPathIT.com/Holland', slips[6].text + ' | ' + slips[9].text);
   ok('misread card: review shows phone numbers without their T / M labels', slips[7].text === '616.555.0142' && slips[8].text === '616.555.0187', slips[7].text + ' | ' + slips[8].text);
   ok('review keeps the labels of a line with several numbers', fm.classifyLines('T 312.555.1111  M 312.555.2222')[0].text === 'T 312.555.1111 M 312.555.2222');
@@ -482,6 +487,21 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('a line with words the reader was unsure of is flagged for checking', camera.find(l => l.role === 'website').check === 'The reader was not sure of some letters here. Please check them.');
   ok('unsure phone numbers and ignored lines are not flagged', fm.classifyLines([{ text: 'Jo Smith' }, { text: 'T 269.492.7400', unsure: ['269.492.7400'] }, { text: 'ya O/', unsure: ['ya'] }]).every(l => !('check' in l)));
   ok('a short domain is not matched (too easy to confuse)', fm.parseOCRText('Jo Smith\njo@abd.com\nabc.com').emails[0].value === 'jo@abd.com');
+  // The TeamLogic card read from a phone screenshot on the iPad (video review 2026-10-17, finding 53 and 56): the slogan
+  // was ignored, the street carried the T of the phone line, and the web path came apart from its domain.
+  const shot = fm.classifyLines('N20 weersooen\nYour Technology Advisor\nNick Zafer\nOwner & General Manager\nT 7950 Moorsbridge Road, Suite 405\nPortage, MI 49024\nE nzafer@TeamLogicIT.com\nT 269.492.7400\nM 269.254.5403\nW TeamLogicIT.com KalamazooMl\\');
+  const shotFields = fm.buildFields(shot).fields;
+  ok('screenshot read: slogan goes to Notes, logo noise stays ignored', shot[0].role === 'ignore' && shot[1].role === 'notes' && shotFields.notes === 'Your Technology Advisor', JSON.stringify(shot.slice(0, 2)));
+  ok('screenshot read: a stray label letter in front of the street is dropped', shot[4].role === 'street' && shot[4].text === '7950 Moorsbridge Road, Suite 405' && shotFields.street === '7950 Moorsbridge Road' && shotFields.unitNumber === '405', JSON.stringify(shot[4]));
+  ok('a stray letter before a phone number is still that phone\'s label', fm.classifyLines('Jo Smith\nT 269.492.7400')[1].role === 'phoneWork');
+  const site = (t, place = 'Portage, MI 49024') => fm.classifyLines(`Jo Smith\n${place}\n${t}`).find(l => l.role === 'website').text;
+  ok('screenshot read: the web path split off its domain is joined back and ends in the state code', shot[9].text === 'TeamLogicIT.com/KalamazooMI' && site('W TeamLogicIT.com/ Kalamazoo') === 'TeamLogicIT.com/Kalamazoo' && site('W TeamLogicIT.com /Kalamazoo') === 'TeamLogicIT.com/Kalamazoo' && site('W TeamLogicIT.com KalamazooM\\ |') === 'TeamLogicIT.com/KalamazooMI', [shot[9].text, site('W TeamLogicIT.com KalamazooM\\ |')].join(' | '));
+  ok('a lowercase l ends in the state code only after a capital or before a bar', site('W acme.com/KalamazooMl') === 'acme.com/KalamazooMI' && site('W acme.com/email') === 'acme.com/email' && site('W acme.com/Chicagoil', 'Chicago, IL 60601') === 'acme.com/Chicagoil', site('W acme.com/email'));
+  const doubled = fm.parseOCRText('Jo Smith\n12 Main Street\nPortage, M\\| 49024');
+  ok('a state code whose I was read as two bars ("M\\|") is still MI', doubled.city === 'Portage' && doubled.state === 'MI' && doubled.zip === '49024' && fm.parseOCRText('Jo Smith\n12 Main Street\nChicago, IL 60606').state === 'IL', JSON.stringify([doubled.city, doubled.state, doubled.zip]));
+  ok('two words after a domain are not joined as its path', site('W acme.com Detroit office') === 'acme.com', site('W acme.com Detroit office'));
+  const tag = (t) => fm.classifyLines(`Jo Smith\n${t}\njo@acme.com`)[1].role;
+  ok('a phrase in quotes goes to Notes; a lone word, a company or a title does not', tag('"Built to last"') === 'notes' && tag('Serving Kalamazoo since 1999') === 'notes' && tag('"Acme"') !== 'notes' && tag('Acme Tools LLC') === 'organization' && tag('Sales Manager') === 'jobTitle', [tag('"Built to last"'), tag('"Acme"'), tag('Acme Tools LLC')].join());
   ok('review text, read again as plain lines, fills the same fields', JSON.stringify(fm.buildFields(slips).fields) === JSON.stringify(fm.parseOCRText(slips.map(l => l.text).join('\n'))));
   const slipFields = fm.buildFields(slips);
   ok('misread card: email, website path and company (case from the domain) repaired', slipFields.fields.emails[0].value === 'dwhitlock@BrightPathIT.com' && slipFields.fields.websites[0].value === 'BrightPathIT.com/Holland' && slipFields.fields.organization === 'BrightPathIT' && slipFields.derived.organization === 'web address', JSON.stringify([slipFields.fields.emails, slipFields.fields.websites, slipFields.fields.organization]));
@@ -506,6 +526,43 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const whole = fm.buildFields([{ text: '88 Elm Avenue, Burlington, VT 05401', role: 'address' }]);
   ok('Whole address role splits street and City/State/ZIP', whole.fields.street === '88 Elm Avenue' && whole.fields.city === 'Burlington' && whole.fields.zip === '05401');
   ok('no name line means no invented name', fm.parseOCRText('+1 (555) 201-3344').firstName === '');
+
+  // Video review 2026-10-17 (#53, #54, #94): the TeamLogic card as the iPad read it, and other card shapes
+  const ipad = fm.classifyLines('N20 weersooen\nYour Technology Advisor\nNick Zafer\nOwner & General Manager\nT 7950 Moorsbridge Road, Suite 405\nPortage, MI 49024\nnzafer@TeamLogicIT.com\n269.492.7400\n269.254.5403\nTeamLogicIT.com');
+  ok('MOD05 #54: a street with a stray letter in front ("T 7950 ...") is the street, shown and filled without the letter', ipad[4].role === 'street' && ipad[4].text === '7950 Moorsbridge Road, Suite 405'
+    && fm.buildFields(ipad).fields.street === '7950 Moorsbridge Road' && fm.buildFields(ipad).fields.unitNumber === '405', JSON.stringify(ipad[4]));
+  ok('MOD05 #54: chosen by hand as Street, the stray letter is still dropped; a one-line address too', fm.buildFields([{ text: 'T 7950 Moorsbridge Road', role: 'street' }]).fields.street === '7950 Moorsbridge Road'
+    && fm.parseOCRText('Jo Smith\nT 12 Main Street, Springfield, IL 62701').street === '12 Main Street');
+  ok('MOD05 #54: a labelled phone number is never taken as a street', fm.classifyLines('Jo Smith\nT 269.492.7400\nPortage, MI 49024')[1].role === 'phoneWork');
+  ok('MOD05 #53: the slogan goes to Notes, logo debris stays Ignore', ipad[1].role === 'notes' && ipad[0].role === 'ignore' && fm.buildFields(ipad).fields.notes === 'Your Technology Advisor');
+  const quoted = fm.classifyLines('"Your Technology Advisor"\nNick Zafer\nOwner & General Manager');
+  ok('MOD05 #53: a quoted phrase is never a job title or company: it goes to Notes', quoted[0].role === 'notes' && quoted[2].role === 'jobTitle', JSON.stringify(quoted));
+  const occasion = fm.classifyLines('20th Anniversary\nJo Smith\nSince 1998');
+  ok('MOD05 #53: "20th Anniversary" and "Since 1998" go to Notes, not Company', occasion[0].role === 'notes' && occasion[2].role === 'notes' && fm.buildFields(occasion).fields.organization === '', JSON.stringify(occasion));
+  ok('MOD05: a "The ..." company name is still the company, not a slogan', fm.classifyLines('The Home Depot\nDana Whitlock\nStore Manager\ndana@homedepot.com')[0].role === 'organization');
+  const caps = fm.parseOCRText('JOHN O\'BRIEN\nSALES DIRECTOR\nACME TOOLS INC\njohn@acmetools.com');
+  ok('MOD05 #94: a name in capitals is found and filled in name case', caps.firstName === 'John' && caps.lastName === "O'Brien" && caps.jobTitle === 'SALES DIRECTOR' && caps.organization === 'ACME TOOLS INC', JSON.stringify(caps));
+  ok('MOD05 #94: a printed "Jane Doe" still beats a line in capitals', fm.parseOCRText('ACME TOOLS\nJane Doe').firstName === 'Jane');
+  const cruz = fm.parseOCRText('Maria de la Cruz\nOwner');
+  ok('MOD05 #94: family-name particles (de la, van der) stay with the family name', cruz.firstName === 'Maria' && cruz.lastName === 'de la Cruz' && fm.parseOCRText('Jan van der Berg\nOwner').lastName === 'van der Berg', JSON.stringify(cruz));
+  const intlPhones = fm.parseOCRText('Jo Smith\nTel +44 20 7946 0958\nM +49 30 1234567\n+1 312 555 0147').phones;
+  ok('MOD05 #94: numbers with a country code outside the US are found and typed by their label (an unlabelled US number after work and mobile is Other)', JSON.stringify(intlPhones) === JSON.stringify([{ type: 'work', value: '+44 20 7946 0958' }, { type: 'mobile', value: '+49 30 1234567' }, { type: 'other', value: '+1 (312) 555-0147' }]), JSON.stringify(intlPhones));
+  ok('MOD05 #94: a ZIP code or a short number is not an international phone', fm.parseOCRText('Jo Smith\nRoom +12').phones.length === 0 && fm.parseOCRText('Jo Smith\nSpringfield, IL 62701').phones.length === 0);
+
+  // Video review #71: phone styles for US and Canadian numbers (memory only)
+  const { PHONE_FORMATS, DEFAULT_PHONE_STYLE } = await import(`${R}/modules/mod05-form/formMapper.js`);
+  const styled = new ContactFormMapper();
+  const fmt = (style, n = '269.492.7400') => { styled.phoneStyle = style; return styled.formatPhone(n, 'US'); };
+  ok('MOD05 #71: the three styles raven575 named, with and without +1', PHONE_FORMATS.map(([k]) => k).join() === 'paren,dots,digits'
+    && fmt({ format: 'paren', countryCode: true }) === '+1 (269) 492-7400' && fmt({ format: 'paren', countryCode: false }) === '(269) 492-7400'
+    && fmt({ format: 'dots', countryCode: true }) === '+1 269.492.7400' && fmt({ format: 'dots', countryCode: false }) === '269.492.7400'
+    && fmt({ format: 'digits', countryCode: true }) === '+12694927400' && fmt({ format: 'digits', countryCode: false }) === '2694927400');
+  ok('MOD05 #71: restyling a styled number works both ways, and an extension is kept', fmt({ format: 'dots', countryCode: false }, '+1 (269) 492-7400') === '269.492.7400' && fmt({ format: 'paren', countryCode: true }, '2694927400') === '+1 (269) 492-7400'
+    && fmt({ format: 'dots', countryCode: false }, '269 492 7400 x12') === '269.492.7400 x12');
+  ok('MOD05 #71: the default style is the one shipped before (+1 (269) 492-7400); other countries keep their own format', new ContactFormMapper().formatPhone('2694927400', 'US') === '+1 (269) 492-7400' && DEFAULT_PHONE_STYLE.format === 'paren' && DEFAULT_PHONE_STYLE.countryCode === true
+    && fmt({ format: 'digits', countryCode: false }, '+44 20 7946 0958x') === '+44 20 7946 0958x' && styled.formatPhone('+44 2079460958', 'UK') === '+44 20 7946 0958');
+  styled.phoneStyle = { format: 'dots', countryCode: false };
+  ok('MOD05 #71: a scan fills phones in the chosen style', styled.parseOCRText('Jo Smith\nT 269.492.7400').phones[0].value === '269.492.7400');
 }
 
 // Icon matching (MOD04 iconMatcher: pure shape maths) and icon clues in the mapper
@@ -545,6 +602,9 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const textWins = fm.buildFields(fm.classifyLines([{ text: 'T 206.555.1111', icon: 'mobile' }, { text: '206.555.2222', icon: 'email' }])).fields;
   ok('a written label beats the icon; an envelope next to a number is still a phone', textWins.phones[0].type === 'work' && textWins.phones.length === 2 && !textWins.emails.length, JSON.stringify(textWins));
   ok('classifyLines keeps each line\'s icon for the review screen', fm.classifyLines([{ text: '206.555.9876', icon: 'mobile' }])[0].icon === 'mobile');
+  ok('MOD05 #66: Reddit is a website type; reddit.com and fb.me links are typed; u/handle makes a Reddit link', share.WEBSITE_TYPES.some(([k, l]) => k === 'reddit' && l === 'Reddit')
+    && share.websiteTypeFor('https://www.reddit.com/user/kai') === 'reddit' && share.websiteTypeFor('https://fb.me/kai.t') === 'facebook' && share.websiteTypeFor('https://www.facebook.com/profile.php?id=100012345') === 'facebook'
+    && share.socialProfileUrl('reddit', 'u/kai_t') === 'https://www.reddit.com/user/kai_t' && share.formatVCard({ firstName: 'K', websites: [{ type: 'reddit', value: 'https://www.reddit.com/user/kai' }] }).includes('X-SOCIALPROFILE;TYPE=reddit:https://www.reddit.com/user/kai'));
   ok('socialProfileUrl builds links only from plausible handles', share.socialProfileUrl('tiktok', '@kai') === 'https://tiktok.com/@kai' && share.socialProfileUrl('youtube', 'studio craft') === '' && share.socialProfileUrl('unknown', 'kai') === '');
 }
 
@@ -589,6 +649,25 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('tween: stepped frames about 38 ms apart, ending exactly on the target', seen.length >= 6 && seen.length <= 8 && seen[seen.length - 1] === 2 && seen.slice(0, -1).every(v => v > 1 && v < 2.1), JSON.stringify(seen));
   const instant = []; tween(1, 3, 260, (v) => instant.push(v), { instant: true, schedule, cancel: () => {} });
   ok('tween: under reduce motion the end value applies at once', instant.length === 1 && instant[0] === 3 && timers.length === 0);
+}
+
+// The zoom of the photo in the crop step (MOD03): pinch, pan and the zoom onto a snapped card
+{
+  const { clampView, zoomAbout, viewForCorners, CROP_ZOOM_MAX, SNAP_MARGIN } = await import(`${R}/modules/mod03-camera/cropView.js`);
+  ok('crop zoom: never smaller than the whole photo, never past the maximum', clampView({ scale: 0.5, x: 10, y: 10 }, 400, 300).scale === 1 && clampView({ scale: 9, x: 0, y: 0 }, 400, 300).scale === CROP_ZOOM_MAX);
+  ok('crop zoom: the photo always covers the view (no gap at an edge)', JSON.stringify(clampView({ scale: 2, x: 50, y: -900 }, 400, 300)) === JSON.stringify({ scale: 2, x: 0, y: -300 }), JSON.stringify(clampView({ scale: 2, x: 50, y: -900 }, 400, 300)));
+  const z = zoomAbout({ scale: 1, x: 0, y: 0 }, 2, 100, 100, 400, 300);
+  ok('crop zoom: a pinch keeps the point under the fingers in place', JSON.stringify(z) === JSON.stringify({ scale: 2, x: -100, y: -100 }), JSON.stringify(z));
+  ok('crop zoom: pinching out past the whole photo stops at it', JSON.stringify(zoomAbout({ scale: 2, x: -100, y: -100 }, 0.25, 0, 0, 400, 300)) === JSON.stringify({ scale: 1, x: 0, y: 0 }));
+  // A 1600 x 1200 photo shown at 400 x 300; the card's box is 400..1200 by 300..700 in the photo (100..300 by 75..175 on screen)
+  const card = [{ x: 400, y: 300 }, { x: 1200, y: 320 }, { x: 1180, y: 700 }, { x: 420, y: 680 }];
+  const v = viewForCorners(card, 1600, 1200, 400, 300);
+  const onScreen = card.map(c => ({ x: c.x / 4 * v.scale + v.x, y: c.y / 4 * v.scale + v.y }));
+  ok('snap zoom: zooms in onto the card', v.scale > 1.5 && v.scale <= CROP_ZOOM_MAX, JSON.stringify(v));
+  ok('snap zoom: the whole card is in view with a margin round it', onScreen.every(p => p.x >= 400 * SNAP_MARGIN / 2 && p.x <= 400 * (1 - SNAP_MARGIN / 2) && p.y >= 0 && p.y <= 300), JSON.stringify(onScreen));
+  ok('snap zoom: the card sits in the middle', Math.abs((Math.min(...onScreen.map(p => p.x)) + Math.max(...onScreen.map(p => p.x))) / 2 - 200) < 1, JSON.stringify(onScreen));
+  ok('snap zoom: a card that fills the photo leaves the whole photo in view', JSON.stringify(viewForCorners([{ x: 0, y: 0 }, { x: 1600, y: 0 }, { x: 1600, y: 1200 }, { x: 0, y: 1200 }], 1600, 1200, 400, 300)) === JSON.stringify({ scale: 1, x: 0, y: 0 }));
+  ok('snap zoom: missing sizes are harmless', viewForCorners(card, 0, 0, 400, 300).scale === 1 && viewForCorners(null, 1600, 1200, 400, 300).scale === 1);
 }
 
 // Snap to card: the on-device edge finder (MOD03)
@@ -964,6 +1043,27 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     stop();
   }
   ok('spin, edge and toast numbers follow the plan: 26 fps, 5 percent, 48 px edge, 3 s toast', card.STEP_FPS === 26 && card.OVERSHOOT === 0.05 && card.EDGE_PX === 48 && card.TOAST_MS === 3000 && card.PRINT_LINES_EACH === 2);
+
+  // iPad test video, 2026-10-17 (#74, #85, #86): the logo inset, the typefaces and sizes, the line icons and labels
+  const css6 = fs6.readFileSync(`${R}/modules/mod06-gui/cardStyles.css`, 'utf8'), uiCss = fs6.readFileSync(`${R}/modules/mod01-shell/ui.css`, 'utf8');
+  const px = (cls) => parseFloat(/^p-(\d+(?:\.\d+)?)$/.exec(cls)[1]) * 4;
+  ok('#74 the logo inset is more than the rounding takes off (0.29 of the radius): 16 px tile corners, 12 px strip corners',
+    px(card.LOGO_INSET) > 16 * (1 - Math.SQRT1_2) && px(card.LOGO_INSET_STRIP) > 12 * (1 - Math.SQRT1_2), `${card.LOGO_INSET} ${card.LOGO_INSET_STRIP}`);
+  const families = card.CARD_FONTS.map(([cls]) => (new RegExp(`\\.${cls} \\{ font-family: '?([^',;]+)`).exec(css6) || [])[1]);
+  ok('#85 eleven card typefaces, the original Sans, Serif and Mono first, each with its own rule', card.CARD_FONTS.length === 11 && card.CARD_FONTS.slice(0, 3).map(([c]) => c).join() === 'font-sans,font-serif,font-mono' && families.every(Boolean), JSON.stringify(families));
+  const bundled = families.filter(f => !/^(system-ui|Georgia)$/.test(f));
+  ok('#85 every bundled card typeface has its @font-face (here or in the app\'s font setting), no font host', bundled.length === 9 && bundled.every(f => new RegExp(`@font-face \\{ font-family: '${f}';[^}]*url\\('\\.\\./\\.\\./vendor/fonts/`).test(css6 + uiCss)) && !/https?:/.test(css6), bundled.join(','));
+  ok('#85 four text sizes, medium by default, each scale defined', card.CARD_SIZES.map(([k]) => k).join() === 'sm,md,lg,xl' && card.DEFAULT_CARD_SIZE === 'md' && ['sm', 'lg', 'xl'].every(k => css6.includes(`.card-face.card-size-${k} { --card-scale:`)) && /@media screen \{\s*\.card-face \.text-2xl/.test(css6));
+  ok('#86 line icons by kind: handset, mobile, fax, envelope, globe, house or building',
+    card.lineIcon('phones', 'work') === 'phone' && card.lineIcon('phones', 'mobile') === 'device-mobile' && card.lineIcon('phones', 'pager') === 'device-mobile' && card.lineIcon('phones', 'workFax') === 'printer'
+    && card.lineIcon('phones', 'homeFax') === 'printer' && card.lineIcon('phones', '') === 'phone' && card.lineIcon('emails', 'work') === 'mail' && card.lineIcon('websites', 'linkedin') === 'world'
+    && card.lineIcon('address', 'home') === 'home' && card.lineIcon('address', 'work') === 'building' && card.lineIcon('address', 'other') === 'building');
+  const sprite = fs6.readFileSync(`${R}/vendor/icons/app/sprite.svg`, 'utf8');
+  ok('#86 every line icon is in the bundled sprite', ['phone', 'device-mobile', 'printer', 'mail', 'world', 'home', 'building'].every(id => sprite.includes(`<symbol id="${id}" viewBox="0 0 24 24">`)));
+  ok('#86 labels: with icons the type alone; without, the line\'s noun joins a plain type, a telling one stays',
+    card.lineLabel('phones', 'work', 'Work', true) === 'Work' && card.lineLabel('phones', 'work', 'Work', false) === 'Work phone' && card.lineLabel('phones', 'mobile', 'Mobile', false) === 'Mobile phone'
+    && card.lineLabel('phones', 'workFax', 'Work fax', false) === 'Work fax' && card.lineLabel('emails', 'personal', 'Personal', false) === 'Personal email'
+    && card.lineLabel('websites', 'linkedin', 'LinkedIn', false) === 'LinkedIn' && card.lineLabel('address', 'home', 'Home', false) === 'Home address' && card.lineLabel('emails', '', '', false) === '');
 }
 
 // MOD01 browser gate (browserGate.js, ES5): which missing feature blocks the app and which only warns
@@ -1008,6 +1108,23 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const deckCode = fs.readFileSync(`${R}/modules/mod01-shell/deck.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
   ok('deck: stores nothing, imports only the bus, and publishes only CARD_CHANGED', !/localStorage|sessionStorage|indexedDB|document\.cookie|innerHTML|fetch\(/.test(deckCode)
     && (deckCode.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js')) && (deckCode.match(/publish\(Events\.(\w+)/g) || []).every(m => m === 'publish(Events.CARD_CHANGED'));
+  // A swipe goes one card on from where the deck rested, in the direction it moved, however far it was flung
+  const names = ['a', 'b', 'c', 'd'], centres = [0, 700, 1400, 2100];
+  ok('deck: a swipe longer than 24 px goes on one card; a shorter one goes back', deck.INTENT_PX === 24
+    && deck.pickCard(names, centres, 700 - 30, 700) === 'a' && deck.pickCard(names, centres, 700 + 30, 700) === 'c'
+    && deck.pickCard(names, centres, 700 - 20, 700) === 'b' && deck.pickCard(names, centres, 700 + 20, 700) === 'b');
+  ok('deck: a fling past two cards still stops at the next one, either way', deck.pickCard(names, centres, 1950, 700) === 'c'
+    && deck.pickCard(names, centres, 300, 1400) === 'b' && deck.pickCard(names, centres, 2050, 2100) === 'c' && deck.pickCard(names, centres, 40.5, 0) === 'b');
+  ok('deck: a scroll that ends on a card\'s centre (a card scrolled into view) keeps that card', deck.pickCard(names, centres, 2100, 700) === 'd' && deck.pickCard(names, centres, 1, 1400) === 'a');
+  // Layers: the tour sits over the sheets but under the padlock, the lock screen and every pop-up
+  const z = (file, sel) => Number(new RegExp(sel.replace(/[.]/g, '\\.') + '\\s*\\{[^}]*z-index:\\s*(\\d+)').exec(fs.readFileSync(`${R}/modules/${file}`, 'utf8'))[1]);
+  const tourZ = z('mod01-shell/welcome.css', '.vcge-welcome'), sheetZ = z('mod01-shell/deck.css', '.vcge-sheet'), padlockZ = z('mod02-vault/vault.css', '.vault-handoff'), wipeZ = z('mod02-vault/vault.css', '.wipe-dialog');
+  const indexHtml = fs.readFileSync(`${R}/../index.html`, 'utf8');
+  const vaultCss = fs.readFileSync(`${R}/modules/mod02-vault/vault.css`, 'utf8');
+  // A pop-up's layer is set either by its Tailwind class in index.html or by its own rule in vault.css
+  const modalZ = ['vaultModal', 'quickSetupModal', 'leaveModal', 'ocrTimeoutModal'].map(id => Number((new RegExp(`#${id}\\s*\\{[^}]*z-index:\\s*(\\d+)`).exec(vaultCss) || new RegExp(`id="${id}"[^>]*\\bz-\\[?(\\d+)`).exec(indexHtml) || [])[1]));
+  ok('welcome: the tour layer is over the sheets and under the padlock, the lock screen and every pop-up', tourZ > sheetZ && tourZ < padlockZ && tourZ < wipeZ && modalZ.every(m => tourZ < m), JSON.stringify({ tourZ, sheetZ, padlockZ, wipeZ, modalZ }));
+  ok('welcome: the tour leaves keys typed into the lock screen or a pop-up alone', /e\.target !== document\.body && !layer\.contains\(e\.target\)/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8')));
   ok('welcome: the tour gives no exact lock or wipe minutes (Vault owns the timers)', welcome.TOUR_STEPS.every(s => !/\d+\s*(min|minute|s\b|sec)/i.test(s.body)));
   const area = { left: 100, top: 100, right: 500, bottom: 300 };
   ok('welcome: on a wide screen the card goes beside the area', welcome.placeTip(area, 330, 200, 1440, 900).side === 'right' && welcome.placeTip({ left: 1000, top: 100, right: 1400, bottom: 300 }, 330, 200, 1440, 900).side === 'left');
@@ -1031,8 +1148,10 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const fontUrls = [...css.matchAll(/url\('\.\.\/\.\.\/vendor\/fonts\/([^']+)'\)/g)].map(m => m[1]);
   ok('ui: every declared font is bundled (Sixtyfour plus the Settings fonts)', fontUrls.length === 12 && fontUrls.every(f => fs.existsSync(`${R}/vendor/fonts/${f}`)), fontUrls.join(' '));
   ok('ui: each new font ships with its SIL Open Font License', ['sixtyfour', 'atkinson-hyperlegible', 'lexend', 'opendyslexic', 'tinos', 'comic-neue', 'macondo'].every(n => /SIL OPEN FONT LICENSE/i.test(fs.readFileSync(`${R}/vendor/fonts/LICENSE-${n}.txt`, 'utf8'))));
-  const icons = ['aperture', 'radar-2', 'lock', 'forms', 'id', 'qrcode', 'send', 'settings', 'trash', 'camera', 'upload', 'circle-check'];
-  ok('ui: the twelve app icons are bundled as SVG with the Tabler MIT licence', icons.every(n => fs.readFileSync(`${R}/vendor/icons/app/${n}.svg`, 'utf8').includes('<svg')) && /MIT License/.test(fs.readFileSync(`${R}/vendor/icons/app/LICENSE-tabler.txt`, 'utf8')));
+  const icons = ['aperture', 'radar-2', 'lock', 'forms', 'id', 'qrcode', 'send', 'settings', 'trash', 'camera', 'upload', 'circle-check', 'home-shield'];
+  ok('ui: every MOD tag names its pilot (the roster)', Object.entries(ui.PILOTS).map(([m, n]) => `${m} ${n}`).join() === 'MOD-01 Shutout,MOD-02 Ghost,MOD-03 Iris,MOD-04 Glyph,MOD-05 Pidge,MOD-06 Flipside,MOD-07 Checkers,MOD-08 Airlock');
+  ok('ui: the tag is drawn in solid pixels (scanlines filled, no bleed) from the full Sixtyfour file', /font-variation-settings:\s*'BLED' 0,\s*'SCAN' 100/.test(css) && css.includes('sixtyfour-latin-full.woff2') && /\.mod-tag\.is-faded\s*\{\s*opacity:\s*0\.36/.test(css));
+  ok('ui: the thirteen app icons are bundled as SVG with the Tabler MIT licence', icons.every(n => fs.readFileSync(`${R}/vendor/icons/app/${n}.svg`, 'utf8').includes('<svg')) && /MIT License/.test(fs.readFileSync(`${R}/vendor/icons/app/LICENSE-tabler.txt`, 'utf8')));
   ok('ui: icon stroke 2.3 and buttons at least 44 px with a 2 px outline', /--vcge-icon-stroke:\s*2\.3;/.test(css) && /--vcge-tap:\s*2\.75rem;/.test(css) && /border-width:\s*2px/.test(css));
   ok('ui: no font or icon comes from a host (only bundled files)', !/https?:/.test(css.replace(/\/\*[\s\S]*?\*\//g, '')));
   const html = fs.readFileSync(`${R}/../index.html`, 'utf8');
@@ -1049,24 +1168,35 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const st = await import(`${R}/modules/mod01-shell/settings.js`);
   const ui = await import(`${R}/modules/mod01-shell/ui.js`);
   localStorage.clear();
-  ok('settings: one key, defaults right hand, colour-blind off, dark theme, Inter', st.SETTINGS_KEY === 'vcge_settings' && JSON.stringify(st.DEFAULTS) === '{"hand":0,"cb":0,"theme":0,"font":0}' && st.fontFor(0) === 'Inter');
+  ok('settings: one key, defaults right hand, colour-blind off, dark theme, Inter, normal text size', st.SETTINGS_KEY === 'vcge_settings' && JSON.stringify(st.DEFAULTS) === '{"hand":0,"cb":0,"theme":0,"font":0,"size":0,"wipe":0}' && st.fontFor(0) === 'Inter' && st.scaleFor(0) === 1);
+  ok('settings: the wipe after the lock is 7, 10 or 15 minutes, codes 0, 1, 2; 7 is the default and an unknown code is 7', st.WIPE_TIMES.map(t => `${t.code}:${t.minutes}`).join() === '0:7,1:10,2:15'
+    && st.wipeMinutesFor(0) === 7 && st.wipeMinutesFor(1) === 10 && st.wipeMinutesFor(2) === 15 && st.wipeMinutesFor(9) === 7);
+  {
+    const root = { dataset: {}, classList: { toggle() {} }, style: { setProperty() {} } };
+    const minutes = [0, 1, 2, 7].map(w => { st.applySettings({ wipe: w }, root); return root.dataset.wipe; }).join();
+    ok('settings: applySettings puts the wipe time on html as data-wipe in minutes (7, 10, 15; out of range is 7)', minutes === '7,10,15,7', minutes);
+  }
+  ok('settings: wipe=3 or more is out of range and reads as 7 minutes', st.parseSettings('wipe=3').wipe === 0 && st.parseSettings('wipe=2').wipe === 2 && st.parseSettings('wipe=-1').wipe === 0);
+  ok('settings: text sizes Small, Normal, Large, Larger, smallest first, each with its own fixed code; an unknown code is Normal', st.TEXT_SIZES.map(t => t.name).join() === 'Small,Normal,Large,Larger'
+    && st.TEXT_SIZES.every((t, i) => i === 0 || t.scale > st.TEXT_SIZES[i - 1].scale) && new Set(st.TEXT_SIZES.map(t => t.code)).size === 4 && st.scaleFor(2) === 1.25 && st.scaleFor(9) === 1);
   ok('settings: every Settings font has its own fixed code, Inter 0, no code shared', ui.UI_FONTS.every(n => Number.isInteger(st.FONT_CODES[n])) && new Set(Object.values(st.FONT_CODES)).size === ui.UI_FONTS.length && Object.keys(st.FONT_CODES).length === ui.UI_FONTS.length);
-  ok('settings: a line of name=number pairs reads back', JSON.stringify(st.parseSettings('hand=1;cb=1;theme=1;font=3')) === '{"hand":1,"cb":1,"theme":1,"font":3}');
+  ok('settings: a line of name=number pairs reads back', JSON.stringify(st.parseSettings('hand=1;cb=1;theme=1;font=3;size=2;wipe=1')) === '{"hand":1,"cb":1,"theme":1,"font":3,"size":2,"wipe":1}');
+  ok('settings: an entry saved before the text size and wipe time existed reads as Normal and 7 minutes', JSON.stringify(st.parseSettings('hand=1;cb=0;theme=0;font=2')) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0}');
   ok('settings: missing or unreadable means the defaults', JSON.stringify(st.parseSettings(null)) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('garbage')) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('')) === JSON.stringify(st.DEFAULTS));
-  ok('settings: an unknown name, an out-of-range or non-numeric value falls back to its default, the rest is kept', JSON.stringify(st.parseSettings('hand=1;name=Maria;cb=7;theme=x;font=99')) === '{"hand":1,"cb":0,"theme":0,"font":0}');
-  ok('settings: serialises every name in a fixed order and clamps', st.serializeSettings({ font: 2, hand: 1 }) === 'hand=1;cb=0;theme=0;font=2' && st.serializeSettings({ cb: 5 }) === 'hand=0;cb=0;theme=0;font=0');
+  ok('settings: an unknown name, an out-of-range or non-numeric value falls back to its default, the rest is kept', JSON.stringify(st.parseSettings('hand=1;name=Maria;cb=7;theme=x;font=99;size=4')) === '{"hand":1,"cb":0,"theme":0,"font":0,"size":0,"wipe":0}');
+  ok('settings: serialises every name in a fixed order and clamps', st.serializeSettings({ font: 2, hand: 1, size: 3 }) === 'hand=1;cb=0;theme=0;font=2;size=3;wipe=0' && st.serializeSettings({ cb: 5 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0');
   st.saveSettings({ hand: 1, font: 2 });
-  ok('settings: save writes the one key and nothing else', localStorage.getItem('vcge_settings') === 'hand=1;cb=0;theme=0;font=2' && store.size === 1);
-  ok('settings: load reads it back', JSON.stringify(st.loadSettings()) === '{"hand":1,"cb":0,"theme":0,"font":2}');
+  ok('settings: save writes the one key and nothing else', localStorage.getItem('vcge_settings') === 'hand=1;cb=0;theme=0;font=2;size=0;wipe=0' && store.size === 1);
+  ok('settings: load reads it back', JSON.stringify(st.loadSettings()) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0}');
   st.clearSettings();
   ok('settings: clear removes it', store.size === 0 && JSON.stringify(st.loadSettings()) === JSON.stringify(st.DEFAULTS));
   localStorage.setItem('vcge_theme_preference', 'light');
-  ok('settings: the old theme key is carried over once and removed', JSON.stringify(st.loadSettings()) === '{"hand":0,"cb":0,"theme":1,"font":0}' && localStorage.getItem('vcge_theme_preference') === null && store.size === 0);
+  ok('settings: the old theme key is carried over once and removed', JSON.stringify(st.loadSettings()) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0}' && localStorage.getItem('vcge_theme_preference') === null && store.size === 0);
   const code = fs.readFileSync(`${R}/modules/mod01-shell/settings.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
   ok('settings: subscribes to SETTINGS_WIPE_REQUESTED, imports only the bus and ui.js, no network, cookies or markup', /subscribe\(Events\.SETTINGS_WIPE_REQUESTED/.test(code)
     && (code.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ui.js'")) && !/fetch\(|document\.cookie|sessionStorage|indexedDB|innerHTML|publish\(/.test(code));
   ok('settings: the only storage key named in the code is the settings key (plus the old theme key it removes)', [...code.matchAll(/(?:getItem|setItem|removeItem)\((\w+)/g)].every(m => m[1] === 'SETTINGS_KEY' || m[1] === 'OLD_THEME_KEY'));
-  ok('settings: the Settings sheet and the Welcome card carry the one-file disclaimer', fs.readFileSync(`${R}/../index.html`, 'utf8').includes('vCGE keeps one small settings file on this device (hand, colors, theme, font). Nothing you scan, upload or type is ever saved.')
+  ok('settings: the Settings sheet and the Welcome card carry the one-file disclaimer', fs.readFileSync(`${R}/../index.html`, 'utf8').includes('vCGE keeps one small settings file on this device (hand, colors, theme, font, text size, wipe time). Nothing you scan, upload or type is ever saved.')
     && /remembers none of your sensitive data/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8')) && !fs.existsSync(`${R}/modules/mod01-shell/themeManager.js`));
   localStorage.clear();
 }
@@ -1100,8 +1230,12 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 {
   const fc = await import(`${R}/modules/mod05-form/fieldsCard.js`);
   ok('the pop-in is 320 ms stepped at 26 fps (8 steps), like the padlock and the shimmer', fc.POP_MS === 320 && fc.POP_FPS === 26 && fc.POP_STEPS === 8);
-  ok('the list prompt and the green button read as raven575 asked', fc.FAKE_CONTACT_PROMPT === 'Insert Fake Contact?' && fc.DONE_LABEL === "Everything's correct");
-  ok('a sample is listed by name and company, never by its emoji label', fc.sampleLabel({ label: '🤖 AI Research Lead', firstName: 'Elena', lastName: 'Rostova', organization: 'NeuralShift AI' }) === 'Elena Rostova, NeuralShift AI'
+  ok('the list prompt and the green button read as raven575 asked (#61: "Sample vCGE pilot contact")', fc.SAMPLE_PROMPT === 'Sample vCGE pilot contact' && fc.DONE_LABEL === "Everything's correct");
+  ok('#61: a pilot is listed by name with their animal in front', fc.sampleLabel({ firstName: 'Pidge', lastName: 'Octopus', organization: 'Team vCGE', logo: 'src/vendor/icons/animals/octopus.svg' }) === '🐙 Pidge Octopus'
+    && fc.sampleLabel({ firstName: 'Iris', lastName: 'Lynx', logo: 'src/vendor/icons/animals/cat.svg' }) === '🐈 Iris Lynx' && Object.keys(fc.ANIMAL_EMOJI).length === 9);
+  const { PRESETS } = await import(`${R}/modules/mod06-gui/card3dView.js`).catch(() => ({ PRESETS: null }));
+  ok('#61: every pilot sample has an animal in the list', !PRESETS || PRESETS.every(p => /^\p{Extended_Pictographic} \S+(?: \S+)+$/u.test(fc.sampleLabel(p))), PRESETS && PRESETS.map(fc.sampleLabel).join('|'));
+  ok('a sample without an animal is listed by name and company, never by its emoji label', fc.sampleLabel({ label: '🤖 AI Research Lead', firstName: 'Elena', lastName: 'Rostova', organization: 'NeuralShift AI' }) === 'Elena Rostova, NeuralShift AI'
     && fc.sampleLabel({ label: '🎨 Solo', firstName: 'Kai' }) === 'Kai' && fc.sampleLabel({ label: ' Plain label ' }) === 'Plain label' && fc.sampleLabel({}) === 'Sample contact');
 }
 
@@ -1139,6 +1273,63 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('MOD08 QR pop-up: unknown choices fall back to the defaults, known ones stay', JSON.stringify(cleanChoices({ colour: 'neon', dots: 'round', frame: 'circle', logo: 'upload', useOnCard: 'yes' })) === '{"colour":"themed","dots":"round","frame":"circle","logo":"upload","useOnCard":false}');
   ok('MOD08 QR pop-up note: a code that does not fit, a theme that is not scannable, or nothing to say', /Too much contact data/.test(previewNote({ ok: false, themed: false }, defaultChoices()))
     && /Black & White is used/.test(previewNote({ ok: true, themed: false }, defaultChoices())) && previewNote({ ok: true, themed: true }, defaultChoices()) === '' && previewNote({ ok: true, themed: false }, { ...defaultChoices(), colour: 'bw' }) === '');
+}
+
+// MOD08 Export, video review 2026-10-17 (#76, #77, #98, Commandment 6): folded .vcf files, the share sheet, the readable summary, signal-only audit events
+{
+  const { EgressController } = await import(`${R}/modules/mod08-egress/egressController.js`);
+  const { foldVCardLines, VCARD_LINE_OCTETS } = await import(`${R}/share/vcardFormatter.js`);
+  const octets = (l) => new TextEncoder().encode(l).length;
+  const unfold = (t) => t.replace(/\r\n[ \t]/g, '');
+  ok('vCard folding: short lines stay as they are and the file ends with CRLF', foldVCardLines('BEGIN:VCARD\r\nFN:A\r\nEND:VCARD') === 'BEGIN:VCARD\r\nFN:A\r\nEND:VCARD\r\n');
+  const photo = share.formatVCard({ firstName: 'A', lastName: 'B', avatarBase64: `data:image/jpeg;base64,/9j/${'Q'.repeat(5000)}` });
+  const folded = foldVCardLines(photo);
+  ok('vCard folding: no line is longer than 75 octets (RFC 2425 §5.8.1), continuations start with a space', folded.split('\r\n').every(l => octets(l) <= VCARD_LINE_OCTETS) && folded.split('\r\n').filter(l => l.startsWith(' ')).length > 60, String(Math.max(...folded.split('\r\n').map(octets))));
+  ok('vCard folding: unfolding gives back the vCard exactly', unfold(folded) === `${photo}\r\n`);
+  const accents = foldVCardLines(`NOTE:${'é'.repeat(100)}`);
+  ok('vCard folding never splits a UTF-8 character', accents.split('\r\n').every(l => octets(l) <= VCARD_LINE_OCTETS && !l.includes('�')) && unfold(accents) === `NOTE:${'é'.repeat(100)}\r\n`);
+  ok('vCard folding: folding twice changes nothing', foldVCardLines(folded) === folded);
+  ok('the QR text (formatVCard) stays unfolded', !share.formatVCard({ firstName: 'A', lastName: 'B', notes: 'x'.repeat(200) }).includes('\r\n '));
+
+  const contact = { firstName: 'Nick', lastName: 'Zafer', jobTitle: 'Owner & General Manager', organization: 'TeamLogicIT',
+    phones: [{ type: 'work', value: '+1 (269) 492-7400' }, { type: 'mobile', value: '+1 (269) 254-5403' }, { type: 'workFax', value: '555' }],
+    emails: [{ type: 'work', value: 'nzafer@TeamLogicIT.com' }], websites: [{ type: 'work', value: 'TeamLogicIT.com/KalamazooMI' }, { type: 'linkedin', value: 'linkedin.com/in/nz' }],
+    addressType: 'work', street: '7950 Moorsbridge Road', unitType: 'Suite', unitNumber: '405', city: 'Portage', state: 'MI', zip: '49024', country: 'United States' };
+  const e = new EgressController();
+  e.setPayload(share.formatVCard(contact), contact, { hasDetails: true, qrReal: true });
+  ok('MOD08 the payload is the folded vCard', e.currentVCard === foldVCardLines(share.formatVCard(contact)) && e.currentVCard.endsWith('END:VCARD\r\n'));
+  ok('MOD08 summary: name, title and company on their own lines, labelled details, two spaces after each colon (#98)', e.contactSummary() === [
+    'Nick Zafer', 'Owner & General Manager', 'TeamLogicIT', 'Work phone:  +1 (269) 492-7400', 'Mobile phone:  +1 (269) 254-5403', 'Work fax:  555',
+    'Work email:  nzafer@TeamLogicIT.com', 'Work website:  TeamLogicIT.com/KalamazooMI', 'LinkedIn:  linkedin.com/in/nz',
+    'Work address:  7950 Moorsbridge Road, Suite 405, Portage, MI 49024, United States'].join('\n'), JSON.stringify(e.contactSummary()));
+  const homeOnly = new EgressController();
+  homeOnly.setPayload('BEGIN:VCARD', { firstName: 'Kai', addressType: 'other', city: 'Boise', websites: [{ type: 'other', value: 'kai.dev' }] }, { hasDetails: true });
+  ok('MOD08 summary: an "Other" website and address read "Website" and "Address"', homeOnly.contactSummary() === 'Kai\nWebsite:  kai.dev\nAddress:  Boise', JSON.stringify(homeOnly.contactSummary()));
+
+  // The share sheet and the audit events, with a stand-in navigator
+  const realNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+  const setNavigator = (nav) => Object.defineProperty(globalThis, 'navigator', { value: nav, configurable: true, writable: true });
+  const events = [];
+  const off = share.globalEventBus.subscribe(share.Events.EXPORT_DISPATCHED, (d) => events.push(d));
+  const shared = [];
+  setNavigator({ share: async (data) => { shared.push(data); }, canShare: () => true, clipboard: { writeText: async () => {} } });
+  const fileShare = await e.triggerQuickShare();
+  ok('MOD08 file share (iOS): the .vcf goes alone, no text that arrives as a stray ".txt" file (#77)', fileShare.method === 'native_file' && shared[0].files.length === 1 && shared[0].files[0].name === 'Nick Zafer.vcf' && !('text' in shared[0]), JSON.stringify(Object.keys(shared[0])));
+  ok('MOD08 the shared .vcf holds the folded vCard', await shared[0].files[0].text() === e.currentVCard);
+  setNavigator({ share: async (data) => { shared.push(data); }, canShare: () => false, clipboard: { writeText: async () => {} } });
+  const textShare = await e.triggerQuickShare();
+  ok('MOD08 no file sharing (Android Chrome): the readable summary goes as text, never the raw vCard (#76)', textShare.method === 'native_text' && shared[1].text === e.contactSummary() && !shared[1].text.includes('BEGIN:VCARD') && shared[1].title === 'Contact: Nick Zafer', JSON.stringify(shared[1]).slice(0, 120));
+  await e.copyVCard();
+  e.navigate = () => {};
+  e.triggerSmsShare();
+  await e.triggerEmailShare();
+  if (realNavigator) Object.defineProperty(globalThis, 'navigator', realNavigator); else delete globalThis.navigator;
+  off();
+  const methods = events.map(d => d.method).join();
+  const leaks = ['Nick', 'Zafer', 'TeamLogic', '269', 'nzafer', 'Moorsbridge', '.vcf', '.png'];
+  ok('MOD08 audit events name what happened: share_file, share_text, clipboard, sms, email', methods === 'share_file,share_text,clipboard,sms,email', methods);
+  ok('MOD08 audit events carry signals only: no file name, name, number or address (Commandment 6)', events.every(d => Object.keys(d).every(k => ['module', 'method', 'timestamp', 'themed'].includes(k)))
+    && !leaks.some(w => JSON.stringify(events).includes(w)), JSON.stringify(events));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

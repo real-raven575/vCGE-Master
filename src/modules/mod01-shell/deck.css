@@ -5,20 +5,30 @@
    Motion: one short ease on the card scale and the scroll; off under reduced motion. No flashing, no sound. */
 
 :root {
-    --vcge-header-h: 3rem;                      /* 48 px, slim */
+    /* The header keeps its size whatever the text size (Settings; video #6): it is drawn at 1 / --vcge-size, so
+       these two heights, used to size the deck under it, are divided the same way */
+    --vcge-header-h: calc(3rem / var(--vcge-size, 1));   /* 48 px, slim */
     --deck-card-w: min(52rem, 72vw);            /* desktop */
     --deck-gap: 1.5rem;
     --deck-pad: 0.75rem;
+    --vcge-strip-h: calc(1.75rem / var(--vcge-size, 1) + 1px);   /* the timer strip's band (index.html #vaultTimerBand): 0.375rem padding top and bottom, a 1rem line, its border */
 }
-@media (max-width: 1199.98px) { :root { --deck-card-w: 84%; --deck-gap: 0.75rem; } }
+/* In vw, like the track's side padding works out to: a percentage here would be of the track's inner width, so the
+   first card could never come to the middle (it sat against the left edge on a tablet) */
+@media (max-width: 1199.98px) { :root { --deck-card-w: 84vw; --deck-gap: 0.75rem; } }
 @media (max-width: 599.98px) { :root { --deck-card-w: 100%; --deck-gap: 0; --deck-pad: 0.5rem; } }
 
 /* ---- Header -------------------------------------------------------------------------------------------------- */
-.deck-header { height: var(--vcge-header-h); min-height: var(--vcge-header-h); padding: 0 0.5rem; gap: 0.5rem; }
+.deck-header { height: 3rem; min-height: 3rem; padding: 0 0.5rem; gap: 0.5rem; zoom: calc(1 / var(--vcge-size, 1)); }
 .deck-brand { display: flex; align-items: center; gap: 0.5rem; flex: 0 0 auto; }
 .deck-brand .deck-logo { width: 1.75rem; height: 1.75rem; border-radius: 0.4rem; object-fit: cover; flex: 0 0 auto; }
 .deck-brand .vcge-tag { background: #22c55e; color: #020617; font-weight: 700; font-size: 0.8rem; letter-spacing: 0.08em; padding: 0.2rem 0.55rem; border-radius: 0.5rem; }
 .deck-nav { display: flex; flex: 1 1 auto; min-width: 0; justify-content: space-evenly; align-items: center; gap: 0.25rem; }
+/* A button never shrinks under its own icon and name, so none can run into the next; on a screen too narrow even for
+   the icons alone (320 px) the row scrolls sideways instead */
+.deck-nav > button { flex: 0 0 auto; }
+.deck-header.is-compact .deck-nav { justify-content: flex-start; overflow-x: auto; scrollbar-width: none; }
+.deck-header.is-compact .deck-nav::-webkit-scrollbar { display: none; }
 .deck-nav button, .deck-tools .deck-icon-btn {
     display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem;
     min-width: 2.75rem; min-height: 2.75rem; height: 2.75rem; padding: 0 0.6rem; border-radius: 999px;
@@ -27,8 +37,10 @@
 }
 .deck-nav button:hover, .deck-tools .deck-icon-btn:hover { opacity: 1; background: rgba(100, 116, 139, 0.15); }
 .deck-nav button.is-on { background: #16a34a; border-color: #16a34a; color: #020617; opacity: 1; }
-.deck-nav button span { display: none; }
-@media (min-width: 900px) { .deck-nav button span { display: inline; } }
+/* The pilot names show beside the icons only while every one of them fits; deck.js measures and sets .is-compact
+   (icons only) the moment one would spill into its neighbour: a narrow window, portrait, a wide font, the Lock button */
+.deck-nav button span { display: inline; white-space: nowrap; }
+.deck-header.is-compact .deck-nav button span { display: none; }
 .deck-tools { display: flex; align-items: center; gap: 0.4rem; flex: 0 0 auto; }
 .deck-tools .deck-icon-btn.is-locked { color: #f59e0b; }
 .vcge-icon { width: 1.5rem; height: 1.5rem; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
@@ -39,14 +51,29 @@
     .deck-nav { gap: 0; }
     .deck-nav button { padding: 0 0.25rem; min-width: 2.5rem; }
 }
+@media (max-width: 399.98px) {
+    /* The narrowest phones (360 px): seven card icons and the two tools still fit side by side without touching. The
+       icons stay 44 px tall and get a little narrower. */
+    .deck-header { padding: 0 0.25rem; gap: 0.25rem; }
+    .deck-tools { gap: 0.25rem; }
+    .deck-nav button { padding: 0; min-width: 2.2rem; }
+}
 
 /* ---- Track and cards ----------------------------------------------------------------------------------------- */
+/* The page is as tall as the screen shows it. On iPhone and iPad, 100vh is the height with the browser's bars tucked
+   away, taller than the page in view: the deck grew to fill it and every card's foot (the trash and the green
+   button) sat below the screen (video review 2026-10-17 #62). 100dvh is the height in view; 100vh stays for old engines. */
+body.h-screen { height: 100vh; height: 100dvh; }
 .deck {
     flex: 1 1 auto; display: flex; align-items: stretch; gap: var(--deck-gap);
     height: calc(100vh - var(--vcge-header-h)); height: calc(100dvh - var(--vcge-header-h));
     padding: var(--deck-pad) calc((100% - var(--deck-card-w)) / 2);
     overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
     scrollbar-width: none; box-sizing: border-box;
+    /* Room above the cards for the Vault's timer strip under the header and the MOD tag on their top edge: the strip
+       never covers a card's title, and it is kept free even while the strip is hidden, so nothing on a card jumps
+       down under a finger the moment the strip appears */
+    padding-top: calc(0.75rem + var(--vcge-strip-h));
     /* No CSS scroll snapping: deck.js settles the track on a card itself once scrolling stops. The scroll port the
        browser brings a focused or pressed element into is the card slot in the middle, so nothing on the card in view
        ever moves the deck, while an element on a neighbour is scrolled in and deck.js lands on that element's card. */
@@ -70,8 +97,7 @@
 /* A card that is not in view takes no taps: a tap on it brings it into view instead. */
 .deck-cover { position: absolute; inset: 0; z-index: 5; border-radius: inherit; cursor: pointer; }
 .deck-card.is-current > .deck-cover { display: none; }
-/* MOD-XX tag on a card sits just inside the top-right corner, where the rounded edge would clip it */
-.deck-card > .mod-tag { top: 0.875rem; transform: none; }
+/* The MOD-XX tag sits on a card's top edge (ui.css), above its content, so it never covers a button on the card */
 
 /* The red trash button: small, in the corner away from the dominant hand (lower left, right-handed). MOD02 owns
    what pressing it does. */
@@ -114,6 +140,11 @@
 }
 
 /* ---- Sheets over the deck (Vault page, Settings) and the Thank You page --------------------------------------- */
+/* A sheet's title with its icon beside it, on the left (the cog on Settings; video #13) */
+.vcge-sheet-title { display: flex; align-items: center; gap: 0.5rem; }
+/* A sheet's MOD-XX tag sits in its title row, just left of the close button: never on the button, and never on the
+   panel's edge, where the scrolling panel clips it */
+.vcge-sheet-panel > .mod-tag, .vcge-sheet-panel > .mod-tag.mod-tag-inset { top: 2.0625rem; right: 4.5rem; transform: none; }
 .vcge-sheet { position: fixed; inset: 0; z-index: 45; display: flex; align-items: center; justify-content: center; padding: 1rem; background: rgba(2, 6, 23, 0.55); }
 .vcge-sheet.hidden { display: none; }
 .vcge-sheet-panel {

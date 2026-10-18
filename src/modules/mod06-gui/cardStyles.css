@@ -13,6 +13,30 @@ body { font-family: 'Inter', sans-serif; }
 .font-sans { font-family: 'Inter', sans-serif !important; }
 .font-serif { font-family: 'Playfair Display', serif !important; }
 .font-mono { font-family: 'Fira Code', monospace !important; }
+/* More card typefaces (card3dView.js CARD_FONTS): the bundled ones the app's own font setting already loads (their
+   @font-face rules are in mod01-shell/ui.css, so nothing more is downloaded), and the device's own system fonts. */
+.card-font-atkinson { font-family: 'Atkinson Hyperlegible', 'Inter', sans-serif !important; }
+.card-font-lexend { font-family: 'Lexend', 'Inter', sans-serif !important; }
+.card-font-tinos { font-family: 'Tinos', 'Times New Roman', serif !important; }
+.card-font-comic { font-family: 'Comic Neue', 'Inter', sans-serif !important; }
+.card-font-macondo { font-family: 'Macondo', 'Playfair Display', serif !important; }
+.card-font-dyslexic { font-family: 'OpenDyslexic', 'Inter', sans-serif !important; }
+.card-font-system { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif !important; }
+.card-font-system-serif { font-family: Georgia, 'Times New Roman', Times, serif !important; }
+
+/* Card text size (card3dView.js CARD_SIZES): the card's text classes scaled on screen. The printed card keeps its own
+   sizes (print.css, MOD08), so a larger setting cannot push lines off the 3.5 x 2 in card. */
+.card-face { --card-scale: 1; }
+.card-face.card-size-sm { --card-scale: 0.875; }
+.card-face.card-size-lg { --card-scale: 1.15; }
+.card-face.card-size-xl { --card-scale: 1.3; }
+@media screen {
+    .card-face .text-2xl { font-size: calc(1.5rem * var(--card-scale)); line-height: calc(2rem * var(--card-scale)); }
+    .card-face .text-xl { font-size: calc(1.25rem * var(--card-scale)); line-height: calc(1.75rem * var(--card-scale)); }
+    .card-face .text-sm { font-size: calc(0.875rem * var(--card-scale)); line-height: calc(1.25rem * var(--card-scale)); }
+    .card-face .text-xs { font-size: calc(0.75rem * var(--card-scale)); line-height: calc(1rem * var(--card-scale)); }
+    .card-face .card-line-label { font-size: calc(0.625rem * var(--card-scale)); }
+}
 
 /* 3D Card spin: card3dView.js turns the card in JS (26 fps steps with a small snap, instant under reduce motion), so no
    CSS transition. A sideways drag on the card spins it; the browser keeps vertical scrolling. */
@@ -21,12 +45,26 @@ body { font-family: 'Inter', sans-serif; }
 .backface-hidden { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
 .rotate-y-180 { transform: rotateY(180deg); }
 
+/* The MOD-06 / MOD-07 tags sit inside the 3D Card's top-right corner (mod01-shell/deck.css: 0.875rem down, about
+   1.1rem tall). The card's first row of controls starts below them, so no tag ever lies on the Flip card button. */
+#cardCard > .deck-card-body { padding-top: 2.5rem; }
+
 /* The card face takes the theme (card3dView.js sets the variables on #card3DFlipper): card colour, ink, accent. */
 .card-face { background: var(--card-bg, #3e5572); color: var(--card-ink, #eef3f9); border: 1px solid rgba(0, 0, 0, 0.12); }
 .card-muted { opacity: 0.82; }
-.card-line { display: flex; gap: 0.5rem; align-items: baseline; }
-.card-line-label { flex: 0 0 auto; min-width: 3.5rem; font-size: 0.625rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.72; }
+/* The detail lines (card3dView.js renderLines): one grid of icon, label and value for every line, phones to address,
+   so every value starts at the same place. The lists and lines step aside (display: contents) to let their cells join
+   the grid; without icons the grid drops that column. */
+.card-lines { display: grid; grid-template-columns: auto auto minmax(0, 1fr); column-gap: 0.5rem; row-gap: 0.25rem; align-items: baseline; }
+.card-lines.card-no-icons { grid-template-columns: auto minmax(0, 1fr); }
+.card-lines > div, .card-lines .card-line { display: contents; }
+.card-lines > * { margin: 0 !important; }   /* space-y spacing has no box to land on: the row gap spaces the lines */
+.card-line-icon { width: 1.15em; height: 1.15em; align-self: center; opacity: 0.85; }
+.card-no-icons .card-line-icon { display: none; }
+.card-line-label { font-size: 0.625rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; opacity: 0.72; white-space: nowrap; }
 .card-line-value { min-width: 0; }
+/* A line with display: contents still has to leave the printed card when Tailwind's print:hidden says so (MOD08). */
+@media print { .card-lines .card-line.print\:hidden { display: none; } }
 /* A traced logo is a drawing in the ink colour (currentColor); the plate, when there is one, is set inline. */
 .card-trace { display: block; fill: currentColor; }
 
@@ -56,4 +94,4 @@ body { font-family: 'Inter', sans-serif; }
 ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
 .dark ::-webkit-scrollbar-thumb { background: #334155; }
 
-/* Printing is styled only in mod08-egress/print.css. */
+/* Printing is styled only in mod08-egress/print.css (the print:hidden rule above only keeps its meaning on the lines). */

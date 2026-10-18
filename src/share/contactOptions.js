@@ -29,11 +29,12 @@ export const EMAIL_TYPES = Object.freeze([['work', 'Work'], ['personal', 'Person
 export const WEBSITE_TYPES = Object.freeze([
     ['work', 'Work'], ['personal', 'Personal'], ['blog', 'Blog'], ['portfolio', 'Portfolio'], ['other', 'Other'],
     ['linkedin', 'LinkedIn'], ['x', 'X / Twitter'], ['facebook', 'Facebook'], ['instagram', 'Instagram'],
-    ['github', 'GitHub'], ['youtube', 'YouTube'], ['tiktok', 'TikTok']
+    ['github', 'GitHub'], ['youtube', 'YouTube'], ['tiktok', 'TikTok'], ['reddit', 'Reddit']
 ]);
 export const SOCIAL_HOSTS = Object.freeze({
-    linkedin: ['linkedin.com'], x: ['x.com', 'twitter.com'], facebook: ['facebook.com', 'fb.com'],
-    instagram: ['instagram.com'], github: ['github.com'], youtube: ['youtube.com', 'youtu.be'], tiktok: ['tiktok.com']
+    linkedin: ['linkedin.com'], x: ['x.com', 'twitter.com'], facebook: ['facebook.com', 'fb.com', 'fb.me'],
+    instagram: ['instagram.com'], github: ['github.com'], youtube: ['youtube.com', 'youtu.be'], tiktok: ['tiktok.com'],
+    reddit: ['reddit.com']
 });
 
 export const DEFAULT_COUNTRY = 'United States';
@@ -149,11 +150,11 @@ export function websiteTypeFor(url) {
 
 const SOCIAL_URL = {
     linkedin: 'https://www.linkedin.com/in/', x: 'https://x.com/', facebook: 'https://facebook.com/', instagram: 'https://instagram.com/',
-    github: 'https://github.com/', youtube: 'https://youtube.com/@', tiktok: 'https://tiktok.com/@'
+    github: 'https://github.com/', youtube: 'https://youtube.com/@', tiktok: 'https://tiktok.com/@', reddit: 'https://www.reddit.com/user/'
 };
 
 /** Profile link from a bare handle next to a social logo: ('instagram', '@studiocraft') -> 'https://instagram.com/studiocraft'. */
 export function socialProfileUrl(type, handle) {
-    const h = String(handle || '').trim().replace(/^@/, '').replace(/^(?:in|company)\//i, '').replace(/^\//, '');
+    const h = String(handle || '').trim().replace(/^@/, '').replace(/^(?:in|company|u|user)\//i, '').replace(/^\//, '');
     return SOCIAL_URL[type] && /^[A-Za-z0-9._-]{2,}$/.test(h) ? SOCIAL_URL[type] + h : '';
 }
