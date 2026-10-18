@@ -1865,6 +1865,8 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await pU.mouse.click(flip.x + flip.width / 2, flip.y + 1.5); await settled(pU);
     ok('a mouse click on the edge still works (only fingers get the near-miss guard)', (await turned()) === 'rotateY(0deg)', await turned());
     await pU.setViewportSize({ width: 390, height: 844 });
+    // Read after two frames, as the header checks do: the header drops its names on its resize observer's frame.
+    await pU.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
     ok('phone width: the app reports the phone layout and nothing scrolls sideways', await pU.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('--vcge-layout').trim() === 'phone' && document.documentElement.scrollWidth <= innerWidth));
     ok('shared look: no missing files, no page errors', missingU.length === 0 && errorsU.length === 0, missingU.concat(errorsU).join(' | '));
     await ctxU.close();

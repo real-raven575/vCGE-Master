@@ -102,7 +102,8 @@ async function stopDriver(driver) {
   const val = (id) => js(`return document.getElementById(arguments[0]).value;`, id);
   const txt = (id) => js(`return document.getElementById(arguments[0]).textContent.trim();`, id);
   const visible = (id) => js(`const e = document.getElementById(arguments[0]); return !e.classList.contains('hidden');`, id);
-  const until = async (fn, ms = 20000) => { const end = Date.now() + ms; while (Date.now() < end) { if (await fn()) return true; await sleep(250); } return false; };
+  // A check that throws (the page is mid-reload, e.g. right after a wipe) counts as not yet, and is tried again.
+  const until = async (fn, ms = 20000) => { const end = Date.now() + ms; while (Date.now() < end) { try { if (await fn()) return true; } catch { /* not yet */ } await sleep(250); } return false; };
   // The deck opens on the Welcome card every start: press START to reach the Capture card.
   const startNow = async () => {
     await until(() => js(`return !!document.getElementById('welcomeStartBtn');`), 5000);
