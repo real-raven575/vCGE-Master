@@ -106,6 +106,16 @@ async function holdYes(page, ms, clock = null) {
   await page.waitForLoadState('load');
 }
 
+// After a fake-clock jump, advances the clock 1 s at a time (at most `steps` times) until `selector` reaches `state`.
+// A fastForward fires each due timer once, but on a loaded CI runner the app's 1 s ticks were seen to land after the
+// next read (a stale lock ring, a wipe that had not happened yet): this waits on the app's state, not on one tick.
+async function tickUntil(page, selector, state, steps = 5) {
+  for (let i = 0; i < steps; i++) {
+    if ((await page.isVisible(selector)) === (state === 'visible')) return;
+    await page.clock.runFor(1000);
+  }
+}
+
 // Makes the page look hidden (another app in front, screen off) or visible again.
 const setVisibility = (page, state) => page.evaluate((state) => {
   Object.defineProperty(document, 'visibilityState', { value: state, configurable: true });
@@ -554,11 +564,13 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p8.fill('#firstName', 'Seven');
     await idle();
     // The lock finishes its (real-time) async work before the clock moves on, and the wipe gets a moment to land.
+    await tickUntil(p8, '#vaultModal', 'visible', 2);
     await p8.waitForSelector('#vaultModal', { state: 'visible' });
     await p8.waitForFunction(() => document.getElementById('toastMessage').textContent.startsWith('Hidden after'), null, { timeout: 5000 }).catch(() => {});
     await p8.clock.fastForward(301000);
     ok('idle lock: 5 minutes after it the card is still held (the 7 minutes run from the lock)', await p8.isVisible('#vaultModal') && /^(2:0\d|1:5\d)$/.test(await t8('vaultLockRingTime')), await t8('vaultLockRingTime'));
-    await p8.clock.fastForward(120000);
+    await p8.clock.fastForward(120000);   // 7 min 7 s after the lock was due
+    await tickUntil(p8, '#vaultModal', 'hidden', 2);
     await p8.waitForFunction(() => document.getElementById('toastMessage').textContent.startsWith('Reset: 7 minutes'), null, { timeout: 5000 }).catch(() => {});
     // A slow runner can still be closing the lock screen here; the next step needs the header, which it covers.
     await p8.waitForSelector('#vaultModal', { state: 'hidden', timeout: 5000 }).catch(() => {});
@@ -597,6 +609,7 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await setVisibility(p8, 'hidden');
     await p8.clock.setSystemTime(await p8.evaluate(() => Date.now() + 400000));   // 6 min 40 s: under 7 since activity, but 2 + 7 is not over either
     await setVisibility(p8, 'visible'); await p8.clock.fastForward(1000);
+    await tickUntil(p8, '#vaultModal', 'visible', 2);   // the lock lands on the tick; read its ring only after that
     ok('idle lock noticed late but within its 7 minutes: locked, not wiped', await p8.isVisible('#vaultModal') && /^(2:2\d|2:1\d)$/.test(await t8('vaultLockRingTime')), await t8('vaultLockRingTime'));
     await p8.fill('#vaultPin', '4321'); await p8.waitForSelector('#vaultModal', { state: 'hidden' });
 
