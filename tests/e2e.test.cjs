@@ -191,6 +191,10 @@ let pass = 0, fail = 0, notRun = 0;
 const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, console.log('FAIL', n, d)); };
 // A check whose test tool exists only in some engines: reported and counted, never silently dropped.
 const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`); };
+// The camera checks hand the app a canvas stream as its camera. An engine build without canvas streams cannot do that,
+// so there those checks are reported as not run, with what is missing, instead of failing on a camera that never starts.
+const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElement.prototype.captureStream === 'function' ? '' : 'canvas.captureStream',
+  typeof MediaStream === 'function' ? '' : 'MediaStream'].filter(Boolean).join(' and '));
 
 (async () => {
   const server = spawn(process.execPath, [path.join(ROOT, 'scripts/serve.mjs')], { env: { ...process.env, PORT } });
@@ -1704,6 +1708,7 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     const ctxV = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: ENGINE !== 'firefox' });
     await ctxV.addInitScript(() => {
       // A 640 x 360 test feed: four colours, so the shot can be checked against the window the viewfinder showed
+      if (!navigator.mediaDevices) Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: {} });
       navigator.mediaDevices.getUserMedia = async () => {
         const c = document.createElement('canvas'); c.width = 640; c.height = 360; const x = c.getContext('2d');
         x.fillStyle = '#ff0000'; x.fillRect(0, 0, 320, 180); x.fillStyle = '#00ff00'; x.fillRect(320, 0, 320, 180);
@@ -1726,8 +1731,16 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     await pV.setInputFiles('#imageUpload', { name: 'notes.txt', mimeType: 'text/plain', buffer: Buffer.from('hello') }); await pV.waitForTimeout(300);
     ok('capture: a non-image upload is rejected with a toast and nothing opens', (await pV.textContent('#toastMessage')).includes('not a photo') && !(await pV.isVisible('#captureReview')) && !(await pV.getAttribute('#reviewImage', 'src')), await pV.textContent('#toastMessage'));
 
+    const noFeed = await cameraFeedMissing(pV);
+    if (noFeed) notRunHere('viewfinder, zoom, shutter, shot, Snap on a card-less shot, Retake and Close camera (16 checks)', `this engine has no ${noFeed} for a test camera`);
+    else {
     // The viewfinder: clean, four thin brackets, upright card frame in portrait, fader left (48 px in), shutter right
     await pV.click('#startCameraBtn'); await pV.waitForTimeout(400);
+    const started = await pV.isVisible('#cameraPanel');
+    ok('viewfinder: the camera starts and the viewfinder shows', started, await pV.textContent('#eventLog'));
+    // The checks below all need a running camera; without one they are failed together, and the run goes on
+    if (!started) ok('viewfinder, zoom, shutter, shot, Snap on a card-less shot, Retake and Close camera (15 checks)', false, 'not tried: the camera never started (the check above says why)');
+    else {
     const view = await box('#viewfinderArea'), frame = await box('#cardFrame'), fader = await box('.cap-fader'), shutter = await box('#captureBtn');
     const overlay = await pV.evaluate(() => Array.from(document.querySelectorAll('#viewfinderArea > *')).map(e => e.id || e.className));
     ok('viewfinder: only the video, the corner brackets, the fader and the shutter sit over the picture', overlay.length === 4 && (await pV.$$('#cardFrame .cap-corner')).length === 4 && !(await pV.$('#focusRing')), JSON.stringify(overlay));
@@ -1760,6 +1773,7 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
         const px = (fx, fy) => Array.from(x.getImageData(Math.floor(c.width * fx), Math.floor(c.height * fy), 1, 1).data).slice(0, 3);
         resolve({ w: c.width, h: c.height, tl: px(0.1, 0.1), tr: px(0.9, 0.1), bl: px(0.1, 0.9), br: px(0.9, 0.9) }); };
       if (i.complete && i.naturalWidth) read(); else i.onload = read;
+      setTimeout(() => resolve({ w: 0, h: 0, tl: [], tr: [], bl: [], br: [], none: 'no photo was taken' }), 5000);   // never wait forever
     }));
     const expectW = Math.round(view.w / (view.h / 360) / 2), expectH = 180;   // the view measured before the shot (the camera closes after it)
     ok('shot: exactly the window the viewfinder showed (cover crop and 2x zoom), not the whole frame', Math.abs(shot.w - expectW) <= 1 && shot.h === expectH
@@ -1768,17 +1782,19 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     ok('shot: no copy of the photo is left in the capture canvas', (await pV.$eval('#captureCanvas', c => c.width + c.height)) === 0);
     await pV.click('#snapCardBtn'); await pV.waitForTimeout(200);
     ok('Snap to card on a photo with no card in it leaves the handles alone and says so', (await pV.textContent('#toastMessage')).includes('No card edges found') && (await pV.getAttribute('#cropPolygon', 'points')) === `0,0 ${shot.w},0 ${shot.w},${shot.h} 0,${shot.h}`, await pV.textContent('#toastMessage'));
-    ok('crop step: Rotate left, Rotate right, Snap to card, Cancel and a green OK; OK is the only green one', (await pV.$$eval('#captureActions button', bs => bs.filter(b => b.offsetParent).map(b => b.textContent.trim()))).join('|') === 'Left|Right|Snap to card|Cancel|OK'
-      && (await pV.getAttribute('#rotateLeftBtn', 'aria-label')).includes('counter-clockwise') && (await pV.getAttribute('#rotateRightBtn', 'aria-label')).includes(', clockwise')
-      && await pV.$eval('#runOcrBtn', b => getComputedStyle(b).backgroundColor === 'rgb(22, 163, 74)'));
     // Retake after a camera shot opens the camera again; Cancel drops the photo
     await pV.evaluate(() => document.getElementById('retakePhotoBtn').classList.remove('hidden'));
     await pV.click('#retakePhotoBtn'); await pV.waitForTimeout(300);
     ok('Retake after a camera shot opens the camera again and drops the old photo', await pV.isVisible('#cameraPanel') && !(await pV.isVisible('#captureReview')) && !(await pV.getAttribute('#reviewImage', 'src')));
     await pV.click('#stopCameraBtn');
     ok('Close camera stops the feed', await pV.evaluate(() => document.getElementById('cameraStream').srcObject === null && document.getElementById('cameraPanel').classList.contains('hidden')));
+    }
+    }
     await pV.setInputFiles('#imageUpload', await renderCardImage(pV)); await pV.waitForTimeout(300);
     ok('upload: the handles start at the full photo', await pV.isVisible('#captureReview') && (await pV.getAttribute('#cropPolygon', 'points')) === '0,0 1050,0 1050,600 0,600');
+    ok('crop step: Rotate left, Rotate right, Snap to card, Cancel and a green OK; OK is the only green one', (await pV.$$eval('#captureActions button', bs => bs.filter(b => b.offsetParent).map(b => b.textContent.trim()))).join('|') === 'Left|Right|Snap to card|Cancel|OK'
+      && (await pV.getAttribute('#rotateLeftBtn', 'aria-label')).includes('counter-clockwise') && (await pV.getAttribute('#rotateRightBtn', 'aria-label')).includes(', clockwise')
+      && await pV.$eval('#runOcrBtn', b => getComputedStyle(b).backgroundColor === 'rgb(22, 163, 74)'));
     // Finding 52: a two-finger pinch on the photo zooms the photo like a camera; the page, the buttons and the handles keep
     // their size; the corners do not move. At the whole photo a swipe is still the deck's (touch-action pan-x pan-y).
     await deckSettled(pV);
@@ -1811,9 +1827,13 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     await pV.click('#cancelReviewBtn');
     ok('Cancel on the crop step drops the photo and goes back to Take or Upload', !(await pV.isVisible('#captureReview')) && !(await pV.getAttribute('#reviewImage', 'src')) && await pV.isVisible('#startCameraBtn'));
 
+    if (noFeed) notRunHere('left-hand viewfinder and reduce-motion zoom (2 checks)', `this engine has no ${noFeed} for a test camera`);
+    else {
     // Left hand (Settings): the shutter moves to the left and the fader to the right, still 48 px from the edge
     await pV.click('#navSettings'); await pV.click('#handLeftBtn'); await pV.keyboard.press('Escape'); await pV.waitForTimeout(200);
     await pV.click('#startCameraBtn'); await pV.waitForTimeout(400);
+    if (!(await pV.isVisible('#cameraPanel'))) ok('left-hand viewfinder and reduce-motion zoom (2 checks)', false, `not tried: the camera never started: ${await pV.textContent('#eventLog')}`);
+    else {
     const faderL = await box('.cap-fader'), shutterL = await box('#captureBtn');
     ok('left hand: the shutter is on the left and the fader on the right, 48 px from the screen edge', shutterL.l < faderL.l && 390 - faderL.r >= 48 && shutterL.l >= 48, JSON.stringify({ faderL, shutterL }));
     await pV.click('#navSettings'); await pV.click('#handRightBtn'); await pV.keyboard.press('Escape');
@@ -1824,6 +1844,8 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     ok('reduce motion: the zoom lands at once', (await pV.textContent('#zoomDisplay')) === '3.0x');
     await pV.emulateMedia({ reducedMotion: null });
     await pV.click('#stopCameraBtn');
+    }
+    }
     ok('capture card: no page errors', errorsV.length === 0, errorsV.join(' | '));
     await ctxV.close();
   }
@@ -1836,6 +1858,7 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     // track: the real one's properties and methods, with events the test can send.
     await ctxC.addInitScript((standIn) => {
       window.__camMode = 'normal';
+      if (!navigator.mediaDevices) Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: {} });
       navigator.mediaDevices.getUserMedia = async () => {
         if (window.__camMode === 'busy') throw new DOMException('Could not start video source', 'NotReadableError');
         const c = document.createElement('canvas'); c.width = 640; c.height = 360;
@@ -1855,6 +1878,9 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     }, ENGINE === 'firefox');
     const pC = await ctxC.newPage();
     await pC.goto(ORIGIN); await pC.waitForTimeout(300);
+    const noFeedC = await cameraFeedMissing(pC);
+    if (noFeedC) notRunHere('camera in use by another app (10 checks)', `this engine has no ${noFeedC} for a test camera`);
+    else {
     const popup = () => pC.isVisible('#cameraInUseModal');
     const cameraOff = () => pC.evaluate(() => document.getElementById('cameraStream').srcObject === null && document.getElementById('cameraPanel').classList.contains('hidden'));
     const start = async (mode) => { await pC.evaluate(m => { window.__camMode = m; }, mode); await pC.click('#startCameraBtn'); await pC.waitForTimeout(300); };
@@ -1865,7 +1891,10 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     const closePopup = () => pC.click('#cameraInUseOkBtn', { timeout: 2000 }).catch(() => {});
 
     await start('normal');
-    ok('ordinary camera starts with no pop-up', await pC.isVisible('#cameraPanel') && !(await popup()) && await pC.evaluate(() => !!document.getElementById('cameraStream').srcObject));
+    const startedC = await pC.isVisible('#cameraPanel');
+    ok('ordinary camera starts with no pop-up', startedC && !(await popup()) && await pC.evaluate(() => !!document.getElementById('cameraStream').srcObject), await camState());
+    if (!startedC) ok('camera in use by another app (9 checks)', false, 'not tried: the camera never started (the check above says why)');
+    else {
     await pC.click('#stopCameraBtn');
 
     await start('busy');
@@ -1898,6 +1927,8 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     await pC.evaluate(() => window.__camTrack.dispatchEvent(new Event('ended')));
     await pC.waitForTimeout(100);
     ok('closing the camera ourselves raises no pop-up', !(await popup()));
+    }
+    }
     await ctxC.close();
   }
 
