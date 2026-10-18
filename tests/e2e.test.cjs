@@ -743,9 +743,20 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     const skipShown8 = await p8.waitForSelector('#tourSkipBtn', { state: 'visible', timeout: 5000 }).then(() => true, () => false);
     const afterUnlock8 = await tourState8();
     ok('unlock during the tour: the tour is still there, on the step it was on', skipShown8 && afterUnlock8.step === 'Step 1 of 6', JSON.stringify(afterUnlock8));
-    if (skipShown8) await p8.click('#tourSkipBtn');
+    // The unlock slides the deck back to the card it locked on, and the tour card rides along for about 0.4 s (Skip was
+    // seen at x -311, 486, 95, 234, then 243). A tap in that slide can land where Skip just was, which is how a Firefox run
+    // clicked Skip and the tour stayed (job 117737262324). Tap only once the deck and the tour card have stopped.
+    if (skipShown8) {
+      await deckSettled(p8);
+      await p8.waitForFunction(() => {
+        const r = document.getElementById('tourSkipBtn').getBoundingClientRect(), at = `${Math.round(r.left)},${Math.round(r.top)}`;
+        const same = window.__vcgeSkipAt === at; window.__vcgeSkipAt = at; return same;
+      }, null, { polling: 150 });
+      await p8.click('#tourSkipBtn');
+    }
     else { await p8.evaluate(() => document.activeElement && document.activeElement.blur()); await p8.keyboard.press('Escape'); }   // close it anyway so the checks after this one still run
-    await p8.waitForSelector('#welcomeLayer', { state: 'detached', timeout: 5000 });
+    const tourGone8 = await p8.waitForSelector('#welcomeLayer', { state: 'detached', timeout: 5000 }).then(() => true, () => false);
+    ok('unlock during the tour: Skip closes the tour', tourGone8, JSON.stringify(await tourState8()));
     await p8.waitForTimeout(700);
 
     // Settings > Wipe after the lock (raven575, 2026-10-18): 10 or 15 minutes instead of 7; the 2-minute lock stays
