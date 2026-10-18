@@ -1317,9 +1317,12 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
     await p9.emulateMedia({ media: 'print' });
     const size = await p9.evaluate(() => {
       const c = document.querySelector('#printSheet .print-card'), q = document.querySelector('#printSheet .print-qr img'), r = c.getBoundingClientRect(), qr = q.getBoundingClientRect();
-      return { card: [Math.round(r.width), Math.round(r.height)], qr: [Math.round(qr.width), Math.round(qr.height)], qrRight: qr.left > r.right, bg: getComputedStyle(c).backgroundColor, ink: getComputedStyle(c).color, cardBg: getComputedStyle(document.getElementById('cardFront')).backgroundColor };
+      const leaves = [...c.querySelectorAll('*')].filter(e => !e.children.length && e.textContent.trim() && e.getBoundingClientRect().height > 0);
+      const cut = leaves.filter(e => { const b = e.getBoundingClientRect(); return b.bottom > r.bottom + 0.5 || b.right > r.right + 0.5; }).map(e => e.textContent.trim());
+      return { cut, card: [Math.round(r.width), Math.round(r.height)], qr: [Math.round(qr.width), Math.round(qr.height)], qrRight: qr.left > r.right, bg: getComputedStyle(c).backgroundColor, ink: getComputedStyle(c).color, cardBg: getComputedStyle(document.getElementById('cardFront')).backgroundColor };
     });
-    ok('printed card is 3.5 x 2 inches with the 1.5 in QR to its right', size.card[0] === 336 && size.card[1] === 192 && size.qr[0] === 144 && size.qr[1] === 144 && size.qrRight, JSON.stringify(size));
+    ok('printed card is 3.5 in wide and at least 2 in tall, with the 1.5 in QR to its right', size.card[0] === 336 && size.card[1] >= 192 && size.qr[0] === 144 && size.qr[1] === 144 && size.qrRight, JSON.stringify(size));
+    ok('printed card cuts nothing off: every line sits inside the card (raven575 2026-10-18)', size.cut.length === 0, JSON.stringify(size.cut));
     ok('themed print keeps the card\'s own colours', size.bg === size.cardBg && size.bg !== 'rgb(255, 255, 255)', JSON.stringify(size));
     await p9.emulateMedia({ media: null });
     if (ENGINE !== 'chromium') notRunHere('print is one 6 x 3.5 in page (no blank pages)', 'saving a page as PDF exists only in Chromium');
@@ -1347,6 +1350,46 @@ const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`)
       const seen = new Set(); for (let i = 0; i < d.length; i += 4) seen.add(`${d[i]},${d[i + 1]},${d[i + 2]}`); return [...seen];
     });
     ok('Black & White QR is pure black on pure white', qrColours.length === 2 && qrColours.includes('0,0,0') && qrColours.includes('255,255,255'), JSON.stringify(qrColours));
+    // A card taller than 2 in (here: larger text) grows instead of clipping, and the page grows with it: still one page
+    await p9.evaluate(() => { document.documentElement.style.fontSize = '24px'; });
+    await p9.click('#printCardBtn'); await p9.click('#printBwBtn');
+    await p9.emulateMedia({ media: 'print' });
+    const tall = await p9.evaluate(() => {
+      const c = document.querySelector('#printSheet .print-card'), r = c.getBoundingClientRect();
+      const cut = [...c.querySelectorAll('*')].filter(e => !e.children.length && e.textContent.trim() && e.getBoundingClientRect().height > 0)
+        .filter(e => e.getBoundingClientRect().bottom > r.bottom + 0.5).map(e => e.textContent.trim());
+      return { h: Math.round(r.height), sheet: Math.round(document.getElementById('printSheet').getBoundingClientRect().height), cut };
+    });
+    await p9.emulateMedia({ media: null });
+    const tallPdf = (await p9.pdf({ preferCSSPageSize: true, printBackground: true })).toString('latin1');
+    const tallPages = (tallPdf.match(/\/Type\s*\/Page[^s]/g) || []).length;
+    const tallBox = /\/MediaBox\s*\[\s*0\s+0\s+([\d.]+)\s+([\d.]+)\s*\]/.exec(tallPdf);
+    // The page is as tall as the card needs (sheet plus 0.3 in margins), and exactly what the controller set
+    const setIn = await p9.evaluate(() => Number((/size:\s*6in\s+([\d.]+)in/.exec(document.adoptedStyleSheets.map(sh => [...sh.cssRules].map(r => r.cssText).join(' ')).join(' ')) || [])[1]));
+    const boxIn = tallBox ? Number(tallBox[2]) / 72 : 0;
+    ok('a tall card grows (nothing cut) and the page grows to fit it: one 6 in wide page', tall.h > 192 && tall.cut.length === 0 && tallPages === 1 && tallBox && tallBox[1] === '432'
+      && boxIn >= tall.sheet / 96 + 0.6 - 0.01 && Math.abs(boxIn - setIn) < 0.01, `${JSON.stringify(tall)} ${tallPages} pages, box ${tallBox && tallBox.slice(1)}, set ${setIn} in`);
+    await p9.evaluate(() => { document.documentElement.style.fontSize = ''; });
+    await p9.click('#printCardBtn'); await p9.click('#printBwBtn');
+    const backPdf = (await p9.pdf({ preferCSSPageSize: true, printBackground: true })).toString('latin1');
+    ok('a normal card prints on the 6 x 3.5 in page again', (/\/MediaBox\s*\[\s*0\s+0\s+(\d+)\s+(\d+)/.exec(backPdf) || []).slice(1).join() === '432,252');
+    // PDF name (raven575 2026-10-18): opt-in each print. Unticked, the title (and so the PDF name) stays the app's;
+    // ticked, the title is the contact's file name only until printing ends or the next tap
+    const appTitle = await p9.title();
+    await p9.click('#printCardBtn');
+    const boxOff = await p9.isChecked('#printNameFile');
+    await p9.click('#printBwBtn');
+    ok('PDF name: the "Name the PDF after the contact" box starts unticked, and unticked the title stays the app\'s', !boxOff && (await p9.title()) === appTitle && appTitle === 'vCard Generator Engine (vCGE)', appTitle);
+    await p9.click('#printCardBtn'); await p9.check('#printNameFile'); await p9.click('#printBwBtn');
+    const named = await p9.title();
+    await p9.evaluate(() => window.dispatchEvent(new Event('afterprint')));
+    ok('PDF name: ticked, the title is the contact\'s file name while printing, then goes back on afterprint', named === 'Maria Gonzalez' && (await p9.title()) === appTitle, `${named} / ${await p9.title()}`);
+    await p9.click('#printCardBtn');
+    const boxAgain = await p9.isChecked('#printNameFile');
+    await p9.check('#printNameFile'); await p9.click('#printThemedBtn');
+    const namedAgain = await p9.title();
+    await p9.mouse.click(5, 5);
+    ok('PDF name: the box is unticked again on the next print, and a tap also puts the title back', !boxAgain && namedAgain === 'Maria Gonzalez' && (await p9.title()) === appTitle, `${boxAgain} ${namedAgain} / ${await p9.title()}`);
     ok('tester round 1: no page errors', errors9.length === 0, errors9.join(' | '));
     await ctx9.close();
   }

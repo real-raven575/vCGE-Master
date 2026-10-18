@@ -16,6 +16,13 @@ import { foldVCardLines } from '../../share/vcardFormatter.js';
 
 export const FILE_NAME_MAX = 80;         // characters of the name part, before the suffix
 export const PRINT_QR_PX = 600;          // the QR drawn for the print sheet (1.5 in on paper)
+export const PRINT_PAGE_IN = { width: 6, height: 3.5, margin: 0.3 };   // print.css's @page; the height grows to fit
+
+/** The page height (inches) for a print sheet this tall (CSS px, 96 per inch): 3.5 in, or more when the card grows. */
+export function printPageHeight(sheetPx) {
+    const needed = Math.ceil((sheetPx / 96 + 2 * PRINT_PAGE_IN.margin) * 100) / 100;
+    return Math.max(PRINT_PAGE_IN.height, needed);
+}
 
 const typeLabel = (types, type) => (types.find(([value]) => value === type) || [, type || 'Other'])[1];
 
@@ -283,19 +290,27 @@ export class EgressController {
     }
 
     /**
-     * Print / Save as PDF: one 6 x 3.5 in page (print.css) with the card front at true business-card size (3.5 x 2 in)
+     * Print / Save as PDF: one 6 x 3.5 in page (print.css) with the card front at business-card size (3.5 x 2 in or taller)
      * on the left and the QR code (1.5 in) to its right. Themed keeps the card's colours (copied from the card onto
      * the print copy, which inherits nothing once it leaves the card); Black & White is white paper and dark ink.
      * When the contact is too big for a QR code the right side says so instead of showing an unscannable code.
+     * A card with more lines than 2 in holds grows taller instead of cutting them off: the sheet is measured off screen
+     * with the print layout and the page is made tall enough (an @page rule in a constructed style sheet, which the
+     * CSP allows). Browsers that ignore @page sizes (iOS prints on letter paper) still get the whole card.
      * The copies are rebuilt on each print and kept in the hidden #printSheet until the next print, idle purge or lock:
      * clearing them on 'afterprint' is unsafe, as some browsers (Android) fire it before the PDF is rendered.
      * A blank card is not printed.
-     * @param {{ themed?: boolean, qrCanvas?: HTMLCanvasElement|null }} [options]
+     * Only when the user ticks "Name the PDF after the contact" (nameFile) is the PDF named like the other files
+     * ("Jane Doe.pdf"): browsers take the PDF's name from the page title, so the title holds the file name while printing
+     * and goes back on 'afterprint', the next tap or key, or the next clear (idle purge, lock, wipe). The browser may keep
+     * the title in its history, which is why it is opt-in each time. (Android fires 'afterprint' early: its PDF may keep
+     * the app's name.)
+     * @param {{ themed?: boolean, qrCanvas?: HTMLCanvasElement|null, nameFile?: boolean }} [options]
      *   qrCanvas: the code drawn in the chosen colours (null when none fits); the themed one falls back to black on
      *   white inside MOD07 when the theme's contrast is too low, which the caller reports.
-     * @returns {{ success: boolean, reason?: 'empty' }}
+     * @returns {{ success: boolean, reason?: 'empty', pageHeightIn?: number }}
      */
-    triggerPhysicalPrint({ themed = false, qrCanvas = null } = {}) {
+    triggerPhysicalPrint({ themed = false, qrCanvas = null, nameFile = false } = {}) {
         if (this.isEmpty()) return { success: false, reason: 'empty' };
         const sheet = document.getElementById('printSheet'), front = document.getElementById('cardFront');
         if (sheet && front) {
@@ -330,14 +345,55 @@ export class EgressController {
             side.append(name);
             sheet.replaceChildren(frontCopy, side);
         }
+        const pageHeightIn = sheet ? this.fitPrintPage(sheet) : PRINT_PAGE_IN.height;
         audit('print', { themed });
+        if (nameFile) this.setPrintTitle(this.fileName(''));
         window.print();
-        return { success: true };
+        return { success: true, pageHeightIn };
+    }
+
+    /** Measures the filled sheet with the print layout (off screen) and sizes the page to it. Returns the page height. */
+    fitPrintPage(sheet) {
+        sheet.classList.add('print-measure');
+        const height = printPageHeight(sheet.getBoundingClientRect().height);
+        sheet.classList.remove('print-measure');
+        this.setPrintPageHeight(height);
+        return height;
+    }
+
+    setPrintPageHeight(height) {
+        if (typeof CSSStyleSheet === 'undefined' || !('adoptedStyleSheets' in document)) return;
+        if (!this.pageSheet) {
+            this.pageSheet = new CSSStyleSheet();
+            document.adoptedStyleSheets = [...document.adoptedStyleSheets, this.pageSheet];
+        }
+        this.pageSheet.replaceSync(height > PRINT_PAGE_IN.height
+            ? `@media print { @page { size: ${PRINT_PAGE_IN.width}in ${height}in; margin: ${PRINT_PAGE_IN.margin}in; } }` : '');
+    }
+
+    /** The page title becomes the PDF's name until printing ends (afterprint), the next tap or key, or the next clear. */
+    setPrintTitle(name) {
+        this.restorePrintTitle();
+        this.savedTitle = document.title;
+        document.title = name;
+        this.titleRestorer = () => this.restorePrintTitle();
+        window.addEventListener('afterprint', this.titleRestorer);
+        ['pointerdown', 'keydown'].forEach(type => window.addEventListener(type, this.titleRestorer, true));
+    }
+
+    restorePrintTitle() {
+        if (this.savedTitle == null) return;
+        document.title = this.savedTitle;
+        this.savedTitle = null;
+        window.removeEventListener('afterprint', this.titleRestorer);
+        ['pointerdown', 'keydown'].forEach(type => window.removeEventListener(type, this.titleRestorer, true));
     }
 
     clearPrintSheet() {
+        this.restorePrintTitle();
         const sheet = document.getElementById('printSheet');
         if (sheet) sheet.replaceChildren();
+        if (this.pageSheet) this.pageSheet.replaceSync('');
     }
 }
 

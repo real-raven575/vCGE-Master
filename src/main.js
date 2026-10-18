@@ -900,12 +900,12 @@ function wireEgress() {
         printChoiceDialog.open();
     });
     printChoiceDialog.init({
-        onChoose: (themed) => {
+        onChoose: (themed, { nameFile = false } = {}) => {
             expectExternalApp();
             const qr = document.createElement('canvas');
             const drawn = renderExportQr(qr, { themed, size: PRINT_QR_PX });
             if (themed && drawn.ok && !drawn.themed) cardView.showToast('The theme colours are not scannable, so the QR is printed in black and white.');
-            egressController.triggerPhysicalPrint({ themed, qrCanvas: drawn.ok ? qr : null });
+            egressController.triggerPhysicalPrint({ themed, qrCanvas: drawn.ok ? qr : null, nameFile });
             qr.width = qr.height = 0;
         }
     });

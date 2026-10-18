@@ -541,12 +541,14 @@
                 <h2 id="printChoiceTitle">Print / PDF</h2>
                 <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close">&#x2715;</button>
             </div>
-            <p class="print-choice-lead">One 6 &times; 3.5 inch page: the card at business-card size with its QR code beside it. Choose Save as PDF in the print dialog for a file.</p>
+            <p class="print-choice-lead">One 6 &times; 3.5 inch page (taller if the card needs it): the card at business-card size with its QR code beside it. Choose Save as PDF in the print dialog for a file.</p>
             <div class="print-choice-actions">
                 <button id="printThemedBtn" type="button" class="print-choice print-choice-themed">Themed</button>
                 <button id="printBwBtn" type="button" class="print-choice print-choice-bw">Black &amp; White</button>
                 <button id="printCancelBtn" type="button" class="print-choice-cancel">Cancel</button>
             </div>
+            <label class="print-choice-name"><input id="printNameFile" type="checkbox"> Name the PDF after the contact</label>
+            <p class="print-choice-name-note">Off by default. The PDF's name comes from the browser tab's title, so the contact's name is put there while printing and may stay in the browser's history.</p>
             <p class="print-choice-note">Themed keeps the card's colours. If the theme's QR would not scan, the code is printed in black and white and a message says so.</p>
             <div class="mod-tag mod-tag-inset" aria-hidden="true"><span>MOD-08</span></div>
         </div>
@@ -643,7 +645,7 @@
         <button id="toastAction" type="button" class="hidden font-semibold text-brand-400 dark:text-brand-700 hover:underline">Undo</button>
     </div>
 
-    <!-- Print sheet (MOD08): filled just before printing with the card front (3.5 x 2 in) and the QR beside it on a 6 x 3.5 in page; emptied on idle purge and lock -->
+    <!-- Print sheet (MOD08): filled just before printing with the card front (3.5 x 2 in, taller when its lines need it) and the QR beside it on a 6 x 3.5 in page (taller to match); emptied on idle purge and lock -->
     <div id="printSheet" class="hidden" aria-hidden="true"></div>
 
     <!-- Bundled third-party libraries (pinned, MIT / Apache-2.0; see THIRD_PARTY_NOTICES.md) -->

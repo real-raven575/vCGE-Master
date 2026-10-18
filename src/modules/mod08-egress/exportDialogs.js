@@ -231,7 +231,7 @@ export class ExportQrDialog {
 }
 
 export class PrintChoiceDialog {
-    /** @param {{ onChoose: (themed: boolean) => void }} hooks */
+    /** @param {{ onChoose: (themed: boolean, options: { nameFile: boolean }) => void }} hooks */
     constructor(hooks = {}) {
         this.hooks = hooks;
         this.root = null;
@@ -253,14 +253,19 @@ export class PrintChoiceDialog {
     open() {
         if (!this.root) return;
         this.root.classList.remove('hidden');
+        // Naming the PDF after the contact is asked for each print: the box always starts unticked (raven575, 2026-10-18)
+        const box = $('printNameFile');
+        if (box) box.checked = false;
         $('printThemedBtn').focus();
     }
 
     close() { if (this.root) this.root.classList.add('hidden'); }
 
     choose(themed) {
+        const box = $('printNameFile');
+        const nameFile = !!(box && box.checked);
         this.close();
-        if (this.hooks.onChoose) this.hooks.onChoose(themed);
+        if (this.hooks.onChoose) this.hooks.onChoose(themed, { nameFile });
     }
 }
 

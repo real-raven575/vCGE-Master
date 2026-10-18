@@ -1405,6 +1405,9 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   off();
   const methods = events.map(d => d.method).join();
   const leaks = ['Nick', 'Zafer', 'TeamLogic', '269', 'nzafer', 'Moorsbridge', '.vcf', '.png'];
+  const { printPageHeight, PRINT_PAGE_IN } = await import(`${R}/modules/mod08-egress/egressController.js`);
+  ok('MOD08 print page: 3.5 in for a sheet that fits, taller (rounded up to 0.01 in) for a card that grows', PRINT_PAGE_IN.height === 3.5 && printPageHeight(278) === 3.5 && printPageHeight(0) === 3.5
+    && printPageHeight(450) === 5.29 && printPageHeight(451) === 5.3, [printPageHeight(278), printPageHeight(450), printPageHeight(451)].join());
   ok('MOD08 audit events name what happened: share_file, share_text, clipboard, sms, email', methods === 'share_file,share_text,clipboard,sms,email', methods);
   ok('MOD08 audit events carry signals only: no file name, name, number or address (Commandment 6)', events.every(d => Object.keys(d).every(k => ['module', 'method', 'timestamp', 'themed'].includes(k)))
     && !leaks.some(w => JSON.stringify(events).includes(w)), JSON.stringify(events));
