@@ -1038,6 +1038,27 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     stop();
   }
   ok('spin, edge and toast numbers follow the plan: 26 fps, 5 percent, 48 px edge, 3 s toast', card.STEP_FPS === 26 && card.OVERSHOOT === 0.05 && card.EDGE_PX === 48 && card.TOAST_MS === 3000 && card.PRINT_LINES_EACH === 2);
+
+  // iPad test video, 2026-10-17 (#74, #85, #86): the logo inset, the typefaces and sizes, the line icons and labels
+  const css6 = fs6.readFileSync(`${R}/modules/mod06-gui/cardStyles.css`, 'utf8'), uiCss = fs6.readFileSync(`${R}/modules/mod01-shell/ui.css`, 'utf8');
+  const px = (cls) => parseFloat(/^p-(\d+(?:\.\d+)?)$/.exec(cls)[1]) * 4;
+  ok('#74 the logo inset is more than the rounding takes off (0.29 of the radius): 16 px tile corners, 12 px strip corners',
+    px(card.LOGO_INSET) > 16 * (1 - Math.SQRT1_2) && px(card.LOGO_INSET_STRIP) > 12 * (1 - Math.SQRT1_2), `${card.LOGO_INSET} ${card.LOGO_INSET_STRIP}`);
+  const families = card.CARD_FONTS.map(([cls]) => (new RegExp(`\\.${cls} \\{ font-family: '?([^',;]+)`).exec(css6) || [])[1]);
+  ok('#85 eleven card typefaces, the original Sans, Serif and Mono first, each with its own rule', card.CARD_FONTS.length === 11 && card.CARD_FONTS.slice(0, 3).map(([c]) => c).join() === 'font-sans,font-serif,font-mono' && families.every(Boolean), JSON.stringify(families));
+  const bundled = families.filter(f => !/^(system-ui|Georgia)$/.test(f));
+  ok('#85 every bundled card typeface has its @font-face (here or in the app\'s font setting), no font host', bundled.length === 9 && bundled.every(f => new RegExp(`@font-face \\{ font-family: '${f}';[^}]*url\\('\\.\\./\\.\\./vendor/fonts/`).test(css6 + uiCss)) && !/https?:/.test(css6), bundled.join(','));
+  ok('#85 four text sizes, medium by default, each scale defined', card.CARD_SIZES.map(([k]) => k).join() === 'sm,md,lg,xl' && card.DEFAULT_CARD_SIZE === 'md' && ['sm', 'lg', 'xl'].every(k => css6.includes(`.card-face.card-size-${k} { --card-scale:`)) && /@media screen \{\s*\.card-face \.text-2xl/.test(css6));
+  ok('#86 line icons by kind: handset, mobile, fax, envelope, globe, house or building',
+    card.lineIcon('phones', 'work') === 'phone' && card.lineIcon('phones', 'mobile') === 'device-mobile' && card.lineIcon('phones', 'pager') === 'device-mobile' && card.lineIcon('phones', 'workFax') === 'printer'
+    && card.lineIcon('phones', 'homeFax') === 'printer' && card.lineIcon('phones', '') === 'phone' && card.lineIcon('emails', 'work') === 'mail' && card.lineIcon('websites', 'linkedin') === 'world'
+    && card.lineIcon('address', 'home') === 'home' && card.lineIcon('address', 'work') === 'building' && card.lineIcon('address', 'other') === 'building');
+  const sprite = fs6.readFileSync(`${R}/vendor/icons/app/sprite.svg`, 'utf8');
+  ok('#86 every line icon is in the bundled sprite', ['phone', 'device-mobile', 'printer', 'mail', 'world', 'home', 'building'].every(id => sprite.includes(`<symbol id="${id}" viewBox="0 0 24 24">`)));
+  ok('#86 labels: with icons the type alone; without, the line\'s noun joins a plain type, a telling one stays',
+    card.lineLabel('phones', 'work', 'Work', true) === 'Work' && card.lineLabel('phones', 'work', 'Work', false) === 'Work phone' && card.lineLabel('phones', 'mobile', 'Mobile', false) === 'Mobile phone'
+    && card.lineLabel('phones', 'workFax', 'Work fax', false) === 'Work fax' && card.lineLabel('emails', 'personal', 'Personal', false) === 'Personal email'
+    && card.lineLabel('websites', 'linkedin', 'LinkedIn', false) === 'LinkedIn' && card.lineLabel('address', 'home', 'Home', false) === 'Home address' && card.lineLabel('emails', '', '', false) === '');
 }
 
 // MOD01 browser gate (browserGate.js, ES5): which missing feature blocks the app and which only warns

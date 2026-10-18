@@ -293,16 +293,21 @@
                             <div id="paletteListContainer"></div>
                         </div>
                     </div>
-                    <select id="cardFontSelect" class="px-2 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-xs font-semibold" aria-label="Card typography">
-                        <option value="font-sans">Sans</option>
-                        <option value="font-serif">Serif</option>
-                        <option value="font-mono">Mono</option>
-                    </select>
+                    <!-- Typefaces and text sizes: card3dView.js CARD_FONTS and CARD_SIZES fill these -->
+                    <select id="cardFontSelect" class="px-2 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-xs font-semibold" aria-label="Card typography"></select>
+                    <select id="cardSizeSelect" class="px-2 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-xs font-semibold" aria-label="Card text size"></select>
+                    <button id="cardIconsBtn" type="button" aria-pressed="true" title="Icons in front of the card's lines" class="px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition">Icons: on</button>
                     <button id="flipCardBtn" type="button" class="ml-auto px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition">Flip card</button>
                 </div>
                 <!-- Logo (MOD06): upload sits on the right with the preview; Remove on the far left, away from it -->
                 <div class="flex flex-wrap items-center gap-2">
                     <button id="removeAvatarBtn" type="button" class="hidden px-3 py-1.5 rounded-lg text-xs font-semibold hover:text-rose-500 transition">Remove logo</button>
+                    <!-- Remove logo asks first (raven575, 2026-10-17 test): No keeps it, Yes removes it -->
+                    <div id="removeLogoConfirm" role="group" aria-label="Remove the logo?" class="hidden flex flex-wrap items-center gap-2">
+                        <span class="text-xs font-semibold">Remove the logo?</span>
+                        <button id="removeLogoYes" type="button" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white transition">Yes, remove</button>
+                        <button id="removeLogoNo" type="button" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition">No, keep it</button>
+                    </div>
                     <div class="ml-auto flex items-center gap-2">
                         <div id="formAvatarPreview" class="w-11 h-11"></div>
                         <label class="cursor-pointer text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition text-center">

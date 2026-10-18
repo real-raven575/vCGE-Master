@@ -67,10 +67,43 @@ const LISTS = {
     emails: { container: 'emailList', id: 'email', noun: 'email', types: EMAIL_TYPES, input: 'email', placeholder: 'name@example.com', add: 'addEmailBtn', preview: 'previewEmails', empty: 'No email address' },
     websites: { container: 'websiteList', id: 'website', noun: 'website', types: WEBSITE_TYPES, input: 'url', placeholder: 'example.com or a profile link', add: 'addWebsiteBtn', preview: 'previewWebsites', empty: 'No website' }
 };
+
+// Line icons on the card (Tabler, the header's own set: src/vendor/icons/app/sprite.svg), by the kind of line.
+const SPRITE = 'src/vendor/icons/app/sprite.svg';
+const PHONE_ICONS = { mobile: 'device-mobile', pager: 'device-mobile', workFax: 'printer', homeFax: 'printer' };
+/** The icon for a line: `kind` is phones, emails, websites or address; `type` the entry's type (address: its addressType). */
+export function lineIcon(kind, type) {
+    if (kind === 'phones') return PHONE_ICONS[type] || 'phone';
+    if (kind === 'emails') return 'mail';
+    if (kind === 'websites') return 'world';
+    return type === 'home' ? 'home' : 'building';
+}
+// Without icons a bare "Work" says nothing about the line, so a plain type takes its noun ("Work phone"); a type that
+// already names the line (Work fax, LinkedIn) stays as it is.
+const PLAIN_TYPES = new Set(['work', 'home', 'mobile', 'main', 'personal', 'other']);
+const LINE_NOUNS = { phones: 'phone', emails: 'email', websites: 'website', address: 'address' };
+/** The label in front of a line: its type's name, with the line's noun added when the card shows no icons. */
+export function lineLabel(kind, type, typeLabel, icons = true) {
+    if (icons || !PLAIN_TYPES.has(type) || !typeLabel) return typeLabel;
+    return type === 'mobile' && kind === 'phones' ? 'Mobile phone' : `${typeLabel} ${LINE_NOUNS[kind]}`;
+}
 export const PRINT_LINES_EACH = 2;   // the printed card (3.5 x 2 in, MOD08) has room for this many of each list
 const digitsOrLower = (v) => (/\d{7}/.test(v.replace(/\D/g, '')) ? v.replace(/\D/g, '') : v.trim().toLowerCase());
 
-const FONT_CLASSES = ['font-sans', 'font-serif', 'font-mono'];
+// Card typefaces: [class, label]. The first three are the original choices (Sans, Serif, Mono, kept so a card held
+// through a lock or an Undo keeps its look); then the bundled fonts the app setting already loads and the device's own
+// system fonts (cardStyles.css), so no font file is added.
+export const CARD_FONTS = [
+    ['font-sans', 'Sans (Inter)'], ['font-serif', 'Serif (Playfair)'], ['font-mono', 'Mono (Fira Code)'],
+    ['card-font-atkinson', 'Atkinson Hyperlegible'], ['card-font-lexend', 'Lexend'], ['card-font-tinos', 'Tinos'],
+    ['card-font-comic', 'Comic Neue'], ['card-font-macondo', 'Macondo'], ['card-font-dyslexic', 'OpenDyslexic'],
+    ['card-font-system', 'System sans'], ['card-font-system-serif', 'System serif']
+];
+const FONT_CLASSES = CARD_FONTS.map(([c]) => c);
+// Card text size on screen: [key, label]; the class on each face is card-size-<key>.
+export const CARD_SIZES = [['sm', 'Small text'], ['md', 'Medium text'], ['lg', 'Large text'], ['xl', 'Extra large text']];
+export const DEFAULT_CARD_SIZE = 'md';
+const SIZE_CLASSES = CARD_SIZES.map(([k]) => `card-size-${k}`);
 const $ = (id) => document.getElementById(id);
 
 // Motion (shared rule, same numbers as mod03-camera/viewfinder.js): stepped at 26 fps, a 5 percent snap past the target.
@@ -109,18 +142,24 @@ export class CardView {
     /**
      * @param {Object} opts
      * @param {Function} opts.onChange   called with the current contact after any edit
+     * @param {Function} [opts.onFace]   called with 'front' or 'back' when the side that is up changes (the header lights
+     *                                   Flipside or Checkers from it)
      * @param {Object}   [opts.addressEngine]  MOD05 AddressAutocompleteEngine (local lookup)
      * @param {Object}   [opts.formMapper]     MOD05 ContactFormMapper (phone formatting)
      */
-    constructor({ onChange, addressEngine = null, formMapper = null }) {
+    constructor({ onChange, onFace = null, addressEngine = null, formMapper = null }) {
         this.onChange = onChange || (() => {});
+        this.onFace = onFace || (() => {});
+        this.face = null;           // the side last reported to onFace
         this.addressEngine = addressEngine;
         this.formMapper = formMapper;
         this.avatarBase64 = null;   // logo as the vCard PHOTO (square JPEG)
         this.logoDisplay = null;    // logo as shown on the card: a two-colour trace (SVG) in the ink colour, else trimmed with its transparency
-        this.logoLook = null;       // { wide, transparent, tone, traced } of logoDisplay, worked out when it is set
+        this.logoLook = null;       // { wide, transparent, tone, traced, edge } of logoDisplay, worked out when it is set
         this.themeKey = DEFAULT_THEME;
         this.fontClass = 'font-sans';
+        this.cardSize = DEFAULT_CARD_SIZE;
+        this.cardIcons = true;      // line icons on the card (phone, mobile, email, website, address)
         this.isFlipped = false;
         this.angle = 0;             // the card's turn in degrees (0 front, 180 back)
         this.stopSpin = null;
@@ -138,6 +177,7 @@ export class CardView {
         this.attachListeners();
         this.applyTheme(this.themeKey);
         this.setAngle(0);
+        this.reportFace();
     }
 
     // ---- Contact state -------------------------------------------------------------------------------------
@@ -153,6 +193,8 @@ export class CardView {
         contact.logoDisplay = this.logoDisplay;
         contact.themePalette = this.themeKey;
         contact.cardFont = this.fontClass;
+        contact.cardSize = this.cardSize;
+        contact.cardIcons = this.cardIcons;
         return contact;
     }
 
@@ -169,6 +211,8 @@ export class CardView {
         this.setAvatar(c.avatarBase64 || null, c.logoDisplay || null);
         this.applyTheme(themeKeyOf(c.themePalette));
         this.applyFont(c.cardFont);
+        this.applySize(c.cardSize);
+        this.applyIcons(c.cardIcons !== false);
         this.holdsSample = false;
     }
 
@@ -182,7 +226,7 @@ export class CardView {
     mergeContact(partial = {}) {
         if (this.holdsSample) {
             this.setContact({ ...createEmptyContact(), avatarBase64: this.avatarBase64, logoDisplay: this.logoDisplay,
-                themePalette: this.themeKey, cardFont: this.fontClass });
+                themePalette: this.themeKey, cardFont: this.fontClass, cardSize: this.cardSize, cardIcons: this.cardIcons });
         }
         const p = normalizeContact(partial);
         // A name or an address is replaced as a whole, so no part of the previous one (a prefix, a suite) is left behind.
@@ -296,6 +340,8 @@ export class CardView {
         fill('unitTypeOptions', UNIT_TYPES);
         $('addressType').replaceChildren(...ADDRESS_TYPES.map(([v, label]) => new Option(label, v)));
         $('country').replaceChildren(...COUNTRIES.map(c => new Option(c, c)));
+        $('cardFontSelect').replaceChildren(...CARD_FONTS.map(([v, label]) => new Option(label, v)));
+        $('cardSizeSelect').replaceChildren(...CARD_SIZES.map(([v, label]) => new Option(label, v)));
         Object.keys(LISTS).forEach(key => this.renderList(key, []));
         this.setContact(createEmptyContact());
     }
@@ -328,7 +374,7 @@ export class CardView {
         }
     }
 
-    /** Empties the card, back to the default look: front side up, the default palette, Sans typeface. */
+    /** Empties the card, back to the default look: front side up, the default palette, Sans typeface, medium text. */
     clear() {
         this.setContact(createEmptyContact());
         this.setFlipped(false, { instant: true });
@@ -347,8 +393,10 @@ export class CardView {
         $('previewFullName').textContent = fullName;
         $('previewOrg').textContent = contact.organization || 'Company Name';
         $('previewTitle').textContent = contact.jobTitle || 'Job Title';
-        Object.entries(LISTS).forEach(([key, cfg]) => this.renderLines($(cfg.preview), contact[key] || [], cfg));
-        $('previewAddress').textContent = [contact.street, unit, contact.city, contact.state].filter(Boolean).join(', ') || 'No address provided';
+        Object.entries(LISTS).forEach(([key, cfg]) => this.renderLines($(cfg.preview), contact[key] || [], cfg, key));
+        const address = [contact.street, unit, contact.city, contact.state].filter(Boolean).join(', ');
+        const addressType = (ADDRESS_TYPES.find(([v]) => v === contact.addressType) || [])[1] || '';
+        $('previewAddress').replaceChildren(...this.lineCells('address', contact.addressType, address ? addressType : '', address || 'No address provided'));
         $('backCardName').textContent = fullName;
 
         const initials = (contact.firstName && contact.lastName)
@@ -361,29 +409,44 @@ export class CardView {
         this.renderAvatarBox($('formAvatarPreview'), initials, 'w-11 h-11 text-lg');
     }
 
-    /** Every entry of a list on the card, each with its type label; past PRINT_LINES_EACH a line is left off the printed card. */
-    renderLines(box, entries, cfg) {
+    /**
+     * Every entry of a list on the card, each with its icon and type label; past PRINT_LINES_EACH a line is left off the
+     * printed card. An empty list is one line saying so, with the list's icon.
+     */
+    renderLines(box, entries, cfg, kind) {
         if (!box) return;
         const shown = entries.filter(e => e && e.value);
-        if (!shown.length) {
+        const line = (cells, extra = '') => {
             const p = document.createElement('p');
-            p.className = 'card-line';
-            p.textContent = cfg.empty;
-            box.replaceChildren(p);
+            p.className = `card-line${extra}`;
+            p.append(...cells);
+            return p;
+        };
+        if (!shown.length) {
+            box.replaceChildren(line(this.lineCells(kind, '', '', cfg.empty)));
             return;
         }
         box.replaceChildren(...shown.map((entry, i) => {
-            const p = document.createElement('p');
-            p.className = `card-line${i >= PRINT_LINES_EACH ? ' print:hidden' : ''}`;
-            const label = document.createElement('span');
-            label.className = 'card-line-label';
-            label.textContent = (cfg.types.find(([v]) => v === entry.type) || [])[1] || entry.type || '';
-            const value = document.createElement('span');
-            value.className = 'card-line-value';
-            value.textContent = entry.value;
-            p.append(label, value);
-            return p;
+            const typeLabel = (cfg.types.find(([v]) => v === entry.type) || [])[1] || entry.type || '';
+            return line(this.lineCells(kind, entry.type, typeLabel, entry.value), i >= PRINT_LINES_EACH ? ' print:hidden' : '');
         }));
+    }
+
+    /** The three cells of a detail line: icon, label and value (the card's grid lines every value up, cardStyles.css). */
+    lineCells(kind, type, typeLabel, text) {
+        const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+        icon.setAttribute('class', 'vcge-icon card-line-icon');
+        icon.setAttribute('aria-hidden', 'true');
+        const use = document.createElementNS('http://www.w3.org/2000/svg', 'use');
+        use.setAttribute('href', `${SPRITE}#${lineIcon(kind, type)}`);
+        icon.appendChild(use);
+        const label = document.createElement('span');
+        label.className = 'card-line-label';
+        label.textContent = lineLabel(kind, type, typeLabel, this.cardIcons);
+        const value = document.createElement('span');
+        value.className = 'card-line-value';
+        value.textContent = text;
+        return [icon, label, value];
     }
 
     renderAvatarBox(box, initials, sizeClasses) {
@@ -400,7 +463,8 @@ export class CardView {
             box.textContent = initials;
             return;
         }
-        box.className = `${base} ${this.logoBacking()}`;
+        // Inset by more than the corner rounding takes off (0.29 of its 16 px radius), so no part of the logo is clipped.
+        box.className = `${base} ${LOGO_INSET} ${this.logoBacking()}`;
         this.plate(box);
         box.appendChild(logoElement(logo, 'w-full h-full object-contain'));
     }
@@ -415,7 +479,7 @@ export class CardView {
         // A line of its own in the card's top row; hidden when printing, which takes away its gap too.
         strip.className = 'basis-full print:hidden';
         const plate = document.createElement('div');
-        plate.className = `h-12 w-fit max-w-full rounded-xl overflow-hidden ${this.logoBacking()}`;
+        plate.className = `h-12 w-fit max-w-full rounded-xl overflow-hidden ${LOGO_INSET_STRIP} ${this.logoBacking()}`;
         this.plate(plate);
         plate.appendChild(logoElement(this.logoDisplay, 'h-full w-auto max-w-full object-contain'));
         strip.replaceChildren(plate);
@@ -425,18 +489,19 @@ export class CardView {
      * What goes behind the logo. A traced logo is drawn in the ink colour and needs nothing. A transparent logo sits
      * straight on the card, except one that would vanish on it: a mostly light logo on a light card gets a plate in
      * the accent colour, a mostly dark one on a dark card a plate in the ink colour. An opaque logo brings its own
-     * background.
+     * background, carried out to the tile's edge in its own edge colour (the inset around it is that colour too).
      */
     logoBacking() {
         const look = this.logoDisplay && this.logoLook;
         if (!look || look.traced) return '';
         if (!look.transparent) return 'shadow-lg';
-        return this.plateColour() ? 'p-1.5 shadow-lg' : '';
+        return this.plateColour() ? 'shadow-lg' : '';
     }
 
     plateColour() {
         const look = this.logoDisplay && this.logoLook;
-        if (!look || look.traced || !look.transparent) return null;
+        if (!look || look.traced) return null;
+        if (!look.transparent) return look.edge || null;
         const t = THEMES[this.themeKey], lightCard = relativeLuminance(t.card) > 0.4;
         if (look.tone === 'light' && lightCard) return t.accent;
         if (look.tone === 'dark' && !lightCard) return t.ink;
@@ -469,6 +534,25 @@ export class CardView {
         });
     }
 
+    /** Line icons on the card, on or off (the labels then name the line: "Work phone"). */
+    applyIcons(on) {
+        this.cardIcons = on !== false;
+        const btn = $('cardIconsBtn');
+        btn.setAttribute('aria-pressed', String(this.cardIcons));
+        btn.textContent = this.cardIcons ? 'Icons: on' : 'Icons: off';
+        document.querySelectorAll('.card-lines').forEach(el => el.classList.toggle('card-no-icons', !this.cardIcons));
+    }
+
+    /** Text size on the card (screen only): one of CARD_SIZES, else the default. */
+    applySize(size) {
+        this.cardSize = CARD_SIZES.some(([k]) => k === size) ? size : DEFAULT_CARD_SIZE;
+        $('cardSizeSelect').value = this.cardSize;
+        ['cardFront', 'cardBack'].forEach(id => {
+            $(id).classList.remove(...SIZE_CLASSES);
+            $(id).classList.add(`card-size-${this.cardSize}`);
+        });
+    }
+
     /**
      * @param {string|null} photo    the square JPEG (vCard PHOTO)
      * @param {string|null} display  the logo for the card (a trace or the trimmed picture); without it the card shows the photo
@@ -477,7 +561,7 @@ export class CardView {
         this.avatarBase64 = photo;
         this.logoDisplay = photo ? display : null;
         this.logoLook = null;
-        $('removeAvatarBtn').classList.toggle('hidden', !photo);
+        this.askRemoveLogo(false);
         if (!this.logoDisplay) return;
         // Its shape and tone take a moment to read; the card is drawn again once they are known.
         const shown = this.logoDisplay;
@@ -486,6 +570,14 @@ export class CardView {
             this.logoLook = look;
             this.render(this.getContact());
         }).catch(err => console.warn('[vCGE] Logo shape not readable:', err));
+    }
+
+    /** Shows the "Remove the logo?" question in place of the Remove logo button (asking), or the button (a logo is on). */
+    askRemoveLogo(asking) {
+        const has = !!this.avatarBase64;
+        $('removeAvatarBtn').classList.toggle('hidden', !has || asking);
+        $('removeLogoConfirm').classList.toggle('hidden', !has || !asking);
+        if (has && asking) $('removeLogoNo').focus();
     }
 
     // ---- The spin: tap flips, a sideways drag on the card turns it, and it settles on the nearest face -------
@@ -507,6 +599,7 @@ export class CardView {
             this.setAngle(face * 180);
             if (flipper) flipper.dataset.spin = 'still';
             this.stopSpin = null;
+            this.reportFace();
         };
         if (instant || reducedMotion()) { done(target); return; }
         if (flipper) flipper.dataset.spin = 'moving';
@@ -514,8 +607,19 @@ export class CardView {
         this.stopSpin = () => { stop(); this.stopSpin = null; if (flipper) flipper.dataset.spin = 'still'; };
     }
 
+    /** Tells onFace which side is up (or is on its way up), once per change; the flipper carries it as data-face. */
+    reportFace() {
+        const face = this.isFlipped ? 'back' : 'front';
+        const flipper = $('card3DFlipper');
+        if (flipper) flipper.dataset.face = face;
+        if (face === this.face) return;
+        this.face = face;
+        this.onFace(face);
+    }
+
     setFlipped(flipped, options = {}) {
         this.isFlipped = flipped;
+        this.reportFace();
         // From wherever the card is, the shorter way round to the face asked for.
         const base = Math.round(this.angle / 360) * 360;
         let target = base + (flipped ? 180 : 0);
@@ -526,6 +630,16 @@ export class CardView {
 
     toggleFlip() {
         this.setFlipped(!this.isFlipped);
+    }
+
+    /**
+     * A tap on the card turns it the way a push there would: on its right half the right edge goes away (a turn to
+     * the right), on its left half the left edge does. `side` is 'right' or 'left'.
+     */
+    flipFrom(side) {
+        this.isFlipped = !this.isFlipped;
+        this.reportFace();
+        this.spinTo(Math.round(this.angle / 180) * 180 + (side === 'left' ? -180 : 180));
     }
 
     wireSpin() {
@@ -562,10 +676,32 @@ export class CardView {
         flipper.addEventListener('pointerup', end);
         flipper.addEventListener('pointercancel', end);
         flipper.addEventListener('lostpointercapture', end);
-        flipper.addEventListener('click', () => {
+        flipper.addEventListener('click', (e) => {
             if (suppressClick) { suppressClick = false; return; }
-            this.toggleFlip();
+            // A click from the keyboard (no pointer position) takes the short way, as the Flip card button does.
+            if (!e.detail) { this.toggleFlip(); return; }
+            const r = flipper.getBoundingClientRect();
+            this.flipFrom(e.clientX < r.left + r.width / 2 ? 'left' : 'right');
         });
+        // iOS WebKit hands a sideways finger drag to the deck's scroll (the card would only ever turn on a tap) unless
+        // the touch's first move is held back. Only a drag that starts sideways is kept; an upright one still scrolls.
+        let touch = null;
+        flipper.addEventListener('touchstart', (e) => {
+            const t = e.touches[0];
+            touch = e.touches.length === 1 && t.clientX >= EDGE_PX && t.clientX <= window.innerWidth - EDGE_PX
+                ? { x: t.clientX, y: t.clientY, sideways: null } : null;
+        }, { passive: true });
+        flipper.addEventListener('touchmove', (e) => {
+            if (!touch || e.touches.length !== 1) return;
+            if (touch.sideways === null) {
+                const dx = Math.abs(e.touches[0].clientX - touch.x), dy = Math.abs(e.touches[0].clientY - touch.y);
+                if (dx === dy) return;
+                touch.sideways = dx > dy;
+            }
+            if (touch.sideways && e.cancelable) e.preventDefault();
+        }, { passive: false });
+        flipper.addEventListener('touchend', () => { touch = null; }, { passive: true });
+        flipper.addEventListener('touchcancel', () => { touch = null; }, { passive: true });
     }
 
     // ---- Toasts: at the top, 3 s; a tap dismisses, a hold keeps it until 3 s after the release ---------------
@@ -651,7 +787,7 @@ export class CardView {
         const { logo, ...fields } = preset;
         this.changeWithUndo(`Loaded sample: ${preset.firstName} ${preset.lastName}`,
             () => {
-                this.setContact({ ...createEmptyContact(), ...fields, avatarBase64: this.avatarBase64, logoDisplay: this.logoDisplay, cardFont: this.fontClass });
+                this.setContact({ ...createEmptyContact(), ...fields, avatarBase64: this.avatarBase64, logoDisplay: this.logoDisplay, cardFont: this.fontClass, cardSize: this.cardSize, cardIcons: this.cardIcons });
                 this.holdsSample = true;
             });
         if (!logo) return;
@@ -706,6 +842,14 @@ export class CardView {
             this.applyFont(e.target.value);
             this.changed();
         });
+        $('cardSizeSelect').addEventListener('change', (e) => {
+            this.applySize(e.target.value);
+            this.changed();
+        });
+        $('cardIconsBtn').addEventListener('click', () => {
+            this.applyIcons(!this.cardIcons);
+            this.changed();
+        });
 
         $('flipCardBtn').addEventListener('click', () => this.toggleFlip());
         this.wireSpin();
@@ -742,7 +886,10 @@ export class CardView {
             };
             reader.readAsDataURL(file);
         });
-        $('removeAvatarBtn').addEventListener('click', () => {
+        // Remove logo asks first; the question takes the button's place until it is answered.
+        $('removeAvatarBtn').addEventListener('click', () => this.askRemoveLogo(true));
+        $('removeLogoNo').addEventListener('click', () => { this.askRemoveLogo(false); $('removeAvatarBtn').focus(); });
+        $('removeLogoYes').addEventListener('click', () => {
             this.sampleLogoToken++;
             this.setAvatar(null);
             this.changed();
@@ -814,6 +961,10 @@ const LOGO_DISPLAY_MAX = 512;   // the card copy: longest side in px
 const WIDE_LOGO = 2;            // width / height from which a logo is a wordmark and gets the strip across the card
 const TRACE_MAX = 160;          // the trace works on a grid at most this wide or tall
 const TRACE_MARK = 'data-vcge-trace';
+// The logo tile (rounded-2xl, 16 px corners) and the wordmark strip (rounded-xl, 12 px) clip anything nearer a corner
+// than 0.29 of its radius; the logo is inset by more than that (6 px and 4 px), so the rounding never cuts it.
+export const LOGO_INSET = 'p-1.5';
+export const LOGO_INSET_STRIP = 'p-1';
 
 /** The element that shows a logo: an inline drawing in the ink colour for a trace, else a picture. */
 function logoElement(src, className) {
@@ -911,8 +1062,8 @@ export async function prepareLogo(source, { trace = true } = {}) {
 }
 
 /**
- * Shape and tone of a prepared display logo, for the card layout: { wide, transparent, tone, traced } where tone is
- * 'light' or 'dark' when most of the logo is, else null.
+ * Shape and tone of a prepared display logo, for the card layout: { wide, transparent, tone, traced, edge } where tone
+ * is 'light' or 'dark' when most of the logo is, else null, and edge is an opaque logo's edge colour (`rgb(r,g,b)`).
  * @param {string} displayUrl
  */
 export async function describeLogo(displayUrl) {
@@ -926,7 +1077,10 @@ export async function describeLogo(displayUrl) {
     ctx.drawImage(img, 0, 0, cw, ch);
     const px = ctx.getImageData(0, 0, cw, ch).data;
     c.width = c.height = 0;
-    return { wide: w / h >= WIDE_LOGO, transparent: isTransparent(px, cw * ch), tone: toneOf(px, cw, { x: 0, y: 0, w: cw, h: ch }), traced: false };
+    const transparent = isTransparent(px, cw * ch);
+    // An opaque logo's edge colour fills the tile around it, so its own background reaches the rounded edge.
+    const edge = transparent ? null : logoBounds(px, cw, ch).edge;
+    return { wide: w / h >= WIDE_LOGO, transparent, tone: toneOf(px, cw, { x: 0, y: 0, w: cw, h: ch }), traced: false, edge };
 }
 
 const isTraceUrl = (url) => typeof url === 'string' && /^data:image\/svg\+xml;base64,/i.test(url) && decodeDataUrl(url).includes(TRACE_MARK);

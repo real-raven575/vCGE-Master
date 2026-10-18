@@ -2080,7 +2080,13 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     await p6.click('#navCard'); await p6.waitForTimeout(500);
     const sides = await p6.evaluate(() => { const r = document.getElementById('removeAvatarBtn').getBoundingClientRect(), u = document.getElementById('avatarUpload').parentElement.getBoundingClientRect(); return { gap: u.left - r.right, removeText: document.getElementById('removeAvatarBtn').textContent.trim() }; });
     ok('logo: "Remove logo" sits well away from the upload (on the far left)', sides.removeText === 'Remove logo' && sides.gap > 80, JSON.stringify(sides));
+    // Remove logo asks first (video finding #83): No keeps the logo, Yes removes it
     await p6.click('#removeAvatarBtn');
+    const asked = await p6.evaluate(() => ({ question: !document.getElementById('removeLogoConfirm').classList.contains('hidden') && document.getElementById('removeLogoConfirm').textContent.includes('Remove the logo?'), button: !document.getElementById('removeAvatarBtn').classList.contains('hidden'), focus: document.activeElement.id, logo: !!document.querySelector('#previewAvatar img') }));
+    ok('logo: Remove logo asks "Remove the logo?" first, focus on No, the logo still on', asked.question && !asked.button && asked.focus === 'removeLogoNo' && asked.logo, JSON.stringify(asked));
+    await p6.click('#removeLogoNo');
+    ok('logo: No keeps the logo and brings the Remove logo button back', !!(await p6.$('#previewAvatar img')) && await p6.isVisible('#removeAvatarBtn') && !(await p6.isVisible('#removeLogoConfirm')));
+    await p6.click('#removeAvatarBtn'); await p6.click('#removeLogoYes');
     ok('logo: Remove takes the logo off and says so; the initials are back', !(await p6.$('#previewAvatar img')) && (await p6.textContent('#previewAvatar')).trim() === 'GR' && (await p6.textContent('#toastMessage')) === 'Logo removed.');
     await p6.click('#toastAction').catch(() => {});
     await p6.click('#navFields'); await p6.waitForTimeout(300);
@@ -2089,6 +2095,157 @@ const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, c
     ok('sample: Undo after Clear brings the sample back without its logo (removed before) and with its theme', (await p6.inputValue('#firstName')) === 'Ghost' && (await p6.textContent('#currentPaletteLabel')) === 'Twilight' && !(await p6.$('#previewAvatar img')));
     ok('card: no page errors, nothing fetched from outside, no missing files', errors6.length === 0 && external6.length === 0 && missing6.length === 0, errors6.concat(external6, missing6).join(' | '));
     await ctx6.close();
+  }
+
+  // 3D Card (MOD06), the iPad test video of 2026-10-17: the header lights one side of the card and takes it back to the
+  // front (#82), a tap turns the card the way a push there would and a sideways finger drag is the card's (#73), a logo
+  // never clipped by its rounded tile (#74), more typefaces and a text size (#85), line icons with every value lined
+  // up (#86), and the MOD tags clear of the card's controls (#87)
+  {
+    const ctxV = await browser.newContext({ hasTouch: true, viewport: { width: 1280, height: 900 } });
+    const pV = await ctxV.newPage();
+    const errorsV = [], externalV = [], missingV = [];
+    pV.on('pageerror', e => errorsV.push(e.message));
+    pV.on('console', m => { if (m.type() === 'error') errorsV.push('console: ' + m.text()); });
+    pV.on('request', r => { if (!r.url().startsWith(ORIGIN) && !/^(data|blob):/.test(r.url())) externalV.push(r.url()); });
+    pV.on('response', r => { if (r.status() >= 400) missingV.push(`${r.status()} ${r.url()}`); });
+    await pV.goto(ORIGIN); await pV.waitForTimeout(300);
+    const lit = () => pV.evaluate(() => ['navCard', 'navQr'].filter(id => document.getElementById(id).classList.contains('is-on')).join(','));
+    const turn = () => pV.$eval('#card3DFlipper', el => el.style.transform);
+
+    // #82: Flipside lights the front, Checkers the QR back, never both; Flipside turns the card back to its front
+    await pV.click('#navCard'); await pV.waitForTimeout(700);
+    ok('#82 header: on the 3D card only Flipside is lit while the front is up', (await lit()) === 'navCard' && (await pV.getAttribute('#navCard', 'aria-current')) === 'page', await lit());
+    await pV.click('#navQr'); await settled(pV);
+    ok('#82 header: Checkers turns the card to its QR side and only Checkers is lit', (await turn()) === 'rotateY(180deg)' && (await lit()) === 'navQr' && (await pV.getAttribute('#navQr', 'aria-current')) === 'page' && !(await pV.getAttribute('#navCard', 'aria-current')), `${await turn()} ${await lit()}`);
+    await pV.click('#navCard'); await settled(pV);
+    ok('#82 header: Flipside turns the card back to its front and only Flipside is lit', (await turn()) === 'rotateY(0deg)' && (await lit()) === 'navCard', `${await turn()} ${await lit()}`);
+    await pV.click('#flipCardBtn'); await settled(pV);
+    ok('#82 header: the Flip card button moves the light with the card', (await lit()) === 'navQr', await lit());
+    await pV.click('#navFields'); await pV.waitForTimeout(600);
+    ok('#82 header: away from the 3D card neither Flipside nor Checkers is lit', (await lit()) === '', await lit());
+    await pV.click('#navCard'); await settled(pV); await pV.waitForTimeout(300);
+    ok('#82 header: Flipside from another card arrives on the front', (await turn()) === 'rotateY(0deg)' && (await lit()) === 'navCard', `${await turn()} ${await lit()}`);
+
+    // #73: a tap on the right half turns the card to the right (its right edge goes away: the angle rises), on the left
+    // half the other way; the card still settles exactly on a face
+    const fl = await pV.locator('#card3DFlipper').boundingBox();
+    const spinFrames = async (x) => {
+      await pV.evaluate(() => { window.__turn = []; window.__turnObs = new MutationObserver(() => window.__turn.push(parseFloat(/rotateY\(([-\d.]+)deg\)/.exec(document.getElementById('card3DFlipper').style.transform)[1]))); window.__turnObs.observe(document.getElementById('card3DFlipper'), { attributes: true, attributeFilter: ['style'] }); });
+      await pV.mouse.click(x, fl.y + fl.height / 2); await settled(pV);
+      return pV.evaluate(() => { window.__turnObs.disconnect(); return window.__turn; });
+    };
+    const right = await spinFrames(fl.x + fl.width * 0.8);
+    ok('#73 tap: on the right half the card turns to the right (angles rise past 90 on the way to 180)', right.slice(0, -1).every(a => a >= 0) && right.some(a => a > 90 && a < 180) && (await turn()) === 'rotateY(180deg)', JSON.stringify(right));
+    const left = await spinFrames(fl.x + fl.width * 0.2);
+    ok('#73 tap: on the left half it turns the other way (the angle falls from 180 to 0) and settles on the front', left.slice(0, -1).every(a => a <= 180) && left.some(a => a > 0 && a < 90) && (await turn()) === 'rotateY(0deg)', JSON.stringify(left));
+    const left2 = await spinFrames(fl.x + fl.width * 0.2);
+    ok('#73 tap: on the left half from the front the angles go below 0 (the left edge goes away)', left2.slice(0, -1).some(a => a < -90) && (await turn()) === 'rotateY(180deg)', JSON.stringify(left2));
+    await pV.click('#flipCardBtn'); await settled(pV);
+    // A finger drag that starts sideways is held back from the deck's scroll (iOS gives it to the deck otherwise); one
+    // that starts upright is left to scroll
+    const touchMove = (dx, dy) => pV.evaluate(([dx, dy]) => {
+      const el = document.getElementById('card3DFlipper'), r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+      const t = (cx, cy) => new Touch({ identifier: 7, target: el, clientX: cx, clientY: cy });
+      el.dispatchEvent(new TouchEvent('touchstart', { touches: [t(x, y)], changedTouches: [t(x, y)], bubbles: true, cancelable: true }));
+      const move = new TouchEvent('touchmove', { touches: [t(x + dx, y + dy)], changedTouches: [t(x + dx, y + dy)], bubbles: true, cancelable: true });
+      el.dispatchEvent(move);
+      el.dispatchEvent(new TouchEvent('touchend', { touches: [], changedTouches: [t(x + dx, y + dy)], bubbles: true, cancelable: true }));
+      return move.defaultPrevented;
+    }, [dx, dy]);
+    ok('#73 swipe: a sideways finger drag on the card is kept from the deck (its first move is held back)', await touchMove(12, 3));
+    ok('#73 swipe: an upright finger drag is left alone, so the page still scrolls', !(await touchMove(3, 12)));
+    ok('#73 swipe: the card is still on its front and the deck on the 3D card', (await turn()) === 'rotateY(0deg)' && (await pV.evaluate(() => document.documentElement.dataset.card)) === 'card');
+
+    // #87: neither MOD tag lies on any of the card's controls
+    const overlaps = await pV.evaluate(() => {
+      const tags = Array.from(document.querySelectorAll('#cardCard > .mod-tag span')).map(t => t.getBoundingClientRect());
+      const controls = Array.from(document.querySelectorAll('#cardCard button, #cardCard select, #cardCard label')).filter(c => c.offsetParent).map(c => [c.id || c.textContent.trim(), c.getBoundingClientRect()]);
+      const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+      return controls.filter(([, r]) => tags.some(t => hit(t, r))).map(([id]) => id);
+    });
+    ok('#87 tags: the MOD-06 / MOD-07 tags lie on none of the 3D Card\'s buttons (Flip card included)', overlaps.length === 0, JSON.stringify(overlaps));
+    await pV.setViewportSize({ width: 390, height: 844 }); await pV.waitForTimeout(500);
+    const overlapsPhone = await pV.evaluate(() => {
+      const tags = Array.from(document.querySelectorAll('#cardCard > .mod-tag span')).map(t => t.getBoundingClientRect());
+      const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+      return Array.from(document.querySelectorAll('#cardCard button, #cardCard select, #cardCard label')).filter(c => c.offsetParent && tags.some(t => hit(t, c.getBoundingClientRect()))).map(c => c.id);
+    });
+    ok('#87 tags: on a phone too', overlapsPhone.length === 0, JSON.stringify(overlapsPhone));
+    await pV.setViewportSize({ width: 1280, height: 900 }); await pV.waitForTimeout(500);
+
+    // #86: an icon in front of every line (handset, mobile, fax, envelope, globe, building or house), every value lined up
+    await pV.click('#navFields'); await pV.waitForTimeout(500);
+    await pV.fill('#firstName', 'Line'); await pV.fill('#lastName', 'Up');
+    await pV.click('#addPhoneBtn'); await pV.click('#addPhoneBtn');
+    await pV.selectOption('#phoneType0', 'work'); await pV.fill('#phoneValue0', '+1 (312) 555-0101');
+    await pV.selectOption('#phoneType1', 'mobile'); await pV.fill('#phoneValue1', '+1 (312) 555-0102');
+    await pV.selectOption('#phoneType2', 'workFax'); await pV.fill('#phoneValue2', '+1 (312) 555-0103');
+    await pV.fill('#emailValue0', 'line@example.com'); await pV.fill('#websiteValue0', 'https://example.com');
+    await pV.fill('#street', '233 South Wacker Drive'); await pV.fill('#city', 'Chicago');
+    await pV.click('#navCard'); await pV.waitForTimeout(700);
+    const readLines = () => pV.evaluate(() => Array.from(document.querySelectorAll('#cardFront .card-line')).map(p => {
+      const icon = p.querySelector('.card-line-icon'), v = p.querySelector('.card-line-value');
+      return { icon: icon ? icon.querySelector('use').getAttribute('href').split('#')[1] : null, iconShown: !!icon && getComputedStyle(icon).display !== 'none' && icon.getBoundingClientRect().width > 0,
+        label: p.querySelector('.card-line-label').textContent, value: v.textContent, left: Math.round(v.getBoundingClientRect().left) };
+    }));
+    const withIcons = await readLines();
+    ok('#86 lines: each line has the icon of its kind (handset, mobile, fax, envelope, globe, building for a work address)', withIcons.map(l => l.icon).join(',') === 'phone,device-mobile,printer,mail,world,building' && withIcons.every(l => l.iconShown), JSON.stringify(withIcons));
+    ok('#86 lines: every value starts at the same place, the address too (it has its own label now)', new Set(withIcons.map(l => l.left)).size === 1 && withIcons[5].label === 'Work' && withIcons[5].value.startsWith('233 South Wacker Drive'), JSON.stringify(withIcons.map(l => [l.label, l.left])));
+    ok('#86 lines: the icons are the header\'s own set, bundled (the sprite has every one)', await pV.evaluate(async () => { const t = await (await fetch('src/vendor/icons/app/sprite.svg')).text(); return ['phone', 'device-mobile', 'printer', 'mail', 'world', 'home', 'building'].every(id => t.includes(`<symbol id="${id}"`)); }));
+    await pV.click('#cardIconsBtn');
+    const noIcons = await readLines();
+    ok('#86 lines: Icons off hides them and the labels name the line instead ("Work phone", "Mobile phone", "Work email")', noIcons.every(l => !l.iconShown) && noIcons.map(l => l.label).join('|') === 'Work phone|Mobile phone|Work fax|Work email|Work website|Work address' && (await pV.getAttribute('#cardIconsBtn', 'aria-pressed')) === 'false', JSON.stringify(noIcons.map(l => l.label)));
+    ok('#86 lines: without icons the values still line up', new Set(noIcons.map(l => l.left)).size === 1, JSON.stringify(noIcons.map(l => l.left)));
+    await pV.click('#cardIconsBtn');
+    await pV.selectOption('#addressType', 'home').catch(() => {});
+    await pV.evaluate(() => { const s = document.getElementById('addressType'); s.value = 'home'; s.dispatchEvent(new Event('change', { bubbles: true })); document.getElementById('street').dispatchEvent(new Event('input')); });
+    ok('#86 lines: a home address gets the house', (await readLines())[5].icon === 'home');
+
+    // #85: more typefaces (bundled ones the app already loads, and system fonts) and a text size, both on screen only
+    const fontOptions = await pV.$$eval('#cardFontSelect option', os => os.map(o => o.value));
+    ok('#85 fonts: eleven typefaces, the original three first', fontOptions.length === 11 && fontOptions.slice(0, 3).join(',') === 'font-sans,font-serif,font-mono', fontOptions.join(','));
+    await pV.selectOption('#cardFontSelect', 'card-font-lexend');
+    const lexend = await pV.evaluate(async () => { await document.fonts.load('16px Lexend'); return { family: getComputedStyle(document.getElementById('previewFullName')).fontFamily, loaded: document.fonts.check('16px Lexend'), back: document.getElementById('cardBack').classList.contains('card-font-lexend') }; });
+    ok('#85 fonts: Lexend sets the card face and back, from the bundled file', /^"?Lexend/.test(lexend.family) && lexend.loaded && lexend.back, JSON.stringify(lexend));
+    const sizeOf = () => pV.$eval('#previewFullName', el => parseFloat(getComputedStyle(el).fontSize));
+    const medium = await sizeOf();
+    await pV.selectOption('#cardSizeSelect', 'lg');
+    const large = await sizeOf();
+    await pV.selectOption('#cardSizeSelect', 'sm');
+    const smallText = await sizeOf();
+    ok('#85 size: Large and Small scale the card text (name 20 px medium)', medium === 20 && Math.abs(large - 23) < 0.1 && Math.abs(smallText - 17.5) < 0.1, `${medium} ${large} ${smallText}`);
+    await pV.selectOption('#cardSizeSelect', 'xl');
+    await pV.emulateMedia({ media: 'print' });
+    const printed = await sizeOf();
+    await pV.emulateMedia({ media: 'screen' });
+    ok('#85 size: the printed card keeps its own size (a big setting cannot push lines off 3.5 x 2 in)', printed === 20, String(printed));
+    await pV.click('#navFields'); await pV.waitForTimeout(400);
+    await pV.click('#clearFormBtn');
+    const clearedLook = await pV.evaluate(() => ({ font: document.getElementById('cardFontSelect').value, size: document.getElementById('cardSizeSelect').value }));
+    await pV.click('#toastAction'); await pV.waitForTimeout(200);
+    const undoneLook = await pV.evaluate(() => ({ font: document.getElementById('cardFontSelect').value, size: document.getElementById('cardSizeSelect').value, icons: document.getElementById('cardIconsBtn').getAttribute('aria-pressed') }));
+    ok('#85 Clear goes back to Sans and medium text; Undo brings back the typeface and the size', clearedLook.font === 'font-sans' && clearedLook.size === 'md' && undoneLook.font === 'card-font-lexend' && undoneLook.size === 'xl' && undoneLook.icons === 'true', JSON.stringify([clearedLook, undoneLook]));
+    await pV.selectOption('#cardSizeSelect', 'md');
+
+    // #74: a logo that fills its square (an opaque, many-coloured picture reaching its edges) sits inside the tile's
+    // rounded corners: every corner of the picture is within the corner's arc, and the tile around it is the logo's edge colour
+    await pV.click('#navCard'); await pV.waitForTimeout(600);
+    const busy = await pV.evaluate(() => { const c = document.createElement('canvas'); c.width = c.height = 300; const x = c.getContext('2d'); x.fillStyle = '#16213a'; x.fillRect(0, 0, 300, 300);
+      for (let i = 10; i < 290; i += 12) { x.fillStyle = ['#38d6f0', '#f5d020', '#e0287a', '#7a3cf0'][(i - 10) / 12 % 4]; x.fillRect(i, 10, 6, 280); }
+      return c.toDataURL('image/png'); });
+    await pV.setInputFiles('#avatarUpload', { name: 'striped.png', mimeType: 'image/png', buffer: Buffer.from(busy.split(',')[1], 'base64') });
+    // The tile is drawn again once the logo's shape is read: wait for the picture with its tile colour (not the initials)
+    await pV.waitForFunction(() => ['previewAvatar', 'formAvatarPreview'].every(id => { const b = document.getElementById(id); return b.querySelector('img') && b.style.background !== ''; }), null, { timeout: 5000 });
+    const fit = await pV.evaluate(() => ['previewAvatar', 'formAvatarPreview'].map(id => {
+      const box = document.getElementById(id), r = box.getBoundingClientRect(), i = box.firstElementChild.getBoundingClientRect(), rad = parseFloat(getComputedStyle(box).borderTopLeftRadius);
+      const inArc = (x, y) => { const cx = x < r.left + rad ? r.left + rad : x > r.right - rad ? r.right - rad : x, cy = y < r.top + rad ? r.top + rad : y > r.bottom - rad ? r.bottom - rad : y; return Math.hypot(x - cx, y - cy) <= rad + 0.01; };
+      return { id, inside: [[i.left, i.top], [i.right, i.top], [i.left, i.bottom], [i.right, i.bottom]].every(([x, y]) => inArc(x, y)), rad, inset: i.left - r.left, bg: box.style.background };
+    }));
+    ok('#74 logo: the picture\'s corners stay inside the rounded corners of the card tile and the small preview', fit.every(f => f.inside && f.rad >= 12), JSON.stringify(fit));
+    ok('#74 logo: around an opaque logo the tile takes the logo\'s own edge colour (#16213a, within rounding)', fit.every(f => { const c = (/rgb\((\d+), (\d+), (\d+)\)/.exec(f.bg) || []).slice(1).map(Number); return c.length === 3 && [22, 33, 58].every((v, i) => Math.abs(c[i] - v) <= 2); }), JSON.stringify(fit.map(f => f.bg)));
+    ok('3D Card video fixes: no page errors, nothing fetched from outside, no missing files', errorsV.length === 0 && externalV.length === 0 && missingV.length === 0, errorsV.concat(externalV, missingV).join(' | '));
+    await ctxV.close();
   }
 
   // Step 10 (Airlock): the Share card, Ready to share, file names, the Export QR pop-up (styles, logo, Vault hand-off)
