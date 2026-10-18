@@ -263,6 +263,19 @@ async function stopDriver(driver) {
     await new Promise(r => setTimeout(r, 1700));
     await js(`document.getElementById('wipeYesBtn').dispatchEvent(new PointerEvent('pointerup', { button: 0, pointerId: 1, pointerType: 'mouse', bubbles: true }));`);
     ok('desktop: Yes held 1.5 s wipes the card and the app starts fresh', await until(async () => (await val('firstName')) === '' && !(await visible('wipeDialog')) && !(await visible('vaultModal')), 8000));
+
+    // Text size in the system webview (WebKitGTK, WKWebView: the Safari engine, video #6): the text grows, the header
+    // and its icons keep their size. CSS zoom did not hold the header in WebKit.
+    const sizes = () => js(`const r = e => e.getBoundingClientRect();
+      return { root: parseFloat(getComputedStyle(document.documentElement).fontSize), note: parseFloat(getComputedStyle(document.getElementById('settingsNote')).fontSize),
+        header: r(document.querySelector('.deck-header')).height, icon: r(document.querySelector('#navSettings .vcge-icon')).width };`);
+    const pickSize = (code) => js(`const s = document.getElementById('sizeSelect'); s.value = arguments[0]; s.dispatchEvent(new Event('change', { bubbles: true }));`, code);
+    const sizeNormal = await sizes();
+    await pickSize('2'); await sleep(200);
+    const sizeLarger = await sizes();
+    ok('desktop: Larger text grows the text by a quarter, the header and its icons keep their size', Math.abs(sizeLarger.root / sizeNormal.root - 1.25) < 0.01 && Math.abs(sizeLarger.note / sizeNormal.note - 1.25) < 0.03
+      && Math.abs(sizeLarger.header - sizeNormal.header) < 0.6 && Math.abs(sizeLarger.icon - sizeNormal.icon) < 0.6, JSON.stringify([sizeNormal, sizeLarger]));
+    await pickSize('0'); await js(`localStorage.removeItem('vcge_settings');`);
   } finally {
     await wd('DELETE', S('')).catch(() => {});
     await stopDriver(driver);
