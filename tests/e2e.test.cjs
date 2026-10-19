@@ -2431,6 +2431,19 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('card: a sideways drag across the card turns it with the finger and it settles on the front', /rotateY\(2[5-9]\d|rotateY\(3[0-5]\d/.test(midway) && (await angle()) === 'rotateY(0deg)', `${midway} -> ${await angle()}`);
     await p6.mouse.move(cx, cy); await p6.mouse.down(); await p6.mouse.move(cx + 3, cy); await p6.mouse.up(); await settled(p6);
     ok('card: a drag shorter than a tap still counts as a tap (flips)', (await angle()) === 'rotateY(180deg)', await angle());
+    // WebKit sends no click after a drag: a drag with no click after it must not eat the next tap.
+    await p6.evaluate(([x, y]) => {
+      const el = document.getElementById('card3DFlipper'), o = { pointerId: 41, pointerType: 'mouse', button: 0, bubbles: true, cancelable: true, clientY: y };
+      el.dispatchEvent(new PointerEvent('pointerdown', { ...o, clientX: x }));
+      el.dispatchEvent(new PointerEvent('pointermove', { ...o, clientX: x + 60 }));
+      el.dispatchEvent(new PointerEvent('pointerup', { ...o, clientX: x + 60 }));
+    }, [cx - 30, cy]);
+    await settled(p6);
+    const afterDrag = await angle();
+    await p6.mouse.click(cx + flipper.width * 0.25, cy); await settled(p6);
+    const faceNow = await p6.$eval('#card3DFlipper', el => el.dataset.face);
+    ok('card: after a drag the browser sent no click for (WebKit), the next tap still flips', afterDrag === 'rotateY(180deg)' && (await angle()) !== afterDrag && faceNow === 'front', `${afterDrag} -> ${await angle()} ${faceNow}`);
+    await p6.click('#flipCardBtn'); await settled(p6);
     const cardName = () => p6.evaluate(() => document.documentElement.dataset.card);
     await p6.mouse.move(cx, cy); await p6.mouse.down();
     for (let i = 1; i <= 6; i++) await p6.mouse.move(cx + flipper.width * 0.2 * i / 6, cy);
@@ -2547,13 +2560,23 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pV.click('#flipCardBtn'); await settled(pV);
     // A finger drag that starts sideways is held back from the deck's scroll (iOS gives it to the deck otherwise); one
     // that starts upright is left to scroll
+    // WebKit has TouchEvent but no Touch constructor ("Illegal constructor"), so there the touches are plain points on a
+    // cancelable event of the same type: the card's handlers read only touches[].clientX/clientY and preventDefault.
     const touchMove = (dx, dy) => pV.evaluate(([dx, dy]) => {
       const el = document.getElementById('card3DFlipper'), r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
-      const t = (cx, cy) => new Touch({ identifier: 7, target: el, clientX: cx, clientY: cy });
-      el.dispatchEvent(new TouchEvent('touchstart', { touches: [t(x, y)], changedTouches: [t(x, y)], bubbles: true, cancelable: true }));
-      const move = new TouchEvent('touchmove', { touches: [t(x + dx, y + dy)], changedTouches: [t(x + dx, y + dy)], bubbles: true, cancelable: true });
+      let real = true;
+      try { new Touch({ identifier: 7, target: el, clientX: x, clientY: y }); } catch { real = false; }
+      const t = (cx, cy) => (real ? new Touch({ identifier: 7, target: el, clientX: cx, clientY: cy }) : { identifier: 7, target: el, clientX: cx, clientY: cy });
+      const ev = (type, touches, changed) => {
+        if (real) return new TouchEvent(type, { touches, changedTouches: changed, bubbles: true, cancelable: true });
+        const e = new Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperties(e, { touches: { value: touches }, changedTouches: { value: changed } });
+        return e;
+      };
+      el.dispatchEvent(ev('touchstart', [t(x, y)], [t(x, y)]));
+      const move = ev('touchmove', [t(x + dx, y + dy)], [t(x + dx, y + dy)]);
       el.dispatchEvent(move);
-      el.dispatchEvent(new TouchEvent('touchend', { touches: [], changedTouches: [t(x + dx, y + dy)], bubbles: true, cancelable: true }));
+      el.dispatchEvent(ev('touchend', [], [t(x + dx, y + dy)]));
       return move.defaultPrevented;
     }, [dx, dy]);
     ok('#73 swipe: a sideways finger drag on the card is kept from the deck (its first move is held back)', await touchMove(12, 3));

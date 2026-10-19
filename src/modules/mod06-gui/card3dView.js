@@ -651,7 +651,9 @@ export class CardView {
             if (e.clientX < EDGE_PX || e.clientX > window.innerWidth - EDGE_PX) { start = null; return; }
             if (this.stopSpin) this.stopSpin();
             start = { x: e.clientX, angle: this.angle, id: e.pointerId, width: Math.max(1, flipper.getBoundingClientRect().width) };
-            dragging = false;
+            // WebKit sends no click after a drag, so a drag's leftover suppressClick would eat the next tap: each press
+            // starts fresh, and only a drag in this press holds back its own click.
+            dragging = false; suppressClick = false;
         });
         flipper.addEventListener('pointermove', (e) => {
             if (!start || e.pointerId !== start.id) return;
