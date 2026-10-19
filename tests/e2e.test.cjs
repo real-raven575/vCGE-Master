@@ -1746,14 +1746,14 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('capture: a non-image upload is rejected with a toast and nothing opens', (await pV.textContent('#toastMessage')).includes('not a photo') && !(await pV.isVisible('#captureReview')) && !(await pV.getAttribute('#reviewImage', 'src')), await pV.textContent('#toastMessage'));
 
     const noFeed = await cameraFeedMissing(pV);
-    if (noFeed) notRunHere('viewfinder, zoom, shutter, shot, Snap on a card-less shot, Retake and Close camera (16 checks)', `this engine has no ${noFeed} for a test camera`);
+    if (noFeed) notRunHere('viewfinder, zoom, shutter, shot, Snap on a card-less shot, Retake, an early shutter press and Close camera (18 checks)', `this engine has no ${noFeed} for a test camera`);
     else {
     // The viewfinder: clean, four thin brackets, upright card frame in portrait, fader left (48 px in), shutter right
     await pV.click('#startCameraBtn'); await pV.waitForTimeout(400);
     const started = await pV.isVisible('#cameraPanel');
     ok('viewfinder: the camera starts and the viewfinder shows', started, (await pV.textContent('#eventLog')) + ' | test camera: ' + await pV.evaluate(() => `${window.__camFake || 'script never ran'}, called ${window.__camCalls || 0} times`));
     // The checks below all need a running camera; without one they are failed together, and the run goes on
-    if (!started) ok('viewfinder, zoom, shutter, shot, Snap on a card-less shot, Retake and Close camera (15 checks)', false, 'not tried: the camera never started (the check above says why)');
+    if (!started) ok('viewfinder, zoom, shutter, shot, Snap on a card-less shot, Retake, an early shutter press and Close camera (17 checks)', false, 'not tried: the camera never started (the check above says why)');
     else {
     const view = await box('#viewfinderArea'), frame = await box('#cardFrame'), fader = await box('.cap-fader'), shutter = await box('#captureBtn');
     const overlay = await pV.evaluate(() => Array.from(document.querySelectorAll('#viewfinderArea > *')).map(e => e.id || e.className));
@@ -1800,6 +1800,18 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pV.evaluate(() => document.getElementById('retakePhotoBtn').classList.remove('hidden'));
     await pV.click('#retakePhotoBtn'); await pV.waitForTimeout(300);
     ok('Retake after a camera shot opens the camera again and drops the old photo', await pV.isVisible('#cameraPanel') && !(await pV.isVisible('#captureReview')) && !(await pV.getAttribute('#reviewImage', 'src')));
+    // A press before the camera's first picture (the video has no size yet) waits for it instead of taking a black photo
+    await pV.evaluate(() => Object.defineProperty(document.getElementById('cameraStream'), 'videoWidth', { configurable: true, get: () => 0 }));
+    await pV.click('#captureBtn'); await pV.waitForTimeout(1800);
+    ok('shutter before the first picture: no photo, the camera stays open and a toast says it is still starting', await pV.isVisible('#cameraPanel') && !(await pV.isVisible('#captureReview'))
+      && (await pV.textContent('#toastMessage')).includes('still starting'), await pV.textContent('#toastMessage'));
+    await pV.click('#captureBtn'); await pV.waitForTimeout(200);
+    const heldBack = await pV.isVisible('#cameraPanel') && !(await pV.isVisible('#captureReview'));
+    await pV.evaluate(() => { const v = document.getElementById('cameraStream'); delete v.videoWidth; v.dispatchEvent(new Event('loadeddata')); });
+    await pV.waitForTimeout(300);
+    ok('shutter before the first picture: the shot is taken as soon as the picture comes', heldBack && await pV.isVisible('#captureReview') && !(await pV.isVisible('#cameraPanel')));
+    await pV.evaluate(() => document.getElementById('retakePhotoBtn').classList.remove('hidden'));
+    await pV.click('#retakePhotoBtn'); await pV.waitForTimeout(300);
     await pV.click('#stopCameraBtn');
     ok('Close camera stops the feed', await pV.evaluate(() => document.getElementById('cameraStream').srcObject === null && document.getElementById('cameraPanel').classList.contains('hidden')));
     }

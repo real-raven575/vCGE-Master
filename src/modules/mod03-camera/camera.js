@@ -23,6 +23,7 @@ export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 export const ZOOM_EASE_MS = 320;      // the fader eases into each change rather than snapping
 export const SHUTTER_POP_MS = 260;    // the shutter pops back up after a press
 export const CSS_ZOOM_MAX = 4;        // digital zoom range when the camera has no zoom of its own
+export const FIRST_FRAME_WAIT_MS = 1500;   // how long a shutter press waits for the camera's first picture
 
 export class VCGEActiveCamera {
     constructor(config = {}) {
@@ -48,6 +49,7 @@ export class VCGEActiveCamera {
         this.stopShutterTween = null;
         this.capturedImageDataUrl = null;
         this.lastSource = null;       // 'camera' or 'upload': what Retake goes back to
+        this.waitingForFrame = false; // a shutter press is waiting for the camera's first picture
 
         this.initListeners();
     }
@@ -277,8 +279,31 @@ export class VCGEActiveCamera {
 
     // The shot is the window of the sensor frame the viewfinder showed (object-fit: cover plus the digital zoom), so
     // what is on the screen is what is read. With the camera's own zoom the frame already is the zoomed view.
+    // The first picture can come a moment after the viewfinder opens: a press before it waits for it instead of taking a
+    // black photo, and says so if none comes.
     captureFrame() {
         if (!this.canvasEl || !this.videoEl) return;
+        const video = this.videoEl;
+        if (video.videoWidth && video.videoHeight) { this.takeShot(); return; }
+        if (this.waitingForFrame) return;
+        this.waitingForFrame = true;
+        let timer = null;
+        const done = (gotFrame) => {
+            video.removeEventListener('loadeddata', onFrame);
+            video.removeEventListener('resize', onFrame);
+            clearTimeout(timer);
+            this.waitingForFrame = false;
+            if (!this.activeStream) return;                 // the camera was closed meanwhile (Close, a lock, a wipe)
+            if (gotFrame) this.takeShot();
+            else this.toast('The camera is still starting. Try again in a moment.');
+        };
+        const onFrame = () => { if (video.videoWidth && video.videoHeight) done(true); };
+        video.addEventListener('loadeddata', onFrame);
+        video.addEventListener('resize', onFrame);
+        timer = setTimeout(() => done(false), FIRST_FRAME_WAIT_MS);
+    }
+
+    takeShot() {
         const videoW = this.videoEl.videoWidth || 1280, videoH = this.videoEl.videoHeight || 720;
         const viewW = this.viewfinderArea ? this.viewfinderArea.clientWidth : videoW;
         const viewH = this.viewfinderArea ? this.viewfinderArea.clientHeight : videoH;
