@@ -125,8 +125,9 @@ const vaultOpen = (page) => page.isVisible('#vaultPage');
 // readers; in plain not shown, with no background to fetch.
 async function logoMarkShown(page, sel) {
   return page.$eval(sel, async (el) => {
-    const m = /url\("?([^")]+)"?\)/.exec(getComputedStyle(el).backgroundImage), r = el.getBoundingClientRect();
-    if (!m || !m[1].startsWith(location.origin) || el.getAttribute('role') !== 'img' || el.getAttribute('aria-label') !== 'vCGE' || !(r.width > 0)) return false;
+    // (Its size is checked by the caller: on a phone the header's brand is hidden by design, deck.css)
+    const m = /url\("?([^")]+)"?\)/.exec(getComputedStyle(el).backgroundImage);
+    if (!m || !m[1].startsWith(location.origin) || el.getAttribute('role') !== 'img' || el.getAttribute('aria-label') !== 'vCGE') return false;
     const img = new Image(); img.src = m[1];
     return img.decode().then(() => img.naturalWidth > 0, () => false);
   });
@@ -262,7 +263,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   ok('loads with no 404s', notFound.length === 0, notFound.join(', '));
   const favicon = await page.evaluate(() => { const l = document.querySelector('link[rel="icon"][sizes="32x32"]'); return l ? l.href : null; });
   ok('the tab icon is a bundled file on the same origin', !!favicon && favicon.startsWith(base) && (await page.request.get(favicon)).status() === 200 && (await page.request.get(favicon)).headers()['content-type'].includes('image/png'), favicon);
-  if (!EDITION_PLAIN) ok('the header shows the logo (bundled, loaded, named vCGE for screen readers)', await logoMarkShown(page, '.deck-logo'));
+  // On a phone the header's brand is hidden by design (deck.css); wider, the logo shows
+  if (!EDITION_PLAIN) ok('the header shows the logo (bundled, loaded, named vCGE for screen readers; hidden on a phone)', await logoMarkShown(page, '.deck-logo')
+    && await page.$eval('.deck-logo', el => (innerWidth < 600 ? el.getBoundingClientRect().width === 0 : el.getBoundingClientRect().width > 0)));
   else ok('plain edition: the header shows no logo and never fetched one, and "vCard Generator Engine" stays as text', await logoMarkGone(page, '.deck-logo')
     && !brandRequests.length && (await page.textContent('.deck-brand-text')).trim() === 'vCard Generator Engine', brandRequests.join(' '));
   if (EDITION_PLAIN) {
