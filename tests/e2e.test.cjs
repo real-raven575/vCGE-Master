@@ -2186,13 +2186,17 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('MOD-XX tags: every card shows its module tag, in step order', tags.map(t => t.text).join('|') === 'MOD-01|MOD-03|MOD-04|MOD-05|MOD-06 MOD-07|MOD-08', tags.map(t => t.text).join('|'));
     ok('MOD-XX tags: same spot (on the top edge by the right corner), same font (Sixtyfour) and size', tags.every(t => t.onEdge && /Sixtyfour/.test(t.font) && t.size === tags[0].size), JSON.stringify(tags));
     // One block per tag: the pilot's name, then the number, in solid pixels (#2, #3, #45, #96)
+    const drawnText = (content) => (content.match(/"(?:[^"\\]|\\.)*"/g) || []).map(q => q.slice(1, -1)).join('');
     const look = await pU.evaluate(() => Array.from(document.querySelectorAll('.deck-card > .mod-tag span')).map(s => ({ pilot: s.dataset.pilot,
       before: getComputedStyle(s, '::before').content, axes: getComputedStyle(s).fontVariationSettings, shadow: getComputedStyle(s).textShadow })));
     ok('MOD-XX tags: each names its pilot before the number ("GLYPH:  MOD-04"), at the font\'s own stroke (not bold), no bleed, a crisp 27% shadow', look.map(l => l.pilot).join('|') === 'Shutout|Iris|Glyph|Pidge|Flipside|Checkers|Airlock'
-      // Firefox reports the rule itself (attr(data-pilot) then the colon), not the text it draws; either way the name comes first
-      && look.every(l => (l.before.includes(l.pilot + ':') || /^attr\(data-pilot\) ":/.test(l.before)) && /"BLED" 0/.test(l.axes) && /"SCAN" 0\b/.test(l.axes) && /rgba\(0, 0, 0, 0\.27\) 1px 1px 0px|1px 1px 0px rgba\(0, 0, 0, 0\.27\)/.test(l.shadow)), JSON.stringify(look));
+      // Firefox reports the rule itself (attr(data-pilot) then the colon), not the text it draws; WebKit reports the name and
+      // the colon as two quoted strings ("Glyph" ":  "), Chromium as one. Either way the name comes first, then the colon.
+      && look.every(l => (drawnText(l.before).startsWith(l.pilot + ':') || /^attr\(data-pilot\) ":/.test(l.before)) && /"BLED" 0/.test(l.axes) && /"SCAN" 0\b/.test(l.axes) && /rgba\(0, 0, 0, 0\.27\) 1px 1px 0px|1px 1px 0px rgba\(0, 0, 0, 0\.27\)/.test(l.shadow)), JSON.stringify(look));
     await pU.click('#navFields'); await pU.waitForTimeout(600);
+    // The fade is a 0.2 s transition: wait up to 3 s for it to come to rest (a fixed 450 ms caught the iPhone run mid-fade, at 0.43)
     const tagFade = async (y) => { await pU.$eval('#cardFields > .deck-card-body', (b, y) => { b.scrollTop = y; }, y); await pU.waitForTimeout(450);
+      await pU.waitForFunction(() => document.getElementById('cardFields').querySelector(':scope > .mod-tag').getAnimations().length === 0, null, { timeout: 3000 }).catch(() => {});
       return pU.$eval('#cardFields > .mod-tag', t => ({ faded: t.classList.contains('is-faded'), opacity: parseFloat(getComputedStyle(t).opacity) })); };
     const fadedDown = await tagFade(120), fadedTop = await tagFade(0);
     ok('MOD-XX tags: a card\'s tag fades to 36% while its content is scrolled up under it, and comes back at the top', fadedDown.faded && Math.abs(fadedDown.opacity - 0.36) < 0.02 && !fadedTop.faded && fadedTop.opacity === 1,
