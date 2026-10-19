@@ -1709,12 +1709,13 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await ctxV.addInitScript(() => {
       // A 640 x 360 test feed: four colours, so the shot can be checked against the window the viewfinder showed
       if (!navigator.mediaDevices) Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: {} });
-      navigator.mediaDevices.getUserMedia = async () => {
+      // Defined, not assigned: WebKit ignored a plain assignment and the app got the engine's own camera ("Invalid constraint")
+      Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { configurable: true, writable: true, value: async () => {
         const c = document.createElement('canvas'); c.width = 640; c.height = 360; const x = c.getContext('2d');
         x.fillStyle = '#ff0000'; x.fillRect(0, 0, 320, 180); x.fillStyle = '#00ff00'; x.fillRect(320, 0, 320, 180);
         x.fillStyle = '#0000ff'; x.fillRect(0, 180, 320, 180); x.fillStyle = '#ffff00'; x.fillRect(320, 180, 320, 180);
         return c.captureStream(5);
-      };
+      } });
     });
     const pV = await ctxV.newPage();
     const errorsV = [];
@@ -1859,7 +1860,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await ctxC.addInitScript((standIn) => {
       window.__camMode = 'normal';
       if (!navigator.mediaDevices) Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: {} });
-      navigator.mediaDevices.getUserMedia = async () => {
+      // Defined, not assigned, as on the Capture card above (WebKit ignored the assignment)
+      Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { configurable: true, writable: true, value: async () => {
         if (window.__camMode === 'busy') throw new DOMException('Could not start video source', 'NotReadableError');
         const c = document.createElement('canvas'); c.width = 640; c.height = 360;
         const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
@@ -1874,7 +1876,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
         Object.defineProperty(track, 'label', { configurable: true, value: window.__camMode === 'virtual' ? 'OBS Virtual Camera' : 'Integrated Camera' });
         window.__camTrack = track;
         return stream;
-      };
+      } });
     }, ENGINE === 'firefox');
     const pC = await ctxC.newPage();
     await pC.goto(ORIGIN); await pC.waitForTimeout(300);
