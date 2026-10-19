@@ -61,6 +61,35 @@ export const PRESETS = [
         { fields: { label: 'PM Cornerstone', nameSuffix: 'PM' } })
 ];
 
+// The plain edition's samples (mod01-shell/edition.js): nine made-up people with the same fields and extras as the
+// pilots (a second phone, a fax, Instagram, a prefix, an unlisted unit type and suffix), so every feature still has a
+// sample, and no logo.
+const person = (n, firstName, lastName, organization, jobTitle, themePalette, extra = {}) => ({
+    label: `${firstName} ${lastName}`, firstName, lastName, organization, jobTitle,
+    phones: [{ type: 'mobile', value: `+1 (202) 555-01${n}` }, ...(extra.phones || [])],
+    emails: [{ type: 'work', value: `${firstName.toLowerCase()}.${lastName.toLowerCase()}@example.com` }],
+    websites: [{ type: 'work', value: `https://example.com/${firstName.toLowerCase()}-${lastName.toLowerCase()}` }, ...(extra.websites || [])],
+    addressType: 'work', street: '100 Main Street', unitType: 'Office', unitNumber: String(Number(n)), city: 'Springfield', state: 'OH', zip: '45501',
+    country: 'United States', themePalette, ...extra.fields
+});
+export const PLAIN_PRESETS = [
+    person('01', 'Avery', 'Collins', 'Northwind Design', 'Office Manager', 'spruce',
+        { phones: [{ type: 'work', value: '+1 (202) 555-0111' }] }),
+    person('02', 'Jordan', 'Patel', 'Brightline Legal', 'Paralegal', 'twilight'),
+    person('03', 'Maya', 'Rivera', 'Rivera Photography', 'Photographer', 'pumpkin',
+        { websites: [{ type: 'instagram', value: 'https://instagram.com/example' }] }),
+    person('04', 'Samuel', 'Okafor', 'Lakeside Clinic', 'Physician', 'harvest',
+        { fields: { namePrefix: 'Dr.' } }),
+    person('05', 'Priya', 'Nair', 'Harbor Logistics', 'Operations Lead', 'slateblue',
+        { phones: [{ type: 'work', value: '+1 (202) 555-0155' }, { type: 'workFax', value: '+1 (202) 555-0156' }] }),
+    person('06', 'Lena', 'Fischer', 'Fischer and Co.', 'Graphic Designer', 'sage'),
+    person('07', 'Marcus', 'Chen', 'Summit Realty', 'Real Estate Agent', 'cranberry'),
+    person('08', 'Grace', 'Thompson', 'Oakridge Bank', 'Branch Manager', 'maple',
+        { phones: [{ type: 'main', value: '+1 (202) 555-0180' }] }),
+    person('00', 'Daniel', 'Brooks', 'Brooks Consulting', 'Principal Consultant', 'slateblue',
+        { fields: { nameSuffix: 'MBA' } })
+];
+
 // Typed list editors (phones, emails, websites): container, row id prefix, type choices, input type and the add button.
 const LISTS = {
     phones: { container: 'phoneList', id: 'phone', noun: 'phone', types: PHONE_TYPES, input: 'tel', placeholder: 'Phone number', add: 'addPhoneBtn', preview: 'previewPhones', empty: 'No phone number' },

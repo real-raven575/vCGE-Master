@@ -51,7 +51,8 @@ jobs:
       - name: Icon detection accuracy (held-out icon sets)
         run: npm run test:icons
 
-  # The same browser suite in the other engines and branded browsers, and on phone-sized screens (Chromium runs in "web").
+  # The same browser suite in the other engines and branded browsers, and on phone-sized screens (Chromium runs in "web"),
+  # plus the whole suite in the plain edition (notes/plain-edition-plan.md), so a change can't break it unseen.
   browsers:
     name: Browser e2e (${{ matrix.name }})
     runs-on: ubuntu-24.04
@@ -66,9 +67,11 @@ jobs:
           - { name: Microsoft Edge, browser: msedge, install: msedge }
           - { name: iPhone, browser: webkit, install: webkit, device: iPhone 15 }
           - { name: Android phone, browser: chromium, install: chromium, device: Galaxy S24 }
+          - { name: Plain edition, browser: chromium, install: chromium, edition: plain }
     env:
       VCGE_BROWSER: ${{ matrix.browser }}
       VCGE_DEVICE: ${{ matrix.device }}
+      VCGE_EDITION: ${{ matrix.edition }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0

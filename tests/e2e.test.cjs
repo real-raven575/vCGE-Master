@@ -3,6 +3,8 @@
 // SERVE_DIR=dist runs the same suite against the Vite build (`npm run build` first).
 // VCGE_BROWSER picks the browser: chromium (default), firefox, webkit, or the branded chrome / msedge.
 // VCGE_DEVICE makes it a phone, by Playwright device name (e.g. "iPhone 15" with webkit, "Galaxy S24" with chromium).
+// The edition is read from the served index.html (the plain branch sets <html data-edition="plain">); VCGE_EDITION=plain
+// runs the plain edition from the working branch by adding that attribute to every page load (test only).
 const path = require('path'), fs = require('fs'), { spawn } = require('child_process');
 const playwright = require('playwright');
 const jsQR = require('jsqr');
@@ -10,6 +12,19 @@ const jsQR = require('jsqr');
 const ROOT = path.resolve(__dirname, '..');
 const PORT = String(18000 + Math.floor(Math.random() * 2000));
 const ORIGIN = `http://localhost:${PORT}/`;
+const FORCE_PLAIN = process.env.VCGE_EDITION === 'plain';
+let EDITION_PLAIN = FORCE_PLAIN;   // settled once the server is up
+
+// The sample contacts as the edition under test lists them (card3dView.js PRESETS / PLAIN_PRESETS): first, last, company
+const SAMPLES_BRANDED = [['Shutout', 'Box Turtle'], ['Ghost', 'Raccoon'], ['Iris', 'Lynx'], ['Glyph', 'Owl'], ['Pidge', 'Octopus'], ['Flipside', 'Chameleon'],
+  ['Checkers', 'Zebra'], ['Airlock', 'Falcon'], ['Cornerstone', 'Elephant']].map(n => [...n, 'Team vCGE']);
+const SAMPLES_PLAIN = [['Avery', 'Collins', 'Northwind Design'], ['Jordan', 'Patel', 'Brightline Legal'], ['Maya', 'Rivera', 'Rivera Photography'],
+  ['Samuel', 'Okafor', 'Lakeside Clinic'], ['Priya', 'Nair', 'Harbor Logistics'], ['Lena', 'Fischer', 'Fischer and Co.'], ['Marcus', 'Chen', 'Summit Realty'],
+  ['Grace', 'Thompson', 'Oakridge Bank'], ['Daniel', 'Brooks', 'Brooks Consulting']];
+const ANIMALS = ['🐢', '🦝', '🐈', '🦉', '🐙', '🦎', '🦓', '🦅', '🐘'];
+const samples = () => (EDITION_PLAIN ? SAMPLES_PLAIN : SAMPLES_BRANDED);
+const samplePrompt = () => (EDITION_PLAIN ? 'Sample contact' : 'Sample vCGE pilot contact');
+const sampleList = () => [samplePrompt(), ...samples().map(([f, l, o], i) => (EDITION_PLAIN ? `${f} ${l}, ${o}` : `${ANIMALS[i]} ${f} ${l}`))].join('|');
 
 // Renders a business card image in the page so OCR runs on real pixels.
 // `blur` (px, the Gaussian's standard deviation) simulates a shaky or out-of-focus photo. The blur is computed here
@@ -106,6 +121,19 @@ async function decodeQr(page) {
 
 // The Security panel is the Vault page, a sheet over the deck: the header padlock icon opens it, its X (or Esc) closes it.
 const vaultOpen = (page) => page.isVisible('#vaultPage');
+// The logo (a CSS background, edition.js): in the branded edition drawn from the bundled file and named vCGE for screen
+// readers; in plain not shown, with no background to fetch.
+async function logoMarkShown(page, sel) {
+  return page.$eval(sel, async (el) => {
+    const m = /url\("?([^")]+)"?\)/.exec(getComputedStyle(el).backgroundImage), r = el.getBoundingClientRect();
+    if (!m || !m[1].startsWith(location.origin) || el.getAttribute('role') !== 'img' || el.getAttribute('aria-label') !== 'vCGE' || !(r.width > 0)) return false;
+    const img = new Image(); img.src = m[1];
+    return img.decode().then(() => img.naturalWidth > 0, () => false);
+  });
+}
+async function logoMarkGone(page, sel) {
+  return page.$$eval(sel, els => els.every(el => getComputedStyle(el).display === 'none' && getComputedStyle(el).backgroundImage === 'none'));
+}
 async function openVault(page) { if (!(await vaultOpen(page))) { await page.click('#navVault'); await page.waitForSelector('#vaultPage', { state: 'visible' }); } }
 async function closeVault(page) { if (await vaultOpen(page)) { await page.click('#vaultPage [data-sheet-close]'); await page.waitForSelector('#vaultPage', { state: 'hidden' }); } }
 
@@ -199,7 +227,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
 (async () => {
   const server = spawn(process.execPath, [path.join(ROOT, 'scripts/serve.mjs')], { env: { ...process.env, PORT } });
   await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('exit', c => reject(new Error(`server exited ${c}`))); });
-  console.log(`Browser: ${RUN}`);
+  EDITION_PLAIN = FORCE_PLAIN || /<html[^>]*\sdata-edition="plain"/.test(await (await fetch(ORIGIN)).text());
+  console.log(`Browser: ${RUN}, ${EDITION_PLAIN ? 'plain' : 'branded'} edition`);
   const browser = await playwright[ENGINE].launch(CHANNELS[BROWSER] ? { channel: CHANNELS[BROWSER] } : {});
   // Every context takes the chosen device (if any), and the welcome pop-up that opens on every start is pressed
   // through (START NOW) at once, except in the welcome tests below.
@@ -208,7 +237,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const b = document.getElementById('welcomeStartBtn');
     if (b) { o.disconnect(); b.click(); }
   }).observe(document, { childList: true, subtree: true });
-  browser.newContext = async (opts = {}) => { const c = await plainContext({ ...deviceOptions, ...opts }); await c.addInitScript(pressStartNow); return c; };
+  // VCGE_EDITION=plain: every load of the app's page gets <html data-edition="plain">, as the plain branch's index.html has
+  const editionRoute = (c) => (FORCE_PLAIN ? c.route(u => u.origin + u.pathname === ORIGIN || u.origin + u.pathname === ORIGIN + 'index.html',
+    async (route) => { const r = await route.fetch(); await route.fulfill({ response: r, body: (await r.text()).replace('<html lang="en"', '<html lang="en" data-edition="plain"') }); }) : null);
+  browser.newContext = async (opts = {}) => { const c = await plainContext({ ...deviceOptions, ...opts }); await c.addInitScript(pressStartNow); await editionRoute(c); return c; };
   const newContext = (options) => browser.newContext(options);
   const context = await newContext({ acceptDownloads: true });
   const page = await context.newPage();
@@ -218,6 +250,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
   page.on('dialog', d => d.accept());
+  const brandRequests = [];   // the plain edition fetches none of the branded files: logo, Sixtyfour, the animal logos
+  page.on('request', r => { if (/\/assets\/brand\/(?!vcge-32\.png)|sixtyfour|\/icons\/animals\//.test(r.url())) brandRequests.push(r.url()); });
   const base = ORIGIN;
   const val = id => page.$eval('#' + id, el => el.value);
   const text = id => page.$eval('#' + id, el => el.textContent.trim());
@@ -228,7 +262,15 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   ok('loads with no 404s', notFound.length === 0, notFound.join(', '));
   const favicon = await page.evaluate(() => { const l = document.querySelector('link[rel="icon"][sizes="32x32"]'); return l ? l.href : null; });
   ok('the tab icon is a bundled file on the same origin', !!favicon && favicon.startsWith(base) && (await page.request.get(favicon)).status() === 200 && (await page.request.get(favicon)).headers()['content-type'].includes('image/png'), favicon);
-  ok('the header shows the logo (bundled, loaded, named vCGE for screen readers)', await page.$eval('.deck-logo', i => i.complete && i.naturalWidth > 0 && i.alt === 'vCGE' && i.src.startsWith(location.origin)));
+  if (!EDITION_PLAIN) ok('the header shows the logo (bundled, loaded, named vCGE for screen readers)', await logoMarkShown(page, '.deck-logo'));
+  else ok('plain edition: the header shows no logo and never fetched one, and "vCard Generator Engine" stays as text', await logoMarkGone(page, '.deck-logo')
+    && !brandRequests.length && (await page.textContent('.deck-brand-text')).trim() === 'vCard Generator Engine', brandRequests.join(' '));
+  if (EDITION_PLAIN) {
+    const navNames = await page.$$eval('.deck-header button', bs => bs.map(b => [b.id, b.getAttribute('aria-label') || '', b.title || '', (b.querySelector(':scope > span') || {}).textContent || '']));
+    ok('plain edition: the header names each card, never a pilot, in its labels and beside its icon', navNames.every(n => !/Shutout|Ghost|Iris|Glyph|Pidge|Flipside|Checkers|Airlock/.test(n.join(' ')))
+      && navNames.filter(n => n[3]).map(n => n[3]).join('|') === 'Start|Capture|Read|Fields|Card|QR|Share', JSON.stringify(navNames));
+    ok('plain edition: nothing on screen names a pilot, a MOD tag or the tagline', !/Shutout|Ghost|Iris|Glyph|Pidge|Flipside|Checkers|Airlock|Cornerstone|MOD-0|Never Lose Contact|Team vCGE/.test(await page.evaluate(() => document.body.innerText)));
+  }
   ok('opens straight to an empty card (no passphrase dialog)', !(await visible('vaultModal')) && (await val('firstName')) === '');
   ok('header badge reads "Vault: UNLOCKED" and the indicator says memory only', (await text('vaultBadge')) === 'Vault: UNLOCKED' && (await text('vaultStateIndicator')) === 'UNLOCKED / memory only');
   ok('Lock button hidden until a session PIN is set', !(await lockOffered(page)));
@@ -1129,8 +1171,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const errorsS = [];
     pS.on('pageerror', e => errorsS.push(e.message));
     await pS.goto(ORIGIN); await pS.waitForTimeout(300);
-    await pS.selectOption('#fakeContactSelect', '4');   // Pidge: mobile, work and fax numbers
-    ok('sample loaded with three phones', (await rows(pS, 'phone')).length === 3 && (await pS.inputValue('#firstName')) === 'Pidge');
+    await pS.selectOption('#fakeContactSelect', '4');   // Pidge (plain: Priya Nair): mobile, work and fax numbers
+    ok('sample loaded with three phones', (await rows(pS, 'phone')).length === 3 && (await pS.inputValue('#firstName')) === samples()[4][0]);
     await pS.setInputFiles('#imageUpload', await renderCardImage(pS)); await pS.waitForTimeout(300);
     await pS.click('#runOcrBtn');
     await pS.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
@@ -1141,7 +1183,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('scan into a sample: the sample is replaced, nothing of it left', filled.first === 'Maria' && !filled.middle && !filled.suffix && !filled.unit
       && filled.phones.length === 1 && filled.phones[0].value === '+1 (312) 555-0147' && filled.front === '+1 (312) 555-0147', JSON.stringify(filled));
     await pS.click('#toastAction');
-    ok('Undo brings the sample back', (await pS.inputValue('#firstName')) === 'Pidge' && (await rows(pS, 'phone')).length === 3);
+    ok('Undo brings the sample back', (await pS.inputValue('#firstName')) === samples()[4][0] && (await rows(pS, 'phone')).length === 3);
     await pS.click('#reopenScanBtn');
     await proceed(pS);
     const again = await card();
@@ -1160,8 +1202,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pF.goto(ORIGIN); await pF.waitForTimeout(300);
     const pops = () => pF.$eval('#fieldsForm', f => Number(f.dataset.pops || 0));
     const card = () => pF.evaluate(() => document.documentElement.dataset.card);
-    ok('fields: the list reads "Sample vCGE pilot contact" and names each pilot with their animal (video review #61)', (await pF.$$eval('#fakeContactSelect option', os => os.map(o => o.textContent).join('|'))) === 'Sample vCGE pilot contact|🐢 Shutout Box Turtle|🦝 Ghost Raccoon|🐈 Iris Lynx|🦉 Glyph Owl|🐙 Pidge Octopus|🦎 Flipside Chameleon|🦓 Checkers Zebra|🦅 Airlock Falcon|🐘 Cornerstone Elephant'
-      && (await pF.getAttribute('#fakeContactSelect', 'aria-label')) === 'Sample vCGE pilot contact'
+    ok(EDITION_PLAIN ? 'plain edition: the list reads "Sample contact" and names each person with their company' : 'fields: the list reads "Sample vCGE pilot contact" and names each pilot with their animal (video review #61)',
+      (await pF.$$eval('#fakeContactSelect option', os => os.map(o => o.textContent).join('|'))) === sampleList()
+      && (await pF.getAttribute('#fakeContactSelect', 'aria-label')) === samplePrompt()
       && (await pF.$eval('#fakeContactSelect', s => s.value)) === '' && !(await pF.$('#presetButtonsContainer')), await pF.$$eval('#fakeContactSelect option', os => os.map(o => o.textContent).join('|')));
     ok('fields: nothing has popped yet (the Welcome START lands on Capture)', (await pops()) === 0);
     // A header icon is a move of the deck's own: the form pops on arrival (a swipe, below, does not)
@@ -1177,7 +1220,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pF.waitForTimeout(500);
     const pop = await pF.evaluate(() => window.__pop);
     ok('fields: choosing a sample fills the form, pops it in (one animation, 8 steps over 0.32 s), offers Undo, and the list reads the prompt again',
-      (await pF.inputValue('#firstName')) === 'Iris' && (await pF.inputValue('#organization')) === 'Team vCGE' && (await pops()) === 2 && pop.names.includes('fields-pop') && pop.steps === 'steps(8)' && pop.ms === '0.32s'
+      (await pF.inputValue('#firstName')) === samples()[2][0] && (await pF.inputValue('#organization')) === samples()[2][2] && (await pops()) === 2 && pop.names.includes('fields-pop') && pop.steps === 'steps(8)' && pop.ms === '0.32s'
       && await pF.isVisible('#toastAction') && (await pF.$eval('#fakeContactSelect', s => s.value)) === '' && (await card()) === 'fields', JSON.stringify({ pop, pops: await pops(), card: await card() }));
     ok('fields: the list and the green button are at least 44 px tall; the button reads "Everything\'s correct" with the tick icon', (await pF.$$eval('#fakeContactSelect, #fieldsDoneBtn', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44)
       && (await pF.textContent('#fieldsDoneBtn')).trim() === "Everything's correct" && !!(await pF.$('#fieldsDoneBtn svg use[href$="#circle-check"]')), JSON.stringify(await pF.$$eval('#fakeContactSelect, #fieldsDoneBtn', els => els.map(e => e.getBoundingClientRect().height))));
@@ -1194,7 +1237,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const sidesRight = await footSides();
     await pF.click('#fieldsDoneBtn'); await pF.waitForTimeout(700);
     ok('fields: "Everything\'s correct" sits lower right (the trash lower left) and moves on to the 3D Card with the details on it',
-      sidesRight.ok === 'right' && sidesRight.trash === 'left' && sidesRight.okBottom && (await card()) === 'card' && (await pF.textContent('#previewFullName')) === 'Iris Lynx' && await pF.isVisible('#vaultHandoff[data-playing]').catch(() => true),
+      sidesRight.ok === 'right' && sidesRight.trash === 'left' && sidesRight.okBottom && (await card()) === 'card' && (await pF.textContent('#previewFullName')) === `${samples()[2][0]} ${samples()[2][1]}` && await pF.isVisible('#vaultHandoff[data-playing]').catch(() => true),
       JSON.stringify({ sidesRight, card: await card() }));
     await pF.click('#navSettings'); await pF.click('#handLeftBtn'); await pF.keyboard.press('Escape'); await pF.waitForTimeout(200);
     await pF.click('#navFields'); await pF.waitForTimeout(600);
@@ -1207,7 +1250,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pF.emulateMedia({ reducedMotion: 'reduce' });
     const before = await pops();
     await pF.selectOption('#fakeContactSelect', '0'); await pF.waitForTimeout(300);
-    ok('fields: under reduce motion a sample is simply there (no pop class), the arrival still counted', (await pops()) === before + 1 && !(await pF.$eval('#fieldsForm', f => f.classList.contains('is-popping'))) && (await pF.inputValue('#firstName')) === 'Shutout', String(await pops()));
+    ok('fields: under reduce motion a sample is simply there (no pop class), the arrival still counted', (await pops()) === before + 1 && !(await pF.$eval('#fieldsForm', f => f.classList.contains('is-popping'))) && (await pF.inputValue('#firstName')) === samples()[0][0], String(await pops()));
     // Phone style (video review #71): the format list and the +1 switch restyle every number on the card at once,
     // and a number typed afterwards follows the style. Memory only: nothing about it is saved.
     await pF.emulateMedia({ reducedMotion: 'no-preference' });
@@ -2023,7 +2066,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
 
   // MOD01 postcard deck, Welcome card, CANCEL / Thank You page and the tour: on every start, nothing stored, six steps
   {
-    const ctxH = await plainContext();
+    const ctxH = await plainContext(); await editionRoute(ctxH);
     const errorsH = [], externalH = [];
     const openH = async () => {
       const p = await ctxH.newPage();
@@ -2046,8 +2089,17 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const stored = () => pH.evaluate(() => localStorage.length + sessionStorage.length + document.cookie.length);
     const first = await state();
     ok('welcome: the deck opens on the Welcome card', first.welcomeCurrent && first.card === 'welcome' && !first.thanks && !first.vault, JSON.stringify(first));
-    ok('welcome: title and the tagline "Operation: Never Lose Contact"', first.title === 'Welcome to vCGE' && first.tagline === 'Operation: Never Lose Contact', JSON.stringify(first));
-    ok('welcome: the logo sits above the title, loaded from the bundled file', await pH.$eval('#cardWelcome .vcge-welcome-logo', i => i.complete && i.naturalWidth > 0 && i.alt === 'vCGE' && i.getBoundingClientRect().height >= 60));
+    if (!EDITION_PLAIN) {
+      ok('welcome: title and the tagline "Operation: Never Lose Contact"', first.title === 'Welcome to vCGE' && first.tagline === 'Operation: Never Lose Contact', JSON.stringify(first));
+      ok('welcome: the logo sits above the title, loaded from the bundled file', await logoMarkShown(pH, '#cardWelcome .vcge-welcome-logo')
+        && await pH.$eval('#cardWelcome .vcge-welcome-logo', i => i.getBoundingClientRect().height >= 60 && i.getBoundingClientRect().bottom <= document.getElementById('welcomeTitle').getBoundingClientRect().top));
+      ok('Thank You page: the logo is drawn from the bundled file', await pH.$eval('#thankYouPage .vcge-welcome-logo', el => /url\(/.test(getComputedStyle(el).backgroundImage) && el.getAttribute('aria-label') === 'vCGE'));
+    } else {
+      ok('plain edition: the Welcome card says "Welcome to vCGE" with no tagline and no logo', first.title === 'Welcome to vCGE' && first.tagline === undefined
+        && !(await pH.$('#cardWelcome .vcge-welcome-logo')) && !(await pH.$('#welcomeTagline')), JSON.stringify(first));
+      ok('plain edition: the Thank You page has no logo and reads "Session ended."', await logoMarkGone(pH, '#thankYouPage .vcge-welcome-logo')
+        && (await pH.textContent('#thankYouText')) === 'Session ended.');
+    }
     ok('welcome: buttons read Set Up PIN/BIO Lock Now, START, Take a Tour, CANCEL', (await pH.textContent('#welcomePinBtn')) === 'Set Up PIN/BIO Lock Now' && (await pH.textContent('#welcomeStartBtn')) === 'START'
       && (await pH.textContent('#welcomeTourBtn')) === 'Take a Tour' && (await pH.textContent('#welcomeCancelBtn')) === 'CANCEL');
     ok('deck: the cards out of view are hidden from assistive tech and covered against taps', await pH.evaluate(() => document.querySelectorAll('.deck-card[aria-hidden="true"]').length === 5 && document.getElementById('cardWelcome').getAttribute('aria-hidden') === 'false'
@@ -2184,54 +2236,69 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const errorsU = [], missingU = [];
     pU.on('pageerror', e => errorsU.push(e.message));
     pU.on('response', r => { if (r.status() >= 400) missingU.push(`${r.status()} ${r.url()}`); });
+    const sixtyfourU = [];
+    pU.on('request', r => { if (/sixtyfour/i.test(r.url())) sixtyfourU.push(r.url()); });
     await pU.goto(ORIGIN); await pU.waitForTimeout(500);
-    const tags = await pU.evaluate(async () => {
-      await document.fonts.ready;
-      // The cards' tags (the Vault page's MOD-02 shows only when that sheet is open; Settings has none)
-      return Array.from(document.querySelectorAll('.deck-card > .mod-tag')).map(t => {
-        const span = t.querySelector('span'), host = t.parentElement.getBoundingClientRect(), r = t.getBoundingClientRect();
-        // On the card's top edge (half above it, so over none of the card's own content), near the right corner
-        return { text: Array.from(t.children).map(c => c.textContent).join(' '), font: getComputedStyle(span).fontFamily, size: getComputedStyle(span).fontSize,
-          onEdge: Math.abs((r.top + r.bottom) / 2 - host.top) <= 2 && host.right - r.right > 8 && host.right - r.right < 24 };
+    if (EDITION_PLAIN) {
+      // The plain edition shows no MOD tag anywhere, names no pilot, gives the 3D Card the tags' room back, and never
+      // fetches the tags' Sixtyfour font
+      ok('plain edition: no MOD tag is shown on any card or sheet, and none names a pilot', await pU.evaluate(() => Array.from(document.querySelectorAll('.mod-tag'))
+        .every(t => getComputedStyle(t).display === 'none' && t.getBoundingClientRect().width === 0 && !t.querySelector('[data-pilot]'))));
+      await pU.click('#navVault');
+      ok('plain edition: the Vault page shows no tag', await pU.isVisible('#vaultPage') && await pU.$eval('#vaultPage .mod-tag', t => t.getBoundingClientRect().width === 0));
+      await pU.click('#vaultPage [data-sheet-close]');
+      ok('plain edition: the 3D Card\'s content starts where every other card\'s does (no room kept for tags)',
+        await pU.evaluate(() => getComputedStyle(document.querySelector('#cardCard > .deck-card-body')).paddingTop === getComputedStyle(document.querySelector('#cardFields > .deck-card-body')).paddingTop));
+      ok('plain edition: the Sixtyfour font is never fetched', !sixtyfourU.length && await pU.evaluate(() => !Array.from(document.fonts).some(f => f.family.includes('Sixtyfour') && f.status !== 'unloaded')), sixtyfourU.join(' '));
+    } else {
+      const tags = await pU.evaluate(async () => {
+        await document.fonts.ready;
+        // The cards' tags (the Vault page's MOD-02 shows only when that sheet is open; Settings has none)
+        return Array.from(document.querySelectorAll('.deck-card > .mod-tag')).map(t => {
+          const span = t.querySelector('span'), host = t.parentElement.getBoundingClientRect(), r = t.getBoundingClientRect();
+          // On the card's top edge (half above it, so over none of the card's own content), near the right corner
+          return { text: Array.from(t.children).map(c => c.textContent).join(' '), font: getComputedStyle(span).fontFamily, size: getComputedStyle(span).fontSize,
+            onEdge: Math.abs((r.top + r.bottom) / 2 - host.top) <= 2 && host.right - r.right > 8 && host.right - r.right < 24 };
+        });
       });
-    });
-    ok('MOD-XX tags: every card shows its module tag, in step order', tags.map(t => t.text).join('|') === 'MOD-01|MOD-03|MOD-04|MOD-05|MOD-06 MOD-07|MOD-08', tags.map(t => t.text).join('|'));
-    ok('MOD-XX tags: same spot (on the top edge by the right corner), same font (Sixtyfour) and size', tags.every(t => t.onEdge && /Sixtyfour/.test(t.font) && t.size === tags[0].size), JSON.stringify(tags));
-    // One block per tag: the pilot's name, then the number, in solid pixels (#2, #3, #45, #96)
-    const drawnText = (content) => (content.match(/"(?:[^"\\]|\\.)*"/g) || []).map(q => q.slice(1, -1)).join('');
-    const look = await pU.evaluate(() => Array.from(document.querySelectorAll('.deck-card > .mod-tag span')).map(s => ({ pilot: s.dataset.pilot,
-      before: getComputedStyle(s, '::before').content, axes: getComputedStyle(s).fontVariationSettings, shadow: getComputedStyle(s).textShadow })));
-    ok('MOD-XX tags: each names its pilot before the number ("GLYPH:  MOD-04"), at the font\'s own stroke (not bold), no bleed, a crisp 27% shadow', look.map(l => l.pilot).join('|') === 'Shutout|Iris|Glyph|Pidge|Flipside|Checkers|Airlock'
-      // Firefox reports the rule itself (attr(data-pilot) then the colon), not the text it draws; WebKit reports the name and
-      // the colon as two quoted strings ("Glyph" ":  "), Chromium as one. Either way the name comes first, then the colon.
-      && look.every(l => (drawnText(l.before).startsWith(l.pilot + ':') || /^attr\(data-pilot\) ":/.test(l.before)) && /"BLED" 0/.test(l.axes) && /"SCAN" 0\b/.test(l.axes) && /rgba\(0, 0, 0, 0\.27\) 1px 1px 0px|1px 1px 0px rgba\(0, 0, 0, 0\.27\)/.test(l.shadow)), JSON.stringify(look));
-    await pU.click('#navFields'); await pU.waitForTimeout(600);
-    // The fade is a 0.2 s transition: wait up to 3 s for it to come to rest (a fixed 450 ms caught the iPhone run mid-fade, at 0.43)
-    const tagFade = async (y) => { await pU.$eval('#cardFields > .deck-card-body', (b, y) => { b.scrollTop = y; }, y); await pU.waitForTimeout(450);
-      await pU.waitForFunction(() => document.getElementById('cardFields').querySelector(':scope > .mod-tag').getAnimations().length === 0, null, { timeout: 3000 }).catch(() => {});
-      return pU.$eval('#cardFields > .mod-tag', t => ({ faded: t.classList.contains('is-faded'), opacity: parseFloat(getComputedStyle(t).opacity) })); };
-    const fadedDown = await tagFade(120), fadedTop = await tagFade(0);
-    ok('MOD-XX tags: a card\'s tag fades to 36% while its content is scrolled up under it, and comes back at the top', fadedDown.faded && Math.abs(fadedDown.opacity - 0.36) < 0.02 && !fadedTop.faded && fadedTop.opacity === 1,
-      JSON.stringify([fadedDown, fadedTop]));
-    // No tag ever sits on something that can be pressed (video review #9, #10, #87): every card, and each sheet
-    const tagOverControl = () => pU.evaluate(() => {
-      const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom && a.width > 0 && b.width > 0;
-      return Array.from(document.querySelectorAll('.mod-tag')).filter(t => t.offsetParent).flatMap(t => {
-        const r = t.getBoundingClientRect();
-        return Array.from(t.parentElement.querySelectorAll('button, input, select, textarea, label, a[href]')).filter(c => c.offsetParent && hit(r, c.getBoundingClientRect())).map(c => `${t.textContent.trim()} on ${c.id || c.textContent.trim().slice(0, 20)}`);
+      ok('MOD-XX tags: every card shows its module tag, in step order', tags.map(t => t.text).join('|') === 'MOD-01|MOD-03|MOD-04|MOD-05|MOD-06 MOD-07|MOD-08', tags.map(t => t.text).join('|'));
+      ok('MOD-XX tags: same spot (on the top edge by the right corner), same font (Sixtyfour) and size', tags.every(t => t.onEdge && /Sixtyfour/.test(t.font) && t.size === tags[0].size), JSON.stringify(tags));
+      // One block per tag: the pilot's name, then the number, in solid pixels (#2, #3, #45, #96)
+      const drawnText = (content) => (content.match(/"(?:[^"\\]|\\.)*"/g) || []).map(q => q.slice(1, -1)).join('');
+      const look = await pU.evaluate(() => Array.from(document.querySelectorAll('.deck-card > .mod-tag span')).map(s => ({ pilot: s.dataset.pilot,
+        before: getComputedStyle(s, '::before').content, axes: getComputedStyle(s).fontVariationSettings, shadow: getComputedStyle(s).textShadow })));
+      ok('MOD-XX tags: each names its pilot before the number ("GLYPH:  MOD-04"), at the font\'s own stroke (not bold), no bleed, a crisp 27% shadow', look.map(l => l.pilot).join('|') === 'Shutout|Iris|Glyph|Pidge|Flipside|Checkers|Airlock'
+        // Firefox reports the rule itself (attr(data-pilot) then the colon), not the text it draws; WebKit reports the name and
+        // the colon as two quoted strings ("Glyph" ":  "), Chromium as one. Either way the name comes first, then the colon.
+        && look.every(l => (drawnText(l.before).startsWith(l.pilot + ':') || /^attr\(data-pilot\) ":/.test(l.before)) && /"BLED" 0/.test(l.axes) && /"SCAN" 0\b/.test(l.axes) && /rgba\(0, 0, 0, 0\.27\) 1px 1px 0px|1px 1px 0px rgba\(0, 0, 0, 0\.27\)/.test(l.shadow)), JSON.stringify(look));
+      await pU.click('#navFields'); await pU.waitForTimeout(600);
+      // The fade is a 0.2 s transition: wait up to 3 s for it to come to rest (a fixed 450 ms caught the iPhone run mid-fade, at 0.43)
+      const tagFade = async (y) => { await pU.$eval('#cardFields > .deck-card-body', (b, y) => { b.scrollTop = y; }, y); await pU.waitForTimeout(450);
+        await pU.waitForFunction(() => document.getElementById('cardFields').querySelector(':scope > .mod-tag').getAnimations().length === 0, null, { timeout: 3000 }).catch(() => {});
+        return pU.$eval('#cardFields > .mod-tag', t => ({ faded: t.classList.contains('is-faded'), opacity: parseFloat(getComputedStyle(t).opacity) })); };
+      const fadedDown = await tagFade(120), fadedTop = await tagFade(0);
+      ok('MOD-XX tags: a card\'s tag fades to 36% while its content is scrolled up under it, and comes back at the top', fadedDown.faded && Math.abs(fadedDown.opacity - 0.36) < 0.02 && !fadedTop.faded && fadedTop.opacity === 1,
+        JSON.stringify([fadedDown, fadedTop]));
+      // No tag ever sits on something that can be pressed (video review #9, #10, #87): every card, and each sheet
+      const tagOverControl = () => pU.evaluate(() => {
+        const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom && a.width > 0 && b.width > 0;
+        return Array.from(document.querySelectorAll('.mod-tag')).filter(t => t.offsetParent).flatMap(t => {
+          const r = t.getBoundingClientRect();
+          return Array.from(t.parentElement.querySelectorAll('button, input, select, textarea, label, a[href]')).filter(c => c.offsetParent && hit(r, c.getBoundingClientRect())).map(c => `${t.textContent.trim()} on ${c.id || c.textContent.trim().slice(0, 20)}`);
+        });
       });
-    });
-    const covered = [];
-    for (const nav of ['#navWelcome', '#navCapture', '#navRead', '#navFields', '#navCard', '#navShare']) { await pU.click(nav); await pU.waitForTimeout(600); covered.push(...await tagOverControl()); }
-    ok('MOD-XX tags: none sits on a button or a field of its card (Flip card included)', covered.length === 0, covered.join(' | '));
-    await pU.click('#navVault');
-    ok('MOD-XX tags: the Vault page carries MOD-02, in its title row clear of the close button', await pU.$eval('#vaultPage .mod-tag', t => t.textContent.trim() === 'MOD-02' && t.getBoundingClientRect().width > 0)
-      && (await tagOverControl()).length === 0 && await pU.$eval('#vaultPage .mod-tag', t => { const r = t.getBoundingClientRect(), p = t.parentElement.getBoundingClientRect(); return r.top >= p.top && r.right <= p.right; }));
-    await pU.click('#vaultPage [data-sheet-close]');
-    await pU.click('#navSettings');
-    ok('MOD-XX tags: the Settings sheet carries none (raven575, video review #9)', await pU.$$eval('#settingsSheet .mod-tag', t => t.length) === 0 && await pU.isVisible('#settingsSheet'));
-    await pU.click('#settingsSheet [data-sheet-close]');
-    ok('MOD-XX tags: the bundled Sixtyfour font loads', await pU.evaluate(async () => { await document.fonts.load('10px Sixtyfour'); return document.fonts.check('10px Sixtyfour'); }));
+      const covered = [];
+      for (const nav of ['#navWelcome', '#navCapture', '#navRead', '#navFields', '#navCard', '#navShare']) { await pU.click(nav); await pU.waitForTimeout(600); covered.push(...await tagOverControl()); }
+      ok('MOD-XX tags: none sits on a button or a field of its card (Flip card included)', covered.length === 0, covered.join(' | '));
+      await pU.click('#navVault');
+      ok('MOD-XX tags: the Vault page carries MOD-02, in its title row clear of the close button', await pU.$eval('#vaultPage .mod-tag', t => t.textContent.trim() === 'MOD-02' && t.getBoundingClientRect().width > 0)
+        && (await tagOverControl()).length === 0 && await pU.$eval('#vaultPage .mod-tag', t => { const r = t.getBoundingClientRect(), p = t.parentElement.getBoundingClientRect(); return r.top >= p.top && r.right <= p.right; }));
+      await pU.click('#vaultPage [data-sheet-close]');
+      await pU.click('#navSettings');
+      ok('MOD-XX tags: the Settings sheet carries none (raven575, video review #9)', await pU.$$eval('#settingsSheet .mod-tag', t => t.length) === 0 && await pU.isVisible('#settingsSheet'));
+      await pU.click('#settingsSheet [data-sheet-close]');
+      ok('MOD-XX tags: the bundled Sixtyfour font loads', await pU.evaluate(async () => { await document.fonts.load('10px Sixtyfour'); return document.fonts.check('10px Sixtyfour'); }));
+    }
     const small = await pU.evaluate(() => Array.from(document.querySelectorAll('button:not(.crop-handle), label'))
       .filter(b => (b.tagName === 'BUTTON' || b.querySelector(':scope > input[type=file]')) && b.offsetParent)
       .map(b => { const cs = getComputedStyle(b); return { id: b.id || b.textContent.trim().slice(0, 20), h: b.offsetHeight, w: b.offsetWidth, border: cs.borderTopWidth }; })   // layout size: cards out of view are drawn smaller
@@ -2317,7 +2384,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const centred = await pV.evaluate(() => { const r = document.getElementById('cardWelcome').getBoundingClientRect(); return { l: r.left, r: innerWidth - r.right }; });
     ok('tablet: the Welcome card comes to the middle like every other card (it sat against the left edge)', Math.abs(centred.l - centred.r) <= 1.5 && centred.l > 20, JSON.stringify(centred));
     ok('header: Shutout\'s own icon brings back the start page and is lit there (video #30, #91)', (await deckState()).card === 'welcome'
-      && await pV.$eval('#navWelcome', b => b.classList.contains('is-on') && b.getAttribute('aria-current') === 'page' && /Shutout/.test(b.getAttribute('aria-label'))));
+      && await pV.$eval('#navWelcome', (b, plain) => b.classList.contains('is-on') && b.getAttribute('aria-current') === 'page' && (plain ? b.getAttribute('aria-label') === 'Start page: welcome and the tour' : /Shutout/.test(b.getAttribute('aria-label'))), EDITION_PLAIN));
 
     // A finger swipe: the deck never moves under a finger that pauses, and on release goes one card in the swipe's direction
     // The finger is sent through the Chrome DevTools Protocol, which only Chromium has. Real Chrome and Edge on a desktop
@@ -2397,7 +2464,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pV.fill('#firstName', 'Shutout'); await pV.waitForTimeout(1300);
     const strip = await pV.evaluate(() => {
       const band = document.getElementById('vaultTimerBand').getBoundingClientRect();
-      const tops = Array.from(document.querySelectorAll('.deck-card')).map(c => { const t = c.querySelector('.mod-tag').getBoundingClientRect(); return Math.min(c.getBoundingClientRect().top, t.top); });
+      const tops = Array.from(document.querySelectorAll('.deck-card')).map(c => { const t = c.querySelector('.mod-tag').getBoundingClientRect(); return t.width ? Math.min(c.getBoundingClientRect().top, t.top) : c.getBoundingClientRect().top; });   // plain: no tags shown
       return { shown: !document.getElementById('vaultTimerStrip').classList.contains('hidden'), bottom: band.bottom, top: Math.min(...tops) };
     });
     ok('timer strip: shown with a card in progress, and every card and its MOD tag start below it', strip.shown && strip.top >= strip.bottom, JSON.stringify(strip));
@@ -2573,32 +2640,44 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const ctl = await p6.evaluate(() => { const r = (id) => document.getElementById(id).getBoundingClientRect(); const card = r('cardCard'); return { upload: r('avatarUpload').width === 0 ? document.getElementById('avatarUpload').parentElement.getBoundingClientRect().left : 0, remove: r('removeAvatarBtn'), preview: r('formAvatarPreview'), inCard: document.getElementById('cardCard').contains(document.getElementById('avatarUpload')) && !document.getElementById('cardFields').contains(document.getElementById('avatarUpload')), cardLeft: card.left, cardW: card.width, label: document.getElementById('avatarUpload').parentElement.textContent.trim() }; });
     ok('logo: the upload reads "Logo", sits on the 3D Card (not the Fields card), on the right with its preview', ctl.inCard && ctl.label === 'Logo' && ctl.upload > ctl.cardLeft + ctl.cardW / 2 && ctl.preview.left < ctl.upload, JSON.stringify(ctl));
     ok('logo: no Remove button while there is no logo', !(await p6.isVisible('#removeAvatarBtn')));
-    // A sample brings its animal as the logo (a bundled file, drawn on the device, kept in its own colours)
+    // A sample brings its animal as the logo (a bundled file, drawn on the device, kept in its own colours). Plain samples
+    // have no logo: the badge shows the initials, and an uploaded logo stands in for the rest of these checks.
+    const [s1First, s1Last] = samples()[1];
+    const LOGO6 = '#previewAvatar img, #previewAvatar svg';   // a sample's own logo is a picture, an uploaded one is traced to a drawing
     await p6.click('#navFields'); await p6.waitForTimeout(500);
-    await p6.selectOption('#fakeContactSelect', '1');   // Ghost the Raccoon
-    await p6.waitForFunction(() => !!document.querySelector('#previewAvatar img'), null, { timeout: 5000 });
+    await p6.selectOption('#fakeContactSelect', '1');   // Ghost the Raccoon (plain: Jordan Patel)
+    if (EDITION_PLAIN) {
+      await p6.waitForTimeout(500);
+      ok('plain edition: a sample brings no logo; the badge shows the initials and there is no Remove button', !(await p6.$(LOGO6))
+        && (await p6.textContent('#previewAvatar')).trim() === s1First[0] + s1Last[0] && !(await p6.isVisible('#removeAvatarBtn')));
+      const mark = await p6.evaluate(() => { const c = document.createElement('canvas'); c.width = c.height = 96; const x = c.getContext('2d');
+        x.fillStyle = '#fff'; x.fillRect(0, 0, 96, 96); x.fillStyle = '#1d4ed8'; x.beginPath(); x.arc(48, 48, 34, 0, Math.PI * 2); x.fill(); return c.toDataURL('image/png'); });
+      await p6.setInputFiles('#avatarUpload', { name: 'mark.png', mimeType: 'image/png', buffer: Buffer.from(mark.split(',')[1], 'base64') });
+    }
+    await p6.waitForFunction((sel) => !!document.querySelector(sel), LOGO6, { timeout: 5000 });
     await p6.waitForTimeout(300);
-    const ghost = await p6.evaluate(() => ({ name: document.getElementById('previewFullName').textContent, theme: document.getElementById('currentPaletteLabel').textContent, logo: document.querySelector('#previewAvatar img').src.slice(0, 21), badge: getComputedStyle(document.getElementById('previewAvatar')).display !== 'none', remove: getComputedStyle(document.getElementById('removeAvatarBtn')).display !== 'none' }));
-    ok('sample: Ghost the Raccoon lands with the Twilight theme and the raccoon as a picture logo in the badge, Remove now shown', ghost.name === 'Ghost Raccoon' && ghost.theme === 'Twilight' && ghost.logo === 'data:image/png;base64' && ghost.badge && ghost.remove, JSON.stringify(ghost));
+    const ghost = await p6.evaluate(() => ({ name: document.getElementById('previewFullName').textContent, theme: document.getElementById('currentPaletteLabel').textContent, logo: (document.querySelector('#previewAvatar img') || { src: document.querySelector('#previewAvatar svg') ? 'svg' : '' }).src.slice(0, 21), badge: getComputedStyle(document.getElementById('previewAvatar')).display !== 'none', remove: getComputedStyle(document.getElementById('removeAvatarBtn')).display !== 'none' }));
+    ok(`sample: ${s1First} ${s1Last} lands with the Twilight theme and ${EDITION_PLAIN ? 'an uploaded' : 'the raccoon as a'} picture logo in the badge, Remove now shown`, ghost.name === `${s1First} ${s1Last}` && ghost.theme === 'Twilight' && ghost.logo === (EDITION_PLAIN ? 'svg' : 'data:image/png;base64') && ghost.badge && ghost.remove, JSON.stringify(ghost));
     const [dl6] = await Promise.all([p6.waitForEvent('download'), p6.click('#downloadVcfBtn')]);
     const vcf6 = fs.readFileSync(await dl6.path(), 'utf8');
-    ok('sample: the .vcf carries the animal as a JPEG photo and the 555-01 number', /PHOTO;TYPE=JPEG;ENCODING=b:/.test(vcf6) && vcf6.includes('+1 (202) 555-0102') && vcf6.includes('ghost@example.com'), vcf6.split('\r\n').filter(l => /^(TEL|EMAIL|PHOTO)/.test(l)).map(l => l.slice(0, 40)).join(' | '));
+    const email6 = EDITION_PLAIN ? `${s1First}.${s1Last}@example.com`.toLowerCase() : 'ghost@example.com';
+    ok(`sample: the .vcf carries the ${EDITION_PLAIN ? 'logo' : 'animal'} as a JPEG photo and the 555-01 number`, /PHOTO;TYPE=JPEG;ENCODING=b:/.test(vcf6) && vcf6.includes('+1 (202) 555-0102') && vcf6.includes(email6), vcf6.split('\r\n').filter(l => /^(TEL|EMAIL|PHOTO)/.test(l)).map(l => l.slice(0, 40)).join(' | '));
     await p6.click('#navCard'); await p6.waitForTimeout(500);
     const sides = await p6.evaluate(() => { const r = document.getElementById('removeAvatarBtn').getBoundingClientRect(), u = document.getElementById('avatarUpload').parentElement.getBoundingClientRect(); return { gap: u.left - r.right, removeText: document.getElementById('removeAvatarBtn').textContent.trim() }; });
     ok('logo: "Remove logo" sits well away from the upload (on the far left)', sides.removeText === 'Remove logo' && sides.gap > 80, JSON.stringify(sides));
     // Remove logo asks first (video finding #83): No keeps the logo, Yes removes it
     await p6.click('#removeAvatarBtn');
-    const asked = await p6.evaluate(() => ({ question: !document.getElementById('removeLogoConfirm').classList.contains('hidden') && document.getElementById('removeLogoConfirm').textContent.includes('Remove the logo?'), button: !document.getElementById('removeAvatarBtn').classList.contains('hidden'), focus: document.activeElement.id, logo: !!document.querySelector('#previewAvatar img') }));
+    const asked = await p6.evaluate(() => ({ question: !document.getElementById('removeLogoConfirm').classList.contains('hidden') && document.getElementById('removeLogoConfirm').textContent.includes('Remove the logo?'), button: !document.getElementById('removeAvatarBtn').classList.contains('hidden'), focus: document.activeElement.id, logo: !!document.querySelector('#previewAvatar img, #previewAvatar svg') }));
     ok('logo: Remove logo asks "Remove the logo?" first, focus on No, the logo still on', asked.question && !asked.button && asked.focus === 'removeLogoNo' && asked.logo, JSON.stringify(asked));
     await p6.click('#removeLogoNo');
-    ok('logo: No keeps the logo and brings the Remove logo button back', !!(await p6.$('#previewAvatar img')) && await p6.isVisible('#removeAvatarBtn') && !(await p6.isVisible('#removeLogoConfirm')));
+    ok('logo: No keeps the logo and brings the Remove logo button back', !!(await p6.$(LOGO6)) && await p6.isVisible('#removeAvatarBtn') && !(await p6.isVisible('#removeLogoConfirm')));
     await p6.click('#removeAvatarBtn'); await p6.click('#removeLogoYes');
-    ok('logo: Remove takes the logo off and says so; the initials are back', !(await p6.$('#previewAvatar img')) && (await p6.textContent('#previewAvatar')).trim() === 'GR' && (await p6.textContent('#toastMessage')) === 'Logo removed.');
+    ok('logo: Remove takes the logo off and says so; the initials are back', !(await p6.$(LOGO6)) && (await p6.textContent('#previewAvatar')).trim() === s1First[0] + s1Last[0] && (await p6.textContent('#toastMessage')) === 'Logo removed.');
     await p6.click('#toastAction').catch(() => {});
     await p6.click('#navFields'); await p6.waitForTimeout(300);
     await p6.click('#clearFormBtn'); await p6.click('#toastAction');
     await p6.waitForTimeout(300);
-    ok('sample: Undo after Clear brings the sample back without its logo (removed before) and with its theme', (await p6.inputValue('#firstName')) === 'Ghost' && (await p6.textContent('#currentPaletteLabel')) === 'Twilight' && !(await p6.$('#previewAvatar img')));
+    ok('sample: Undo after Clear brings the sample back without its logo (removed before) and with its theme', (await p6.inputValue('#firstName')) === s1First && (await p6.textContent('#currentPaletteLabel')) === 'Twilight' && !(await p6.$(LOGO6)));
     ok('card: no page errors, nothing fetched from outside, no missing files', errors6.length === 0 && external6.length === 0 && missing6.length === 0, errors6.concat(external6, missing6).join(' | '));
     await ctx6.close();
   }

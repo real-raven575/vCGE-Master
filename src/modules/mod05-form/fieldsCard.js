@@ -18,6 +18,7 @@ export const POP_MS = 320;                      // the pop-in, start to rest
 export const POP_FPS = 26;                      // stepped, like the padlock and the shimmer (never too crisp)
 export const POP_STEPS = Math.round(POP_MS / 1000 * POP_FPS);
 export const SAMPLE_PROMPT = 'Sample vCGE pilot contact';   // raven575, video review 2026-10-17 #61
+export const PLAIN_SAMPLE_PROMPT = 'Sample contact';         // the plain edition (mod01-shell/edition.js)
 export const DONE_LABEL = "Everything's correct";
 
 const $ = (id) => document.getElementById(id);
@@ -57,6 +58,7 @@ export function popIn() {
 /**
  * @param {Object}   opts
  * @param {Array}    opts.samples          sample contacts for the "Insert Fake Contact?" list (data only)
+ * @param {string}   [opts.prompt]         the list's first line and name (the plain edition passes PLAIN_SAMPLE_PROMPT)
  * @param {Function} opts.onSample         called with the chosen sample
  * @param {Function} opts.onDone           "Everything's correct": the details go on to the 3D Card
  * @param {Function} [opts.onBeforeChange] the deck's hook for its own moves (arms the pop-in)
@@ -64,10 +66,11 @@ export function popIn() {
  * @param {Object}   [opts.phoneStyle]     the style in use: { format, countryCode }
  * @param {Function} [opts.onPhoneStyle]   called with the new { format, countryCode } when either control changes
  */
-export function initFieldsCard({ samples = [], onSample = null, onDone = null, onBeforeChange = null, phoneFormats = [], phoneStyle = null, onPhoneStyle = null } = {}) {
+export function initFieldsCard({ samples = [], prompt = SAMPLE_PROMPT, onSample = null, onDone = null, onBeforeChange = null, phoneFormats = [], phoneStyle = null, onPhoneStyle = null } = {}) {
     const select = $('fakeContactSelect');
     if (select) {
-        select.replaceChildren(new Option(SAMPLE_PROMPT, ''), ...samples.map((s, i) => new Option(sampleLabel(s), String(i))));
+        select.setAttribute('aria-label', prompt);
+        select.replaceChildren(new Option(prompt, ''), ...samples.map((s, i) => new Option(sampleLabel(s), String(i))));
         select.addEventListener('change', () => {
             const sample = samples[Number(select.value)];
             select.value = '';                  // the list is a command, not a state: it reads the prompt again

@@ -16,6 +16,7 @@
 import './modules/mod01-shell/shell.js';
 import { initSettings } from './modules/mod01-shell/settings.js';
 import { go as showCard, use as useDeck, onBeforeChange as beforeCardChange, openSheet, closeSheet, current as currentCard, toast as deckToast, setFace as setCardFace } from './modules/mod01-shell/deck.js';
+import { isPlain } from './modules/mod01-shell/edition.js';
 import { globalEventBus, Events } from './share/eventBus.js';
 import { CONTACT_FIELDS, CONTACT_LIST_FIELDS, createEmptyContact } from './share/cardSchema.js';
 import { temporaryVault, deleteLegacyVault } from './modules/mod02-vault/vault.js';
@@ -33,8 +34,8 @@ import { readIndicator, renderReviewRows, initReadCard, resetBlink, READER_UNAVA
 import { ContactFormMapper, LINE_ROLES, PHONE_FORMATS } from './modules/mod05-form/formMapper.js';
 import { PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES } from './share/contactOptions.js';
 import { AddressAutocompleteEngine } from './modules/mod05-form/addressAutocomplete.js';
-import { initFieldsCard } from './modules/mod05-form/fieldsCard.js';
-import { CardView, PRESETS, THEMES, themeKeyOf, prepareLogo } from './modules/mod06-gui/card3dView.js';
+import { initFieldsCard, SAMPLE_PROMPT, PLAIN_SAMPLE_PROMPT } from './modules/mod05-form/fieldsCard.js';
+import { CardView, PRESETS, PLAIN_PRESETS, THEMES, themeKeyOf, prepareLogo } from './modules/mod06-gui/card3dView.js';
 import { vcgeQREngine } from './modules/mod07-qr/qrGenerator.js';
 import { egressController, PRINT_QR_PX } from './modules/mod08-egress/egressController.js';
 import { exportQrDialog, printChoiceDialog } from './modules/mod08-egress/exportDialogs.js';
@@ -839,7 +840,7 @@ function wireIntake() {
     // 3D Card (the padlock hand-off follows the deck's signal; the card view already holds the details in memory).
     // The phone style lives in the mapper (memory only): new scans and edited numbers follow it, and a change restyles
     // every number already on the card.
-    initFieldsCard({ samples: PRESETS, onSample: (preset) => cardView.loadSample(preset), onDone: () => showCard('card'), onBeforeChange: beforeCardChange,
+    initFieldsCard({ samples: isPlain() ? PLAIN_PRESETS : PRESETS, prompt: isPlain() ? PLAIN_SAMPLE_PROMPT : SAMPLE_PROMPT, onSample: (preset) => cardView.loadSample(preset), onDone: () => showCard('card'), onBeforeChange: beforeCardChange,
         phoneFormats: PHONE_FORMATS, phoneStyle: formMapper.phoneStyle,
         onPhoneStyle: (style) => { formMapper.phoneStyle = style; for (let i = 0; i < $('phoneList').children.length; i++) cardView.tidyListValue('phones', i); } });
     $('reopenScanBtn').addEventListener('click', reopenLastScan);

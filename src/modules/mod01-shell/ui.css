@@ -80,6 +80,14 @@ label:not(.hidden):has(> input[type="file"]) { display: flex; align-items: cente
 /* A scrolling dialog would clip a tag on its edge, so there it sits just inside the top-right corner */
 .mod-tag.mod-tag-inset { top: 0.875rem; transform: none; }
 
+/* The two editions (edition.js, notes/plain-edition-plan.md). The logo is a background drawn only in the branded
+   edition, so plain never fetches it; plain shows no MOD tags (so their Sixtyfour font is never loaded either), and
+   the header's card names stay hidden until edition.js has put them in place of the pilots' names. */
+.vcge-logo-mark { display: block; }
+html:not([data-edition="plain"]) .vcge-logo-mark { background: url('../../assets/brand/vcge-logo-192.png') center / cover no-repeat; }
+html[data-edition="plain"] .vcge-logo-mark, html[data-edition="plain"] .mod-tag { display: none; }
+html[data-edition="plain"]:not(.edition-ready) .deck-header button > span { visibility: hidden; }
+
 /* App icons (src/vendor/icons/app, Tabler, MIT) */
 .vcge-icon { width: 1.5rem; height: 1.5rem; stroke-width: var(--vcge-icon-stroke); }
 .vcge-icon * { stroke-width: var(--vcge-icon-stroke); }

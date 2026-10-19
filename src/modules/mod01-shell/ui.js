@@ -7,6 +7,8 @@
  * keyboard presses are unchanged. The look itself (44 px buttons, 2 px outlines, the MOD-XX tag) is in ui.css.
  */
 
+import { isPlain, applyEdition } from './edition.js';
+
 export const BREAKPOINTS = { tablet: 600, desktop: 1200 };
 
 // The pilot on each MOD tag (the roster): the tag reads "GLYPH:  MOD-04" (ui.css draws the name from data-pilot).
@@ -40,9 +42,9 @@ function pressable(target) {
     return label && label.querySelector(':scope > input[type="file"]') ? label : null;
 }
 
-// Names the pilot on every MOD tag, and fades a card's tag while its content is scrolled up under it.
+// Names the pilot on every MOD tag (the branded edition: plain shows no tags), and fades a card's tag while its content is scrolled up under it.
 export function initTags(doc = document) {
-    doc.querySelectorAll('.mod-tag span').forEach(span => {
+    if (!isPlain(doc)) doc.querySelectorAll('.mod-tag span').forEach(span => {
         const pilot = PILOTS[span.textContent.trim()];
         if (pilot) span.dataset.pilot = pilot;
     });
@@ -55,6 +57,7 @@ export function initTags(doc = document) {
 }
 
 if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+    applyEdition();
     initTags();
     let touching = false;
     document.addEventListener('pointerdown', (e) => { touching = e.pointerType === 'touch'; }, true);

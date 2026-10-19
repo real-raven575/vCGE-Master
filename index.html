@@ -45,7 +45,7 @@
     <!-- MASTER HEADER (MOD01): slim, one icon per card in order of use, then Vault and Settings -->
     <header class="deck-header border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur sticky top-0 z-40 flex items-center justify-between relative">
         <div class="deck-brand">
-            <img class="deck-logo" src="src/assets/brand/vcge-logo-192.png" alt="vCGE" width="28" height="28" decoding="async">
+            <span class="deck-logo vcge-logo-mark" role="img" aria-label="vCGE"></span>
             <span class="deck-brand-text text-xs text-slate-500 dark:text-slate-400">vCard Generator Engine</span>
         </div>
         <nav class="deck-nav" aria-label="Cards">
@@ -557,9 +557,9 @@
     <!-- Thank You page (MOD01): after CANCEL on the Welcome card, once the session is wiped -->
     <div id="thankYouPage" class="thank-you hidden" role="dialog" aria-modal="true" aria-labelledby="thankYouTitle">
         <div class="thank-you-box">
-            <img class="vcge-welcome-logo" src="src/assets/brand/vcge-logo-192.png" alt="vCGE" width="72" height="72" decoding="async">
+            <span class="vcge-welcome-logo vcge-logo-mark" role="img" aria-label="vCGE"></span>
             <h2 id="thankYouTitle">Thanks for visiting.</h2>
-            <p>We'll be here the next time you need us!</p>
+            <p id="thankYouText">We'll be here the next time you need us!</p>
             <div class="thank-you-actions">
                 <button id="thankYouStartOverBtn" type="button" class="thank-you-go">START OVER</button>
                 <button id="thankYouCloseBtn" type="button" class="thank-you-alt">CLOSE WINDOW</button>

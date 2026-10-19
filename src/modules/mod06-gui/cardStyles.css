@@ -51,6 +51,7 @@ body { font-family: 'Inter', sans-serif; }
 /* The MOD-06 / MOD-07 tags sit inside the 3D Card's top-right corner (mod01-shell/deck.css: 0.875rem down, about
    1.1rem tall). The card's first row of controls starts below them, so no tag ever lies on the Flip card button. */
 #cardCard > .deck-card-body { padding-top: 2.5rem; }
+html[data-edition="plain"] #cardCard > .deck-card-body { padding-top: 1.25rem; }   /* plain: no tags, the room goes back */
 
 /* The card face takes the theme (card3dView.js sets the variables on #card3DFlipper): card colour, ink, accent. */
 .card-face { background: var(--card-bg, #3e5572); color: var(--card-ink, #eef3f9); border: 1px solid rgba(0, 0, 0, 0.12); }

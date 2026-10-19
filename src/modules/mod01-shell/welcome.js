@@ -10,6 +10,7 @@
  * previous step. It stays under the lock screen and every pop-up, and leaves their keys alone. No sound, no flashing;
  * the fade is off under reduced motion.
  */
+import { isPlain } from './edition.js';
 import { go, openSheet, closeSheet, sheetOpen, cardEl, requestCancel, requestStartOver, SWIPE_PX } from './deck.js';
 
 export const TOUR_STEPS = [
@@ -68,9 +69,10 @@ export function renderWelcomeCard() {
     sample.addEventListener('click', () => go('fields'));
     const list = el('ol', { className: 'vcge-welcome-points' }, ...WELCOME_POINTS.map(t => el('li', {}, t)));
     host.replaceChildren(
-        el('img', { className: 'vcge-welcome-logo', src: 'src/assets/brand/vcge-logo-192.png', alt: 'vCGE', width: 72, height: 72, decoding: 'async' }),
+        // The logo and the tagline are the branded edition's (the logo is a CSS background, never fetched in plain)
+        ...(isPlain() ? [] : [el('span', { className: 'vcge-welcome-logo vcge-logo-mark', role: 'img', 'aria-label': 'vCGE' })]),
         el('h2', { id: 'welcomeTitle' }, 'Welcome to vCGE'),
-        el('p', { id: 'welcomeTagline', className: 'vcge-welcome-tagline' }, 'Operation: Never Lose Contact'),
+        ...(isPlain() ? [] : [el('p', { id: 'welcomeTagline', className: 'vcge-welcome-tagline' }, 'Operation: Never Lose Contact')]),
         list,
         el('div', { className: 'welcome-actions' }, pin, start, tour, cancel),
         sample,

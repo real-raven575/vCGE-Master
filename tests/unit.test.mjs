@@ -1053,6 +1053,12 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('every sample names a fall theme and a bundled animal logo that exists, with the Noto licence beside it',
     card.PRESETS.every(p => card.THEMES[p.themePalette] && /^src\/vendor\/icons\/animals\/[a-z]+\.svg$/.test(p.logo) && fs6.existsSync(`${R}/../${p.logo}`))
     && fs6.existsSync(`${R}/vendor/icons/animals/LICENSE-noto-emoji.txt`) && fs6.readFileSync(`${R}/vendor/icons/animals/LICENSE-noto-emoji.txt`, 'utf8').includes('Apache License'), card.PRESETS.map(p => p.logo).join(' '));
+  ok('plain edition: nine made-up people with no logo, the same fields and extras as the pilots, reserved numbers and example.com only',
+    card.PLAIN_PRESETS.length === 9 && card.PLAIN_PRESETS.every(p => !p.logo && p.firstName && p.lastName && p.organization && p.jobTitle && card.THEMES[p.themePalette]
+      && p.phones.every(ph => /^\+1 \(202\) 555-01\d\d$/.test(ph.value)) && p.emails.every(e => /@example\.com$/.test(e.value)) && p.websites.every(w => /^https:\/\/(example\.com|instagram\.com\/example)/.test(w.value)))
+    && card.PLAIN_PRESETS.map(p => p.phones.length + p.websites.length + (p.namePrefix || '') + (p.nameSuffix ? 'S' : '')).join() === card.PRESETS.map(p => p.phones.length + p.websites.length + (p.namePrefix || '') + (p.nameSuffix ? 'S' : '')).join()
+    && card.PLAIN_PRESETS.map(p => p.themePalette).join() === card.PRESETS.map(p => p.themePalette).join()
+    && !JSON.stringify(card.PLAIN_PRESETS).match(/vCGE|Shutout|Ghost|Iris|Glyph|Pidge|Flipside|Checkers|Airlock|Cornerstone|pilot/i), card.PLAIN_PRESETS.map(p => p.label).join());
   ok('the sample logo files are plain SVG drawings (no scripts, no links out)', card.PRESETS.every(p => { const t = fs6.readFileSync(`${R}/../${p.logo}`, 'utf8'); return t.startsWith('<svg') && !/<script|<a[\s>]|href=|on[a-z]+=|url\((?!#)|http(?!:\/\/www\.w3\.org\/)/i.test(t); }));
 
   // White background removal: the white joined to the edge goes see-through, white inside the logo stays
@@ -1241,9 +1247,25 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('ui: no font or icon comes from a host (only bundled files)', !/https?:/.test(css.replace(/\/\*[\s\S]*?\*\//g, '')));
   const html = fs.readFileSync(`${R}/../index.html`, 'utf8');
   const logos = [...html.matchAll(/(?:href|src)="(src\/assets\/brand\/[^"]+)"/g)].map(m => m[1]);
-  ok('logo: the tab icon, the header and the Thank You page use the bundled brand files, every one present', logos.length >= 5 && logos.every(f => fs.existsSync(`${R}/../${f}`))
-    && /rel="icon"[^>]*sizes="32x32"[^>]*href="src\/assets\/brand\/vcge-32\.png"/.test(html) && /class="deck-logo" src="src\/assets\/brand\/vcge-logo-192\.png" alt="vCGE"/.test(html));
-  ok('logo: the Welcome card draws the same bundled file', /vcge-welcome-logo.*src: 'src\/assets\/brand\/vcge-logo-192\.png', alt: 'vCGE'/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8')));
+  ok('logo: the tab and home-screen icons use the bundled brand files, every one present', logos.length === 3 && logos.every(f => fs.existsSync(`${R}/../${f}`))
+    && /rel="icon"[^>]*sizes="32x32"[^>]*href="src\/assets\/brand\/vcge-32\.png"/.test(html));
+  // The header, Welcome and Thank You logos are one CSS background, drawn only in the branded edition (edition.js)
+  const marks = [...html.matchAll(/<span class="([^"]*vcge-logo-mark[^"]*)" role="img" aria-label="vCGE"><\/span>/g)].map(m => m[1]);
+  const markRule = css.match(/html:not\(\[data-edition="plain"\]\) \.vcge-logo-mark \{ background: url\('\.\.\/\.\.\/(assets\/brand\/[^']+)'\)/);
+  ok('logo: the header and the Thank You page carry the logo, named vCGE for screen readers, from the bundled file (branded edition only)',
+    marks.join() === 'deck-logo vcge-logo-mark,vcge-welcome-logo vcge-logo-mark' && !!markRule && fs.existsSync(`${R}/${markRule[1]}`), marks.join());
+  ok('logo: the Welcome card draws the same mark, and leaves it and the tagline out in plain',
+    /isPlain\(\) \? \[\] : \[el\('span', \{ className: 'vcge-welcome-logo vcge-logo-mark', role: 'img', 'aria-label': 'vCGE' \}\)\]/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8'))
+    && /isPlain\(\) \? \[\] : \[el\('p', \{ id: 'welcomeTagline'/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8')));
+  ok('plain edition: no rule fetches the logo there, and the tags (with their Sixtyfour font) are not shown',
+    /html\[data-edition="plain"\] \.vcge-logo-mark, html\[data-edition="plain"\] \.mod-tag \{ display: none; \}/.test(css)
+    && [...css.matchAll(/url\('\.\.\/\.\.\/assets\//g)].length === 1);
+  const ed = await import(`${R}/modules/mod01-shell/edition.js`);
+  const docOf = (edition) => ({ documentElement: { dataset: edition ? { edition } : {} } });
+  ok('edition: branded unless index.html says data-edition="plain"', ed.isPlain(docOf('plain')) && !ed.isPlain(docOf()) && !ed.isPlain(docOf('branded')) && !ed.isPlain(null));
+  ok('edition: plain names every header card instead of its pilot, and the Thank You page says "Session ended."',
+    Object.values(ed.PLAIN_NAV).join() === 'Start,Capture,Read,Fields,Card,QR,Share' && ed.PLAIN_THANKS === 'Session ended.'
+    && (html.match(/id="nav(?:Welcome|Capture|Read|Fields|Card|Qr|Share)"/g) || []).map(m => m.slice(4, -1)).join() === Object.keys(ed.PLAIN_NAV).join());
   ok('logo: no icon link points at a host', ![...html.matchAll(/<link[^>]+rel="(?:icon|apple-touch-icon)"[^>]*>/g)].some(m => /https?:/.test(m[0])));
 }
 
@@ -1320,6 +1342,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     && fc.sampleLabel({ firstName: 'Iris', lastName: 'Lynx', logo: 'src/vendor/icons/animals/cat.svg' }) === '🐈 Iris Lynx' && Object.keys(fc.ANIMAL_EMOJI).length === 9);
   const { PRESETS } = await import(`${R}/modules/mod06-gui/card3dView.js`).catch(() => ({ PRESETS: null }));
   ok('#61: every pilot sample has an animal in the list', !PRESETS || PRESETS.every(p => /^\p{Extended_Pictographic} \S+(?: \S+)+$/u.test(fc.sampleLabel(p))), PRESETS && PRESETS.map(fc.sampleLabel).join('|'));
+  ok('plain edition: the list reads "Sample contact" and names each person with their company', fc.PLAIN_SAMPLE_PROMPT === 'Sample contact'
+    && (await import(`${R}/modules/mod06-gui/card3dView.js`)).PLAIN_PRESETS.map(fc.sampleLabel)[0] === 'Avery Collins, Northwind Design');
   ok('a sample without an animal is listed by name and company, never by its emoji label', fc.sampleLabel({ label: '🤖 AI Research Lead', firstName: 'Elena', lastName: 'Rostova', organization: 'NeuralShift AI' }) === 'Elena Rostova, NeuralShift AI'
     && fc.sampleLabel({ label: '🎨 Solo', firstName: 'Kai' }) === 'Kai' && fc.sampleLabel({ label: ' Plain label ' }) === 'Plain label' && fc.sampleLabel({}) === 'Sample contact');
 }
