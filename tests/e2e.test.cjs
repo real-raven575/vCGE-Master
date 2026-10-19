@@ -1708,14 +1708,17 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const ctxV = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: ENGINE !== 'firefox' });
     await ctxV.addInitScript(() => {
       // A 640 x 360 test feed: four colours, so the shot can be checked against the window the viewfinder showed
-      if (!navigator.mediaDevices) Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: {} });
-      // Defined, not assigned: WebKit ignored a plain assignment and the app got the engine's own camera ("Invalid constraint")
-      Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { configurable: true, writable: true, value: async () => {
+      // The app is handed a camera object of the test's own: WebKit kept its own getUserMedia both when it was assigned and
+      // when it was redefined on its camera object ("Invalid constraint"). __camFake says whether the stand-in took.
+      const fake = async () => {
+        window.__camCalls = (window.__camCalls || 0) + 1;
         const c = document.createElement('canvas'); c.width = 640; c.height = 360; const x = c.getContext('2d');
         x.fillStyle = '#ff0000'; x.fillRect(0, 0, 320, 180); x.fillStyle = '#00ff00'; x.fillRect(320, 0, 320, 180);
         x.fillStyle = '#0000ff'; x.fillRect(0, 180, 320, 180); x.fillStyle = '#ffff00'; x.fillRect(320, 180, 320, 180);
         return c.captureStream(5);
-      } });
+      };
+      try { Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: fake } });
+        window.__camFake = navigator.mediaDevices.getUserMedia === fake ? 'in place' : 'not taken'; } catch (e) { window.__camFake = 'refused: ' + e.message; }
     });
     const pV = await ctxV.newPage();
     const errorsV = [];
@@ -1738,7 +1741,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // The viewfinder: clean, four thin brackets, upright card frame in portrait, fader left (48 px in), shutter right
     await pV.click('#startCameraBtn'); await pV.waitForTimeout(400);
     const started = await pV.isVisible('#cameraPanel');
-    ok('viewfinder: the camera starts and the viewfinder shows', started, await pV.textContent('#eventLog'));
+    ok('viewfinder: the camera starts and the viewfinder shows', started, (await pV.textContent('#eventLog')) + ' | test camera: ' + await pV.evaluate(() => `${window.__camFake || 'script never ran'}, called ${window.__camCalls || 0} times`));
     // The checks below all need a running camera; without one they are failed together, and the run goes on
     if (!started) ok('viewfinder, zoom, shutter, shot, Snap on a card-less shot, Retake and Close camera (15 checks)', false, 'not tried: the camera never started (the check above says why)');
     else {
@@ -1859,9 +1862,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // track: the real one's properties and methods, with events the test can send.
     await ctxC.addInitScript((standIn) => {
       window.__camMode = 'normal';
-      if (!navigator.mediaDevices) Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: {} });
-      // Defined, not assigned, as on the Capture card above (WebKit ignored the assignment)
-      Object.defineProperty(navigator.mediaDevices, 'getUserMedia', { configurable: true, writable: true, value: async () => {
+      // A camera object of the test's own, as on the Capture card above (WebKit kept its own getUserMedia)
+      const fake = async () => {
+        window.__camCalls = (window.__camCalls || 0) + 1;
         if (window.__camMode === 'busy') throw new DOMException('Could not start video source', 'NotReadableError');
         const c = document.createElement('canvas'); c.width = 640; c.height = 360;
         const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
@@ -1876,7 +1879,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
         Object.defineProperty(track, 'label', { configurable: true, value: window.__camMode === 'virtual' ? 'OBS Virtual Camera' : 'Integrated Camera' });
         window.__camTrack = track;
         return stream;
-      } });
+      };
+      try { Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: fake } });
+        window.__camFake = navigator.mediaDevices.getUserMedia === fake ? 'in place' : 'not taken'; } catch (e) { window.__camFake = 'refused: ' + e.message; }
     }, ENGINE === 'firefox');
     const pC = await ctxC.newPage();
     await pC.goto(ORIGIN); await pC.waitForTimeout(300);
@@ -1888,7 +1893,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const start = async (mode) => { await pC.evaluate(m => { window.__camMode = m; }, mode); await pC.click('#startCameraBtn'); await pC.waitForTimeout(300); };
     // What the camera module logged, and whether the test's fake track is the one the app is showing (failure details).
     const camState = () => pC.evaluate(() => { const s = document.getElementById('cameraStream').srcObject;
-      return `${document.getElementById('eventLog').textContent.trim()} | app shows test track: ${!!s && s.getVideoTracks()[0] === window.__camTrack}`; });
+      return `${document.getElementById('eventLog').textContent.trim()} | app shows test track: ${!!s && s.getVideoTracks()[0] === window.__camTrack} | test camera: ${window.__camFake || 'script never ran'}, called ${window.__camCalls || 0} times`; });
     // A missing pop-up is reported by the check before it; closing it must not stop the rest of the section.
     const closePopup = () => pC.click('#cameraInUseOkBtn', { timeout: 2000 }).catch(() => {});
 
@@ -1911,24 +1916,27 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await closePopup();
 
     await start('normal');
-    await pC.evaluate(() => window.__camTrack.dispatchEvent(new Event('ended')));
+    await pC.evaluate(() => window.__camTrack && window.__camTrack.dispatchEvent(new Event('ended')));   // no test track: the check below fails
     await pC.waitForSelector('#cameraInUseModal', { state: 'visible', timeout: 2000 }).catch(() => {});
     ok('feed taken by another app mid-scan: pop-up shown, camera off', await popup() && await cameraOff(), await camState());
     await closePopup();
 
     await start('normal');
-    await pC.evaluate(() => { const t = window.__camTrack; Object.defineProperty(t, 'muted', { get: () => true }); t.dispatchEvent(new Event('mute')); });
+    const muted = await pC.evaluate(() => { const t = window.__camTrack; if (!t) return false; Object.defineProperty(t, 'muted', { get: () => true }); t.dispatchEvent(new Event('mute')); return true; });
     await pC.waitForTimeout(300);
-    ok('brief mute does not trigger the pop-up', !(await popup()));
+    ok('brief mute does not trigger the pop-up', muted && !(await popup()), muted ? '' : 'not tried: no test track to mute > ' + await camState());
     await pC.waitForSelector('#cameraInUseModal', { state: 'visible', timeout: 3000 }).catch(() => {});   // MUTE_GRACE_MS after the mute
     ok('feed muted while in view: pop-up shown, camera off', await popup() && await cameraOff(), await camState());
     await closePopup();
 
     await start('normal');
-    await pC.click('#stopCameraBtn');
-    await pC.evaluate(() => window.__camTrack.dispatchEvent(new Event('ended')));
-    await pC.waitForTimeout(100);
-    ok('closing the camera ourselves raises no pop-up', !(await popup()));
+    const startedLast = await pC.isVisible('#cameraPanel');
+    if (startedLast) {
+      await pC.click('#stopCameraBtn');
+      await pC.evaluate(() => window.__camTrack.dispatchEvent(new Event('ended')));
+      await pC.waitForTimeout(100);
+    }
+    ok('closing the camera ourselves raises no pop-up', startedLast && !(await popup()), startedLast ? '' : 'not tried: the camera did not start again > ' + await camState());
     }
     }
     await ctxC.close();
