@@ -2441,6 +2441,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p6.mouse.up(); await settled(p6);
     ok('card: a sideways drag across the card turns it with the finger and it settles on the front', /rotateY\(2[5-9]\d|rotateY\(3[0-5]\d/.test(midway) && (await angle()) === 'rotateY(0deg)', `${midway} -> ${await angle()}`);
     const dragEvents = await cardEvents();
+    const noSelect = await p6.evaluate(() => { const st = getComputedStyle(document.getElementById('card3DFlipper')); return { select: st.userSelect || st.webkitUserSelect, picked: String(getSelection()) }; });
+    ok('card: a drag across the card selects none of its text (no text drag can take the next press)', noSelect.select === 'none' && noSelect.picked === '', JSON.stringify(noSelect));
     await p6.mouse.move(cx, cy); await p6.mouse.down(); await p6.mouse.move(cx + 3, cy); await p6.mouse.up(); await settled(p6);
     ok('card: a drag shorter than a tap still counts as a tap (flips)', (await angle()) === 'rotateY(180deg)', `${await angle()} | drag: ${dragEvents} | tap: ${await cardEvents()}`);
     // WebKit sends no click after a drag: a drag with no click after it must not eat the next tap.

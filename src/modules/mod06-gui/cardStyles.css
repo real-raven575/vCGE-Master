@@ -42,6 +42,9 @@ body { font-family: 'Inter', sans-serif; }
    CSS transition. A sideways drag on the card spins it; the browser keeps vertical scrolling. */
 .perspective-1000 { perspective: 1000px; }
 .transform-style-3d { transform-style: preserve-3d; touch-action: pan-y pinch-zoom; }
+/* A drag across the card turns it and never selects its text: in desktop WebKit, text selected by one drag made the next
+   press start a drag of that text, which swallowed the press's lift and click, so the tap did nothing. */
+#card3DFlipper { user-select: none; -webkit-user-select: none; -webkit-user-drag: none; }
 .backface-hidden { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
 .rotate-y-180 { transform: rotateY(180deg); }
 
