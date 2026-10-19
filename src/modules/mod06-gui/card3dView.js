@@ -111,6 +111,7 @@ export const STEP_FPS = 26;
 export const OVERSHOOT = 0.05;
 export const SPIN_MS = 420;              // a flip or the settle after a drag
 const SPIN_TAP_PX = 8;                   // a drag shorter than this is a tap
+const CLICK_AFTER_LIFT_MS = 600;         // a click this soon after a lift belongs to that press
 export const EDGE_PX = 48;               // no drag within this much of the screen edge (browser back gesture)
 const BACK = (() => { let lo = 0, hi = 4; for (let i = 0; i < 40; i++) { const c = (lo + hi) / 2; if (2 * c * c * c / (27 * (c + 1) * (c + 1)) < OVERSHOOT) lo = c; else hi = c; } return (lo + hi) / 2; })();
 export function easeSnap(t) {
@@ -644,7 +645,8 @@ export class CardView {
 
     wireSpin() {
         const flipper = $('card3DFlipper');
-        let start = null, dragging = false;
+        // When a press last turned the card or ended a drag: its own click, if the browser sends one, is then left alone.
+        let start = null, dragging = false, handledAt = -Infinity;
         flipper.addEventListener('pointerdown', (e) => {
             if (e.button !== undefined && e.button !== 0) return;
             if (this.stopSpin) this.stopSpin();
@@ -671,10 +673,11 @@ export class CardView {
             if (!start || (e.pointerId !== undefined && e.pointerId !== start.id)) return;
             const wasDragging = dragging;
             start = null; dragging = false;
-            if (wasDragging) { this.spinTo(Math.round(this.angle / 180) * 180); return; }
-            // A tap is taken here, on the lift, not from the click that follows: WebKit sends no click on the card after a
-            // drag there has taken the pointer, so a click-based tap would go missing.
+            if (wasDragging) { handledAt = performance.now(); this.spinTo(Math.round(this.angle / 180) * 180); return; }
+            // A tap is taken here, on the lift, not only from the click that follows: WebKit sends no click on the card after
+            // a drag there has taken the pointer, so a click-based tap would go missing.
             if (e.type !== 'pointerup' || !flipper.contains(e.target)) return;
+            handledAt = performance.now();
             const r = flipper.getBoundingClientRect();
             this.flipFrom(e.clientX < r.left + r.width / 2 ? 'left' : 'right');
         };
@@ -683,9 +686,15 @@ export class CardView {
         // A finger's pointer starts captured by the element under it (a line of text on the card); taking the capture for
         // the card makes that element report lostpointercapture, which bubbles up here. Only the card's own loss ends the drag.
         flipper.addEventListener('lostpointercapture', (e) => { if (e.target === flipper) end(e); });
-        // A click with no press behind it (assistive tech, el.click()) takes the short way, as the Flip card button does;
-        // a press's own click is left alone, as its tap was taken on the lift.
-        flipper.addEventListener('click', (e) => { if (!e.detail) this.toggleFlip(); });
+        // A press's own click is left alone when its lift already turned the card or ended a drag. A click with no pointer
+        // events before it (an older browser) turns the card from where it landed; one with no press behind it at all
+        // (assistive tech, el.click()) takes the short way, as the Flip card button does.
+        flipper.addEventListener('click', (e) => {
+            if (!e.detail) { this.toggleFlip(); return; }
+            if (performance.now() - handledAt < CLICK_AFTER_LIFT_MS) return;
+            const r = flipper.getBoundingClientRect();
+            this.flipFrom(e.clientX < r.left + r.width / 2 ? 'left' : 'right');
+        });
         // iOS WebKit hands a sideways finger drag to the deck's scroll (the card would only ever turn on a tap) unless
         // the touch's first move is held back. Only a drag that starts sideways is kept; an upright one still scrolls.
         let touch = null;

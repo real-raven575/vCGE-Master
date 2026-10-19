@@ -2426,13 +2426,23 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const degs = frames.map(f => parseFloat(/rotateY\(([-\d.]+)deg\)/.exec(f)[1]));
     ok('card: a flip is stepped (about 10 frames over 0.42 s), snaps a little past 180 and settles exactly on 180', (await angle()) === 'rotateY(180deg)' && degs.length >= 7 && degs.length <= 14 && Math.max(...degs) > 181 && (await p6.$eval('#card3DFlipper', el => el.dataset.spin)) === 'still', JSON.stringify(degs));
     const cx = flipper.x + flipper.width / 2, cy = flipper.y + flipper.height / 2;
+    // Which events reach the card (for the failure detail: desktop WebKit sent neither a lift nor a click after a drag).
+    await p6.evaluate(() => {
+      window.__cardEvents = [];
+      const el = document.getElementById('card3DFlipper');
+      for (const t of ['pointerdown', 'pointerup', 'pointercancel', 'gotpointercapture', 'lostpointercapture', 'mousedown', 'mouseup', 'click']) {
+        el.addEventListener(t, (e) => window.__cardEvents.push(`${t}:${e.pointerId ?? ''}:${e.target === el ? 'card' : e.target.tagName}`), true);
+      }
+    });
+    const cardEvents = () => p6.evaluate(() => window.__cardEvents.splice(0).join(' '));
     await p6.mouse.move(cx - flipper.width * 0.3, cy); await p6.mouse.down();
     for (let i = 1; i <= 8; i++) await p6.mouse.move(cx - flipper.width * 0.3 + flipper.width * 0.6 * i / 8, cy);
     const midway = await angle();
     await p6.mouse.up(); await settled(p6);
     ok('card: a sideways drag across the card turns it with the finger and it settles on the front', /rotateY\(2[5-9]\d|rotateY\(3[0-5]\d/.test(midway) && (await angle()) === 'rotateY(0deg)', `${midway} -> ${await angle()}`);
+    const dragEvents = await cardEvents();
     await p6.mouse.move(cx, cy); await p6.mouse.down(); await p6.mouse.move(cx + 3, cy); await p6.mouse.up(); await settled(p6);
-    ok('card: a drag shorter than a tap still counts as a tap (flips)', (await angle()) === 'rotateY(180deg)', await angle());
+    ok('card: a drag shorter than a tap still counts as a tap (flips)', (await angle()) === 'rotateY(180deg)', `${await angle()} | drag: ${dragEvents} | tap: ${await cardEvents()}`);
     // WebKit sends no click after a drag: a drag with no click after it must not eat the next tap.
     await p6.evaluate(([x, y]) => {
       const el = document.getElementById('card3DFlipper'), o = { pointerId: 41, pointerType: 'mouse', button: 0, bubbles: true, cancelable: true, clientY: y };
@@ -2459,6 +2469,13 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p6.$eval('#card3DFlipper', el => el.click()); await settled(p6);
     const faceClicked = await p6.$eval('#card3DFlipper', el => el.dataset.face);
     ok('card: a press and lift with no click after it flips the card; a click with no press behind it flips it back', faceLifted !== faceBefore && faceClicked === faceBefore, `${faceBefore} -> ${faceLifted} -> ${faceClicked}`);
+    // A click with no pointer events before it (an older browser; Playwright's mouse in Firefox with touch on) still flips.
+    await p6.waitForTimeout(700);
+    await p6.evaluate(([x, y]) => document.getElementById('card3DFlipper').dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, detail: 1, clientX: x, clientY: y })), [cx + flipper.width * 0.25, cy]);
+    await settled(p6);
+    const faceMouseOnly = await p6.$eval('#card3DFlipper', el => el.dataset.face);
+    ok('card: a click with no pointer events before it flips the card', faceMouseOnly !== faceBefore, `${faceBefore} -> ${faceMouseOnly}`);
+    await p6.click('#flipCardBtn'); await settled(p6);
     // From the keyboard the card turns with its Flip card button (the card itself is not a stop in the tab order).
     const faceUp = () => p6.$eval('#card3DFlipper', el => el.dataset.face);
     await p6.focus('#flipCardBtn'); await p6.keyboard.press('Enter'); await settled(p6);
