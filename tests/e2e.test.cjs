@@ -251,8 +251,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
   page.on('dialog', d => d.accept());
-  const brandRequests = [];   // the plain edition fetches none of the branded files: logo, Sixtyfour, the animal logos
-  page.on('request', r => { if (/\/assets\/brand\/(?!vcge-32\.png)|sixtyfour|\/icons\/animals\//.test(r.url())) brandRequests.push(r.url()); });
+  // The plain edition fetches none of the branded files: logo, Sixtyfour, the animal logos. The tab and home-screen icons
+  // are the page's own <link> icons (plain ones on the plain branch), which a browser may fetch at any size (Firefox: 192)
+  const brandRequests = [];
+  page.on('request', r => { if (/\/assets\/brand\/|sixtyfour|\/icons\/animals\//.test(r.url())) brandRequests.push(r.url()); });
+  const brandFetches = async () => { const icons = await page.$$eval('link[rel~="icon"], link[rel="apple-touch-icon"]', ls => ls.map(l => l.href)); return brandRequests.filter(u => !icons.includes(u)); };
   const base = ORIGIN;
   const val = id => page.$eval('#' + id, el => el.value);
   const text = id => page.$eval('#' + id, el => el.textContent.trim());
@@ -267,7 +270,21 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   if (!EDITION_PLAIN) ok('the header shows the logo (bundled, loaded, named vCGE for screen readers; hidden on a phone)', await logoMarkShown(page, '.deck-logo')
     && await page.$eval('.deck-logo', el => (innerWidth < 600 ? el.getBoundingClientRect().width === 0 : el.getBoundingClientRect().width > 0)));
   else ok('plain edition: the header shows no logo and never fetched one, and "vCard Generator Engine" stays as text', await logoMarkGone(page, '.deck-logo')
-    && !brandRequests.length && (await page.textContent('.deck-brand-text')).trim() === 'vCard Generator Engine', brandRequests.join(' '));
+    && !(await brandFetches()).length && (await page.textContent('.deck-brand-text')).trim() === 'vCard Generator Engine', (await brandFetches()).join(' '));
+  if (EDITION_PLAIN && FORCE_PLAIN) notRunHere('plain edition: every tab and home-screen icon is the plain icon', 'VCGE_EDITION=plain runs the working branch, whose icons are the branded ones; the plain branch swaps them');
+  else if (EDITION_PLAIN) {
+    // The plain icon is a white contact card on slate: the card's top edge, the head, slate above and inside the card.
+    // The branded logo matches none of the four spots, so a branded icon slipping into plain fails here.
+    const icons = await page.$$eval('link[rel~="icon"], link[rel="apple-touch-icon"]', ls => ls.map(l => l.href));
+    const plainIcon = await Promise.all(icons.map(href => page.evaluate(async (href) => {
+      const i = new Image(); i.src = href; await i.decode().catch(() => {}); if (!i.naturalWidth) return false;
+      const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'); x.drawImage(i, 0, 0, 64, 64);
+      const at = (u, v) => Array.from(x.getImageData(Math.floor(u * 64), Math.floor(v * 64), 1, 1).data);
+      const light = q => q[0] > 150 && q[1] > 150 && q[2] > 150, slate = q => Math.abs(q[0] - 51) < 20 && Math.abs(q[1] - 65) < 20 && Math.abs(q[2] - 85) < 20;
+      return light(at(0.5, 0.29)) && light(at(0.35, 0.44)) && slate(at(0.5, 0.5)) && slate(at(0.5, 0.12));
+    }, href)));
+    ok('plain edition: every tab and home-screen icon is the plain icon', icons.length === 3 && plainIcon.every(Boolean), JSON.stringify(icons.map((h, i) => [h, plainIcon[i]])));
+  }
   if (EDITION_PLAIN) {
     const navNames = await page.$$eval('.deck-header button', bs => bs.map(b => [b.id, b.getAttribute('aria-label') || '', b.title || '', (b.querySelector(':scope > span') || {}).textContent || '']));
     ok('plain edition: the header names each card, never a pilot, in its labels and beside its icon', navNames.every(n => !/Shutout|Ghost|Iris|Glyph|Pidge|Flipside|Checkers|Airlock/.test(n.join(' ')))
