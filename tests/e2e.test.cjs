@@ -2446,6 +2446,26 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const faceNow = await p6.$eval('#card3DFlipper', el => el.dataset.face);
     ok('card: after a drag the browser sent no click for (WebKit), the next tap still flips', afterDrag === 'rotateY(180deg)' && (await angle()) !== afterDrag && faceNow === 'front', `${afterDrag} -> ${await angle()} ${faceNow}`);
     await p6.click('#flipCardBtn'); await settled(p6);
+    // A tap is taken on the lift, not from a click: a press and lift with no click after it (as WebKit sends after a
+    // drag) flips the card, and el.click() with no press behind it flips it too, the short way.
+    const faceBefore = await p6.$eval('#card3DFlipper', el => el.dataset.face);
+    await p6.evaluate(([x, y]) => {
+      const el = document.getElementById('card3DFlipper'), o = { pointerId: 42, pointerType: 'mouse', button: 0, bubbles: true, cancelable: true, clientX: x, clientY: y };
+      el.dispatchEvent(new PointerEvent('pointerdown', o));
+      el.dispatchEvent(new PointerEvent('pointerup', o));
+    }, [cx + flipper.width * 0.25, cy]);
+    await settled(p6);
+    const faceLifted = await p6.$eval('#card3DFlipper', el => el.dataset.face);
+    await p6.$eval('#card3DFlipper', el => el.click()); await settled(p6);
+    const faceClicked = await p6.$eval('#card3DFlipper', el => el.dataset.face);
+    ok('card: a press and lift with no click after it flips the card; a click with no press behind it flips it back', faceLifted !== faceBefore && faceClicked === faceBefore, `${faceBefore} -> ${faceLifted} -> ${faceClicked}`);
+    // From the keyboard the card turns with its Flip card button (the card itself is not a stop in the tab order).
+    const faceUp = () => p6.$eval('#card3DFlipper', el => el.dataset.face);
+    await p6.focus('#flipCardBtn'); await p6.keyboard.press('Enter'); await settled(p6);
+    const faceEnter = await faceUp();
+    await p6.keyboard.press('Space'); await settled(p6);
+    const faceSpace = await faceUp();
+    ok('card: from the keyboard, Enter and then Space on Flip card each turn the card over', faceEnter !== faceBefore && faceSpace === faceBefore && (await p6.$eval('#card3DFlipper', el => el.tabIndex)) < 0, `${faceBefore} -> ${faceEnter} -> ${faceSpace}`);
     const cardName = () => p6.evaluate(() => document.documentElement.dataset.card);
     await p6.mouse.move(cx, cy); await p6.mouse.down();
     for (let i = 1; i <= 6; i++) await p6.mouse.move(cx + flipper.width * 0.2 * i / 6, cy);

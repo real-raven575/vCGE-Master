@@ -644,22 +644,22 @@ export class CardView {
 
     wireSpin() {
         const flipper = $('card3DFlipper');
-        let start = null, dragging = false, suppressClick = false;
+        let start = null, dragging = false;
         flipper.addEventListener('pointerdown', (e) => {
             if (e.button !== undefined && e.button !== 0) return;
-            // A drag that starts at the screen edge is the browser's (back or forward): left alone.
-            if (e.clientX < EDGE_PX || e.clientX > window.innerWidth - EDGE_PX) { start = null; return; }
             if (this.stopSpin) this.stopSpin();
-            start = { x: e.clientX, angle: this.angle, id: e.pointerId, width: Math.max(1, flipper.getBoundingClientRect().width) };
-            // WebKit sends no click after a drag, so a drag's leftover suppressClick would eat the next tap: each press
-            // starts fresh, and only a drag in this press holds back its own click.
-            dragging = false; suppressClick = false;
+            // A drag that starts at the screen edge is the browser's (back or forward): it never turns the card, but a
+            // tap there still does.
+            const edge = e.clientX < EDGE_PX || e.clientX > window.innerWidth - EDGE_PX;
+            start = { x: e.clientX, angle: this.angle, id: e.pointerId, width: Math.max(1, flipper.getBoundingClientRect().width), edge };
+            dragging = false;
         });
         flipper.addEventListener('pointermove', (e) => {
             if (!start || e.pointerId !== start.id) return;
             const dx = e.clientX - start.x;
             if (!dragging) {
                 if (Math.abs(dx) < SPIN_TAP_PX) return;
+                if (start.edge) { start = null; return; }
                 dragging = true;
                 flipper.dataset.spin = 'drag';
                 if (flipper.setPointerCapture) { try { flipper.setPointerCapture(e.pointerId); } catch (err) { /* a pointer that is already gone */ } }
@@ -671,22 +671,21 @@ export class CardView {
             if (!start || (e.pointerId !== undefined && e.pointerId !== start.id)) return;
             const wasDragging = dragging;
             start = null; dragging = false;
-            if (!wasDragging) return;
-            suppressClick = true;
-            this.spinTo(Math.round(this.angle / 180) * 180);
+            if (wasDragging) { this.spinTo(Math.round(this.angle / 180) * 180); return; }
+            // A tap is taken here, on the lift, not from the click that follows: WebKit sends no click on the card after a
+            // drag there has taken the pointer, so a click-based tap would go missing.
+            if (e.type !== 'pointerup' || !flipper.contains(e.target)) return;
+            const r = flipper.getBoundingClientRect();
+            this.flipFrom(e.clientX < r.left + r.width / 2 ? 'left' : 'right');
         };
         flipper.addEventListener('pointerup', end);
         flipper.addEventListener('pointercancel', end);
         // A finger's pointer starts captured by the element under it (a line of text on the card); taking the capture for
         // the card makes that element report lostpointercapture, which bubbles up here. Only the card's own loss ends the drag.
         flipper.addEventListener('lostpointercapture', (e) => { if (e.target === flipper) end(e); });
-        flipper.addEventListener('click', (e) => {
-            if (suppressClick) { suppressClick = false; return; }
-            // A click from the keyboard (no pointer position) takes the short way, as the Flip card button does.
-            if (!e.detail) { this.toggleFlip(); return; }
-            const r = flipper.getBoundingClientRect();
-            this.flipFrom(e.clientX < r.left + r.width / 2 ? 'left' : 'right');
-        });
+        // A click with no press behind it (assistive tech, el.click()) takes the short way, as the Flip card button does;
+        // a press's own click is left alone, as its tap was taken on the lift.
+        flipper.addEventListener('click', (e) => { if (!e.detail) this.toggleFlip(); });
         // iOS WebKit hands a sideways finger drag to the deck's scroll (the card would only ever turn on a tap) unless
         // the touch's first move is held back. Only a drag that starts sideways is kept; an upright one still scrolls.
         let touch = null;
