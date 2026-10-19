@@ -1713,8 +1713,13 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const fake = async () => {
         window.__camCalls = (window.__camCalls || 0) + 1;
         const c = document.createElement('canvas'); c.width = 640; c.height = 360; const x = c.getContext('2d');
-        x.fillStyle = '#ff0000'; x.fillRect(0, 0, 320, 180); x.fillStyle = '#00ff00'; x.fillRect(320, 0, 320, 180);
-        x.fillStyle = '#0000ff'; x.fillRect(0, 180, 320, 180); x.fillStyle = '#ffff00'; x.fillRect(320, 180, 320, 180);
+        const draw = () => {
+          x.fillStyle = '#ff0000'; x.fillRect(0, 0, 320, 180); x.fillStyle = '#00ff00'; x.fillRect(320, 0, 320, 180);
+          x.fillStyle = '#0000ff'; x.fillRect(0, 180, 320, 180); x.fillStyle = '#ffff00'; x.fillRect(320, 180, 320, 180);
+        };
+        // Drawn again five times a second like a real camera's frames: WebKit's canvas stream sends a frame only when the
+        // canvas is drawn, so a feed drawn once gave the video no frame at all (a black shot sized for no video)
+        draw(); setInterval(draw, 200);
         return c.captureStream(5);
       };
       try { Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: fake } });
