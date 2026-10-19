@@ -1994,13 +1994,17 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   // MOD01 postcard deck, Welcome card, CANCEL / Thank You page and the tour: on every start, nothing stored, six steps
   {
     const ctxH = await plainContext();
-    const pH = await ctxH.newPage();
     const errorsH = [], externalH = [];
-    pH.on('pageerror', e => errorsH.push(e.message));
-    pH.on('console', m => { if (m.type() === 'error') errorsH.push('console: ' + m.text()); });
-    pH.on('request', r => { if (!r.url().startsWith(ORIGIN) && !/^(data|blob):/.test(r.url())) externalH.push(r.url()); });
-    pH.on('dialog', d => d.accept());
-    await pH.goto(ORIGIN); await pH.waitForTimeout(400);
+    const openH = async () => {
+      const p = await ctxH.newPage();
+      p.on('pageerror', e => errorsH.push(e.message));
+      p.on('console', m => { if (m.type() === 'error') errorsH.push('console: ' + m.text()); });
+      p.on('request', r => { if (!r.url().startsWith(ORIGIN) && !/^(data|blob):/.test(r.url())) externalH.push(r.url()); });
+      p.on('dialog', d => d.accept());
+      await p.goto(ORIGIN); await p.waitForTimeout(400);
+      return p;
+    };
+    let pH = await openH();
     const state = () => pH.evaluate(() => ({
       card: document.documentElement.dataset.card, layer: !!document.getElementById('welcomeLayer'),
       welcomeCurrent: document.getElementById('cardWelcome').classList.contains('is-current'),
@@ -2038,8 +2042,13 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       && await pH.evaluate(() => { const t = document.getElementById('deck'), c = document.getElementById('cardFields'); return t.dataset.deck === 'still' && Math.abs(t.scrollLeft - (c.offsetLeft + c.offsetWidth / 2 - t.clientWidth / 2)) <= 1; }), JSON.stringify(await state()));
     await pH.fill('#firstName', 'Welcomed'); await pH.waitForTimeout(400);
     ok('deck: typing in a field brings its card into view', (await pH.inputValue('#firstName')) === 'Welcomed' && (await state()).card === 'fields', (await state()).card);
-    await pH.reload(); await pH.waitForTimeout(400);
-    ok('welcome: shows again on the next start (nothing remembers it was seen)', (await state()).welcomeCurrent && (await stored()) === 0);
+    // The next start is a new tab in the same browser profile, not a reload: in Playwright's WebKit (Safari's engine, desktop
+    // and iPhone) any navigation after reloading a page that pushed a history entry (the Back guard) hangs or crashes,
+    // even on a plain page with no vCGE code (Ghost's probe, 2026-10-19), and START OVER below navigates. The old tab's
+    // own session storage is checked before it closes, so nothing a reload would have kept goes unchecked.
+    const lastTab = await stored();
+    const oldH = pH; pH = await openH(); await oldH.close();
+    ok('welcome: shows again on the next start (nothing remembers it was seen)', lastTab === 0 && (await state()).welcomeCurrent && (await stored()) === 0, String(lastTab));
     await pH.click('#welcomePinBtn');
     ok('welcome: Set Up PIN/BIO Lock Now opens the Vault page', (await state()).vault && await pH.isVisible('#pinSwitch'));
     await pH.keyboard.press('Escape');
@@ -2115,13 +2124,13 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const ended = await state();
     ok('tour: START NOW on the last step closes it on the Capture card', !ended.layer && !ended.vault && ended.card === 'capture', JSON.stringify(ended));
 
-    await pH.reload(); await pH.waitForTimeout(400);
+    { const oldH = pH; pH = await openH(); await oldH.close(); }     // a new tab, not a reload (WebKit: see above)
     await pH.click('#welcomeTourBtn'); await pH.click('#tourSkipBtn'); await pH.waitForTimeout(700);
     ok('tour: Skip tour closes it', !(await state()).layer && (await state()).card === 'capture');
 
     // Phone size: one card fills the screen; the tour card sits under (or over) the area and stays on screen at every step
-    await pH.setViewportSize({ width: 390, height: 844 });
-    await pH.reload(); await pH.waitForTimeout(400);
+    { const oldH = pH; pH = await openH(); await oldH.close(); }
+    await pH.setViewportSize({ width: 390, height: 844 }); await pH.waitForTimeout(400);
     const phoneDeck = await pH.evaluate(() => { const r = document.getElementById('cardWelcome').getBoundingClientRect(); return { l: r.left, r: r.right, w: innerWidth, sw: document.documentElement.scrollWidth, side: document.documentElement.scrollWidth <= innerWidth }; });
     ok('phone: the Welcome card fills the width and the page does not scroll sideways', phoneDeck.l >= 0 && phoneDeck.r <= 390 && phoneDeck.r - phoneDeck.l >= 370 && phoneDeck.side, JSON.stringify(phoneDeck));
     await pH.click('#welcomeTourBtn');
