@@ -67,6 +67,10 @@ async function stopDriver(driver) {
     // undid is asked for once more.
     for (let attempt = 0; wanted && attempt < 3 && (await current()) !== wanted; attempt++) {
       await deckSettled();
+      // Nothing over the header first: a sheet that is still closing, or the padlock hand-off that follows setting a PIN
+      // (a header click right after closeVaultPage was "intercepted" once on Linux CI)
+      await until(() => js(`const h = document.getElementById('vaultHandoff');
+        return (!h || h.classList.contains('hidden')) && !document.querySelector('.vcge-sheet:not(.hidden)');`), 3000);
       await wd('POST', S(`/element/${await el(`.deck-nav [data-card="${wanted}"]:not([data-qr])`)}/click`), {});
       await deckSettled();
       await until(async () => (await current()) === wanted, 3000);
