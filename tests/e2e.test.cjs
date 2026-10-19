@@ -1181,7 +1181,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       && await pF.isVisible('#toastAction') && (await pF.$eval('#fakeContactSelect', s => s.value)) === '' && (await card()) === 'fields', JSON.stringify({ pop, pops: await pops(), card: await card() }));
     ok('fields: the list and the green button are at least 44 px tall; the button reads "Everything\'s correct" with the tick icon', (await pF.$$eval('#fakeContactSelect, #fieldsDoneBtn', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44)
       && (await pF.textContent('#fieldsDoneBtn')).trim() === "Everything's correct" && !!(await pF.$('#fieldsDoneBtn svg use[href$="#circle-check"]')), JSON.stringify(await pF.$$eval('#fakeContactSelect, #fieldsDoneBtn', els => els.map(e => e.getBoundingClientRect().height))));
-    ok('fields: the pop class is gone once the animation ends', !(await pF.$eval('#fieldsForm', f => f.classList.contains('is-popping'))));
+    // The class goes on animationend, which a slow phone engine on CI can deliver well after 0.32 s: wait for it (3 s cap)
+    const popEnded = await pF.waitForFunction(() => !document.getElementById('fieldsForm').classList.contains('is-popping'), null, { timeout: 3000 }).then(() => true, () => false);
+    ok('fields: the pop class is gone once the animation ends', popEnded && !(await pF.$eval('#fieldsForm', f => f.classList.contains('is-popping'))));
     // A swipe is not a move of the deck's own: the form was in view the whole way, so it does not pop
     await pF.evaluate(() => document.getElementById('cardRead').scrollIntoView({ inline: 'center', block: 'nearest' })); await pF.waitForTimeout(400);
     await pF.evaluate(() => document.getElementById('cardFields').scrollIntoView({ inline: 'center', block: 'nearest' })); await pF.waitForTimeout(400);

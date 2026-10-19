@@ -176,7 +176,7 @@ export class ContactFormMapper {
         lines.forEach(line => { if (free(line) && (isTagline(line.text) || OCCASION.test(line.text))) line.role = 'notes'; });
 
         // A web path ending in the card's own state code, its I read as a bar ("Kalamazoom\" on a Michigan card), ends
-        // in that code ("KalamazooMI").
+        // in that code ("KalamazooMI"), also when the OCR put a space before it ("Kalamazoo Ml").
         const place = lines.map(l => (l.role === 'cityStateZip' || l.role === 'address') && { line: l, ...findAddressLine(l.text) }).find(a => a && a.state) || {};
         const state = place.state;
         if (state) lines.forEach(l => { if (l.role === 'website') l.body = endWithStateCode(l.body, state); });
@@ -427,7 +427,7 @@ function applySecondGuesses(text, alts) {
  * (".../email" stays).
  */
 function endWithStateCode(text, state) {
-    return text.replace(/(\/[A-Za-z-]{2,}?)([A-Za-z])([\\|!1l])([\\|!]*)(?=\s|$)/, (m, path, letter, bar, more) =>
+    return text.replace(/(\/[A-Za-z-]{2,}?) ?([A-Za-z])([\\|!1l])([\\|!]*)(?=\s|$)/, (m, path, letter, bar, more) =>
         ((bar !== 'l' || /[A-Z]/.test(letter) || more) && normaliseState(letter + bar) === state ? path + state : m));
 }
 
@@ -616,10 +616,17 @@ function findWebsite(text, labelled, joinPath = labelled) {
         if (!WEB_RE.test(token) && !(labelled && /^[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\/\S*)?$/i.test(token))) continue;
         const next = tokens.slice(i + 1);
         if (joinPath && next.length === 1 && /^[A-Za-z0-9-]{2,}$/.test(next[0]) && !token.includes('/')) return `${token}/${next[0]}`;
+        // A path the OCR read with a space inside it ("example.com/Kalamazoo MI", "northwind.com/Seattle WA"): a web
+        // address has no spaces, so the rest of the line is the path's end. Up to two words on a labelled web line;
+        // otherwise only a state code, so "acme.com/jobs Apply today" keeps its own words.
+        if (/\/[A-Za-z0-9-]+$/.test(token) && (labelled ? next.length <= 2 && next.every(w => PATH_TAIL.test(w))
+            : next.length === 1 && /^[A-Za-z][A-Za-z\\|!1]$/.test(next[0]) && normaliseState(next[0]))) return token + next.join('');
         return token;
     }
     return '';
 }
+
+const PATH_TAIL = /^[A-Za-z0-9-]+[\\|!]*$/;
 
 /** All US-style phone numbers in a line, each with a label written just before it ("T 269...  M 269..."). */
 function findPhones(text) {
