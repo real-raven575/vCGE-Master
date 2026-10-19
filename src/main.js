@@ -111,7 +111,9 @@ function setResetDeadline(from) {
     resetDeadline = from + resetSpan * 1000;
 }
 const resetMinutes = () => (resetSpan || wipeSeconds()) / 60;
-const resetRemaining = () => (resetDeadline ? Math.max(0, Math.ceil((resetDeadline - Date.now()) / 1000)) : 0);
+// Never more than the span chosen: a clock that steps back even 1 ms after the lock (Playwright's fake clock in WebKit,
+// CI run 39192545193; a real clock set back) would otherwise read 10:01 on a 10-minute lock.
+const resetRemaining = () => (resetDeadline ? Math.min(resetSpan, Math.max(0, Math.ceil((resetDeadline - Date.now()) / 1000))) : 0);
 
 function setVaultIndicator() {
     const el = $('vaultStateIndicator');
