@@ -839,6 +839,18 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   globalThis.Tesseract = { createWorker: () => new Promise(() => {}) };
   const slow = await failure(ocr.executeOCRScan('data:image/png;base64,x', { initTimeoutMs: 50 }));
   ok('OCR start-up that never finishes times out', slow && slow.code === 'OCR_UNAVAILABLE' && slow.message.includes('longer than'), slow && slow.message);
+  // WebKit stall (2026-10-19): a worker that started but never answers setParameters hung the scan with no time limit
+  let mute = 0;
+  globalThis.Tesseract = { createWorker: async () => ({ setParameters: () => new Promise(() => {}), recognize: async () => ({ data: {} }), terminate() { mute++; } }) };
+  const deaf = await failure(ocr.executeOCRScan('data:image/png;base64,x', { initTimeoutMs: 50 }));
+  await new Promise(r => setTimeout(r, 0));
+  ok('a worker that never answers its start-up settings times out like start-up, and is stopped', deaf && deaf.code === 'OCR_UNAVAILABLE' && deaf.message.includes('longer than') && mute === 1, deaf && deaf.message);
+  const NormalImage = globalThis.Image;
+  globalThis.Image = class { set src(v) {} };
+  globalThis.Tesseract = { createWorker: async () => { throw new Error('not reached'); } };
+  const undecoded = await failure(ocr.executeOCRScan('data:image/png;base64,x', { initTimeoutMs: 50 }));
+  globalThis.Image = NormalImage;
+  ok('a photo the browser never finishes preparing ends at the start-up limit instead of hanging', undecoded && undecoded.code === 'OCR_UNAVAILABLE' && undecoded.message.includes('preparing the photo'), undecoded && undecoded.message);
   ok('failed OCR publishes nothing to the form pipeline', evt === null);
 
   let created = 0, terminated = 0, psm = null, params = null, result = null, hold = false, psms = [];

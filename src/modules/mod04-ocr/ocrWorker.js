@@ -141,8 +141,9 @@ async function initOCREngine(timeoutMs) {
 
     try {
         const worker = await Promise.race([created, failed]);
-        // lstm_choice_mode 2: each letter comes with the engine's other guesses (see glyphChoices.js).
-        await worker.setParameters({ tessedit_pageseg_mode: OCR_PAGE_SEG_MODE, lstm_choice_mode: '2' });
+        // lstm_choice_mode 2: each letter comes with the engine's other guesses (see glyphChoices.js). Still start-up: a
+        // worker that never answers here (seen on WebKit) ends at the same time limit instead of hanging the scan.
+        await Promise.race([worker.setParameters({ tessedit_pageseg_mode: OCR_PAGE_SEG_MODE, lstm_choice_mode: '2' }), failed]);
         if (generation !== started) throw new OcrCancelledError();
         tesseractWorker = worker;
         console.log(`[${MODULE_ID}] OCR Worker successfully initialized and locked for offline execution.`);
@@ -412,7 +413,10 @@ export async function executeOCRScan(imageSrc, { initTimeoutMs = OCR_INIT_TIMEOU
 }
 
 async function scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started) {
-    const processedImage = await preProcessImageBuffer(imageSrc);
+    // Preparing the photo counts as start-up: a photo the browser never finishes decoding ends at the same time limit.
+    let timer;
+    const late = new Promise((_, reject) => { timer = setTimeout(() => reject(new OcrUnavailableError(`preparing the photo took longer than ${Math.round(initTimeoutMs / 1000)} s`)), initTimeoutMs); });
+    const processedImage = await Promise.race([preProcessImageBuffer(imageSrc), late]).finally(() => clearTimeout(timer));
     if (!tesseractWorker) onStatus('starting');
     const worker = await initOCREngine(initTimeoutMs);
     onStatus('reading');

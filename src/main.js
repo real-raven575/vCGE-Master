@@ -692,6 +692,8 @@ async function runOcr() {
         readIndicator.stop(); readIndicator.set(1);
         await new Promise(res => setTimeout(res, 250));
         if ($('cropReviewModal').classList.contains('hidden')) return;   // closed by a wipe meanwhile
+        // Cancel pressed after the reader finished but before the review opened: it still cancels.
+        if (ocrStoppedByUser) { backToPhoto(); $('retakePhotoBtn').classList.remove('hidden'); return; }
         ocrReview = { lines: formMapper.classifyLines(lines && lines.length ? lines : text), fields: null };
         renderOcrLines();
         showReviewStep('text');
