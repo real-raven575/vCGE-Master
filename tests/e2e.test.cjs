@@ -2933,6 +2933,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       .then(q => { if (!q) return null; const r = jsQR(Uint8ClampedArray.from(q.data), q.w, q.h); return r && r.data; });
     const coloursOf = (id) => pA.evaluate((id) => { const c = document.getElementById(id), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; const seen = new Set(); for (let i = 0; i < d.length; i += 4) seen.add(`${d[i]},${d[i + 1]},${d[i + 2]}`); return [...seen]; }, id);
     const tA = (id) => pA.$eval('#' + id, el => el.textContent.trim());
+    // Each style choice is a 1 px hidden radio inside a 44 px label (export.css): tap the label as a person does, then report whether it took
+    const tapChoice = async (name, value) => { const input = `input[name="${name}"][value="${value}"]`; await pA.click(`label:has(> ${input})`); return pA.isChecked(input); };
 
     // An empty card: the Share card says so instead of opening the pop-up or printing
     await pA.click('#navShare'); await pA.waitForTimeout(400);
@@ -2969,13 +2971,13 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('Export QR: Themed by default (tinted, not pure black on white), Save PNG enabled, file name shown', themedColours.length === 2 && !themedColours.includes('0,0,0') && !(await pA.isDisabled('#exportQrSaveBtn')) && (await tA('exportQrFileName')) === 'Jane Doe QR.png', JSON.stringify(themedColours));
     const logoState = await pA.evaluate(() => ({ scanned: document.querySelector('input[name="qrLogo"][value="scanned"]').disabled, upload: document.querySelector('input[name="qrLogo"][value="upload"]').disabled, reason: document.getElementById('exportQrLogoReason').textContent }));
     ok('no logo on the card yet: "Scanned logo" is greyed out with a reason, Upload stays open', logoState.scanned && !logoState.upload && /No logo on the card yet/.test(logoState.reason), JSON.stringify(logoState));
-    await pA.check('input[name="qrColour"][value="bw"]'); await pA.waitForTimeout(150);
+    const bwPicked = await tapChoice('qrColour', 'bw'); await pA.waitForTimeout(150);
     const bwColours = await coloursOf('exportQrPreview');
-    ok('Black & White: pure black on pure white, still the same code', bwColours.length === 2 && bwColours.includes('0,0,0') && bwColours.includes('255,255,255') && (await decodeCanvas('exportQrPreview')) === expected, JSON.stringify(bwColours));
+    ok('Black & White: pure black on pure white, still the same code', bwPicked && bwColours.length === 2 && bwColours.includes('0,0,0') && bwColours.includes('255,255,255') && (await decodeCanvas('exportQrPreview')) === expected, JSON.stringify(bwColours));
     const squareW = await pA.$eval('#exportQrPreview', c => c.width);
-    await pA.check('input[name="qrDots"][value="round"]'); await pA.check('input[name="qrFrame"][value="circle"]'); await pA.waitForTimeout(200);
+    const roundPicked = await tapChoice('qrDots', 'round') && await tapChoice('qrFrame', 'circle'); await pA.waitForTimeout(200);
     const circleW = await pA.$eval('#exportQrPreview', c => c.width);
-    ok('round dots in a circle frame still decode, on a larger canvas that clears the corners', (await decodeCanvas('exportQrPreview')) === expected && circleW > squareW, `${squareW} -> ${circleW}`);
+    ok('round dots in a circle frame still decode, on a larger canvas that clears the corners', roundPicked && (await decodeCanvas('exportQrPreview')) === expected && circleW > squareW, `${squareW} -> ${circleW}`);
     ok('the note is empty when there is nothing to say', (await tA('exportQrNote')) === '');
     // Esc (a Shell sheet: a sideways swipe or the X do the same) cancels; the next opening starts fresh
     await pA.keyboard.press('Escape');
@@ -2985,12 +2987,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
 
     // Upload a logo for the centre: made ready on the device (traced into a drawing), drawn as an image; the code still decodes around it
     const logoPng = await pA.evaluate(() => { const c = document.createElement('canvas'); c.width = 320; c.height = 80; const x = c.getContext('2d'); x.fillStyle = '#1d4ed8'; x.font = 'bold 56px Arial'; x.fillText('ACME', 20, 62); return c.toDataURL('image/png'); });
-    await pA.check('input[name="qrFrame"][value="rounded"]');
+    const roundedPicked = await tapChoice('qrFrame', 'rounded');
     await pA.setInputFiles('#exportQrLogoFile', { name: 'acme.png', mimeType: 'image/png', buffer: Buffer.from(logoPng.split(',')[1], 'base64') });
     await pA.waitForFunction(() => document.querySelector('input[name="qrLogo"][value="upload"]').checked && !document.getElementById('exportQrUseOnCardRow').classList.contains('hidden'), null, { timeout: 5000 });
     await pA.waitForTimeout(300);
     const withLogo = await pA.evaluate(() => { const c = document.getElementById('exportQrPreview'), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; const seen = new Set(); for (let i = 0; i < d.length; i += 4) seen.add(`${d[i]},${d[i + 1]},${d[i + 2]}`); return { colours: seen.size, w: c.width, hasPhoto: !!document.querySelector('#previewAvatar img, #previewAvatar svg') }; });
-    ok('uploaded logo: drawn in the centre (more than the two code colours), the code still decodes; the card is untouched until asked', withLogo.colours > 2 && (await decodeCanvas('exportQrPreview')) === expected && !withLogo.hasPhoto, JSON.stringify(withLogo));
+    ok('uploaded logo: drawn in the centre (more than the two code colours), the code still decodes; the card is untouched until asked', roundedPicked && withLogo.colours > 2 && (await decodeCanvas('exportQrPreview')) === expected && !withLogo.hasPhoto, JSON.stringify(withLogo));
     ok('"Also use this logo on my card" is offered, unticked', await pA.isVisible('#exportQrUseOnCardRow') && !(await pA.isChecked('#exportQrUseOnCard')));
     // Save PNG: the file is the preview, named after the contact; with the box ticked the logo reaches the card through the Vault
     await pA.check('#exportQrUseOnCard');
@@ -3008,9 +3010,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pA.click('#exportQrBtn'); await pA.waitForSelector('#exportQrSheet', { state: 'visible' });
     await pA.waitForFunction(() => document.getElementById('exportQrPreview').width > 0);
     ok('with a logo on the card, "Scanned logo" is offered', !(await pA.isDisabled('input[name="qrLogo"][value="scanned"]')) && (await tA('exportQrLogoReason')) === '');
-    await pA.check('input[name="qrLogo"][value="scanned"]'); await pA.waitForTimeout(400);
+    const scannedPicked = await tapChoice('qrLogo', 'scanned'); await pA.waitForTimeout(400);
     const scannedColours = await coloursOf('exportQrPreview');
-    ok('scanned logo in the centre, the code still decodes (level H)', scannedColours.length > 2 && (await decodeCanvas('exportQrPreview')) === expected, JSON.stringify(scannedColours.length));
+    ok('scanned logo in the centre, the code still decodes (level H)', scannedPicked && scannedColours.length > 2 && (await decodeCanvas('exportQrPreview')) === expected, JSON.stringify(scannedColours.length));
     await pA.click('#exportQrCancelBtn');
     ok('Cancel closes the pop-up', !(await pA.isVisible('#exportQrSheet')));
 
