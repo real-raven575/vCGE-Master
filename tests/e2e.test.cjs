@@ -111,6 +111,20 @@ const rowValue = async (page, id, type) => ((await rows(page, id)).find(r => r.t
 // Proceed on the Read card: the review text blinks out first (MOD04), then the deck moves to Fields and the form fills.
 // The card's spin runs in JS (26 fps steps); waits for it to settle on a face.
 const settled = (page) => page.waitForFunction(() => !/moving|drag/.test(document.getElementById('card3DFlipper').dataset.spin || ''), null, { timeout: 3000 });
+// Where a read stopped (the Read card's label, the wash, which dialog, prompt or toast is up, and the reader's last log
+// lines), for the message of a check that waited for a read in vain.
+const readStage = (page) => page.evaluate(() => {
+  const v = (id) => { const e = document.getElementById(id); return !!e && !!(e.offsetWidth || e.offsetHeight); };
+  const bar = document.getElementById('ocrProgressBar'), toast = document.getElementById('toastMessage');
+  return 'read stopped at ' + JSON.stringify({ card: document.documentElement.dataset.card, label: (document.getElementById('ocrProgressLabel') || {}).textContent,
+    wash: bar && bar.getAttribute('aria-valuenow'), reading: v('ocrProgress'), review: v('ocrStepText'), timeoutPrompt: v('ocrTimeoutModal'), retakePrompt: v('ocrRetakeNotice'),
+    toast: toast && toast.textContent, log: (window.__readerLog || []).slice(-8) });
+}).catch(e => 'read stage unknown: ' + e.message);
+// Waits up to 90 s for a read to end at `sel`; if it does not, the error says where the read stopped.
+async function readEnds(page, sel = '#ocrStepText') {
+  try { await page.waitForSelector(sel, { state: 'visible', timeout: 90000 }); }
+  catch (e) { throw new Error(`${e.message}\n${await readStage(page)}`); }
+}
 const proceed = async (page) => { await page.click('#applyOcrBtn'); await page.waitForSelector('#cropReviewModal', { state: 'hidden', timeout: 5000 }); };
 
 async function decodeQr(page) {
@@ -241,7 +255,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   // VCGE_EDITION=plain: every load of the app's page gets <html data-edition="plain">, as the plain branch's index.html has
   const editionRoute = (c) => (FORCE_PLAIN ? c.route(u => u.origin + u.pathname === ORIGIN || u.origin + u.pathname === ORIGIN + 'index.html',
     async (route) => { const r = await route.fetch(); await route.fulfill({ response: r, body: (await r.text()).replace('<html lang="en"', '<html lang="en" data-edition="plain"') }); }) : null);
-  browser.newContext = async (opts = {}) => { const c = await plainContext({ ...deviceOptions, ...opts }); await c.addInitScript(pressStartNow); await editionRoute(c); return c; };
+  // The reader's own log lines ([vCGE-MOD04]) are kept on the page, so a read that never ends can say how far it got
+  const keepReaderLog = () => ['log', 'error'].forEach(k => { const f = console[k]; console[k] = (...a) => {
+    if (typeof a[0] === 'string' && a[0].startsWith('[vCGE-MOD04]')) (window.__readerLog = window.__readerLog || []).push(`${Math.round(performance.now())} ms ${a[0].slice(0, 160)}`);
+    return f.apply(console, a); }; });
+  browser.newContext = async (opts = {}) => { const c = await plainContext({ ...deviceOptions, ...opts }); await c.addInitScript(pressStartNow); await c.addInitScript(keepReaderLog); await editionRoute(c); return c; };
   const newContext = (options) => browser.newContext(options);
   const context = await newContext({ acceptDownloads: true });
   const page = await context.newPage();
@@ -390,7 +408,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     }).observe(box, { attributes: true, subtree: true, childList: true, characterData: true });
   });
   await page.click('#runOcrBtn');
-  await page.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
+  await readEnds(page);
   const bar = await page.evaluate(() => window.__ocrBar);
   ok('OK moves to the Read card, where the photo shimmers while it is read, the label says the reader is being prepared, and the wash is full before the review opens', bar.shown && bar.shimmer && bar.photo && bar.values.includes(100) && bar.labels.includes('Preparing the reader…') && !(await visible('ocrProgress')) && (await visible('ocrStepText')) && (await page.evaluate(() => document.documentElement.dataset.card)) === 'read', JSON.stringify({ shown: bar.shown, shimmer: bar.shimmer, photo: bar.photo, max: Math.max(...bar.values), labels: [...new Set(bar.labels)] }));
   ok('the reading indicator shows no number (no visible digits, screen readers hear text)', !/\d/.test(await page.$eval('#ocrProgress', el => el.innerText)) && (await page.getAttribute('#ocrProgressBar', 'aria-valuetext')) === 'Reading the card', await page.$eval('#ocrProgress', el => el.innerText));
@@ -1031,7 +1049,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
 
     await p10.setInputFiles('#imageUpload', await renderCardImage(p10)); await p10.waitForTimeout(300);
     await p10.click('#runOcrBtn');
-    await p10.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
+    await readEnds(p10);
     const roles10 = await p10.$$eval('#ocrLines select', s => s.map(x => x.value));
     await p10.fill(`#ocrLineText${roles10.indexOf('name')}`, 'Mariah Gonzalez');
     await idle();
@@ -1195,7 +1213,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('sample loaded with three phones', (await rows(pS, 'phone')).length === 3 && (await pS.inputValue('#firstName')) === samples()[4][0]);
     await pS.setInputFiles('#imageUpload', await renderCardImage(pS)); await pS.waitForTimeout(300);
     await pS.click('#runOcrBtn');
-    await pS.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
+    await readEnds(pS);
     await proceed(pS);
     const card = async () => ({ first: await pS.inputValue('#firstName'), middle: await pS.inputValue('#middleName'), suffix: await pS.inputValue('#nameSuffix'),
       unit: await pS.inputValue('#unitNumber'), phones: await rows(pS, 'phone'), front: await pS.$$eval('#previewPhones .card-line-value', els => els.map(e => e.textContent).join('|')) });
@@ -1350,7 +1368,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('no "Reopen last scan" before a scan', !(await p9.isVisible('#reopenScanBtn')));
     await p9.setInputFiles('#imageUpload', await renderCardImage(p9)); await p9.waitForTimeout(300);
     await p9.click('#runOcrBtn');
-    await p9.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
+    await readEnds(p9);
     await proceed(p9);
     ok('Fill form offers Undo and "Reopen last scan"', (await p9.inputValue('#firstName')) === 'Maria' && await p9.isVisible('#toastAction') && await p9.isVisible('#reopenScanBtn'));
     await p9.click('#toastAction'); await p9.waitForTimeout(600);
@@ -1500,7 +1518,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
         [icon('brand-instagram.svg'), '@studiocraft'], [icon('map-pin.svg'), '1201 3rd Avenue, Seattle, WA 98101']]);
     await p7.setInputFiles('#imageUpload', { name: 'icons.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') }); await p7.waitForTimeout(300);
     await p7.click('#runOcrBtn');
-    await p7.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
+    await readEnds(p7);
     const chips = await p7.$$eval('#ocrLines [id^="ocrLineIcon"]', c => c.map(x => x.textContent));
     ok('review shows the icons seen in front of lines', chips.includes('Mobile icon') && chips.includes('Instagram logo'), chips.join(', '));
     const summary = await p7.textContent('#ocrSummary');
@@ -1526,7 +1544,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     });
     await pZ.setInputFiles('#imageUpload', { name: 'zip.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') }); await pZ.waitForTimeout(300);
     await pZ.click('#runOcrBtn');
-    await pZ.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
+    await readEnds(pZ);
     const roles = await pZ.$$eval('#ocrLines select', s => s.map(x => x.value));
     const row = roles.indexOf('cityStateZip');
     const note = row >= 0 && await pZ.$(`#ocrLineCheck${row}`);
@@ -1554,7 +1572,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // Editing a flagged line still clears its note at once (a fresh read of the same photo)
     await pZ.click('#ocrBackBtn');
     await pZ.click('#runOcrBtn');
-    await pZ.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
+    await readEnds(pZ);
     const row2 = (await pZ.$$eval('#ocrLines select', s => s.map(x => x.value))).indexOf('cityStateZip');
     await pZ.fill(`#ocrLineText${row2}`, 'Portage, MI 49024');
     ok('editing a flagged line clears its note and box at once', !(await pZ.$(`#ocrLineCheck${row2}`)) && !(await pZ.$(`#ocrLineOk${row2}`)) && (await pZ.textContent('#ocrSummary')).includes('49024'));
@@ -1581,7 +1599,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     });
     await pL.setInputFiles('#imageUpload', { name: 'lean.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') }); await pL.waitForTimeout(300);
     await pL.click('#runOcrBtn');
-    await pL.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
+    await readEnds(pL);
     const lines = await pL.$$eval('#ocrLines input[id^="ocrLineText"]', els => els.map(e => e.value));
     const row = lines.findIndex(t => t.includes('northwind.com/'));
     ok('second look: a web line leaning backwards is read again straightened, and comes back right without a "please check" note',
@@ -1596,6 +1614,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const pS = await ctxS.newPage();
     const errorsS = []; pS.on('pageerror', e => errorsS.push(String(e)));
     await pS.goto(ORIGIN); await pS.waitForTimeout(300);
+    // The first reader is held until Cancel is pressed: a fast run once finished reading before the press landed
+    // (iPhone build run, 2026-10-19). Extract afterwards gets a fresh, real reader.
+    await pS.evaluate(() => { const real = window.Tesseract.createWorker; let first = true;
+      window.Tesseract.createWorker = async (...args) => { const w = await real(...args); if (first) { first = false; w.recognize = () => new Promise(() => {}); } return w; }; });
     await pS.setInputFiles('#imageUpload', await renderCardImage(pS)); await pS.waitForTimeout(300);
     await pS.click('#runOcrBtn');
     ok('reading shows the photo under the shimmer with a Cancel button on the Read card, OK held back', await pS.isVisible('#ocrProgress') && (await pS.getAttribute('#ocrReadPhoto', 'src') || '').startsWith('data:image') && await pS.isVisible('#ocrStopBtn') && (await pS.evaluate(() => document.documentElement.dataset.card)) === 'read' && await pS.isDisabled('#runOcrBtn'));
@@ -1607,10 +1629,30 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       JSON.stringify(await pS.evaluate(() => { const v = (id) => { const e = document.getElementById(id); return !!e && !!(e.offsetWidth || e.offsetHeight); };
         return { card: document.documentElement.dataset.card, review: v('captureReview'), crop: v('cropReviewModal'), retake: v('retakePhotoBtn'), run: v('runOcrBtn'), runDisabled: document.getElementById('runOcrBtn').disabled, progress: v('ocrProgress') }; })));
     await pS.click('#runOcrBtn');
-    await pS.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
+    await readEnds(pS);
     ok('after Cancel, Extract reads the photo with a fresh reader', (await pS.$$('#ocrLines select')).length >= 8);
     ok('Cancel while reading: no page errors', errorsS.length === 0, errorsS.join(' | '));
     await ctxS.close();
+  }
+
+  // Cancel pressed just as the reader finishes (the wash fills, the review is a moment away) still cancels: it used to
+  // be ignored and the review opened anyway (Shutout's local run, 2026-10-19)
+  {
+    const ctxF = await browser.newContext();
+    const pF = await ctxF.newPage();
+    await pF.goto(ORIGIN); await pF.waitForTimeout(300);
+    await pF.setInputFiles('#imageUpload', await renderCardImage(pF)); await pF.waitForTimeout(300);
+    await pF.evaluate(() => { const bar = document.getElementById('ocrProgressBar');
+      new MutationObserver((_, o) => { if (bar.getAttribute('aria-valuenow') === '100') { o.disconnect(); window.__pressedAtFull = true; document.getElementById('ocrStopBtn').click(); } })
+        .observe(bar, { attributes: true, attributeFilter: ['aria-valuenow'] }); });
+    await pF.click('#runOcrBtn');
+    await pF.waitForFunction(() => window.__pressedAtFull === true, null, { timeout: 90000 }).catch(() => {});
+    await pF.waitForFunction(() => document.documentElement.dataset.card === 'capture', null, { timeout: 5000 }).catch(() => {});
+    await pF.waitForTimeout(400);
+    ok('Cancel pressed as the reading finishes still cancels: back to the photo with Retake, no review opened', await pF.evaluate(() => window.__pressedAtFull === true)
+      && (await pF.evaluate(() => document.documentElement.dataset.card)) === 'capture' && !(await pF.isVisible('#cropReviewModal')) && !(await pF.isVisible('#ocrStepText')) && await pF.isVisible('#retakePhotoBtn'),
+      await readStage(pF));
+    await ctxF.close();
   }
 
   // Reading that never finishes (a phone stopped the engine): the wash is full at 55 s, then Try Again or Cancel
@@ -1649,7 +1691,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p4.click('#runOcrBtn');
     await p4.waitForSelector('#ocrRetakeNotice', { state: 'visible', timeout: 90000 }).catch(() => {});
     await p4.waitForFunction(() => document.documentElement.dataset.card === 'capture', null, { timeout: 5000 }).catch(() => {});
-    ok('blurry photo: retake prompt shown on the Capture card', await p4.isVisible('#ocrRetakeNotice') && await p4.isVisible('#retakePhotoBtn') && !(await p4.isVisible('#runOcrBtn')) && (await p4.evaluate(() => document.documentElement.dataset.card)) === 'capture');
+    ok('blurry photo: retake prompt shown on the Capture card', await p4.isVisible('#ocrRetakeNotice') && await p4.isVisible('#retakePhotoBtn') && !(await p4.isVisible('#runOcrBtn')) && (await p4.evaluate(() => document.documentElement.dataset.card)) === 'capture', await readStage(p4));
     ok('blurry photo: form left unchanged', (await p4.inputValue('#firstName')) === 'Typed' && (await p4.inputValue('#emailValue0')) === '');
     const chooser = p4.waitForEvent('filechooser', { timeout: 5000 }).then(() => true, () => false);
     await p4.click('#retakePhotoBtn');
@@ -1657,7 +1699,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p4.setInputFiles('#imageUpload', await renderCardImage(p4)); await p4.waitForTimeout(300);
     ok('new photo resets the crop step (OK back, prompt hidden)', await p4.isVisible('#runOcrBtn') && !(await p4.isVisible('#ocrRetakeNotice')));
     await p4.click('#runOcrBtn');
-    await p4.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
+    await readEnds(p4);
     await proceed(p4);
     ok('sharp retake is read normally', (await rowValue(p4, 'email', 'work')) === 'maria.gonzalez@northwind.com', JSON.stringify(await rows(p4, 'email')));
     await ctx4.close();
@@ -1691,7 +1733,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p5.click('#runOcrBtn');
     await p5.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 }).catch(() => {});
     const summary = await p5.textContent('#ocrSummary').catch(() => '');
-    ok('straightened crooked card is read (name, email, phone)', summary.includes('Maria') && summary.includes('maria.gonzalez@northwind.com') && summary.includes('555-0147'), summary);
+    ok('straightened crooked card is read (name, email, phone)', summary.includes('Maria') && summary.includes('maria.gonzalez@northwind.com') && summary.includes('555-0147'), summary || await readStage(p5));
     const roles = await p5.$$eval('#ocrLines select', s => s.map(x => x.value));
     const nameRow = roles.indexOf('name'), siteRow = roles.indexOf('website');
     await p5.fill(`#ocrLineText${nameRow}`, 'Mariah Gonzalez');
@@ -1702,7 +1744,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p5.waitForFunction(() => document.documentElement.dataset.card === 'capture', null, { timeout: 5000 }).catch(() => {});
     ok('Back to photo returns to the crop step on the Capture card', (await p5.evaluate(() => document.documentElement.dataset.card)) === 'capture' && await p5.isVisible('#captureReview') && !(await p5.isVisible('#cropReviewModal')));
     await p5.click('#runOcrBtn');
-    await p5.waitForSelector('#ocrStepText', { state: 'visible', timeout: 90000 });
+    await readEnds(p5);
     const roles2 = await p5.$$eval('#ocrLines select', s => s.map(x => x.value));
     await p5.fill(`#ocrLineText${roles2.indexOf('name')}`, 'Mariah Gonzalez');
     await p5.selectOption(`#ocrLineRole${roles2.indexOf('website')}`, 'notes');
