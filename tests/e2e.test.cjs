@@ -1543,6 +1543,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p9.keyboard.press('Escape');
     ok('Esc cancels the print choice (a sheet: a swipe would too) and nothing is printed', !(await p9.isVisible('#printChoiceSheet')) && (await p9.evaluate(() => document.getElementById('printSheet').children.length)) === 0);
     await p9.click('#printCardBtn'); await p9.click('#printThemedBtn');
+    const printFalcon = await p9.evaluate(() => ({ toast: document.getElementById('toastMessage').textContent, hidden: document.getElementById('toastFalcon').classList.contains('hidden') }));
+    ok('Airlock E2: after a print the toast says so and the falcon is on it', printFalcon.toast === 'Sent to the print dialog.' && !printFalcon.hidden, JSON.stringify(printFalcon));
     const sheet = await p9.evaluate(() => {
       const card = document.querySelector('#printSheet .print-card'), flipper = document.getElementById('card3DFlipper');
       return { cards: document.querySelectorAll('#printSheet .print-card').length, qr: !!document.querySelector('#printSheet .print-qr img'), ids: document.querySelectorAll('#printSheet [id]').length,
@@ -3276,11 +3278,29 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pA.click('#printCardBtn'); await pA.waitForTimeout(200);
     ok('empty card: Print / PDF says to add a contact first, no choice sheet', !(await pA.isVisible('#printChoiceSheet')));
 
+    const lightsOff = await pA.evaluate(() => ({ lit: document.querySelectorAll('#readyToShareBtn .ready-light.is-lit').length, dots: document.querySelectorAll('#readyToShareBtn .ready-light').length, words: document.getElementById('readyLightsText').textContent, described: document.getElementById('readyToShareBtn').getAttribute('aria-describedby'), label: document.getElementById('readyToShareBtn').textContent.trim(), hint: document.getElementById('qrHint').classList.contains('hidden') }));
+    ok('Airlock E3: an empty card has three unlit runway lights, said in words too; the button still reads "Ready to share"; no QR hint', lightsOff.dots === 3 && lightsOff.lit === 0 && lightsOff.words === 'Lit: none yet.' && lightsOff.described === 'readyLightsText' && lightsOff.label === 'Ready to share' && lightsOff.hint, JSON.stringify(lightsOff));
+
     // Ready to share on the 3D Card moves the deck to the Share card
     await pA.click('#navFields'); await pA.waitForTimeout(400);
     await pA.fill('#firstName', 'Jane'); await pA.fill('#lastName', 'Doe'); await pA.fill('#organization', 'Smith, Jones'); await pA.fill('#emailValue0', 'jane@example.com');
     await pA.waitForTimeout(400);
     await pA.click('#navCard'); await pA.waitForTimeout(500);
+    const lightsOn = await pA.evaluate(() => {
+      const dots = [...document.querySelectorAll('#readyToShareBtn .ready-light')].map(d => getComputedStyle(d));
+      return { lit: document.querySelectorAll('#readyToShareBtn .ready-light.is-lit').length, words: document.getElementById('readyLightsText').textContent, fills: dots.map(d => d.backgroundColor), borders: dots.map(d => d.borderTopWidth) };
+    });
+    ok('Airlock E3: a name, an email and a scannable code light all three, each filled (not just a colour change)', lightsOn.lit === 3 && lightsOn.words === 'Lit: a name, a way to reach them, a scannable QR code.' && lightsOn.fills.every(f => f !== 'rgba(0, 0, 0, 0)') && lightsOn.borders.every(b => b === '2px'), JSON.stringify(lightsOn));
+    const unlitFill = await pA.evaluate(() => { const d = document.createElement('span'); d.className = 'ready-light'; document.getElementById('readyToShareBtn').append(d); const f = getComputedStyle(d).backgroundColor; d.remove(); return f; });
+    ok('Airlock E3: an unlit light is only an outline (no fill)', unlitFill === 'rgba(0, 0, 0, 0)', unlitFill);
+    const qrBack = await pA.evaluate(() => { const c = document.getElementById('qrCanvas'), h = document.getElementById('qrHint'), tail = h.querySelector('.qr-tail'); return { reveal: c.classList.contains('qr-reveal'), anim: getComputedStyle(c).animationName, hint: !h.classList.contains('hidden') && h.textContent.trim(), tail: getComputedStyle(tail).display }; });
+    ok('Checkers Q1: the first real code fills in with the stripe reveal', qrBack.reveal && qrBack.anim === 'qr-stripes', JSON.stringify(qrBack));
+    ok(`Checkers Q3: "Point a phone camera here" under the code, ${EDITION_PLAIN ? 'without the tail (plain edition)' : 'with the zebra\'s tail'}`, qrBack.hint === 'Point a phone camera here' && (EDITION_PLAIN ? qrBack.tail === 'none' : qrBack.tail !== 'none'), JSON.stringify(qrBack));
+    await pA.evaluate(() => { const e = document.getElementById('jobTitle'); e.value = 'Editor'; e.dispatchEvent(new Event('input', { bubbles: true })); }); await pA.waitForTimeout(50);
+    ok('Checkers Q1: the reveal plays once, not again on the next keystroke', (await pA.evaluate(() => document.getElementById('qrCanvas').getAnimations().length)) === 0);
+    await pA.emulateMedia({ reducedMotion: 'reduce' });
+    ok('Checkers Q1: under reduce motion the code shows at once', (await pA.$eval('#qrCanvas', c => getComputedStyle(c).animationName)) === 'none');
+    await pA.emulateMedia({ reducedMotion: 'no-preference' });
     const ready = await pA.evaluate(() => { const b = document.getElementById('readyToShareBtn'), r = b.getBoundingClientRect(), c = document.getElementById('cardCard').getBoundingClientRect(); return { inFoot: r.top > c.top + c.height / 2, h: Math.round(r.height), bg: getComputedStyle(b).backgroundColor }; });
     await pA.click('#readyToShareBtn'); await pA.waitForTimeout(700);
     ok('Ready to share (green, in the 3D Card\'s foot) takes the person to the Share card', ready.inFoot && ready.h >= 44 && ready.bg === 'rgb(22, 163, 74)' && (await pA.evaluate(() => document.querySelector('.deck-card.is-current').id)) === 'cardShare', JSON.stringify(ready));
@@ -3288,6 +3308,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
 
     // Export QR pop-up: a live preview from the same code as the card back, Themed by default
     await pA.click('#exportQrBtn');
+    const hatch = await pA.evaluate(() => { const h = document.querySelector('#exportQrBtn .hatch'); return { open: h.classList.contains('is-open'), shown: getComputedStyle(h).display, all: document.querySelectorAll('#cardShare button.share-btn .hatch').length }; });
+    ok(`Airlock E1: ${EDITION_PLAIN ? 'the plain edition has no hatch doors' : 'every Share button has a hatch door, and it opens on a press'}`, hatch.all === 7 && (EDITION_PLAIN ? hatch.shown === 'none' : hatch.shown !== 'none' && hatch.open), JSON.stringify(hatch));
     await pA.waitForSelector('#exportQrSheet', { state: 'visible' });
     await pA.waitForFunction(() => document.getElementById('exportQrPreview').width > 0);
     const expected = await decodeQr(pA);
@@ -3304,6 +3326,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const roundPicked = await tapChoice('qrDots', 'round') && await tapChoice('qrFrame', 'circle'); await pA.waitForTimeout(200);
     const circleW = await pA.$eval('#exportQrPreview', c => c.width);
     ok('round dots in a circle frame still decode, on a larger canvas that clears the corners', roundPicked && (await decodeCanvas('exportQrPreview')) === expected && circleW > squareW, `${squareW} -> ${circleW}`);
+    const stripesPicked = await tapChoice('qrFrame', 'stripes'); await pA.waitForTimeout(200);
+    ok('Checkers Q2: the zebra-stripe frame still decodes to the same vCard', stripesPicked && (await decodeCanvas('exportQrPreview')) === expected);
     ok('the note is empty when there is nothing to say', (await tA('exportQrNote')) === '');
     // Esc (a Shell sheet: a sideways swipe or the X do the same) cancels; the next opening starts fresh
     await pA.keyboard.press('Escape');
@@ -3324,6 +3348,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pA.check('#exportQrUseOnCard');
     const [dlQr] = await Promise.all([pA.waitForEvent('download'), pA.click('#exportQrSaveBtn')]);
     ok('Save PNG downloads "Jane Doe QR.png" and closes the pop-up', dlQr.suggestedFilename() === 'Jane Doe QR.png' && !(await pA.isVisible('#exportQrSheet')), dlQr.suggestedFilename());
+    const falconOf = () => pA.evaluate(() => { const f = document.getElementById('toastFalcon'), cs = getComputedStyle(f); return { hidden: f.classList.contains('hidden'), shown: cs.display, anim: cs.animationName, parcel: f.classList.contains('with-parcel') && getComputedStyle(f.querySelector('.falcon-parcel')).display !== 'none' }; });
+    const pngFalcon = await falconOf();
+    ok(`Airlock E2 + Checkers Q8: ${EDITION_PLAIN ? 'the plain edition shows no falcon' : 'after Save PNG the falcon glides over the toast carrying the striped parcel'}`, !pngFalcon.hidden && (EDITION_PLAIN ? pngFalcon.shown === 'none' : pngFalcon.shown !== 'none' && pngFalcon.anim === 'falcon-glide' && pngFalcon.parcel), JSON.stringify(pngFalcon));
     const pngBytes = fs.readFileSync(await dlQr.path());
     ok('the saved file is a PNG', pngBytes.slice(1, 4).toString() === 'PNG');
     await pA.waitForFunction(() => !!document.querySelector('#previewAvatar img, #previewAvatar svg, #previewLogoStrip img, #previewLogoStrip svg'), null, { timeout: 5000 });
@@ -3332,6 +3359,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const [dlV] = await Promise.all([pA.waitForEvent('download'), pA.click('#downloadVcfBtn')]);
     const vcfA = fs.readFileSync(await dlV.path(), 'utf8');
     ok('the .vcf now carries that logo as its photo', /\r\nPHOTO;TYPE=JPEG;ENCODING=b:/.test(vcfA), vcfA.slice(0, 80));
+    const vcfFalcon = await falconOf();
+    ok('Airlock E2: Save .vcf says "Saved Jane Doe.vcf." and the falcon flies again, this time without the parcel', (await tA('toastMessage')) === 'Saved Jane Doe.vcf.' && !vcfFalcon.hidden && !vcfFalcon.parcel, JSON.stringify(vcfFalcon));
+    await pA.emulateMedia({ reducedMotion: 'reduce' });
+    ok('Airlock E2: under reduce motion the falcon does not glide', (await falconOf()).anim === 'none');
+    await pA.emulateMedia({ reducedMotion: 'no-preference' });
     // Now the card has a logo: "Scanned logo" is offered and draws the card's own logo in the centre
     await pA.click('#exportQrBtn'); await pA.waitForSelector('#exportQrSheet', { state: 'visible' });
     await pA.waitForFunction(() => document.getElementById('exportQrPreview').width > 0);
@@ -3341,6 +3373,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('scanned logo in the centre, the code still decodes (level H)', scannedPicked && scannedColours.length > 2 && (await decodeCanvas('exportQrPreview')) === expected, JSON.stringify(scannedColours.length));
     await pA.click('#exportQrCancelBtn');
     ok('Cancel closes the pop-up', !(await pA.isVisible('#exportQrSheet')));
+    // The toast's next message (written the way showToast writes it) sends the falcon away
+    await pA.evaluate(() => { document.getElementById('toastMessage').textContent = 'Something else.'; }); await pA.waitForTimeout(50);
+    ok('Airlock E2: the falcon leaves with the toast\'s next message', (await falconOf()).hidden);
 
     // A contact too big for level H: the logo options are greyed out with MOD07's reason; the code itself still fits
     await pA.click('#navFields'); await pA.waitForTimeout(400);

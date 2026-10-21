@@ -18,7 +18,7 @@ import { egressController } from './egressController.js';
 
 export const QR_COLOURS = ['themed', 'bw'];
 export const QR_DOTS = ['square', 'round'];
-export const QR_FRAMES = ['none', 'square', 'rounded', 'circle'];
+export const QR_FRAMES = ['none', 'square', 'rounded', 'circle', 'stripes'];
 export const QR_LOGOS = ['none', 'scanned', 'upload'];
 export const LOGO_MAX_BYTES = 2 * 1024 * 1024;
 export const PREVIEW_PX = 320;
@@ -67,6 +67,7 @@ export class ExportQrDialog {
      *   scannedLogo()     the logo shown on the card (a data URL) or null
      *   prepareLogo(src)  MOD06's logo preparation: { photo, display, traced, whiteRemoved, reason }
      *   toast(message)    Shell's toast
+     *   delivered()       after a PNG is saved (the falcon flies with Checkers' parcel)
      *   beforeExternal()  a download may bring another app to the front (the controller's grace period)
      */
     constructor(hooks = {}) {
@@ -226,6 +227,7 @@ export class ExportQrDialog {
         let onCard = false;
         if (this.choices.useOnCard && this.upload) onCard = egressController.offerLogoToCard(this.upload);
         this.say(`Saved ${result.filename}.${onCard ? ' The logo is on your card too.' : ''}`);
+        if (this.hooks.delivered) this.hooks.delivered();
         this.close();
     }
 }
