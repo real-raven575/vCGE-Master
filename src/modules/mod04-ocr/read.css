@@ -1,5 +1,6 @@
 /* vCGE-MOD04 Read card (redesign step 6): the photo under a soft shimmer while it is read, the pale wash that grows
-   on the read curve (no numbers, ever), and the "Looks right" box inside a flagged line. Motion is stepped at 26 fps;
+   on the read curve (no numbers, ever), the "Looks right" box inside a flagged line, and Glyph the owl (cute round,
+   raven575 2026-10-21: drawn inline, never in the plain edition, a still picture under reduce motion). Motion is stepped at 26 fps;
    under "reduce motion" the shimmer stands still and the fades are instant (readCard.js). No flashing, no sound. */
 
 :root {
@@ -79,3 +80,32 @@ html.dark[data-cb="1"] .read-more { background: rgb(37 99 235 / 0.16); color: #b
 .read-ok:focus-visible { outline: 2px solid #22c55e; outline-offset: -4px; border-radius: 0.5rem; }
 .read-ok.is-ok::before, .read-ok:checked::before { background: #16a34a; border-color: #15803d; color: #ffffff; }
 html[data-cb="1"] .read-ok.is-ok::before, html[data-cb="1"] .read-ok:checked::before { background: #2563eb; border-color: #1d4ed8; }
+
+/* Branded edition: a ticked box shows a feather check (still a check mark, so the shape carries it, not the colour). */
+html:not([data-edition="plain"]) .read-ok.is-ok::before, html:not([data-edition="plain"]) .read-ok:checked::before {
+    content: ''; background-repeat: no-repeat; background-position: center; background-size: 1.15rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 12.5 L9 17.5 L20.5 5' stroke-width='2.6'/%3E%3Cpath d='M12.6 13.6 L11.2 12.1 M15.2 10.8 L13.8 9.3 M17.8 8 L16.4 6.5' stroke-width='1.4'/%3E%3C/svg%3E");
+}
+
+/* ---- Glyph the owl (cute round O1 and O3) --------------------------------------------------------------------- */
+html[data-edition="plain"] .owl-art { display: none; }
+.read-owl { width: 2rem; height: 2rem; flex: none; }
+.more-owl { width: 2.75rem; height: 2.5rem; flex: none; }
+.owl-body { fill: #a16207; }
+.dark .owl-body { fill: #ca8a04; }
+.owl-eye { fill: #ffffff; stroke: #713f12; stroke-width: 0.8; }
+.owl-pupils { fill: #0f172a; }
+.owl-closed { fill: none; stroke: #0f172a; stroke-width: 1.4; stroke-linecap: round; display: none; }
+.owl-beak { fill: #f59e0b; }
+.owl-belly { fill: none; stroke: #fde68a; stroke-width: 1.2; stroke-linecap: round; }
+.owl-tilt { transform: rotate(-12deg); transform-origin: 16px 18px; }
+.owl-glass { fill: none; stroke: #475569; stroke-width: 1.6; stroke-linecap: round; }
+.dark .owl-glass { stroke: #cbd5e1; }
+.owl-glass circle { fill: rgb(186 230 253 / 0.45); }
+/* The eyes follow the wash (--read-progress, 0 to 1, set by readIndicator) and close happily when the read is done.
+   Only when motion is welcome: under reduce motion the owl is one still picture from start to end. */
+@media (prefers-reduced-motion: no-preference) {
+    .read-owl .owl-pupils { transform: translateX(calc((var(--read-progress, 0) - 0.5) * 3px)); transition: transform 0.4s steps(10); }
+    #ocrProgress.is-done .read-owl .owl-eye, #ocrProgress.is-done .read-owl .owl-pupils { display: none; }
+    #ocrProgress.is-done .read-owl .owl-closed { display: inline; }
+}

@@ -992,6 +992,24 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   share.globalEventBus.publish(share.Events.MEMORY_PURGED, { reason: 'idle' });
   await new Promise(res => setTimeout(res, 0));
   ok('an idle purge terminates the OCR engine too', terminated === 2, String(terminated));
+  // The engine crashing inside Recognize (WebKit, CI run 160): one more read with a fresh reader; other errors are not retried
+  {
+    const before = { created, terminated };   // the engine was purged just above: it starts, crashes, and a fresh one is started
+    let reads = 0;
+    result = () => { if (reads++ === 0) { const e = new Error("Out of bounds memory access (evaluating 'Recognize')"); e.name = 'RuntimeError'; throw e; } return { text: 'Jane Doe\njane@example.com', confidence: 88, words: words(8, 90) }; };
+    const again = await ocr.executeOCRScan('data:image/png;base64,x');
+    await new Promise(r => setTimeout(r, 0));
+    ok('an engine crash while reading: the crashed reader is stopped and a fresh one reads the photo once more', again.text.startsWith('Jane Doe') && reads === 2 && created - before.created === 2 && terminated - before.terminated === 1, JSON.stringify({ reads, created: created - before.created, terminated: terminated - before.terminated }));
+    reads = 0;
+    result = () => { reads++; const e = new Error('Out of bounds memory access'); e.name = 'RuntimeError'; throw e; };
+    const twice = await failure(ocr.executeOCRScan('data:image/png;base64,x'));
+    ok('a second crash is not retried again: the scan fails after two reads', !!twice && reads === 2, String(reads));
+    reads = 0;
+    result = () => { reads++; throw new Error('some other failure'); };
+    const other = await failure(ocr.executeOCRScan('data:image/png;base64,x'));
+    ok('other errors are not retried', !!other && reads === 1 && !ocr.isEngineCrash(new Error('x')) && ['unreachable executed', 'Out of bounds memory access', 'Division by zero', 'access to a null reference'].every(m => ocr.isEngineCrash(Object.assign(new Error(m), { name: 'RuntimeError' }))), String(reads));
+    result = { text: 'Jane Doe\njane@example.com', confidence: 88, words: words(8, 90) };
+  }
 
   // A wipe during a scan ends it quietly, and nothing is published
   hold = true; evt = null;

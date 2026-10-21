@@ -180,7 +180,16 @@
                         <div class="read-shimmer" aria-hidden="true"></div>
                     </div>
                     <div class="flex items-center justify-between gap-3">
-                        <p id="ocrProgressLabel" class="text-xs text-slate-500 dark:text-slate-400" aria-live="polite">Extracting…</p>
+                        <!-- Glyph the owl reads along: its eyes follow the wash (still under reduce motion; not in the plain edition) -->
+                        <svg id="ocrReadOwl" class="read-owl owl-art" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
+                            <path class="owl-body" d="M6 9 L8.5 3 L12 7 Q16 5.5 20 7 L23.5 3 L26 9 Q29 17 25 25 Q16 31 7 25 Q3 17 6 9Z"></path>
+                            <circle class="owl-eye" cx="12" cy="13" r="4.2"></circle><circle class="owl-eye" cx="20" cy="13" r="4.2"></circle>
+                            <g class="owl-pupils"><circle cx="12" cy="13" r="1.8"></circle><circle cx="20" cy="13" r="1.8"></circle></g>
+                            <g class="owl-closed"><path d="M8.5 13 Q12 16 15.5 13"></path><path d="M16.5 13 Q20 16 23.5 13"></path></g>
+                            <path class="owl-beak" d="M14.6 17 L17.4 17 L16 20Z"></path>
+                            <path class="owl-belly" d="M11.5 22.5 Q16 25 20.5 22.5"></path>
+                        </svg>
+                        <p id="ocrProgressLabel" class="text-xs text-slate-500 dark:text-slate-400 mr-auto" aria-live="polite">Extracting…</p>
                         <button id="ocrStopBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Cancel</button>
                     </div>
                 </div>
@@ -587,7 +596,21 @@
     <!-- One more photo (MOD04): the reading lacks the name or a phone or email; three photos at most -->
     <div id="ocrMorePhotoModal" class="hidden fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4">
         <div role="alertdialog" aria-labelledby="ocrMorePhotoTitle" aria-describedby="ocrMorePhotoText" class="bg-white dark:bg-slate-900 rounded-2xl p-5 max-w-sm w-full space-y-3 shadow-2xl">
-            <h2 id="ocrMorePhotoTitle" class="text-lg font-bold">One more photo?</h2>
+            <div class="flex items-center gap-3">
+                <!-- Glyph tilts its head with a magnifying glass (a still picture; not in the plain edition) -->
+                <svg id="ocrMorePhotoOwl" class="more-owl owl-art" viewBox="0 0 36 32" aria-hidden="true" focusable="false">
+                    <g class="owl-tilt">
+                            <path class="owl-body" d="M6 9 L8.5 3 L12 7 Q16 5.5 20 7 L23.5 3 L26 9 Q29 17 25 25 Q16 31 7 25 Q3 17 6 9Z"></path>
+                            <circle class="owl-eye" cx="12" cy="13" r="4.2"></circle><circle class="owl-eye" cx="20" cy="13" r="4.2"></circle>
+                            <g class="owl-pupils"><circle cx="12" cy="13" r="1.8"></circle><circle cx="20" cy="13" r="1.8"></circle></g>
+                            <g class="owl-closed"><path d="M8.5 13 Q12 16 15.5 13"></path><path d="M16.5 13 Q20 16 23.5 13"></path></g>
+                            <path class="owl-beak" d="M14.6 17 L17.4 17 L16 20Z"></path>
+                            <path class="owl-belly" d="M11.5 22.5 Q16 25 20.5 22.5"></path>
+                    </g>
+                    <g class="owl-glass"><circle cx="27" cy="22" r="4.2"></circle><path d="M30 25.2 L33.5 28.7"></path></g>
+                </svg>
+                <h2 id="ocrMorePhotoTitle" class="text-lg font-bold">One more photo?</h2>
+            </div>
             <p id="ocrMorePhotoText" class="text-sm text-slate-600 dark:text-slate-300"></p>
             <p id="ocrMorePhotoCount" class="text-xs text-slate-500 dark:text-slate-400"></p>
             <div class="flex justify-end gap-2">
