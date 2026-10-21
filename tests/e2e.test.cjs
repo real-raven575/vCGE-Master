@@ -257,7 +257,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     async (route) => { const r = await route.fetch(); await route.fulfill({ response: r, body: (await r.text()).replace('<html lang="en"', '<html lang="en" data-edition="plain"') }); }) : null);
   // The reader's own log lines ([vCGE-MOD04]) are kept on the page, so a read that never ends can say how far it got
   const keepReaderLog = () => ['log', 'error'].forEach(k => { const f = console[k]; console[k] = (...a) => {
-    if (typeof a[0] === 'string' && a[0].startsWith('[vCGE-MOD04]')) (window.__readerLog = window.__readerLog || []).push(`${Math.round(performance.now())} ms ${a[0].slice(0, 160)}`);
+    // The reader's own lines, and the error behind "Could not read that image." (an iPhone run, 2026-10-20, ended there
+    // with no way to tell which error it was)
+    if (typeof a[0] === 'string' && (a[0].startsWith('[vCGE-MOD04]') || a[0].startsWith('[vCGE] OCR failed'))) (window.__readerLog = window.__readerLog || []).push(`${Math.round(performance.now())} ms ${a[0].slice(0, 160)}${a[1] ? ` ${String(a[1] && (a[1].stack || a[1].message) || a[1]).slice(0, 300)}` : ''}`);
     return f.apply(console, a); }; });
   browser.newContext = async (opts = {}) => { const c = await plainContext({ ...deviceOptions, ...opts }); await c.addInitScript(pressStartNow); await c.addInitScript(keepReaderLog); await editionRoute(c); return c; };
   const newContext = (options) => browser.newContext(options);
@@ -1653,6 +1655,75 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       && (await pF.evaluate(() => document.documentElement.dataset.card)) === 'capture' && !(await pF.isVisible('#cropReviewModal')) && !(await pF.isVisible('#ocrStepText')) && await pF.isVisible('#retakePhotoBtn'),
       await readStage(pF));
     await ctxF.close();
+  }
+
+  // One more photo (raven575, 2026-10-20): a reading without the name asks for another photo; the two readings are put
+  // together, and Fix it by hand opens the review with what the first photo got
+  {
+    const card = (page, lines) => page.evaluate((lines) => {
+      const c = document.createElement('canvas'); c.width = 900; c.height = 420; const x = c.getContext('2d');
+      x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111';
+      lines.forEach(([text, size], i) => { x.font = `${size}px Arial`; x.fillText(text, 40, 80 + i * 90); });
+      return { name: 'card.png', mimeType: 'image/png', buffer: c.toDataURL('image/png').split(',')[1] };
+    }, lines).then(f => ({ ...f, buffer: Buffer.from(f.buffer, 'base64') }));
+    const noName = [['Seattle, WA 98101', 34], ['jane@northwind.com', 34], ['206.555.0142', 34]];
+    const ctxM = await browser.newContext();
+    const pM = await ctxM.newPage();
+    const errorsM = []; pM.on('pageerror', e => errorsM.push(String(e)));
+    await pM.goto(ORIGIN); await pM.waitForTimeout(300);
+    await pM.setInputFiles('#imageUpload', await card(pM, noName)); await pM.waitForTimeout(300);
+    await pM.click('#runOcrBtn');
+    await readEnds(pM, '#ocrMorePhotoModal');
+    ok('one more photo: a reading with no name asks for another photo, saying what is missing and that it would be photo 2 of 3',
+      /but not the name/.test(await pM.textContent('#ocrMorePhotoText')) && (await pM.textContent('#ocrMorePhotoCount')).includes('photo 2 of 3') && await pM.isVisible('#ocrAnotherPhotoBtn') && await pM.isVisible('#ocrFixByHandBtn'),
+      await readStage(pM));
+    ok('one more photo: the first photo is dropped once read; only its text is held, in OCR\'s vault slot', !(await pM.getAttribute('#reviewImage', 'src')) && !(await pM.evaluate(() => JSON.stringify(localStorage)).then(s => s.includes('northwind'))));
+    pM.once('filechooser', () => {});
+    await pM.click('#ocrAnotherPhotoBtn');
+    await pM.setInputFiles('#imageUpload', await card(pM, [['Jane Rivera', 44], ['jane@northwind.com', 34], ['Seattle, WA 98101', 34]])); await pM.waitForTimeout(300);
+    ok('one more photo: the Capture card says this is photo 2 of 3 of the card', await pM.isVisible('#photoCountNote') && (await pM.textContent('#photoCountNote')).startsWith('Photo 2 of 3'));
+    await pM.click('#runOcrBtn');
+    await readEnds(pM);
+    const merged = await pM.$$eval('#ocrLines input[id^="ocrLineText"]', els => els.map(e => e.value));
+    const roles = await pM.$$eval('#ocrLines select', els => els.map(e => e.value));
+    ok('one more photo: the two readings are put together: the name from photo 2, the phone only photo 1 had, each line once',
+      merged.includes('Jane Rivera') && roles[merged.indexOf('Jane Rivera')] === 'name' && merged.some(t => t.endsWith('206.555.0142')) && merged.filter(t => t.endsWith('jane@northwind.com')).length === 1,
+      JSON.stringify({ merged, roles }));
+    ok('one more photo: once the review opens, the held readings are let go and the photo count is gone', !(await pM.isVisible('#photoCountNote')));
+    ok('one more photo: no page errors', errorsM.length === 0, errorsM.join(' | '));
+    await ctxM.close();
+
+    const ctxH = await browser.newContext();
+    const pH = await ctxH.newPage();
+    await pH.goto(ORIGIN); await pH.waitForTimeout(300);
+    await pH.setInputFiles('#imageUpload', await card(pH, noName)); await pH.waitForTimeout(300);
+    await pH.click('#runOcrBtn');
+    await readEnds(pH, '#ocrMorePhotoModal');
+    await pH.click('#ocrFixByHandBtn');
+    await readEnds(pH);
+    const byHand = await pH.$$eval('#ocrLines input[id^="ocrLineText"]', els => els.map(e => e.value));
+    ok('Fix it by hand: the review opens with what the photo got, and no second photo is asked for', byHand.some(t => t.endsWith('jane@northwind.com')) && byHand.some(t => t.endsWith('206.555.0142')) && !(await pH.isVisible('#ocrMorePhotoModal')) && !(await pH.isVisible('#photoCountNote')),
+      JSON.stringify(byHand));
+    await ctxH.close();
+
+    // Between photos only the readings are held (the photo is dropped): that still counts as something to lose, so
+    // with a PIN, going out of view locks, and the PIN brings the readings back (Ghost's review, 2026-10-20)
+    const ctxK = await browser.newContext();
+    const pK = await ctxK.newPage();
+    await pK.goto(ORIGIN); await pK.waitForTimeout(300);
+    await setPin(pK, '2468');
+    await pK.setInputFiles('#imageUpload', await card(pK, noName)); await pK.waitForTimeout(300);
+    await pK.click('#runOcrBtn');
+    await readEnds(pK, '#ocrMorePhotoModal');
+    await pK.waitForTimeout(5200);   // past any picker grace (5 s), so out of view counts as leaving
+    await setVisibility(pK, 'hidden');
+    ok('between photos with a PIN: out of view locks, though only the readings are held', await pK.isVisible('#vaultModal') && !(await pK.isVisible('#ocrMorePhotoModal')));
+    await setVisibility(pK, 'visible');
+    await pK.fill('#vaultPin', '2468');
+    await pK.waitForSelector('#vaultModal', { state: 'hidden' });
+    ok('between photos: the PIN brings the readings back, and the Capture card says photo 2 of 3', await pK.isVisible('#photoCountNote') && (await pK.textContent('#photoCountNote')).startsWith('Photo 2 of 3'),
+      await pK.textContent('#photoCountNote'));
+    await ctxK.close();
   }
 
   // Reading that never finishes (a phone stopped the engine): the wash is full at 55 s, then Try Again or Cancel

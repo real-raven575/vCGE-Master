@@ -3,7 +3,8 @@
  * Created by raven575, Team vCGE (Claude) & Gemini
  *
  * One memory-only store for everything the pipeline holds while a card is being made: the photo, the OCR text, the
- * review lines, the contact, the last scan, the Undo copy and the logo Export hands to the card (wiped with the rest).
+ * review lines, the contact, the last scan, the Undo copy, the logo Export hands to the card (wiped with the rest) and
+ * up to three photo readings for one card, so OCR can ask for another photo and compare them (text lines only, never images).
  * Each module gets a handle that may read and write only the slots it needs, so modules never hand data to each other
  * directly. Values are copied in and out, so no module holds a live reference into another's data. Change notices name the slot, never its contents.
  *
@@ -16,12 +17,15 @@ import { TemporaryVault } from './vault.js';
 import { SessionPin } from './sessionPin.js';
 import { BiometricUnlock } from './biometric.js';
 
-export const SLOTS = Object.freeze(['photo', 'ocr', 'review', 'contact', 'lastScan', 'undo', 'logo']);
+// One spot per photo of the same card: three is the most a card gets, so there is no fourth spot.
+export const READINGS = Object.freeze(['reading1', 'reading2', 'reading3']);
+
+export const SLOTS = Object.freeze(['photo', 'ocr', 'review', 'contact', 'lastScan', 'undo', 'logo', ...READINGS]);
 
 // What each module may touch. `share` slots are readable only during a user gesture (a tap on a share button).
 export const MODULE_RIGHTS = Object.freeze({
     mod03: { read: [], write: ['photo'] },                                  // camera / upload
-    mod04: { read: ['photo'], write: ['ocr'] },                             // OCR
+    mod04: { read: ['photo', ...READINGS], write: ['ocr', ...READINGS] },   // OCR (only OCR deposits and compares the readings)
     mod05: { read: ['ocr', 'review'], write: ['review'] },                  // field mapping
     mod06: { read: ['review', 'contact', 'undo', 'logo'], write: ['contact', 'undo'] }, // card view (reads the logo Export put in)
     mod07: { read: ['contact'], write: [] },                                // vCard + QR
@@ -109,6 +113,8 @@ export class VaultStore {
             get: (slot) => (can('read', slot) ? this.get(slot) : deny('read', slot)),
             put: (slot, value) => (can('write', slot) ? this.put(slot, value) : deny('write', slot)),
             clear: (slot) => (can('write', slot) ? this.clear(slot) : deny('write', slot)),
+            /** Empties every photo reading at once (review filled, Cancel, Fix it by hand, a new card). */
+            clearReadings: () => READINGS.forEach((slot) => (can('write', slot) ? this.clear(slot) : deny('write', slot))),
             onChange: (slot, cb) => (can('read', slot) || can('share', slot) ? this.onChange(slot, cb) : deny('watch', slot)),
             /** Egress only: the slot's value, during a user gesture. Null otherwise. */
             readForShare: (slot) => {

@@ -93,6 +93,7 @@
         <section id="cardCapture" class="deck-card mod-tag-host" data-card="capture" aria-label="Capture">
             <div class="deck-card-body space-y-4">
                 <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Scan a business card</h2>
+                <p id="photoCountNote" class="hidden text-sm text-slate-500 dark:text-slate-400" role="status"></p>
                 <!-- Capture (MOD03, Iris): Take a photo first, Upload a photo second; the picker is the device's own -->
                 <div id="captureChoice" class="cap-choice">
                     <button id="startCameraBtn" type="button" class="cap-btn cap-btn-primary"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#camera"></use></svg><span>Take a photo</span></button>
@@ -576,6 +577,19 @@
             <div class="flex justify-end gap-2">
                 <button id="ocrTimeoutCancelBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Cancel</button>
                 <button id="ocrTryAgainBtn" type="button" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Try Again</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- One more photo (MOD04): the reading lacks the name or a phone or email; three photos at most -->
+    <div id="ocrMorePhotoModal" class="hidden fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4">
+        <div role="alertdialog" aria-labelledby="ocrMorePhotoTitle" aria-describedby="ocrMorePhotoText" class="bg-white dark:bg-slate-900 rounded-2xl p-5 max-w-sm w-full space-y-3 shadow-2xl">
+            <h2 id="ocrMorePhotoTitle" class="text-lg font-bold">One more photo?</h2>
+            <p id="ocrMorePhotoText" class="text-sm text-slate-600 dark:text-slate-300"></p>
+            <p id="ocrMorePhotoCount" class="text-xs text-slate-500 dark:text-slate-400"></p>
+            <div class="flex justify-end gap-2">
+                <button id="ocrFixByHandBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Fix it by hand</button>
+                <button id="ocrAnotherPhotoBtn" type="button" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Take another photo</button>
             </div>
         </div>
     </div>

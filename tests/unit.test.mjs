@@ -237,11 +237,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 
 // Vault store: the hub every module goes through (memory only, per-module rights, no data in notices)
 {
-  const { VaultStore, SLOTS, MODULE_RIGHTS } = await import(`${R}/modules/mod02-vault/vaultStore.js`);
+  const { VaultStore, SLOTS, MODULE_RIGHTS, READINGS } = await import(`${R}/modules/mod02-vault/vaultStore.js`);
   const before = JSON.stringify(localStorage);
   let gesture = false;
   const s = new VaultStore({ isUserGesture: () => gesture });
-  ok('vault store has the pipeline slots and starts empty', SLOTS.join() === 'photo,ocr,review,contact,lastScan,undo,logo' && s.isEmpty() && s.state() === 'open');
+  ok('vault store has the pipeline slots and starts empty', SLOTS.join() === 'photo,ocr,review,contact,lastScan,undo,logo,reading1,reading2,reading3' && s.isEmpty() && s.state() === 'open');
   const notices = []; s.onChange('contact', n => notices.push(n));
   const contact = { firstName: 'Jane', phones: [{ type: 'work', value: '555' }] };
   s.put('contact', contact);
@@ -269,6 +269,15 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   egress.put('logo', '<svg/>');
   ok('egress writes the logo slot; the card view reads it', cardH.get('logo') === '<svg/>' && denied(() => egress.get('logo')) && denied(() => cardH.put('logo', 'x')));
   ok('no other module reaches the logo', denied(() => cam.get('logo')) && denied(() => ocrH.get('logo')) && denied(() => qr.get('logo')));
+  // Photo readings (up to three photos of one card): only OCR deposits and retrieves them
+  const reading = (n) => ({ lines: [{ text: `Line ${n}`, role: 'name', confidence: 80 + n, unreadable: false }], at: n });
+  ok('there are exactly three reading spots', READINGS.join() === 'reading1,reading2,reading3' && !SLOTS.includes('reading4'));
+  ok('OCR deposits and retrieves each reading in its own spot', ocrH.put('reading1', reading(1)) && ocrH.put('reading2', reading(2)) && ocrH.put('reading3', reading(3))
+    && ocrH.get('reading1').lines[0].text === 'Line 1' && ocrH.get('reading2').lines[0].text === 'Line 2' && ocrH.get('reading3').at === 3);
+  ok('no other module can read or write the readings', ['mod03', 'mod05', 'mod06', 'mod07', 'mod08'].every(m => READINGS.every(r => denied(() => s.handle(m).get(r)) && denied(() => s.handle(m).put(r, {})) && denied(() => s.handle(m).clearReadings()))));
+  ok('a fourth reading has nowhere to go', (() => { try { ocrH.put('reading4', reading(4)); return false; } catch (e) { return e.message.startsWith('VAULT_DENIED'); } })());
+  ocrH.clearReadings();
+  ok('clearing the readings empties all three and nothing else', READINGS.every(r => ocrH.get(r) === null) && ocrH.get('photo').endsWith('AAA'));
   let unknownModule = false; try { s.handle('mod99'); } catch (e) { unknownModule = e.message.startsWith('VAULT_UNKNOWN_MODULE'); }
   ok('unknown modules get no handle', unknownModule);
   ok('every module right names a real slot', Object.values(MODULE_RIGHTS).every(r => [...r.read, ...r.write, ...(r.share || [])].every(x => SLOTS.includes(x))));
@@ -277,17 +286,22 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('lock without a PIN is refused and keeps the card', s.lock() === false && s.get('contact').firstName === 'Jane');
   await s.setPin('2468');
   const states = []; s.onStateChange(e => states.push(e.state));
+  ocrH.put('reading1', reading(1)); ocrH.put('reading2', reading(2));
+  ok('a held reading counts as something to lose', !s.isEmpty());
   ok('lock seals every slot and empties them', s.lock() === true && s.state() === 'locked' && s.get('contact') === null && s.get('photo') === null && !s.isEmpty());
   ok('nothing goes in while locked', s.put('contact', { firstName: 'X' }) === false);
+  ok('a reading is refused while locked (OCR deposits it again after the PIN)', ocrH.put('reading3', reading(3)) === false && ocrH.get('reading1') === null);
   await s.locking;
   ok('the held copy is ciphertext', s.vault.isHolding() && !new TextDecoder().decode(s.vault.sealed.ciphertext).includes('Jane'));
   const wrong = await s.unlock('0000');
   ok('wrong PIN keeps it locked', wrong.result === 'wrong' && s.state() === 'locked');
   const right = await s.unlock('2468');
   ok('right PIN puts every slot back', right.result === 'ok' && s.state() === 'open' && s.get('contact').firstName === 'Jane' && ocrH.get('photo').endsWith('AAA') && !s.vault.isHolding());
+  ok('the PIN puts the readings back unchanged, and the next photo is the filled spots plus one', JSON.stringify(ocrH.get('reading1')) === JSON.stringify(reading(1))
+    && ocrH.get('reading2').lines[0].confidence === 82 && ocrH.get('reading3') === null && READINGS.filter(r => ocrH.get(r) !== null).length + 1 === 3);
   s.lock(); await s.locking;
   for (let i = 0; i < 5; i++) await s.unlock('9999');
-  ok('5 wrong PINs wipe the card and the PIN', s.state() === 'open' && s.isEmpty() && !s.hasPin() && !s.vault.isHolding());
+  ok('5 wrong PINs wipe the card and the PIN', s.state() === 'open' && READINGS.every(r => s.get(r) === null) && s.isEmpty() && !s.hasPin() && !s.vault.isHolding());
   await s.setPin('2468'); s.put('contact', { firstName: 'Lost' });
   s.vault.hold = async () => false;   // the seal fails
   s.lock();
@@ -303,8 +317,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('confirmed biometric puts the card back', (await s.unlockBiometric()).result === 'ok' && s.get('contact').firstName === 'Bio');
   s.clearPin();
   ok('removing the PIN removes biometric too', !s.biometric.isEnrolled());
-  s.put('review', { lines: [] }); s.wipe('test');
-  ok('wipe empties every slot and forgets the PIN', s.isEmpty() && !s.hasPin() && states.at(-1) === 'wiped');
+  s.put('review', { lines: [] }); READINGS.forEach((r, i) => ocrH.put(r, reading(i + 1))); s.wipe('test');
+  ok('wipe empties every slot, the readings too, and forgets the PIN', READINGS.every(r => s.get(r) === null) && s.isEmpty() && !s.hasPin() && states.at(-1) === 'wiped');
   ok('the store writes nothing to browser storage', JSON.stringify(localStorage) === before);
 }
 
@@ -928,6 +942,38 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     const fm = new (await import(`${R}/modules/mod05-form/formMapper.js`)).ContactFormMapper();
     const straightened = fm.buildFields(fm.classifyLines([{ text: 'Nick Zafer' }, { text: 'Portage, MI 49024' }, { text: 'w TeamLogiclT.com/KalamazooM\\', alts: merged }])).fields;
     ok('second look + field mapping: the straightened "TeamLogiclT" becomes TeamLogicIT from the first reading\'s "I"', straightened.websites[0].value === 'TeamLogicIT.com/KalamazooMI' && straightened.organization === 'TeamLogicIT', JSON.stringify([straightened.websites, straightened.organization]));
+
+    // Garbage check and up to three readings (raven575, 2026-10-20: a light green name read as garbage reached the form)
+    const rq = await import(`${R}/modules/mod04-ocr/readingQuality.js`);
+    const garbage = ['~: ;\' |_ ,', 'lIlIlI WwWnN', 'Rhtkp Qwxzt', '—_= ~ ^', 'ﬁ{ ,'].filter(text => !rq.isGarbage({ text, confidence: 45 }));
+    ok('garbage check: noise, letter-soup and symbol lines are garbage', garbage.length === 0, JSON.stringify(garbage));
+    const real = [['Nick Zafer', 45], ['Al Wu', 40], ['TeamLogicIT', 70], ['Chief Technology Officer', 52], ['nzafer@TeamlLogic\\T.com', 20], ['TeamLogiciT.com/Kalarmazoom\\', 25], ['(269) 492-7400', 15],
+        ['5875 Moorsbridge Rd Ste 3', 48], ['Portage, MI 49024', 44], ['Ngozi Schwartz', 55], ['LLC', 30]].filter(([text, confidence]) => rq.isGarbage({ text, confidence }));
+    ok('garbage check: real names, titles, unsure lines and slipped emails, web addresses and phones are text', real.length === 0, JSON.stringify(real));
+    ok('garbage check: a line the engine was barely sure of is garbage unless it is shaped like a field', rq.isGarbage({ text: 'Ihre Aeh Hes', confidence: 22 }) && !rq.isGarbage({ text: 'Ihre Aeh Hes' }) && !rq.isGarbage({ text: '269 492 7400', confidence: 5 }));
+    const classified = fm.classifyLines([{ text: 'Nick Zafer' }, { text: 'nzafer@teamlogicit.com' }]);
+    ok('what is missing: nothing when the name and a phone or email are there; name and reach otherwise',
+        rq.missingParts(classified).length === 0 && rq.missingParts(fm.classifyLines([{ text: 'nzafer@teamlogicit.com' }])).join() === 'name'
+        && rq.missingParts(fm.classifyLines([{ text: 'Nick Zafer' }, { text: 'Fax (269) 492-7401' }])).join() === 'reach' && rq.missingParts([]).join() === 'name,reach',
+        JSON.stringify(classified));
+    ok('what is missing: said in words', rq.describeMissing(['name']) === 'the name' && rq.describeMissing(['name', 'reach']) === 'the name or a phone number or email');
+    const first = [{ text: 'Rhtkp Qwxzt', confidence: 21 }, { text: 'nzafer@teamlogicit.com', confidence: 80 }, { text: '(269) 492-7400', confidence: 85 }];
+    const one = rq.mergeReadings([first]);
+    ok('one reading: garbage lines are kept as unreadable, in place, so the review can show them', one.length === 3 && one[0].unreadable && !one[1].unreadable && !('reading' in one[0]) && !('garbage' in one[1]), JSON.stringify(one));
+    const second = [{ text: 'Nick Zafer', confidence: 82 }, { text: 'nzafer@teamlogicit.com', confidence: 70 }, { text: '(269) 492-7400', confidence: 90 }];
+    const two = rq.mergeReadings([first, second]);
+    ok('two readings: the second photo fills in the name, the first\'s garbage is dropped, and each line is read once', two.map(l => l.text).join('|') === 'Nick Zafer|nzafer@teamlogicit.com|(269) 492-7400' && two.every(l => !l.unreadable) && two[2].confidence === 90, JSON.stringify(two));
+    const three = rq.mergeReadings([[{ text: 'Nick Zafer', confidence: 50 }], [{ text: 'Nick Zafar', confidence: 58 }], [{ text: 'Nick Zafer', confidence: 52 }]]);
+    ok('three readings: two that agree outvote a surer third, with no "please check"', three.length === 1 && three[0].text === 'Nick Zafer' && three[0].confidence === 52 && !(three[0].unsure || []).length, JSON.stringify(three));
+    const split = rq.mergeReadings([[{ text: 'Nick Zafer', confidence: 50, alts: [] }], [{ text: 'Nick Zafar', confidence: 55, alts: [] }]]);
+    ok('two readings that disagree, neither sure: the surer is kept, marked unsure, with the other\'s letter as a second guess', split.length === 1 && split[0].text === 'Nick Zafar' && split[0].unsure.length === 2
+        && JSON.stringify(split[0].alts.find(a => a.at === 8)) === JSON.stringify({ at: 8, chars: ['a', 'e'] }), JSON.stringify(split));
+    const sureOne = rq.mergeReadings([[{ text: 'Nick Zafer', confidence: 50 }], [{ text: 'Nick Zafar', confidence: 75 }]]);
+    ok('two readings that disagree, one sure: the sure one is kept as it is', sureOne[0].text === 'Nick Zafar' && !(sureOne[0].unsure || []).length, JSON.stringify(sureOne));
+    const stillBad = rq.mergeReadings([[{ text: 'Rhtkp Qwxzt', confidence: 21 }], [{ text: 'Qwrtz Bkkgh', confidence: 18 }, { text: 'jo@acme.com', confidence: 90 }]]);
+    ok('garbage in every reading: shown once, from the latest photo, as unreadable; garbage only in an older photo is dropped',
+        stillBad.length === 2 && stillBad[0].unreadable && stillBad[0].text === 'Qwrtz Bkkgh' && rq.mergeReadings([[{ text: 'Rhtkp Qwxzt', confidence: 21 }], [{ text: 'jo@acme.com', confidence: 90 }]]).length === 1, JSON.stringify(stillBad));
+    ok('photos per card: three at most', rq.MAX_PHOTOS === 3);
   }
 
   // "Preparing the reader…": reported only when the engine has to start first
