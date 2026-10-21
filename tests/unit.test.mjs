@@ -1443,6 +1443,19 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     && (await import(`${R}/modules/mod06-gui/card3dView.js`)).PLAIN_PRESETS.map(fc.sampleLabel)[0] === 'Avery Collins, Northwind Design');
   ok('a sample without an animal is listed by name and company, never by its emoji label', fc.sampleLabel({ label: '🤖 AI Research Lead', firstName: 'Elena', lastName: 'Rostova', organization: 'NeuralShift AI' }) === 'Elena Rostova, NeuralShift AI'
     && fc.sampleLabel({ label: '🎨 Solo', firstName: 'Kai' }) === 'Kai' && fc.sampleLabel({ label: ' Plain label ' }) === 'Plain label' && fc.sampleLabel({}) === 'Sample contact');
+  // Make it cute (2026-10-21): the "Unknown" tray (F4, video review #53), the pigeonhole tabs (F1), the FILED stamp (F2)
+  ok('F4: the tray takes the Ignore lines only, trimmed, each once, in card order', JSON.stringify(fc.unplacedLines([
+    { text: 'Jane Doe', role: 'name' }, { text: '  Ask about the  spring promo ', role: 'ignore' }, { text: 'Since 1998', role: 'notes' },
+    { text: 'yr. O/ NE', role: 'ignore' }, { text: 'Ask about the spring promo', role: 'ignore' }, { text: '   ', role: 'ignore' }, { text: 'no role' }
+  ])) === JSON.stringify(['Ask about the spring promo', 'yr. O/ NE', 'no role']) && fc.unplacedLines(null).length === 0);
+  ok('F4: a line filed into an empty box fills it; a filled box gets it added (Notes on a new line)', fc.fileText('', 'Suite 405') === 'Suite 405' && fc.fileText('  ', 'x') === 'x'
+    && fc.fileText('4120 Lakeshore Rd ', 'Suite 405') === '4120 Lakeshore Rd Suite 405' && fc.fileText('Met at expo', 'Ask about the spring promo', true) === 'Met at expo\nAsk about the spring promo');
+  ok('F1: every vest pocket has a tab (NAME, TITLE, CO., TEL, MAIL, WEB, ADDR, NOTE)', [...new Set(Object.values(fc.SLOT_OF))].sort().join() === 'addr,co,mail,name,note,tel,title,web');
+  const fieldsCss = (await import('node:fs')).readFileSync(`${R}/modules/mod05-form/fields.css`, 'utf8');
+  ok('F2: the stamp press is 180 ms in the code and the style sheet, and reduce motion turns it off', fc.STAMP_MS === 180 && /\.fields-ok\.is-stamping \.fields-stamp \{ animation: fields-stamp 180ms/.test(fieldsCss)
+    && /prefers-reduced-motion: reduce\) \{\s*\.fields-ok\.is-stamping \.fields-stamp \{ animation: none; \}/.test(fieldsCss));
+  ok('F1/F2: the plain edition hides the tabs and the stamp', fieldsCss.includes('html[data-edition="plain"] .fields-slot, html[data-edition="plain"] .fields-stamp { display: none; }'));
+  ok('the tray titles read as approved', fc.UNKNOWN_TITLE === 'Unknown: tap to file' && /Tap one, then tap the box it belongs in\./.test(fc.UNKNOWN_HELP));
 }
 
 // MOD08 Export (Airlock), redesign step 10: file names from the contact, the QR pop-up's choices, the logo through the Vault

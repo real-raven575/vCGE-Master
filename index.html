@@ -308,6 +308,12 @@
                 <!-- Categories (MOD05): tags typed by the person, comma separated; written as the vCard's CATEGORIES -->
                 <label class="block col-span-2"><span class="field-label">Categories</span><input id="categories" type="text" autocomplete="off" class="field-input" placeholder="Client, Plumber, Met at expo" aria-describedby="categoriesHint"></label>
                 <p id="categoriesHint" class="fields-hint col-span-2">Separate them with commas. Google Contacts and Outlook show them as labels; iPhone Contacts leaves them out.</p>
+                <!-- The "Unknown" tray (MOD05, F4): scan lines nothing claimed wait here to be filed by hand; on-screen only -->
+                <div id="fieldsUnknown" class="fields-unknown col-span-2 hidden" role="group" aria-labelledby="fieldsUnknownTitle">
+                    <p id="fieldsUnknownTitle" class="field-label">Unknown: tap to file</p>
+                    <p id="fieldsUnknownHelp" class="fields-hint" aria-live="polite"></p>
+                    <ul id="fieldsUnknownList" class="fields-unknown-list"></ul>
+                </div>
             </div>
             </div>
             <div class="deck-card-foot">

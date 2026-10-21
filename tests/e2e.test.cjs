@@ -1267,6 +1267,77 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await ctx11.close();
   }
 
+  // Make it cute (MOD05, raven575 2026-10-21): the "Unknown" tray takes the scan lines nothing claimed (F4, video review #53,
+  // both editions); the pigeonhole tabs (F1) and the FILED stamp (F2) are branded only.
+  {
+    const ctxU = await browser.newContext();
+    const pU = await ctxU.newPage();
+    const errorsU = [];
+    pU.on('pageerror', e => errorsU.push(e.message));
+    await pU.goto(ORIGIN); await pU.waitForTimeout(300);
+    const tabs = await pU.$$eval('#fieldsForm .fields-slot:not(.fields-hole)', ts => ts.map(t => t.dataset.slot + (t.getAttribute('aria-hidden') === 'true' ? '' : '!')));
+    const stamp = await pU.$('#fieldsDoneBtn .fields-stamp');
+    if (EDITION_PLAIN) ok('plain edition: no pigeonhole tabs and no FILED stamp; the button still reads "Everything\'s correct"', tabs.length === 0 && !stamp && (await pU.textContent('#fieldsDoneBtn')).trim() === "Everything's correct", JSON.stringify(tabs));
+    else {
+      ok('F1: every box group carries a pigeonhole tab, hidden from screen readers (8 kinds, 14 tabs)', tabs.length === 14 && new Set(tabs).size === 8 && tabs.every(t => !t.endsWith('!'))
+        && (await pU.textContent('#fieldsForm label:has(#firstName) .field-label')).trim() === 'First name', JSON.stringify(tabs));
+      ok('F2: the FILED stamp sits on the green button, hidden from screen readers, and the label reads as before', (await pU.$eval('#fieldsDoneBtn .fields-stamp', s => s.textContent === 'FILED' && s.getAttribute('aria-hidden') === 'true'))
+        && (await pU.$eval('#fieldsDoneBtn', b => b.querySelector('span:not(.fields-stamp)').textContent)) === "Everything's correct");
+      await pU.click('#navFields'); await pU.waitForTimeout(600);
+      await pU.dispatchEvent('#fieldsDoneBtn', 'pointerdown');
+      const pressed = await pU.$eval('#fieldsDoneBtn', b => b.classList.contains('is-stamping') && getComputedStyle(b.querySelector('.fields-stamp')).animationName);
+      const pressEnded = await pU.waitForFunction(() => !document.getElementById('fieldsDoneBtn').classList.contains('is-stamping'), null, { timeout: 3000 }).then(() => true, () => false);
+      await pU.emulateMedia({ reducedMotion: 'reduce' });
+      await pU.dispatchEvent('#fieldsDoneBtn', 'pointerdown');
+      const stillUnderReduce = !(await pU.$eval('#fieldsDoneBtn', b => b.classList.contains('is-stamping')));
+      await pU.emulateMedia({ reducedMotion: 'no-preference' });
+      ok('F2: a press gives one stamp press that ends by itself; under reduce motion nothing moves', pressed === 'fields-stamp' && pressEnded && stillUnderReduce, JSON.stringify({ pressed, pressEnded, stillUnderReduce }));
+    }
+    ok('F4: the tray is hidden while there is nothing unplaced', await pU.$eval('#fieldsUnknown', t => t.classList.contains('hidden')));
+    await pU.setInputFiles('#imageUpload', await renderCardImage(pU)); await pU.waitForTimeout(300);
+    await pU.click('#runOcrBtn');
+    await readEnds(pU);
+    // Two lines set to Ignore in the review step, as a line the reader could not place would be
+    const lineIndex = (text) => pU.$$eval('#ocrLines input[id^="ocrLineText"]', (ins, text) => ins.findIndex(i => i.value.includes(text)), text);
+    const iTitle = await lineIndex('Director'), iOrg = await lineIndex('Northwind Systems');
+    await pU.selectOption(`#ocrLineRole${iTitle}`, 'ignore'); await pU.selectOption(`#ocrLineRole${iOrg}`, 'ignore');
+    await proceed(pU);
+    const trayLines = () => pU.$$eval('#fieldsUnknownList .fields-unknown-line', ls => ls.map(l => l.textContent));
+    const listed = await trayLines();
+    ok('F4: the lines nothing claimed wait in the "Unknown: tap to file" tray instead of being dropped', iTitle >= 0 && iOrg >= 0 && await pU.isVisible('#fieldsUnknown')
+      && listed.includes('Director of Engineering') && listed.includes('Northwind Systems') && (await pU.inputValue('#jobTitle')) === ''
+      && (await pU.textContent('#fieldsUnknownTitle')).trim() === 'Unknown: tap to file', JSON.stringify(listed));
+    ok(EDITION_PLAIN ? 'plain edition: the tray has no pigeonhole art' : 'F4: the tray title carries the empty pigeonhole', EDITION_PLAIN ? !(await pU.$('#fieldsUnknown .fields-hole')) : !!(await pU.$('#fieldsUnknown .fields-hole[aria-hidden="true"] svg')));
+    const titleLine = pU.locator('#fieldsUnknownList .fields-unknown-line', { hasText: 'Director of Engineering' });
+    await pU.waitForFunction(() => !document.getElementById('fieldsForm').classList.contains('is-popping'), null, { timeout: 3000 }).catch(() => {});   // measured at rest, not mid-pop
+    const lineBox = await titleLine.boundingBox();
+    await titleLine.click();
+    ok('F4: tapping a line picks it (pressed, with a dot) and says what to do next', (await titleLine.getAttribute('aria-pressed')) === 'true'
+      && (await pU.textContent('#fieldsUnknownHelp')).includes('Now tap the box for "Director of Engineering"') && lineBox.height >= 44, JSON.stringify(lineBox));
+    await pU.click('#jobTitle');
+    ok('F4: tapping a box files the line there, the card shows it, and the line leaves the tray', (await pU.inputValue('#jobTitle')) === 'Director of Engineering'
+      && (await pU.textContent('#previewTitle')) === 'Director of Engineering' && !(await trayLines()).includes('Director of Engineering')
+      && (await pU.textContent('#fieldsUnknownHelp')).trim() === 'Filed in Job title.', await pU.textContent('#fieldsUnknownHelp'));
+    // Keyboard: pick a line, then Enter in a box files it there (Notes is a text area: a click files into it)
+    const orgLine = pU.locator('#fieldsUnknownList .fields-unknown-line', { hasText: 'Northwind Systems' });
+    await orgLine.click(); await pU.keyboard.press('Escape');
+    ok('F4: Escape puts a picked line back', (await orgLine.getAttribute('aria-pressed')) === 'false');
+    await orgLine.click(); await pU.focus('#nickname'); await pU.keyboard.press('Enter');
+    ok('F4: Enter in a box files the picked line there', (await pU.inputValue('#nickname')) === 'Northwind Systems' && !(await trayLines()).includes('Northwind Systems'));
+    await pU.fill('#nickname', '');
+    // Leave out: every line still in the tray goes, then the tray hides
+    for (const n of await trayLines()) await pU.click(`#fieldsUnknownList [aria-label="Leave out: ${n}"]`);
+    ok('F4: Leave out drops a line; an empty tray hides', (await trayLines()).length === 0 && await pU.$eval('#fieldsUnknown', t => t.classList.contains('hidden')));
+    // The scan's Undo goes back to the lines and empties the tray; Proceed again refills it
+    await pU.click('#reopenScanBtn');
+    await proceed(pU);
+    ok('F4: proceeding again refills the tray from the lines', (await trayLines()).includes('Northwind Systems'));
+    await pU.click('#toastAction');
+    ok('F4: the scan\'s Undo empties the tray', (await trayLines()).length === 0 && await pU.$eval('#fieldsUnknown', t => t.classList.contains('hidden')));
+    ok('make it cute: no page errors', errorsU.length === 0, errorsU.join(' | '));
+    await ctxU.close();
+  }
+
   // A scan filled into a sample preset replaces the sample as a whole (none of its phones, fax or links are left);
   // Undo brings the sample back, and a second fill replaces it again.
   {
@@ -1326,8 +1397,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('fields: choosing a sample fills the form, pops it in (one animation, 8 steps over 0.32 s), offers Undo, and the list reads the prompt again',
       (await pF.inputValue('#firstName')) === samples()[2][0] && (await pF.inputValue('#organization')) === samples()[2][2] && (await pops()) === 2 && pop.names.includes('fields-pop') && pop.steps === 'steps(8)' && pop.ms === '0.32s'
       && await pF.isVisible('#toastAction') && (await pF.$eval('#fakeContactSelect', s => s.value)) === '' && (await card()) === 'fields', JSON.stringify({ pop, pops: await pops(), card: await card() }));
-    ok('fields: the list and the green button are at least 44 px tall; the button reads "Everything\'s correct" with the tick icon', (await pF.$$eval('#fakeContactSelect, #fieldsDoneBtn', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44)
-      && (await pF.textContent('#fieldsDoneBtn')).trim() === "Everything's correct" && !!(await pF.$('#fieldsDoneBtn svg use[href$="#circle-check"]')), JSON.stringify(await pF.$$eval('#fakeContactSelect, #fieldsDoneBtn', els => els.map(e => e.getBoundingClientRect().height))));
+    ok('fields: the list and the green button are at least 44 px tall; the button reads "Everything\'s correct" (its name for screen readers too; the FILED stamp is hidden from them) with the tick icon', (await pF.$$eval('#fakeContactSelect, #fieldsDoneBtn', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44)
+      && (await pF.$eval('#fieldsDoneBtn', b => b.querySelector(':scope > span:not(.fields-stamp)').textContent)) === "Everything's correct"
+      && (await pF.getByRole('button', { name: "Everything's correct", exact: true }).count()) === 1 && !!(await pF.$('#fieldsDoneBtn svg use[href$="#circle-check"]')), JSON.stringify(await pF.$$eval('#fakeContactSelect, #fieldsDoneBtn', els => els.map(e => e.getBoundingClientRect().height))));
     // The class goes on animationend, which a slow phone engine on CI can deliver well after 0.32 s: wait for it (3 s cap)
     const popEnded = await pF.waitForFunction(() => !document.getElementById('fieldsForm').classList.contains('is-popping'), null, { timeout: 3000 }).then(() => true, () => false);
     ok('fields: the pop class is gone once the animation ends', popEnded && !(await pF.$eval('#fieldsForm', f => f.classList.contains('is-popping'))));

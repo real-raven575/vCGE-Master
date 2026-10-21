@@ -47,3 +47,47 @@
 html[data-hand="left"] .fields-ok { margin-left: 0; margin-right: auto; }
 /* Colour-blind mode: blue, like every other OK */
 html[data-cb="1"] .fields-ok { background: #2563eb; border-color: #1d4ed8; color: #fff; }
+
+/* ---- Make it cute (raven575, 2026-10-21): Pidge's sorting room. Navy cubbies with brass, no flashing, no sound ---- */
+:root { --fields-navy: #1e3a5f; --fields-brass: #e0b44c; }
+
+/* F1: a pigeonhole tab in front of each box's label (branded only: fieldsCard.js adds none in plain). Sized in em, so it
+   grows with the text-size setting; decorative, the label's words stay what a screen reader reads. */
+.fields-slot {
+    display: inline-flex; align-items: center; justify-content: center; width: 1.9em; height: 1.55em; margin-right: 0.4em;
+    vertical-align: -0.35em; border-radius: 0.3em 0.3em 0.15em 0.15em; background: var(--fields-navy); color: var(--fields-brass);
+    box-shadow: inset 0 -0.18em 0 var(--fields-brass);      /* the cubby's brass lip */
+}
+.fields-slot svg { width: 1.15em; height: 1.15em; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+html[data-edition="plain"] .fields-slot, html[data-edition="plain"] .fields-stamp { display: none; }
+
+/* F2: the FILED stamp on "Everything's correct", and its one soft press (none under reduce motion) */
+.fields-stamp {
+    display: inline-block; margin-left: 0.15em; padding: 0 0.3em; border: 2px solid currentColor; border-radius: 0.2em;
+    font-size: 0.62em; font-weight: 900; letter-spacing: 0.12em; line-height: 1.4; transform: rotate(-8deg); opacity: 0.85;
+}
+.fields-ok.is-stamping .fields-stamp { animation: fields-stamp 180ms steps(5) both; }
+@keyframes fields-stamp {
+    0%   { transform: rotate(-8deg) scale(1); }
+    50%  { transform: rotate(-8deg) scale(0.8); }
+    100% { transform: rotate(-8deg) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .fields-ok.is-stamping .fields-stamp { animation: none; }
+}
+
+/* F4: the "Unknown" tray. A line waiting for its box is marked by a thick dashed border and a filled dot as well as
+   colour, so colour-blind mode and Windows high contrast still show it. */
+.fields-unknown { padding: 0.75rem; border: 2px dashed #94a3b8; border-radius: 0.875rem; }
+.fields-unknown .field-label { display: flex; align-items: center; }
+.fields-unknown .fields-hint { margin: 0 0 0.5rem; }
+.fields-unknown-list { display: flex; flex-direction: column; gap: 0.4rem; }
+.fields-unknown-item { display: flex; align-items: center; gap: 0.5rem; }
+.fields-unknown-line {
+    flex: 1 1 auto; min-width: 0; min-height: var(--vcge-tap, 2.75rem); padding: 0.4rem 0.75rem; text-align: left; overflow-wrap: anywhere;
+    border: 2px solid #cbd5e1; border-radius: 0.75rem; background: #f8fafc; font-weight: 600; cursor: pointer;
+}
+.dark .fields-unknown-line { background: #0f172a; border-color: #334155; }
+.fields-unknown-line[aria-pressed="true"] { border-style: dashed; border-width: 3px; border-color: var(--fields-brass); }
+.fields-unknown-line[aria-pressed="true"]::before { content: "\25CF\00A0"; }          /* a filled dot: picked */
+.fields-unknown-leave { flex: none; min-height: var(--vcge-tap, 2.75rem); padding: 0 0.6rem; font-size: 0.8rem; font-weight: 600; text-decoration: underline; cursor: pointer; }
