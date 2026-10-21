@@ -2310,7 +2310,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const pC = await ctxC.newPage();
     await pC.goto(ORIGIN); await pC.waitForTimeout(300);
     const noFeedC = await cameraFeedMissing(pC);
-    if (noFeedC) notRunHere('camera in use by another app (10 checks)', `this engine has no ${noFeedC} for a test camera`);
+    if (noFeedC) notRunHere('camera in use by another app (12 checks)', `this engine has no ${noFeedC} for a test camera`);
     else {
     const popup = () => pC.isVisible('#cameraInUseModal');
     const cameraOff = () => pC.evaluate(() => document.getElementById('cameraStream').srcObject === null && document.getElementById('cameraPanel').classList.contains('hidden'));
@@ -2324,7 +2324,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await start('normal');
     const startedC = await pC.isVisible('#cameraPanel');
     ok('ordinary camera starts with no pop-up', startedC && !(await popup()) && await pC.evaluate(() => !!document.getElementById('cameraStream').srcObject), await camState());
-    if (!startedC) ok('camera in use by another app (9 checks)', false, 'not tried: the camera never started (the check above says why)');
+    if (!startedC) ok('camera in use by another app (11 checks)', false, 'not tried: the camera never started (the check above says why)');
     else {
     await pC.click('#stopCameraBtn');
 
@@ -2361,6 +2361,20 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       await pC.waitForTimeout(100);
     }
     ok('closing the camera ourselves raises no pop-up', startedLast && !(await popup()), startedLast ? '' : 'not tried: the camera did not start again > ' + await camState());
+
+    // Upload while the camera is live (raven575, Android Chrome, 2026-10-20): the camera turns off before the picker
+    // opens, so the picker pausing the feed (a mute, with the page still in view) raises no pop-up and nothing jumps.
+    await start('normal');
+    const startedUp = await pC.isVisible('#cameraPanel');
+    const [chooser] = startedUp ? await Promise.all([pC.waitForEvent('filechooser', { timeout: 3000 }).catch(() => null), pC.click('#uploadPhotoBtn')]) : [null];
+    if (chooser) {
+      await pC.evaluate(() => { const t = window.__camTrack; Object.defineProperty(t, 'muted', { configurable: true, get: () => true }); t.dispatchEvent(new Event('mute')); });
+      await pC.waitForTimeout(1400);   // past MUTE_GRACE_MS
+    }
+    ok('Upload with the camera live: the camera turns off first, and the picker pausing the feed raises no pop-up', !!chooser && await cameraOff() && !(await popup()),
+      startedUp ? `picker opened: ${!!chooser} > ${await camState()}` : 'not tried: the camera did not start > ' + await camState());
+    if (chooser) { await chooser.setFiles(await renderCardImage(pC)); await pC.waitForTimeout(400); }
+    ok('the picked photo opens the crop step with the camera still off', !!chooser && await pC.isVisible('#captureReview') && await cameraOff() && !(await popup()), await camState());
     }
     }
     await ctxC.close();

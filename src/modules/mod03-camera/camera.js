@@ -18,6 +18,7 @@ import { visibleSourceRect, cardFrameRect, tween } from './viewfinder.js';
 const CAMERA_IN_USE_ERRORS = ['NotReadableError', 'TrackStartError'];
 const VIRTUAL_CAMERA = /\b(obs|manycam|snap camera|xsplit|virtual|droidcam|camo|mmhmm|ndi|splitcam|vcam|youcam|e2esoft)\b/i;
 const MUTE_GRACE_MS = 1000;   // a feed muted this long while the app is in view counts as cut off
+const PICKER_GRACE_MS = 5000; // after Upload opens the photo picker, a mute is the picker's (as main.js EXTERNAL_APP_GRACE_MS)
 const IN_USE_MESSAGE = 'Another app is using or watching your camera, so vCGE turned it off. Close the other app and try again, or upload a photo instead.';
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 export const ZOOM_EASE_MS = 320;      // the fader eases into each change rather than snapping
@@ -41,6 +42,7 @@ export class VCGEActiveCamera {
         this.cameraPanel = config.cameraPanel || document.getElementById('cameraPanel');
         this.toast = typeof config.toast === 'function' ? config.toast : () => {};
         this.irisPeek = config.irisPeek || document.getElementById('capIris');
+        this.uploadInput = config.uploadInput || document.getElementById('imageUpload');
 
         this.currentFacingMode = config.facingMode || 'environment';
         this.activeStream = null;
@@ -52,6 +54,7 @@ export class VCGEActiveCamera {
         this.capturedImageDataUrl = null;
         this.lastSource = null;       // 'camera' or 'upload': what Retake goes back to
         this.waitingForFrame = false; // a shutter press is waiting for the camera's first picture
+        this.pickerOpenUntil = 0;     // the photo picker was opened: a mute until then is the picker's, not another app's
 
         this.initListeners();
     }
@@ -127,7 +130,7 @@ export class VCGEActiveCamera {
         });
         track.addEventListener('mute', () => {
             setTimeout(() => {
-                if (isCurrent() && track.muted && document.visibilityState === 'visible') this.blockCamera('the camera feed was cut off');
+                if (isCurrent() && track.muted && document.visibilityState === 'visible' && Date.now() >= this.pickerOpenUntil) this.blockCamera('the camera feed was cut off');
             }, MUTE_GRACE_MS);
         });
     }
@@ -184,6 +187,12 @@ export class VCGEActiveCamera {
             // Sinks on the press, pops back (with the shared overshoot) on the release; the shot is taken on the click.
             this.shutter.addEventListener('pointerdown', () => this.pressShutter(true));
             ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => this.shutter.addEventListener(t, () => this.pressShutter(false)));
+        }
+        if (this.uploadInput) {
+            // Upload turns the camera off before the picker opens. Left running, the picker pauses the feed while the page
+            // is still in view (Android Chrome), which read as another app taking the camera: the viewfinder closed and the
+            // in-use notice popped up under the picker. A feed we stop ourselves sends no mute or ended event.
+            this.uploadInput.addEventListener('click', () => { this.pickerOpenUntil = Date.now() + PICKER_GRACE_MS; this.closeCamera(); });
         }
         if (this.irisPeek) {
             // A hidden delight: one slow wink per tap, never repeated on its own, and skipped under reduce motion.
