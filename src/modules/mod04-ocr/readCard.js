@@ -85,9 +85,13 @@ export const readIndicator = {
         const pct = Math.round(Math.min(1, Math.max(0, fraction)) * 100);
         $('ocrProgressFill').style.width = `${pct}%`;
         $('ocrProgressBar').setAttribute('aria-valuenow', String(pct));
+        $('ocrProgress').style.setProperty('--read-progress', String(pct / 100));   // the owl's eyes follow the wash
     },
+    /** The read finished well: the owl closes its eyes happily (read.css; nothing changes under reduce motion). */
+    finish() { $('ocrProgress').classList.add('is-done'); },
     show(photo) {
         this.stop(); this.set(0);
+        $('ocrProgress').classList.remove('is-done');
         const img = $('ocrReadPhoto');
         if (photo) img.setAttribute('src', photo); else img.removeAttribute('src');
         $('ocrProgressLabel').textContent = 'Extracting…';

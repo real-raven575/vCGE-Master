@@ -425,9 +425,22 @@ async function scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started) {
     const late = new Promise((_, reject) => { timer = setTimeout(() => reject(new OcrUnavailableError(`preparing the photo took longer than ${Math.round(initTimeoutMs / 1000)} s`)), initTimeoutMs); });
     const processedImage = await Promise.race([preProcessImageBuffer(imageSrc), late]).finally(() => clearTimeout(timer));
     if (!tesseractWorker) onStatus('starting');
-    const worker = await initOCREngine(initTimeoutMs);
+    let worker = await initOCREngine(initTimeoutMs);
     onStatus('reading');
-    const result = await readWithin(worker, processedImage, readTimeoutMs);
+    let result;
+    try {
+        result = await readWithin(worker, processedImage, readTimeoutMs);
+    } catch (error) {
+        // The engine itself crashed (seen on WebKit: "RuntimeError: Out of bounds memory access" inside Recognize on a
+        // page's first read, CI run 160): a fresh reader reads the same photo once more (raven575, 2026-10-21).
+        if (!isEngineCrash(error) || generation !== started) throw error;
+        console.warn(`[${MODULE_ID}] The reader crashed (${error.message}); reading once more with a fresh reader`);
+        if (tesseractWorker === worker) tesseractWorker = null;
+        Promise.resolve().then(() => worker.terminate()).catch(() => {});
+        worker = await initOCREngine(initTimeoutMs);
+        if (generation !== started) throw new OcrCancelledError();
+        result = await readWithin(worker, processedImage, readTimeoutMs);
+    }
     if (generation !== started) throw new OcrCancelledError();
     const text = result.data.text || '';
     const confidence = Math.round(result.data.confidence || 0);
@@ -445,6 +458,13 @@ async function scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started) {
     // A signal only: the text itself is contact data and goes back to the caller, never onto the bus.
     globalEventBus.publish(Events.OCR_TEXT_EXTRACTED, { sourceModule: MODULE_ID, confidence, icons: lines.filter(l => l.icon).length, timestamp: Date.now() });
     return { text, confidence, lines };
+}
+
+/** A crash inside the engine's WebAssembly (not a timeout, a cancel or a photo it could not read). */
+export function isEngineCrash(error) {
+    if (!error || error instanceof OcrTimeoutError || error instanceof OcrCancelledError || error instanceof OcrUnavailableError) return false;
+    return (typeof WebAssembly !== 'undefined' && WebAssembly.RuntimeError && error instanceof WebAssembly.RuntimeError)
+        || /RuntimeError|memory access|unreachable|abort\(/i.test(`${error.name || ''} ${error.message || error}`);
 }
 
 /** worker.recognize, or OcrTimeoutError after `timeoutMs`; a worker that ran out of time is stopped, so the next scan starts a fresh one. */

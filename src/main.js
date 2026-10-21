@@ -693,8 +693,8 @@ async function runOcr() {
         // The first scan (and the first after a wipe) starts the reader from ~7 MB of bundled files: say so.
         const onStatus = (status) => readIndicator.status(status);
         const { text, lines } = await executeOCRScan(photo, { onStatus });
-        // Finished early: the wash fills up before the review step opens.
-        readIndicator.stop(); readIndicator.set(1);
+        // Finished early: the wash fills up (and the owl closes its eyes) before the review step opens.
+        readIndicator.stop(); readIndicator.set(1); readIndicator.finish();
         await new Promise(res => setTimeout(res, 250));
         if ($('cropReviewModal').classList.contains('hidden')) return;   // closed by a wipe meanwhile
         // Cancel pressed after the reader finished but before the review opened: it still cancels.
@@ -753,6 +753,9 @@ function showPhotoCount() {
     const held = READINGS.filter(slot => ocrVault.get(slot)).length;
     $('photoCountNote').textContent = held ? `Photo ${held + 1} of ${MAX_PHOTOS} of this card: OK reads it together with the earlier ${held === 1 ? 'photo' : 'photos'}.` : '';
     $('photoCountNote').classList.toggle('hidden', !held);
+    // A hook for the Capture card's own art (Iris's paw dots): which photo this is, and of how many.
+    if (held) Object.assign($('photoCountNote').dataset, { photo: String(held + 1), of: String(MAX_PHOTOS) });
+    else { delete $('photoCountNote').dataset.photo; delete $('photoCountNote').dataset.of; }
 }
 
 // The review step with every reading put together: lines no photo could read are listed as Ignore, with a note.

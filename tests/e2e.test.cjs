@@ -1596,10 +1596,13 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('an unflagged line has no box', !(await pZ.$(`#ocrLineOk${roles.indexOf('name')}`)));
     const lineBefore = await pZ.inputValue(`#ocrLineText${row}`);
     await pZ.evaluate((row) => {
-      window.__ok = { green: false, noteWentFirst: null, amberAtNoteFade: null };
+      window.__ok = { green: false, noteWentFirst: null, amberAtNoteFade: null, mark: null };
       const box = document.getElementById(`ocrLineOk${row}`), note = document.getElementById(`ocrLineCheck${row}`), text = document.getElementById(`ocrLineText${row}`);
       new MutationObserver(() => {
-        if (box.classList.contains('is-ok') && getComputedStyle(box, '::before').backgroundColor === 'rgb(22, 163, 74)') window.__ok.green = true;
+        if (box.classList.contains('is-ok') && getComputedStyle(box, '::before').backgroundColor === 'rgb(22, 163, 74)') {
+          window.__ok.green = true;
+          const mark = getComputedStyle(box, '::before'); window.__ok.mark = { content: mark.content, image: mark.backgroundImage.slice(0, 40) };
+        }
         if (note.style.opacity && Number(note.style.opacity) < 1 && window.__ok.noteWentFirst === null) { window.__ok.noteWentFirst = Number(box.style.opacity) > 0; window.__ok.amberAtNoteFade = text.classList.contains('border-amber-500'); }
       }).observe(document.getElementById('ocrLines'), { attributes: true, subtree: true, attributeFilter: ['style', 'class'] });
     }, row);
@@ -1609,6 +1612,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('ticking Looks right turns the box green, fades the note out a few frames before the box goes, and the field returns to normal with its text unchanged',
       okSeen.green && okSeen.noteWentFirst === true && okSeen.amberAtNoteFade === false && !(await pZ.$(`#ocrLineOk${row}`)) && !(await pZ.getAttribute(`#ocrLineText${row}`, 'aria-describedby'))
       && !(await pZ.$eval(`#ocrLineText${row}`, el => el.classList.contains('border-amber-500'))) && (await pZ.inputValue(`#ocrLineText${row}`)) === lineBefore && (await pZ.textContent('#ocrSummary')).includes('42024'), JSON.stringify(okSeen));
+    // Cute round O2 (raven575, 2026-10-21): the tick is a feather check in the branded edition, the plain tick in plain
+    ok(EDITION_PLAIN ? 'plain edition: a ticked Looks right box shows the plain tick' : 'a ticked Looks right box shows Glyph\'s feather check, drawn inline (still a check mark, not just a colour)',
+      !!okSeen.mark && (EDITION_PLAIN ? okSeen.mark.content === '"\u2713"' && okSeen.mark.image === 'none' : okSeen.mark.content === '""' && okSeen.mark.image.startsWith('url("data:image/svg+xml')), JSON.stringify(okSeen.mark));
     // Editing a flagged line still clears its note at once (a fresh read of the same photo)
     await pZ.click('#ocrBackBtn');
     await pZ.click('#runOcrBtn');
@@ -1715,6 +1721,16 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('one more photo: a reading with no name asks for another photo, saying what is missing and that it would be photo 2 of 3',
       /but not the name/.test(await pM.textContent('#ocrMorePhotoText')) && (await pM.textContent('#ocrMorePhotoCount')).includes('photo 2 of 3') && await pM.isVisible('#ocrAnotherPhotoBtn') && await pM.isVisible('#ocrFixByHandBtn'),
       await readStage(pM));
+    await pM.waitForTimeout(500);   // the owl's eyes settle (0.4 s)
+    // The reading box is hidden once the read ends, and a hidden SVG has no transform to read: show it for the measurement
+    const owlM = await pM.evaluate(() => { const cs = (sel) => getComputedStyle(document.querySelector(sel)); const more = document.getElementById('ocrMorePhotoOwl');
+      const box = document.getElementById('ocrProgress'); box.classList.remove('hidden'); const pupils = cs('#ocrReadOwl .owl-pupils').transform; box.classList.add('hidden');
+      return { pupilsShown: pupils, read: cs('#ocrReadOwl').display, more: cs('#ocrMorePhotoOwl').display !== 'none' && more.getBoundingClientRect().width > 0, hidden: [document.getElementById('ocrReadOwl'), more].every(o => o.getAttribute('aria-hidden') === 'true'),
+        pupils: cs('#ocrReadOwl .owl-pupils').transform, closed: cs('#ocrReadOwl .owl-closed').display, progress: document.getElementById('ocrProgress').style.getPropertyValue('--read-progress') }; });
+    // Cute round O1 and O3 (raven575, 2026-10-21): Glyph the owl reads along and asks for the next photo; never in plain
+    ok(EDITION_PLAIN ? 'plain edition: no owl on the Read card or on "One more photo?"' : 'the owl follows the wash to the end and closes its eyes when the read is done; it holds a magnifying glass on "One more photo?"; screen readers skip it',
+      EDITION_PLAIN ? owlM.read === 'none' && !owlM.more
+        : owlM.read !== 'none' && owlM.more && owlM.hidden && owlM.progress === '1' && owlM.pupilsShown === 'matrix(1, 0, 0, 1, 1.5, 0)' && owlM.closed === 'inline', JSON.stringify(owlM));
     ok('one more photo: the first photo is dropped once read; only its text is held, in OCR\'s vault slot', !(await pM.getAttribute('#reviewImage', 'src')) && !(await pM.evaluate(() => JSON.stringify(localStorage)).then(s => s.includes('northwind'))));
     pM.once('filechooser', () => {});
     await pM.click('#ocrAnotherPhotoBtn');
@@ -1733,10 +1749,15 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
 
     const ctxH = await browser.newContext();
     const pH = await ctxH.newPage();
+    await pH.emulateMedia({ reducedMotion: 'reduce' });
     await pH.goto(ORIGIN); await pH.waitForTimeout(300);
     await pH.setInputFiles('#imageUpload', await card(pH, noName)); await pH.waitForTimeout(300);
     await pH.click('#runOcrBtn');
     await readEnds(pH, '#ocrMorePhotoModal');
+    const owlH = await pH.evaluate(() => { const cs = (sel) => getComputedStyle(document.querySelector(sel));
+      const box = document.getElementById('ocrProgress'); box.classList.remove('hidden'); const pupils = cs('#ocrReadOwl .owl-pupils').transform; box.classList.add('hidden');
+      return { pupils, move: cs('#ocrReadOwl .owl-pupils').transitionDuration, closed: cs('#ocrReadOwl .owl-closed').display, eyes: cs('#ocrReadOwl .owl-eye').display, done: document.getElementById('ocrProgress').classList.contains('is-done') }; });
+    ok('reduce motion: the owl is one still picture: its eyes never move or close, even when the read is done', owlH.done && owlH.pupils === 'none' && owlH.move === '0s' && owlH.closed === 'none' && owlH.eyes !== 'none', JSON.stringify(owlH));
     await pH.click('#ocrFixByHandBtn');
     await readEnds(pH);
     const byHand = await pH.$$eval('#ocrLines input[id^="ocrLineText"]', els => els.map(e => e.value));
