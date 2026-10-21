@@ -338,7 +338,7 @@
                     <select id="cardFontSelect" class="px-2 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-xs font-semibold" aria-label="Card typography"></select>
                     <select id="cardSizeSelect" class="px-2 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-xs font-semibold" aria-label="Card text size"></select>
                     <button id="cardIconsBtn" type="button" aria-pressed="true" title="Icons in front of the card's lines" class="px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition">Icons: on</button>
-                    <button id="flipCardBtn" type="button" class="ml-auto px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition">Flip card</button>
+                    <button id="flipCardBtn" type="button" class="ml-auto px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition"><svg class="flip-tail" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2 13C2 6 8 2.5 12 5.2c2.6 1.8 1.4 5.6-1.4 5.3-1.8-.2-2.2-2.4-.6-2.9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Flip card</button>
                 </div>
                 <!-- Logo (MOD06): upload sits on the right with the preview; Remove on the far left, away from it -->
                 <div class="flex flex-wrap items-center gap-2">
@@ -379,6 +379,17 @@
                         <div id="cardBack" class="card-face absolute inset-0 w-full rounded-3xl p-6 shadow-xl flex flex-col justify-center items-center text-center gap-2 rotate-y-180 backface-hidden font-sans">
                             <canvas id="qrCanvas" width="320" height="320" class="w-40 h-40 rounded-xl shadow-xl bg-white"></canvas>
                             <p id="backCardName" class="text-sm font-bold">New Contact</p>
+                            <!-- D2: Flipside the Chameleon peeks up over the bottom edge (hand-drawn, still; the card's own colours) -->
+                            <svg class="card-peek" viewBox="0 0 64 36" aria-hidden="true" focusable="false">
+                                <path d="M14 36C6 30 4 20 12 17c6-2 9 5 4 7-3 1-4-2-2-3" class="peek-tail" fill="none" stroke-width="4" stroke-linecap="round"/>
+                                <path d="M10 36c4-14 20-20 34-16 8 2 14 8 16 16Z" class="peek-body" stroke-width="1.2"/>
+                                <path d="M39 20l6-8 7 6" class="peek-body" stroke-width="1.2" stroke-linejoin="round"/>
+                                <circle cx="24" cy="30" r="2" class="peek-spot"/><circle cx="32" cy="25" r="1.6" class="peek-spot"/><circle cx="38" cy="31" r="1.8" class="peek-spot"/>
+                                <circle cx="50" cy="22" r="5.5" class="peek-eye"/>
+                                <circle cx="50.5" cy="22" r="3" fill="#ffffff"/><circle cx="51.3" cy="21.6" r="1.5" class="peek-ink"/>
+                                <path d="M53 29q4 1.5 6-2" class="peek-line" fill="none" stroke-width="1.2" stroke-linecap="round"/>
+                                <path d="M29 36c0-5 6-5 6 0" class="peek-body" stroke-width="1.2"/>
+                            </svg>
                             <p id="qrNotice" class="hidden text-[10px] text-amber-600 dark:text-amber-400">QR code unavailable: see the message above</p>
                         </div>
                     </div>

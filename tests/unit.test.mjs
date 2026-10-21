@@ -1166,6 +1166,12 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('a mark of two colours is not traced (kept as is)', card.traceLogo(mixed, 20, box).reason === 'colours');
   ok('colour distance to the ink-to-background line: on it 0, off it the gap', card.distanceToInkLine([128, 128, 128], [0, 0, 0], [255, 255, 255]) === 0 && Math.round(card.distanceToInkLine([255, 0, 0], [0, 0, 0], [255, 255, 255])) === 208 && card.distanceToInkLine([10, 10, 10], [0, 0, 0], [0, 0, 0]) > 17);
   ok('the line runs on past the ink\'s average: the solid ink, darker than the average, is on it; nothing is on it behind the background', card.distanceToInkLine([17, 34, 51], [59, 72, 84], [255, 255, 255]) < 15 && Math.round(card.distanceToInkLine([255, 255, 255], [59, 72, 84], [255, 255, 255])) === 0 && card.distanceToInkLine([0, 0, 0], [255, 255, 255], [128, 128, 128]) > 200);
+  // D1: the rim's tint, from the vCard photo (the corner is the background the logo was laid on)
+  const photo = (back, mark, share = 0.25) => { const px = new Uint8ClampedArray(100 * 4); for (let i = 0; i < 100; i++) px.set(i >= 100 * (1 - share) ? mark : back, i * 4); return px; };
+  ok('rim tint: a red mark on white gives red', card.logoTint(photo([255, 255, 255, 255], [220, 20, 20, 255]), 100) === 'rgb(220, 20, 20)');
+  ok('rim tint: a blue mark on the dark slate behind a light logo gives blue, not the slate', card.logoTint(photo([30, 41, 59, 255], [29, 78, 216, 255]), 100) === 'rgb(29, 78, 216)');
+  ok('rim tint: white lettering on an opaque red logo gives the red', card.logoTint(photo([200, 0, 0, 255], [255, 255, 255, 255]), 100) === 'rgb(200, 0, 0)');
+  ok('rim tint: a grey logo on white gives its grey; a photo of its background only gives none', card.logoTint(photo([255, 255, 255, 255], [90, 90, 90, 255]), 100) === 'rgb(90, 90, 90)' && card.logoTint(photo([255, 255, 255, 255], [250, 250, 250, 255]), 100) === null);
   ok('a hold on a toast is 0.4 s or longer', card.TOAST_HOLD_MS === 400);
   ok('a blank image is too faint to trace', card.traceLogo(image([255, 255, 255, 255], [255, 255, 255, 255]), 20, box).reason === 'faint');
   const half = new Uint8ClampedArray(20 * 10 * 4).fill(255);

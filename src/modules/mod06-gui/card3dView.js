@@ -186,6 +186,7 @@ export class CardView {
         this.avatarBase64 = null;   // logo as the vCard PHOTO (square JPEG)
         this.logoDisplay = null;    // logo as shown on the card: a two-colour trace (SVG) in the ink colour, else trimmed with its transparency
         this.logoLook = null;       // { wide, transparent, tone, traced, edge } of logoDisplay, worked out when it is set
+        this.rimPhoto = null;       // the photo the rim's tint was read from (D1)
         this.themeKey = DEFAULT_THEME;
         this.fontClass = 'font-sans';
         this.cardSize = DEFAULT_CARD_SIZE;
@@ -592,6 +593,7 @@ export class CardView {
         this.logoDisplay = photo ? display : null;
         this.logoLook = null;
         this.askRemoveLogo(false);
+        this.tintRim(photo);
         if (!this.logoDisplay) return;
         // Its shape and tone take a moment to read; the card is drawn again once they are known.
         const shown = this.logoDisplay;
@@ -600,6 +602,25 @@ export class CardView {
             this.logoLook = look;
             this.render(this.getContact());
         }).catch(err => console.warn('[vCGE] Logo shape not readable:', err));
+    }
+
+    /**
+     * The card's rim (D1, the chameleon blending in): a soft tint taken once from the logo's own colours, read from
+     * the vCard photo (a trace has lost them). The card is drawn again on every edit, so only a new logo reads it
+     * again; with no logo there is no rim. The plain edition and colour-blind mode style it (cardStyles.css).
+     */
+    tintRim(photo) {
+        if (photo === this.rimPhoto) return;
+        this.rimPhoto = photo;
+        const flipper = $('card3DFlipper');
+        delete flipper.dataset.rim;
+        flipper.style.removeProperty('--card-rim');
+        if (!photo) return;
+        logoTintOf(photo).then(tint => {
+            if (this.rimPhoto !== photo || !tint) return;
+            flipper.style.setProperty('--card-rim', tint);
+            flipper.dataset.rim = '1';
+        }).catch(err => console.warn('[vCGE] Logo colours not readable:', err));
     }
 
     /** Shows the "Remove the logo?" question in place of the Remove logo button (asking), or the button (a logo is on). */
@@ -1122,6 +1143,50 @@ export async function describeLogo(displayUrl) {
     // An opaque logo's edge colour fills the tile around it, so its own background reaches the rounded edge.
     const edge = transparent ? null : logoBounds(px, cw, ch).edge;
     return { wide: w / h >= WIDE_LOGO, transparent, tone: toneOf(px, cw, { x: 0, y: 0, w: cw, h: ch }), traced: false, edge };
+}
+
+/** The rim's tint (D1) from a logo's vCard photo: `rgb(r, g, b)`, or null when the photo is its background only. */
+export async function logoTintOf(photoUrl) {
+    const { img, w, h } = await loadLogo(photoUrl);
+    const k = Math.min(1, 48 / Math.max(w, h));
+    const cw = Math.max(1, Math.round(w * k)), ch = Math.max(1, Math.round(h * k));
+    const c = canvasOf(cw, ch);
+    const ctx = c.getContext('2d', { willReadFrequently: true });
+    ctx.drawImage(img, 0, 0, cw, ch);
+    const px = ctx.getImageData(0, 0, cw, ch).data;
+    c.width = c.height = 0;
+    return logoTint(px, cw * ch);
+}
+
+const TINT_OFF_BACK = 48;     // RGB distance from the photo's corner (the background it is laid on) to count as the logo
+const TINT_SATURATED = 0.25;  // a pixel this colourful (chroma over its brightest channel) counts as a colour
+const TINT_MIN_COLOUR = 0.05; // less of the logo than this in colour: a grey logo, and its average grey is the tint
+
+/**
+ * The logo's colour from the photo's pixels: the photo's corner is the background it was laid on, so the pixels far
+ * from it are the logo. Its colourful pixels give the tint when there are enough of them, else a colourful
+ * background (an opaque logo's own), else the logo's average grey.
+ * @param {Uint8ClampedArray} px  RGBA
+ * @param {number} n  pixel count
+ */
+export function logoTint(px, n) {
+    const back = [px[0], px[1], px[2]];
+    const all = [0, 0, 0], colour = [0, 0, 0];
+    let logo = 0, colourful = 0;
+    for (let i = 0; i < n; i++) {
+        const k = i * 4, r = px[k], g = px[k + 1], b = px[k + 2];
+        if (px[k + 3] <= 128 || Math.hypot(r - back[0], g - back[1], b - back[2]) <= TINT_OFF_BACK) continue;
+        logo++;
+        all[0] += r; all[1] += g; all[2] += b;
+        const max = Math.max(r, g, b);
+        if (max && (max - Math.min(r, g, b)) / max >= TINT_SATURATED) { colourful++; colour[0] += r; colour[1] += g; colour[2] += b; }
+    }
+    const rgb = (sum, count) => `rgb(${sum.map(v => Math.round(v / count)).join(', ')})`;
+    if (logo && colourful / logo >= TINT_MIN_COLOUR) return rgb(colour, colourful);
+    // An opaque logo is laid on its own edge colour: a colourful one (white lettering on red) is the logo's colour.
+    const backMax = Math.max(...back);
+    if (backMax && (backMax - Math.min(...back)) / backMax >= TINT_SATURATED) return rgb(back, 1);
+    return logo ? rgb(all, logo) : null;
 }
 
 const isTraceUrl = (url) => typeof url === 'string' && /^data:image\/svg\+xml;base64,/i.test(url) && decodeDataUrl(url).includes(TRACE_MARK);

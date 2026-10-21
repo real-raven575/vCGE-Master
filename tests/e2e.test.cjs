@@ -2868,6 +2868,18 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const rgb = (hex) => `rgb(${parseInt(hex.slice(1, 3), 16)}, ${parseInt(hex.slice(3, 5), 16)}, ${parseInt(hex.slice(5, 7), 16)})`;
     const face = () => p6.$eval('#cardFront', el => { const cs = getComputedStyle(el); return { bg: cs.backgroundColor, ink: cs.color }; });
     ok('card: the default theme is Slate Blue, on the card face and in the picker', (await face()).bg === rgb('#3e5572') && (await face()).ink === rgb('#eef3f9') && (await p6.textContent('#currentPaletteLabel')) === 'Slate Blue', JSON.stringify(await face()));
+    // The make-it-cute touches (D2, D3): still pictures, hidden from screen readers, gone in the plain edition
+    const cute = await p6.evaluate(() => {
+      const peek = document.querySelector('#cardBack .card-peek'), tail = document.querySelector('#flipCardBtn .flip-tail'), btn = document.getElementById('flipCardBtn');
+      const back = document.getElementById('cardBack').getBoundingClientRect(), qr = document.getElementById('qrCanvas').getBoundingClientRect(), pk = peek.getBoundingClientRect();
+      return { peekShown: getComputedStyle(peek).display !== 'none', tailShown: getComputedStyle(tail).display !== 'none', hidden: peek.getAttribute('aria-hidden') === 'true' && tail.getAttribute('aria-hidden') === 'true',
+        label: btn.textContent.trim(), noPress: getComputedStyle(peek).pointerEvents === 'none', moving: peek.getAnimations().length + tail.getAnimations().length,
+        onEdge: Math.abs(pk.bottom - back.bottom) <= 2 && pk.right <= back.right - 16, clearOfQr: pk.top >= qr.bottom || pk.left >= qr.right };
+    });
+    if (EDITION_PLAIN) ok('plain edition: no chameleon on the card\'s back and no tail on Flip card; the button still reads "Flip card"', !cute.peekShown && !cute.tailShown && cute.label === 'Flip card', JSON.stringify(cute));
+    else ok('card: Flipside peeks up over the bottom edge of the back, clear of the QR code, still and untouchable; Flip card has its curled tail and still reads "Flip card"; both hidden from screen readers',
+      cute.peekShown && cute.tailShown && cute.hidden && cute.label === 'Flip card' && cute.noPress && cute.moving === 0 && cute.onEdge && cute.clearOfQr, JSON.stringify(cute));
+    ok('card: with no logo the card has no rim', await p6.$eval('#card3DFlipper', el => !('rim' in el.dataset) && getComputedStyle(document.getElementById('cardFront'), '::after').opacity === '0'));
     ok('card: the picker lists the eight fall palettes in order', (await p6.$$eval('#paletteListContainer button', bs => bs.map(b => b.textContent.trim()).join('|'))) === 'Pumpkin|Maple|Harvest Gold|Cranberry|Spruce|Sage|Slate Blue|Twilight');
     await p6.click('#paletteDropdownBtn'); await p6.click('#paletteListContainer [data-theme="pumpkin"]');
     ok('card: Pumpkin colours the whole face, front and back, with dark ink; the back too', (await face()).bg === rgb('#e8792b') && (await face()).ink === rgb('#2a1407') && (await p6.$eval('#cardBack', el => getComputedStyle(el).backgroundColor)) === rgb('#e8792b') && (await p6.textContent('#toastMessage')) === 'Applied palette: Pumpkin', JSON.stringify(await face()));
@@ -3015,6 +3027,24 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p6.waitForTimeout(300);
     const ghost = await p6.evaluate(() => ({ name: document.getElementById('previewFullName').textContent, theme: document.getElementById('currentPaletteLabel').textContent, logo: (document.querySelector('#previewAvatar img') || { src: document.querySelector('#previewAvatar svg') ? 'svg' : '' }).src.slice(0, 21), badge: getComputedStyle(document.getElementById('previewAvatar')).display !== 'none', remove: getComputedStyle(document.getElementById('removeAvatarBtn')).display !== 'none' }));
     ok(`sample: ${s1First} ${s1Last} lands with the Twilight theme and ${EDITION_PLAIN ? 'an uploaded' : 'the raccoon as a'} picture logo in the badge, Remove now shown`, ghost.name === `${s1First} ${s1Last}` && ghost.theme === 'Twilight' && ghost.logo === (EDITION_PLAIN ? 'svg' : 'data:image/png;base64') && ghost.badge && ghost.remove, JSON.stringify(ghost));
+    // D1: the logo gives the card's rim its tint, once; grey in colour-blind mode, none in the plain edition
+    await p6.waitForFunction(() => 'rim' in document.getElementById('card3DFlipper').dataset, null, { timeout: 5000 }).catch(() => {});
+    await p6.waitForTimeout(700);   // the one fade-in
+    const rim = () => p6.evaluate(() => { const f = document.getElementById('card3DFlipper'), st = getComputedStyle(document.getElementById('cardFront'), '::after');
+      return { set: 'rim' in f.dataset, tint: f.style.getPropertyValue('--card-rim'), colour: st.borderTopColor, width: st.borderTopWidth, opacity: st.opacity, display: st.display }; });
+    const rim6 = await rim();
+    if (EDITION_PLAIN) ok('plain edition: the logo gives the card no rim', rim6.display === 'none', JSON.stringify(rim6));
+    else ok('card: the logo tints the card\'s rim (3 px, in the logo\'s colour) and it holds still', rim6.set && /^rgb\(/.test(rim6.tint) && rim6.colour === rim6.tint && rim6.width === '3px' && rim6.opacity === '1', JSON.stringify(rim6));
+    if (!EDITION_PLAIN) {
+      await p6.evaluate(() => { document.documentElement.dataset.cb = '1'; });
+      const cbRim = await rim();
+      await p6.evaluate(() => { delete document.documentElement.dataset.cb; });
+      ok('colour-blind mode: the card\'s rim is a neutral grey', cbRim.colour === 'rgb(148, 163, 184)', JSON.stringify(cbRim));
+    }
+    // Typing on the card does not read the logo again, so the rim never fades out and back in
+    await p6.evaluate(() => { window.__rimOff = 0; new MutationObserver(() => { if (!('rim' in document.getElementById('card3DFlipper').dataset)) window.__rimOff++; }).observe(document.getElementById('card3DFlipper'), { attributes: true, attributeFilter: ['data-rim'] }); });
+    await p6.click('#navFields'); await p6.fill('#jobTitle', 'Night Owl'); await p6.click('#navCard'); await p6.waitForTimeout(300);
+    ok('card: editing the contact keeps the rim as it is (no second fade)', (await p6.evaluate(() => window.__rimOff)) === 0 && (await rim()).set);
     const [dl6] = await Promise.all([p6.waitForEvent('download'), p6.click('#downloadVcfBtn')]);
     const vcf6 = fs.readFileSync(await dl6.path(), 'utf8');
     const email6 = EDITION_PLAIN ? `${s1First}.${s1Last}@example.com`.toLowerCase() : 'ghost@example.com';
@@ -3030,6 +3060,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('logo: No keeps the logo and brings the Remove logo button back', !!(await p6.$(LOGO6)) && await p6.isVisible('#removeAvatarBtn') && !(await p6.isVisible('#removeLogoConfirm')));
     await p6.click('#removeAvatarBtn'); await p6.click('#removeLogoYes');
     ok('logo: Remove takes the logo off and says so; the initials are back', !(await p6.$(LOGO6)) && (await p6.textContent('#previewAvatar')).trim() === s1First[0] + s1Last[0] && (await p6.textContent('#toastMessage')) === 'Logo removed.');
+    ok('card: with the logo removed the rim goes too', await p6.$eval('#card3DFlipper', el => !('rim' in el.dataset) && !el.style.getPropertyValue('--card-rim')));
     await p6.click('#toastAction').catch(() => {});
     await p6.click('#navFields'); await p6.waitForTimeout(300);
     await p6.click('#clearFormBtn'); await p6.click('#toastAction');

@@ -69,6 +69,23 @@ html[data-edition="plain"] #cardCard > .deck-card-body { padding-top: 1.25rem; }
 .card-line-value { min-width: 0; }
 /* A line with display: contents still has to leave the printed card when Tailwind's print:hidden says so (MOD08). */
 @media print { .card-lines .card-line.print\:hidden { display: none; } }
+/* The make-it-cute touches (raven575, 2026-10-21; notes/cute-ideas): all still pictures or one fade, none in the plain
+   edition or on the printed card. D1: the rim takes the logo's tint once (card3dView.js tintRim) and holds still; grey
+   in colour-blind mode. D2: Flipside peeks up over the bottom edge of the card's back. D3: a curled tail on Flip card. */
+.card-face::after { content: ''; position: absolute; inset: 0; border-radius: inherit; border: 3px solid var(--card-rim, transparent); opacity: 0; pointer-events: none; }
+#card3DFlipper[data-rim] .card-face::after { opacity: 1; }
+@media (prefers-reduced-motion: no-preference) { .card-face::after { transition: opacity 0.6s ease-out; } }
+html[data-cb="1"] #card3DFlipper .card-face::after { border-color: #94a3b8; }
+.card-peek { position: absolute; bottom: 0; right: 1.75rem; width: calc(3.25rem * var(--card-scale)); height: auto; pointer-events: none; }
+.card-peek .peek-tail { stroke: var(--card-accent); }
+.card-peek .peek-body, .card-peek .peek-eye { fill: var(--card-accent); stroke: var(--card-ink); stroke-width: 1.2; }
+.card-peek .peek-body { stroke-opacity: 0.35; }
+.card-peek .peek-spot { fill: var(--card-ink); fill-opacity: 0.2; }
+.card-peek .peek-ink { fill: var(--card-ink); }
+.card-peek .peek-line { stroke: var(--card-ink); }
+.flip-tail { display: inline-block; width: 1.1em; height: 1.1em; vertical-align: -0.25em; margin-right: 0.3em; }
+html[data-edition="plain"] .card-face::after, html[data-edition="plain"] .card-peek, html[data-edition="plain"] .flip-tail { display: none; }
+@media print { .card-face::after, .card-peek { display: none; } }
 /* A traced logo is a drawing in the ink colour (currentColor); the plate, when there is one, is set inline. */
 .card-trace { display: block; fill: currentColor; }
 
