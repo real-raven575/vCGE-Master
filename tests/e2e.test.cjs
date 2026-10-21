@@ -311,6 +311,44 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       && navNames.filter(n => n[3]).map(n => n[3]).join('|') === 'Start|Capture|Read|Fields|Card|QR|Share', JSON.stringify(navNames));
     ok('plain edition: nothing on screen names a pilot, a MOD tag or the tagline', !/Shutout|Ghost|Iris|Glyph|Pidge|Flipside|Checkers|Airlock|Cornerstone|MOD-0|Never Lose Contact|Team vCGE/.test(await page.evaluate(() => document.body.innerText)));
   }
+  // Shutout's touches (shellArt.js): the turtle under the lit icon, the shell plates, the sheets' grab bar and pebble
+  const shellArt = () => page.evaluate(() => {
+    const t = document.getElementById('deckTurtle'), on = document.querySelector('.deck-nav button.is-on');
+    const tr = t.getBoundingClientRect(), br = on.getBoundingClientRect(), hr = document.querySelector('.deck-header').getBoundingClientRect();
+    return { shown: getComputedStyle(t).display !== 'none' && getComputedStyle(t).visibility === 'visible', off: Math.abs((tr.left + tr.width / 2) - (br.left + br.width / 2)),
+      onEdge: tr.top < hr.bottom && tr.bottom > hr.bottom, walk: getComputedStyle(t).transitionDuration,
+      plates: Array.from(document.querySelectorAll('#deckPlates [data-card]')).map(p => p.dataset.state || '').join(),
+      platesShown: getComputedStyle(document.getElementById('deckPlates')).display !== 'none', hidden: t.getAttribute('aria-hidden') + document.getElementById('deckPlates').getAttribute('aria-hidden') };
+  });
+  if (EDITION_PLAIN) {
+    const a0 = await shellArt();
+    ok('plain edition: no turtle and no shell plates', !a0.shown && !a0.platesShown, JSON.stringify(a0));
+  } else {
+    // The page opens on the Capture card: Shutout walks to Start and back (not Fields: its form pops in once, later)
+    await page.waitForFunction(() => document.getElementById('deckTurtle').classList.contains('is-placed'), null, { timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(300);
+    const a0 = await shellArt();
+    ok('shell art: the turtle stands on the header\'s edge under the lit icon, and only that card\'s plate is current', a0.shown && a0.off <= 2 && a0.onEdge && a0.platesShown
+      && a0.plates === 'new,current,new,new,new,new' && a0.hidden === 'truetrue', JSON.stringify(a0));
+    await page.click('#navWelcome'); await page.waitForTimeout(900);
+    const a1 = await shellArt();
+    ok('shell art: the turtle walks (0.4 s) to the Start icon; Capture is now a visited plate, Start the current one', a1.shown && a1.off <= 2 && a1.walk === '0.4s'
+      && a1.plates === 'current,visited,new,new,new,new', JSON.stringify(a1));
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await page.click('#navCapture'); await page.waitForTimeout(600);
+    const a2 = await shellArt();
+    ok('shell art: under reduced motion the turtle does not walk, it is simply under the new icon', a2.shown && a2.off <= 2 && a2.walk === '0s'
+      && a2.plates === 'visited,current,new,new,new,new', JSON.stringify(a2));
+    await page.emulateMedia({ reducedMotion: null });
+  }
+  await page.click('#navSettings'); await page.waitForSelector('#settingsSheet', { state: 'visible' });
+  const sheetArt = await page.evaluate(() => {
+    const panel = document.querySelector('#settingsSheet .vcge-sheet-panel'), bar = getComputedStyle(panel, '::before'), x = getComputedStyle(document.querySelector('#settingsSheet .vcge-sheet-close'));
+    return { bar: bar.content !== 'none' && bar.content !== '' && parseFloat(bar.width) > 0, radius: getComputedStyle(panel).borderTopLeftRadius, pebble: x.backgroundColor !== 'rgba(0, 0, 0, 0)' && parseFloat(x.borderRadius) >= 22 };
+  });
+  ok(EDITION_PLAIN ? 'plain edition: sheets keep the plain frame (no grab bar, no pebble)' : 'shell art: a sheet has a rounder top with a grab bar, and its close button is a round pebble',
+    EDITION_PLAIN ? !sheetArt.bar && sheetArt.radius === '20px' && !sheetArt.pebble : sheetArt.bar && sheetArt.radius === '28px' && sheetArt.pebble, JSON.stringify(sheetArt));
+  await page.keyboard.press('Escape'); await page.waitForSelector('#settingsSheet', { state: 'hidden' });
   ok('opens straight to an empty card (no passphrase dialog)', !(await visible('vaultModal')) && (await val('firstName')) === '');
   ok('header badge reads "Vault: UNLOCKED" and the indicator says memory only', (await text('vaultBadge')) === 'Vault: UNLOCKED' && (await text('vaultStateIndicator')) === 'UNLOCKED / memory only');
   ok('Lock button hidden until a session PIN is set', !(await lockOffered(page)));

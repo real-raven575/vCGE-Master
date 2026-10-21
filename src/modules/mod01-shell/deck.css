@@ -64,6 +64,40 @@
     .deck-nav button { padding: 0; min-width: calc(2.2 * var(--vcge-hu)); }
 }
 
+/* ---- Shutout's touches (shellArt.js): the turtle under the lit icon and the shell plates (branded edition only) --- */
+/* The turtle stands on the header's bottom edge, centred under the lit card icon (shellArt.js sets --turtle-x), and walks
+   to the next icon in 0.4 s. Under reduced motion it is simply there. It faces the way it last walked. */
+.deck-turtle {
+    position: absolute; left: 0; top: calc(100% - 0.5 * var(--vcge-hu)); z-index: 1; pointer-events: none; visibility: hidden;
+    width: calc(1.5 * var(--vcge-hu)); height: calc(0.875 * var(--vcge-hu)); transform: translateX(var(--turtle-x, 0));
+}
+.deck-turtle.is-placed { visibility: visible; }
+@media (prefers-reduced-motion: no-preference) { .deck-turtle.is-placed { transition: transform 0.4s ease-in-out; } }
+.deck-turtle.is-still { transition: none; }
+.deck-turtle svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.deck-turtle[data-dir="left"] svg { transform: scaleX(-1); }
+.deck-turtle .turtle-shell { fill: #16a34a; stroke: #14532d; stroke-width: 0.8; }
+.deck-turtle .turtle-plates { fill: none; stroke: #14532d; stroke-width: 0.7; stroke-linejoin: round; }
+.deck-turtle .turtle-skin { fill: #86efac; stroke: #14532d; stroke-width: 0.6; }
+.deck-turtle .turtle-eye { fill: #14532d; }
+/* One shell plate per card, just above the cards' top left corner (the MOD tags are on the right): a card you have been to
+   is filled in, the one in view has a thick outline. Nothing moves. */
+.deck-plates {
+    position: absolute; z-index: 1; pointer-events: none; display: flex; gap: calc(0.25 * var(--vcge-hu));
+    left: calc((100% - var(--deck-card-w)) / 2 + 1rem);
+    top: calc(100% + var(--vcge-strip-h) + (0.75rem - 0.5 * var(--vcge-hu)) / 2);
+}
+.deck-plates svg { display: block; width: calc(0.5 * var(--vcge-hu)); height: calc(0.5 * var(--vcge-hu)); overflow: visible; }
+.deck-plates polygon { fill: none; stroke: #94a3b8; stroke-width: 1; stroke-linejoin: round; }
+.deck-plates [data-state="visited"] polygon, .deck-plates [data-state="current"] polygon { fill: #16a34a; stroke: #15803d; }
+.deck-plates [data-state="current"] polygon { stroke: #0f172a; stroke-width: 2.4; }
+.dark .deck-plates polygon { stroke: #64748b; }
+.dark .deck-plates [data-state="visited"] polygon { stroke: #15803d; }
+.dark .deck-plates [data-state="current"] polygon { stroke: #f1f5f9; }
+html[data-cb="1"] .deck-plates [data-state="visited"] polygon, html[data-cb="1"] .deck-plates [data-state="current"] polygon { fill: #2563eb; }
+html[data-cb="1"] .deck-plates [data-state="visited"] polygon { stroke: #1d4ed8; }
+html[data-edition="plain"] .deck-turtle, html[data-edition="plain"] .deck-plates { display: none; }
+
 /* ---- Track and cards ----------------------------------------------------------------------------------------- */
 /* The page is as tall as the screen shows it. On iPhone and iPad, 100vh is the height with the browser's bars tucked
    away, taller than the page in view: the deck grew to fill it and every card's foot (the trash and the green
@@ -162,6 +196,18 @@ body.h-screen { height: 100vh; height: 100dvh; }
 .vcge-sheet-head h2 { font-size: 1.125rem; font-weight: 700; margin: 0; }
 .vcge-sheet-close { width: 2.75rem; height: 2.75rem; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; background: transparent; color: inherit; cursor: pointer; }
 .vcge-sheet-close:hover { background: rgba(100, 116, 139, 0.15); }
+/* Shutout's touch for the branded edition: a rounder top with a grab bar (a sideways swipe closes a sheet) and a round
+   pebble for the close button. The plain edition keeps the plain frame. */
+html:not([data-edition="plain"]) .vcge-sheet-panel { border-radius: 1.75rem 1.75rem 1.25rem 1.25rem; }
+html:not([data-edition="plain"]) .vcge-sheet-panel::before {
+    content: ''; position: absolute; top: 0.5rem; left: 50%; transform: translateX(-50%);
+    width: 2.5rem; height: 0.3rem; border-radius: 999px; background: #cbd5e1; pointer-events: none;
+}
+.dark:not([data-edition="plain"]) .vcge-sheet-panel::before { background: #475569; }
+html:not([data-edition="plain"]) .vcge-sheet-close { background: #f1f5f9; border-color: #cbd5e1; box-shadow: inset 0 -3px 0 rgba(15, 23, 42, 0.12); }
+html:not([data-edition="plain"]) .vcge-sheet-close:hover { background: #e2e8f0; }
+.dark:not([data-edition="plain"]) .vcge-sheet-close { background: #1e293b; border-color: #334155; box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.35); }
+.dark:not([data-edition="plain"]) .vcge-sheet-close:hover { background: #334155; }
 .vcge-sheet-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.5rem 0; font-size: 0.9rem; }
 .vcge-sheet-note { font-size: 0.75rem; color: #64748b; margin: 0.5rem 0 0; }
 .vcge-sheet-hint { font-size: 0.7rem; color: #64748b; margin: -0.25rem 0 0.25rem; }

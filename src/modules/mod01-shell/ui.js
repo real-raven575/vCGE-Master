@@ -8,6 +8,7 @@
  */
 
 import { isPlain, applyEdition } from './edition.js';
+import { initShellArt } from './shellArt.js';
 
 export const BREAKPOINTS = { tablet: 600, desktop: 1200 };
 
@@ -59,6 +60,7 @@ export function initTags(doc = document) {
 if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
     applyEdition();
     initTags();
+    initShellArt();
     let touching = false;
     document.addEventListener('pointerdown', (e) => { touching = e.pointerType === 'touch'; }, true);
     document.addEventListener('click', (e) => {
