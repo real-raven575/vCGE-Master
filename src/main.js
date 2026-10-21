@@ -41,6 +41,7 @@ import { CardView, PRESETS, PLAIN_PRESETS, THEMES, themeKeyOf, prepareLogo } fro
 import { vcgeQREngine } from './modules/mod07-qr/qrGenerator.js';
 import { egressController, PRINT_QR_PX } from './modules/mod08-egress/egressController.js';
 import { exportQrDialog, printChoiceDialog } from './modules/mod08-egress/exportDialogs.js';
+import { wireHatches, wireFalcon, flyFalcon, showReadyLights } from './modules/mod08-egress/airlockTouches.js';
 import { VaultStore, READINGS } from './modules/mod02-vault/vaultStore.js';
 
 const $ = (id) => document.getElementById(id);
@@ -90,6 +91,7 @@ let biometricSupported = false;
 
 // ---- Contact pipeline ------------------------------------------------------------------------------------------
 
+let qrShown = false;
 function refresh(contact = cardView.getContact()) {
     const vcard = vcgeQREngine.generateVCard30(contact);
     cardView.render(contact);
@@ -101,6 +103,11 @@ function refresh(contact = cardView.getContact()) {
     const theme = THEMES[themeKeyOf(contact.themePalette)];
     const qrOk = hasDetails && vcgeQREngine.renderQRCode($('qrCanvas'), vcgeQREngine.generateVCard30({ ...contact, avatarBase64: null }), { size: 320, theme });
     $('qrNotice').classList.toggle('hidden', qrOk || !hasDetails);
+    // Checkers: the first real code after the placeholder fills in once; the hint under it shows only with a real code.
+    if (qrOk && !qrShown) vcgeQREngine.reveal($('qrCanvas'));
+    qrShown = qrOk;
+    $('qrHint').classList.toggle('hidden', !qrOk);
+    showReadyLights(contact, qrOk);
     egressController.setPayload(vcard, contact, { qrReal: qrOk, hasDetails });
     globalEventBus.publish(Events.CONTACT_UPDATED, { timestamp: Date.now() });
 }
@@ -954,7 +961,11 @@ function wireEgress() {
     // A share or download may bring another app to the front: the 2-minute idle rule applies, not the screen-off lock or 30 s wipe.
     ['downloadVcfBtn', 'emailBtn', 'smsBtn', 'shareNativeBtn', 'copyVcardBtn']
         .forEach(id => $(id).addEventListener('click', expectExternalApp, true));
-    $('downloadVcfBtn').addEventListener('click', () => egressController.downloadVcf());
+    $('downloadVcfBtn').addEventListener('click', () => {
+        if (!egressController.downloadVcf()) return;
+        cardView.showToast(`Saved ${egressController.fileName('.vcf')}.`);
+        flyFalcon();
+    });
     // QR PNG: the Export QR pop-up (colours, dots, frame, centre logo) with a live preview; Save PNG downloads it as previewed.
     $('exportQrBtn').addEventListener('click', () => {
         if (egressController.isEmpty()) { cardView.showToast('Add a contact first.'); return; }
@@ -966,6 +977,7 @@ function wireEgress() {
         scannedLogo: () => cardView.logoDisplay || null,
         prepareLogo: (source) => prepareLogo(source),
         toast: (message) => cardView.showToast(message),
+        delivered: () => flyFalcon({ parcel: true }),
         beforeExternal: expectExternalApp
     });
     // "Also use this logo on my card": Export wrote the Vault's logo slot; the card view reads it through its own handle.
@@ -990,8 +1002,10 @@ function wireEgress() {
             expectExternalApp();
             const qr = document.createElement('canvas');
             const drawn = renderExportQr(qr, { themed, size: PRINT_QR_PX });
-            if (themed && drawn.ok && !drawn.themed) cardView.showToast('The theme colours are not scannable, so the QR is printed in black and white.');
-            egressController.triggerPhysicalPrint({ themed, qrCanvas: drawn.ok ? qr : null, nameFile });
+            const warned = themed && drawn.ok && !drawn.themed;
+            if (warned) cardView.showToast('The theme colours are not scannable, so the QR is printed in black and white.');
+            const printed = egressController.triggerPhysicalPrint({ themed, qrCanvas: drawn.ok ? qr : null, nameFile });
+            if (printed && printed.success && !warned) { cardView.showToast('Sent to the print dialog.'); flyFalcon(); }
             qr.width = qr.height = 0;
         }
     });
@@ -1011,6 +1025,8 @@ function wireEgress() {
     });
     // Ready to share, on the 3D Card: on to the Share card (the padlock hand-off follows the deck's signal).
     $('readyToShareBtn').addEventListener('click', () => showCard('share'));
+    wireHatches();
+    wireFalcon();
 }
 
 // ---- Audit trail (telemetry visibility) ------------------------------------------------------------------------

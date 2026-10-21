@@ -87,3 +87,31 @@ button.print-choice-cancel { grid-column: 1 / -1; min-height: var(--vcge-tap, 2.
 .dark .print-choice-name-note { color: #94a3b8; }
 .print-choice-note { font-size: 0.75rem; color: #64748b; margin: 0.75rem 0 0; }
 .dark .print-choice-note { color: #94a3b8; }
+
+/* ---- The small touches (airlockTouches.js): hatch doors, the falcon, the runway lights ---------------------------- */
+/* E1: a little door on each Share button that opens for a moment when pressed */
+button.share-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; }
+.hatch { position: relative; flex: none; box-sizing: border-box; width: 0.85rem; height: 1.05rem; border: 2px solid currentColor; border-radius: 0.45rem 0.45rem 0.15rem 0.15rem; overflow: hidden; }
+.hatch-door { position: absolute; inset: 1px; border-radius: 0.3rem 0.3rem 0.05rem 0.05rem; background: currentColor; opacity: 0.4; transform-origin: left center; transition: transform 0.25s ease; }
+.hatch.is-open .hatch-door { transform: scaleX(0.15); }
+/* E2: the falcon rides on top of the toast, the toast's own colour, so it reads against the page; Q8 adds the parcel */
+.toast-falcon { position: absolute; top: -1.15rem; left: 0.5rem; width: 1.9rem; height: 1.3rem; pointer-events: none; overflow: visible; }
+.toast-falcon.hidden { display: none; }
+.falcon-body { fill: #0f172a; }
+.dark .falcon-body { fill: #ffffff; }
+.falcon-parcel { display: none; fill: #ffffff; stroke: #0f172a; stroke-width: 0.9; }
+.toast-falcon.with-parcel .falcon-parcel { display: inline; }
+@keyframes falcon-glide { from { left: 0.5rem; } to { left: calc(100% - 2.4rem); } }
+.toast-falcon.is-gliding { left: calc(100% - 2.4rem); animation: falcon-glide 1s ease-in-out 1; }
+/* E3: three runway lights on Ready to share; lit ones are filled (shape), unlit ones only outlined */
+button.share-ready { display: inline-flex; align-items: center; gap: 0.6rem; }
+.ready-lights { display: inline-flex; gap: 0.3rem; }
+.ready-light { box-sizing: border-box; width: 0.6rem; height: 0.6rem; border-radius: 50%; border: 2px solid currentColor; background: transparent; transition: background-color 0.2s; }
+.ready-light.is-lit { background: currentColor; box-shadow: 0 0 0 2px #fde047; }
+.ready-lights-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+@media (prefers-reduced-motion: reduce) {
+    .hatch-door, .ready-light { transition: none; }
+    .toast-falcon.is-gliding { animation: none; }
+}
+/* The hatch doors and the falcon are Airlock's branding: the plain edition leaves them out */
+html[data-edition="plain"] .hatch, html[data-edition="plain"] .toast-falcon { display: none; }

@@ -15,7 +15,7 @@
 import { formatVCard } from '../../share/vcardFormatter.js';
 
 export const QR_DOTS = ['square', 'round'];
-export const QR_FRAMES = ['none', 'square', 'rounded', 'circle'];
+export const QR_FRAMES = ['none', 'square', 'rounded', 'circle', 'stripes'];
 export const QR_LOGO_LEVEL = 'H';          // a centre logo covers modules; the strongest correction recovers them
 export const QR_LOGO_FRACTION = 0.22;      // the logo plate, as a share of the code's width (under level H's 30 percent)
 export const QR_MIN_CONTRAST = 4;          // a themed code needs at least this ratio or it falls back to black on white
@@ -152,7 +152,8 @@ export class VCGEQREngine {
      *   theme       {card} theme colours; tinted when the contrast allows, else black on white
      *   foreground/background  explicit colours (override the theme)
      *   dots        'square' | 'round' (finder patterns stay square so phones lock on)
-     *   frame       'none' | 'square' | 'rounded' | 'circle', drawn outside the quiet zone in the dark colour
+     *   frame       'none' | 'square' | 'rounded' | 'circle' | 'stripes', drawn outside the quiet zone in the dark colour
+ *               (stripes: a band of diagonal zebra stripes, Checkers' own frame)
      *   logo        an image or canvas drawn at the centre on a light plate (needs level H)
      * @returns {boolean} true when a real QR matrix was drawn, false when the labelled fallback was used
      */
@@ -188,7 +189,7 @@ export class VCGEQREngine {
         const cells = n + QUIET * 2;
         const scale = Math.max(2, Math.floor(size / cells));
         const code = cells * scale;                       // the code with its quiet zone
-        const frameWidth = frame === 'none' ? 0 : scale;  // stroke width
+        const frameWidth = frame === 'none' ? 0 : frame === 'stripes' ? scale * 2 : scale;  // stroke width (the stripe band is wider)
         const pad = frame === 'none' ? 0 : scale * 2;     // space between the quiet zone and the frame
         // A circle has to clear the code's corners, so it needs a larger canvas than the square frames.
         const outer = frame === 'circle'
@@ -224,7 +225,20 @@ export class VCGEQREngine {
             }
         }
 
-        if (frame !== 'none') {
+        if (frame === 'stripes') {
+            // Diagonal stripes, clipped to the band outside the quiet zone, so the code itself is untouched.
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(0, 0, outer, outer);
+            ctx.rect(frameWidth, frameWidth, outer - frameWidth * 2, outer - frameWidth * 2);
+            ctx.clip('evenodd');
+            ctx.strokeStyle = dark;
+            ctx.lineWidth = scale * 0.8;
+            ctx.beginPath();
+            for (let x = -outer; x < outer; x += scale * 2) { ctx.moveTo(x, 0); ctx.lineTo(x + outer, outer); }
+            ctx.stroke();
+            ctx.restore();
+        } else if (frame !== 'none') {
             ctx.strokeStyle = dark;
             ctx.lineWidth = frameWidth;
             ctx.beginPath();
@@ -248,6 +262,17 @@ export class VCGEQREngine {
         this.lastRender = { themed: !options.foreground && !options.background && palette.themed, ratio: palette.ratio,
             dark, light, level, dots, frame, logo: !!logo, modules: n };
         return true;
+    }
+
+    /**
+     * The calm reveal: the code fills in once, top to bottom in stripes (qr.css), when the card's first real code
+     * replaces the placeholder. Restarted only by that change, never by each keystroke. Reduce motion shows it at once.
+     */
+    reveal(canvas) {
+        if (!canvas || !canvas.classList) return;
+        canvas.classList.remove('qr-reveal');
+        void canvas.offsetWidth;
+        canvas.classList.add('qr-reveal');
     }
 
     // Labelled placeholder used when no QR can be drawn. It is NOT scannable and says so.

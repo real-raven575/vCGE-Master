@@ -753,7 +753,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
       fillRect(x, y, w, h) { ensure(); const col = rgb(this.fillStyle); for (let j = Math.round(y); j < Math.round(y + h); j++) for (let i = Math.round(x); i < Math.round(x + w); i++) put(i, j, col); },
       beginPath() { path = []; },
       arc(cx, cy, r) { path.push({ cx, cy, r }); },
-      rect() {}, roundRect() {}, stroke() {},
+      rect() {}, roundRect() {}, stroke() {}, save() {}, restore() {}, clip() {}, moveTo() {}, lineTo() {},
       fill() { ensure(); const col = rgb(this.fillStyle); for (const { cx, cy, r } of path) for (let j = Math.floor(cy - r); j <= Math.ceil(cy + r); j++) for (let i = Math.floor(cx - r); i <= Math.ceil(cx + r); i++) if ((i + 0.5 - cx) ** 2 + (j + 0.5 - cy) ** 2 <= r * r) put(i, j, col); },
       drawImage(img, x, y, w, h) { const keep = this.fillStyle; this.fillStyle = '#777777'; this.fillRect(x, y, w, h); this.fillStyle = keep; },
       fillText() {}
@@ -796,11 +796,13 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('MOD07 without a theme the QR is black on white and reports themed=false', q.lastRender.themed === false && q.lastRender.dark === '#000000' && decodes(plain) === text);
   const round = makeCanvas();
   ok('MOD07 round dots decode (finder squares stay square)', q.renderQRCode(round, text, { size: 320, dots: 'round', theme: { card: themes.spruce } }) && q.lastRender.dots === 'round' && decodes(round) === text);
-  const framed = ['square', 'rounded', 'circle'].every((frame) => { const cv = makeCanvas(); return q.renderQRCode(cv, text, { size: 320, frame, dots: 'round' }) && q.lastRender.frame === frame && cv.width > 0 && decodes(cv) === text; });
-  ok('MOD07 square, rounded and circle frames keep the code scannable', framed);
+  const framed = ['square', 'rounded', 'circle', 'stripes'].every((frame) => { const cv = makeCanvas(); return q.renderQRCode(cv, text, { size: 320, frame, dots: 'round' }) && q.lastRender.frame === frame && cv.width > 0 && decodes(cv) === text; });
+  ok('MOD07 square, rounded, circle and stripes frames keep the code scannable', framed);
   const circle = makeCanvas(); q.renderQRCode(circle, text, { size: 200, frame: 'circle' });
   const square = makeCanvas(); q.renderQRCode(square, text, { size: 200, frame: 'square' });
   ok('MOD07 a circle frame gets a larger canvas than a square one, so it clears the corners', circle.width > square.width);
+  const striped = makeCanvas(); q.renderQRCode(striped, text, { size: 200, frame: 'stripes' });
+  ok('MOD07 the stripes frame is a wider band than the square frame, outside the quiet zone', striped.width > square.width && q.lastRender.frame === 'stripes');
   const logoed = makeCanvas();
   ok('MOD07 a centre logo forces level H and the code still decodes around it', q.renderQRCode(logoed, text, { size: 320, logo: {} }) && q.lastRender.level === 'H' && q.lastRender.logo === true && decodes(logoed) === text);
   ok('MOD07 logo option is offered when the contact fits at level H', q.logoOption(text).ok === true && q.fits(text, 'H') === true);
@@ -1166,6 +1168,12 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('a mark of two colours is not traced (kept as is)', card.traceLogo(mixed, 20, box).reason === 'colours');
   ok('colour distance to the ink-to-background line: on it 0, off it the gap', card.distanceToInkLine([128, 128, 128], [0, 0, 0], [255, 255, 255]) === 0 && Math.round(card.distanceToInkLine([255, 0, 0], [0, 0, 0], [255, 255, 255])) === 208 && card.distanceToInkLine([10, 10, 10], [0, 0, 0], [0, 0, 0]) > 17);
   ok('the line runs on past the ink\'s average: the solid ink, darker than the average, is on it; nothing is on it behind the background', card.distanceToInkLine([17, 34, 51], [59, 72, 84], [255, 255, 255]) < 15 && Math.round(card.distanceToInkLine([255, 255, 255], [59, 72, 84], [255, 255, 255])) === 0 && card.distanceToInkLine([0, 0, 0], [255, 255, 255], [128, 128, 128]) > 200);
+  // D1: the rim's tint, from the vCard photo (the corner is the background the logo was laid on)
+  const photo = (back, mark, share = 0.25) => { const px = new Uint8ClampedArray(100 * 4); for (let i = 0; i < 100; i++) px.set(i >= 100 * (1 - share) ? mark : back, i * 4); return px; };
+  ok('rim tint: a red mark on white gives red', card.logoTint(photo([255, 255, 255, 255], [220, 20, 20, 255]), 100) === 'rgb(220, 20, 20)');
+  ok('rim tint: a blue mark on the dark slate behind a light logo gives blue, not the slate', card.logoTint(photo([30, 41, 59, 255], [29, 78, 216, 255]), 100) === 'rgb(29, 78, 216)');
+  ok('rim tint: white lettering on an opaque red logo gives the red', card.logoTint(photo([200, 0, 0, 255], [255, 255, 255, 255]), 100) === 'rgb(200, 0, 0)');
+  ok('rim tint: a grey logo on white gives its grey; a photo of its background only gives none', card.logoTint(photo([255, 255, 255, 255], [90, 90, 90, 255]), 100) === 'rgb(90, 90, 90)' && card.logoTint(photo([255, 255, 255, 255], [250, 250, 250, 255]), 100) === null);
   ok('a hold on a toast is 0.4 s or longer', card.TOAST_HOLD_MS === 400);
   ok('a blank image is too faint to trace', card.traceLogo(image([255, 255, 255, 255], [255, 255, 255, 255]), 20, box).reason === 'faint');
   const half = new Uint8ClampedArray(20 * 10 * 4).fill(255);
@@ -1488,7 +1496,10 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('MOD08 Export still has no standing read of the contact through its handle', (() => { try { store.handle('mod08').get('contact'); return false; } catch (err) { return err.message.startsWith('VAULT_DENIED'); } })());
   // The pop-up's choices: themed, square, no frame, no logo by default; anything unknown falls back
   ok('MOD08 QR pop-up defaults: Themed, square dots, no frame, no logo, not on the card', JSON.stringify(defaultChoices()) === '{"colour":"themed","dots":"square","frame":"none","logo":"none","useOnCard":false}');
-  ok('MOD08 QR pop-up: every frame and dot style MOD07 draws is offered', QR_FRAMES.join() === 'none,square,rounded,circle' && QR_DOTS.join() === 'square,round');
+  ok('MOD08 QR pop-up: every frame and dot style MOD07 draws is offered', QR_FRAMES.join() === 'none,square,rounded,circle,stripes' && QR_DOTS.join() === 'square,round');
+  const { readyLights, readyLightsText } = await import(`${R}/modules/mod08-egress/airlockTouches.js`);
+  ok('MOD08 runway lights: none for an empty card, then a name, a way to reach them and a scannable code', readyLights({}, false).join() === 'false,false,false' && readyLights({ organization: 'B' }, true).join() === 'true,false,true' && readyLights({ firstName: ' ', emails: [{ value: 'a@b.c' }] }, false).join() === 'false,true,false');
+  ok('MOD08 runway lights read the same in words', readyLightsText([false, false, false]) === 'Lit: none yet.' && readyLightsText([true, true, true]) === 'Lit: a name, a way to reach them, a scannable QR code.' && readyLightsText([true, false, true]) === 'Lit: a name, a scannable QR code.');
   ok('MOD08 QR pop-up: unknown choices fall back to the defaults, known ones stay', JSON.stringify(cleanChoices({ colour: 'neon', dots: 'round', frame: 'circle', logo: 'upload', useOnCard: 'yes' })) === '{"colour":"themed","dots":"round","frame":"circle","logo":"upload","useOnCard":false}');
   ok('MOD08 QR pop-up note: a code that does not fit, a theme that is not scannable, or nothing to say', /Too much contact data/.test(previewNote({ ok: false, themed: false }, defaultChoices()))
     && /Black & White is used/.test(previewNote({ ok: true, themed: false }, defaultChoices())) && previewNote({ ok: true, themed: true }, defaultChoices()) === '' && previewNote({ ok: true, themed: false }, { ...defaultChoices(), colour: 'bw' }) === '');

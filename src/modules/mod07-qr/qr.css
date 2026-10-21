@@ -1,0 +1,13 @@
+/* vCGE-MOD07 QR (Checkers): the calm reveal of the card's first code and the "point a camera here" hint under it.
+   The zebra's tail is branding, so the plain edition shows the words only. */
+
+/* The first real code fills in once, top to bottom in eight stripes; reduce motion shows it at once */
+@keyframes qr-stripes { from { clip-path: inset(0 0 100% 0); } to { clip-path: inset(0 0 0 0); } }
+@media (prefers-reduced-motion: no-preference) {
+    #qrCanvas.qr-reveal { animation: qr-stripes 0.4s steps(8, end) 1; }
+}
+
+.qr-hint { display: inline-flex; align-items: center; gap: 0.3rem; margin: 0; font-size: 0.7rem; font-weight: 600; opacity: 0.85; }
+.qr-hint.hidden { display: none; }
+.qr-tail { width: 0.8rem; height: 1rem; flex: none; }
+html[data-edition="plain"] .qr-tail { display: none; }
