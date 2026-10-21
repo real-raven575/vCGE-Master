@@ -30,6 +30,7 @@ import { WipeDialog, startFresh } from './modules/mod02-vault/wipeDialog.js';
 import { VCGEActiveCamera } from './modules/mod03-camera/camera.js';
 import { CropEditor } from './modules/mod03-camera/cropEditor.js';
 import { executeOCRScan, shutdownOCREngine } from './modules/mod04-ocr/ocrWorker.js';
+import { mergeReadings, missingParts, describeMissing, MAX_PHOTOS } from './modules/mod04-ocr/readingQuality.js';
 import { readIndicator, renderReviewRows, initReadCard, resetBlink, READER_UNAVAILABLE_MESSAGE } from './modules/mod04-ocr/readCard.js';
 import { ContactFormMapper, LINE_ROLES, PHONE_FORMATS } from './modules/mod05-form/formMapper.js';
 import { PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES } from './share/contactOptions.js';
@@ -39,7 +40,7 @@ import { CardView, PRESETS, PLAIN_PRESETS, THEMES, themeKeyOf, prepareLogo } fro
 import { vcgeQREngine } from './modules/mod07-qr/qrGenerator.js';
 import { egressController, PRINT_QR_PX } from './modules/mod08-egress/egressController.js';
 import { exportQrDialog, printChoiceDialog } from './modules/mod08-egress/exportDialogs.js';
-import { VaultStore } from './modules/mod02-vault/vaultStore.js';
+import { VaultStore, READINGS } from './modules/mod02-vault/vaultStore.js';
 
 const $ = (id) => document.getElementById(id);
 const IDLE_PURGE_SECONDS = 120;
@@ -79,6 +80,8 @@ const lockHandoff = new LockHandoff();
 // The vault hub (MOD02, Phase 2 in progress): today it carries the logo slot, which Export writes ("Also use this logo
 // on my card") and the card view reads, so no module hands data to another. The contact itself still goes through refresh().
 const vaultStore = new VaultStore({ vault: temporaryVault, pin: sessionPin, biometric });
+// OCR's own handle: the readings of earlier photos of the card being scanned (text lines only, never the photos).
+const ocrVault = vaultStore.handle('mod04');
 // Every red trash button, the Vault page's wipe button and "Wipe and start over" on the lock screen: hold Yes 1.5 s, then wipe and reload.
 // Saying No counts as activity. Deleting the saved settings is a signal the dialog publishes; Shell clears its own entry.
 const wipeDialog = new WipeDialog({ onWipe: () => wipeSession('wipe button'), onCancel: () => { markActivity(); updateTimerStrip(); } });
@@ -437,6 +440,7 @@ function armIdleTtl() {
 // Drops the photo and everything taken from it or kept for convenience (review text, last scan, Undo copy).
 function clearCapturedImages() {
     forgetLastScan();
+    forgetReadings();
     cardView.forgetUndo();
     egressController.clearPrintSheet();
     exportQrDialog.reset();       // an uploaded QR logo and the preview
@@ -488,7 +492,7 @@ function updatePurgeCountdown() {
 
 // True when wiping would lose something: a card being filled in, a photo or scan, or a card held behind the PIN.
 function hasWork() {
-    if (vaultMode === 'quick' || $('reviewImage').getAttribute('src') || lastScan) return true;
+    if (vaultMode === 'quick' || $('reviewImage').getAttribute('src') || lastScan || READINGS.some(slot => ocrVault.get(slot))) return true;
     const contact = cardView.getContact(), empty = createEmptyContact();
     return !!contact.avatarBase64 || CONTACT_FIELDS.some(f => (contact[f] || '') !== (empty[f] || ''))
         || CONTACT_LIST_FIELDS.some(f => contact[f].length > 0);
@@ -624,6 +628,7 @@ function showReviewStep(step) {
 function closeReviewDialog() {
     $('cropReviewModal').classList.add('hidden');
     $('ocrTimeoutModal').classList.add('hidden');
+    $('ocrMorePhotoModal').classList.add('hidden');
     readIndicator.hide();
     showReviewStep('photo');
     ocrReview = null;
@@ -694,9 +699,15 @@ async function runOcr() {
         if ($('cropReviewModal').classList.contains('hidden')) return;   // closed by a wipe meanwhile
         // Cancel pressed after the reader finished but before the review opened: it still cancels.
         if (ocrStoppedByUser) { backToPhoto(); $('retakePhotoBtn').classList.remove('hidden'); return; }
-        ocrReview = { lines: formMapper.classifyLines(lines && lines.length ? lines : text), fields: null };
-        renderOcrLines();
-        showReviewStep('text');
+        const read = lines && lines.length ? lines : String(text || '').split('\n').map(line => ({ text: line.trim(), icon: null })).filter(l => l.text);
+        const readings = [...heldReadings(), read];
+        const missing = missingParts(formMapper.classifyLines(mergeReadings(readings).filter(l => !l.unreadable)));
+        if (missing.length && readings.length < MAX_PHOTOS) {
+            ocrVault.put(READINGS[readings.length - 1], { lines: read, at: Date.now() });
+            askForAnotherPhoto(missing, readings.length + 1);
+            return;
+        }
+        openReviewFrom(readings);
     } catch (e) {
         if (e && e.code === 'OCR_CANCELLED') {
             // Cancel: back to the photo on the Capture card, ready for OK again or a new one. A wipe already cleared everything.
@@ -724,6 +735,59 @@ async function runOcr() {
         readIndicator.hide();
         $('runOcrBtn').disabled = false;
     }
+}
+
+// ---- One more photo (raven575, 2026-10-20): a reading that lacks the name or a phone or email asks for another photo,
+// three at most. Each reading's text lines wait in OCR's vault slots; the photos themselves are dropped once read.
+function heldReadings() {
+    return READINGS.map(slot => ocrVault.get(slot)).filter(Boolean).map(reading => reading.lines);
+}
+
+function forgetReadings() {
+    ocrVault.clearReadings();
+    showPhotoCount();
+}
+
+// "Photo 2 of 3" on the Capture card while earlier readings of this card are held.
+function showPhotoCount() {
+    const held = READINGS.filter(slot => ocrVault.get(slot)).length;
+    $('photoCountNote').textContent = held ? `Photo ${held + 1} of ${MAX_PHOTOS} of this card: OK reads it together with the earlier ${held === 1 ? 'photo' : 'photos'}.` : '';
+    $('photoCountNote').classList.toggle('hidden', !held);
+}
+
+// The review step with every reading put together: lines no photo could read are listed as Ignore, with a note.
+function openReviewFrom(readings) {
+    forgetReadings();
+    const merged = mergeReadings(readings);
+    const unreadable = merged.filter(l => l.unreadable).map(l => ({ text: l.text, role: 'ignore', icon: l.icon || null, check: UNREADABLE_LINE_NOTE }));
+    ocrReview = { lines: [...formMapper.classifyLines(merged.filter(l => !l.unreadable)), ...unreadable], fields: null };
+    renderOcrLines();
+    $('ocrBackBtn').classList.toggle('hidden', !$('reviewImage').getAttribute('src'));
+    showReviewStep('text');
+    $('cropReviewModal').classList.remove('hidden');
+    showCard('read');
+}
+
+const UNREADABLE_LINE_NOTE = 'The reader could not read this line. Type it in and choose what it is, or leave it as Ignore.';
+
+let morePhotoSource = null;   // 'camera' or 'upload': the next photo comes the way the last one did
+function askForAnotherPhoto(missing, next) {
+    morePhotoSource = camera.lastSource;
+    camera.discardPhoto();
+    $('ocrMorePhotoText').textContent = `We got most of this card, but not ${describeMissing(missing)}. Can you take one more photo? Try a different angle or more light.`;
+    $('ocrMorePhotoCount').textContent = `This would be photo ${next} of ${MAX_PHOTOS}.`;
+    $('ocrMorePhotoModal').classList.remove('hidden');
+    $('ocrAnotherPhotoBtn').focus();
+}
+
+// Take another photo keeps the readings; Fix it by hand opens the review with what the photos so far could read.
+function closeMorePhotoPrompt(another) {
+    $('ocrMorePhotoModal').classList.add('hidden');
+    if (!another) return openReviewFrom(heldReadings());
+    backToPhoto();
+    showPhotoCount();
+    if (morePhotoSource === 'camera') camera.initCamera();
+    else $('imageUpload').click();
 }
 
 // Cancel while reading: the reader is stopped at once (MOD04 drops it and anything it read).
@@ -789,8 +853,9 @@ function scanSnapshot() {
     const photo = $('reviewImage').getAttribute('src') || null;
     const open = !$('cropReviewModal').classList.contains('hidden') || !$('captureReview').classList.contains('hidden');
     const review = open ? { lines: ocrReview && !$('ocrStepText').classList.contains('hidden') ? ocrReview.lines.map(line => ({ ...line })) : null } : null;
-    if (!review && !lastScan) return null;
-    return { photo, review, lastScan };
+    const readings = READINGS.map(slot => ocrVault.get(slot));
+    if (!review && !lastScan && !readings.some(Boolean)) return null;
+    return { photo, review, lastScan, readings };
 }
 
 
@@ -806,6 +871,8 @@ function restoreScan(scan) {
         lastScan = scan.lastScan;
         $('reopenScanBtn').classList.remove('hidden');
     }
+    (scan.readings || []).forEach((reading, i) => { if (reading) ocrVault.put(READINGS[i], reading); });
+    showPhotoCount();
     if (!scan.review || !scan.review.lines) return;
     ocrReview = { lines: scan.review.lines, fields: null };
     renderOcrLines();
@@ -828,12 +895,14 @@ function wireIntake() {
     $('ocrStopBtn').addEventListener('click', stopOcr);
     $('ocrTryAgainBtn').addEventListener('click', () => closeTimeoutPrompt(true));
     $('ocrTimeoutCancelBtn').addEventListener('click', () => closeTimeoutPrompt(false));
+    $('ocrAnotherPhotoBtn').addEventListener('click', () => closeMorePhotoPrompt(true));
+    $('ocrFixByHandBtn').addEventListener('click', () => closeMorePhotoPrompt(false));
     $('rotateLeftBtn').addEventListener('click', () => { showRetakePrompt(false); cropEditor.rotate(-1); });
     $('rotateRightBtn').addEventListener('click', () => { showRetakePrompt(false); cropEditor.rotate(1); });
     // Snap to card moves the handles only when it finds a card; otherwise it says so and leaves them alone.
     $('snapCardBtn').addEventListener('click', () => { if (!cropEditor.snapToCard()) deckToast('No card edges found. Drag the corners onto the card yourself.'); });
     // Cancel on the crop step drops the photo: back to Take a photo or Upload a photo.
-    $('cancelReviewBtn').addEventListener('click', () => { showRetakePrompt(false); camera.discardPhoto(); });
+    $('cancelReviewBtn').addEventListener('click', () => { showRetakePrompt(false); camera.discardPhoto(); if (heldReadings().length) openReviewFrom(heldReadings()); });
     $('ocrCancelBtn').addEventListener('click', backToPhoto);
     $('ocrBackBtn').addEventListener('click', backToPhoto);
     $('applyOcrBtn').addEventListener('click', applyOcrReview);

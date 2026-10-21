@@ -236,6 +236,12 @@ export function preProcessImageBuffer(imageSrc) {
     });
 }
 
+// How sure the engine was of a line: the mean of its words' confidence (0-100), or undefined with no words.
+const meanConfidence = (words) => {
+    const read = (words || []).filter(w => w.text && w.text.trim() && typeof w.confidence === 'number');
+    return read.length ? Math.round(read.reduce((sum, w) => sum + w.confidence, 0) / read.length) : undefined;
+};
+
 // Unsure words of `text`: only words still in the line count, so icon debris dropped from the text does not.
 const unsureWords = (text, words) => (words || []).filter(w => w.text.length > 1 && w.confidence < OCR_UNSURE_WORD_CONFIDENCE && text.split(' ').includes(w.text)).map(w => w.text);
 
@@ -356,6 +362,7 @@ async function secondLook(worker, processedImage, lines, started) {
             line.alts = mergeReadingAlts(line.text, line.alts, text, altsForText(text, [...line.look.before, ...best.words]));
             line.text = text;
             line.unsure = unsureWords(text, best.words);
+            line.confidence = meanConfidence([...line.look.before, ...best.words]);
         }
     } catch (error) {
         if (error instanceof OcrCancelledError) throw error;
@@ -367,7 +374,7 @@ async function secondLook(worker, processedImage, lines, started) {
 
 /**
  * Icons in front of each OCR line (phone handset, envelope, social logo...). Best effort: any failure means no icons,
- * never a failed scan. Returns [{ text, icon, alts, unsure, look? }] in card order (lines that were only an icon are dropped);
+ * never a failed scan. Returns [{ text, icon, alts, unsure, confidence, look? }] in card order (lines that were only an icon are dropped);
  * `alts` are the engine's close second guesses for letters of `text` ([{ at, chars }], see glyphChoices.js), `unsure`
  * the words of 2+ characters it read with confidence below OCR_UNSURE_WORD_CONFIDENCE, `look` what a second look would
  * re-read (secondLookTarget; dropped before the lines are returned).
@@ -376,7 +383,7 @@ async function linesWithIcons(processedImage, data) {
     const lines = refineLines(data.lines || []);
     if (!lines.length) return String(data.text || '').split('\n').map(text => ({ text: text.trim(), icon: null, alts: [], unsure: [] })).filter(l => l.text);
     const withAlts = (found) => found.map((l, i) => {
-        const out = { text: l.text, icon: l.icon, alts: altsForText(l.text, lines[i].words), unsure: unsureWords(l.text, lines[i].words) };
+        const out = { text: l.text, icon: l.icon, alts: altsForText(l.text, lines[i].words), unsure: unsureWords(l.text, lines[i].words), confidence: meanConfidence(lines[i].words) };
         const look = secondLookTarget(lines[i], out.unsure);
         return look ? { ...out, look } : out;
     }).filter(l => l.text);
