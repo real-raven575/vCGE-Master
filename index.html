@@ -97,6 +97,22 @@
             <div class="deck-card-body space-y-4">
                 <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Scan a business card</h2>
                 <p id="photoCountNote" class="hidden text-sm text-slate-500 dark:text-slate-400" role="status"></p>
+                <!-- Iris peeking over a card (MOD03 cute touch; branded edition only, see camera.css). Tap: one wink. -->
+                <div id="capIris" class="cap-iris" role="img" aria-label="Iris the lynx peeking over a business card">
+                    <svg viewBox="0 0 120 80" aria-hidden="true" focusable="false">
+                        <path d="M33 34 L29 7 L48 25 Z" fill="#c08a4a"/><path d="M87 34 L91 7 L72 25 Z" fill="#c08a4a"/>
+                        <path d="M35 28 L33 14 L43 25 Z" fill="#f4c7b8"/><path d="M85 28 L87 14 L77 25 Z" fill="#f4c7b8"/>
+                        <path d="M29 7 L28 0 M91 7 L92 0" stroke="#3f2a17" stroke-width="2" stroke-linecap="round"/>
+                        <ellipse cx="60" cy="47" rx="31" ry="25" fill="#d9ab6c"/>
+                        <path d="M30 50 L22 56 L32 55 Z M90 50 L98 56 L88 55 Z" fill="#d9ab6c"/>
+                        <g class="iris-eye-l"><ellipse cx="48" cy="41" rx="5" ry="5.5" fill="#f59e0b"/><ellipse cx="48" cy="41" rx="1.5" ry="4.3" fill="#0f172a"/></g>
+                        <g class="iris-eye-r"><ellipse cx="72" cy="41" rx="5" ry="5.5" fill="#f59e0b"/><ellipse cx="72" cy="41" rx="1.5" ry="4.3" fill="#0f172a"/></g>
+                        <rect x="8" y="49" width="104" height="30" rx="4" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+                        <path d="M18 60 H58 M18 67 H74 M18 73 H50" stroke="#cbd5e1" stroke-width="2.5" stroke-linecap="round"/>
+                        <ellipse cx="42" cy="50" rx="7" ry="4.5" fill="#d9ab6c"/><ellipse cx="78" cy="50" rx="7" ry="4.5" fill="#d9ab6c"/>
+                        <path d="M39 48 V52 M42 47.5 V52.5 M45 48 V52 M75 48 V52 M78 47.5 V52.5 M81 48 V52" stroke="#a87436" stroke-width="1" stroke-linecap="round"/>
+                    </svg>
+                </div>
                 <!-- Capture (MOD03, Iris): Take a photo first, Upload a photo second; the picker is the device's own -->
                 <div id="captureChoice" class="cap-choice">
                     <button id="startCameraBtn" type="button" class="cap-btn cap-btn-primary"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#camera"></use></svg><span>Take a photo</span></button>

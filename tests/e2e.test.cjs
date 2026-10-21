@@ -1762,6 +1762,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pM.click('#ocrAnotherPhotoBtn');
     await pM.setInputFiles('#imageUpload', await card(pM, [['Jane Rivera', 44], ['jane@northwind.com', 34], ['Seattle, WA 98101', 34]])); await pM.waitForTimeout(300);
     ok('one more photo: the Capture card says this is photo 2 of 3 of the card', await pM.isVisible('#photoCountNote') && (await pM.textContent('#photoCountNote')).startsWith('Photo 2 of 3'));
+    const pawDots = await pM.$eval('#photoCountNote', n => ({ photo: n.dataset.photo, of: n.dataset.of, dots: getComputedStyle(n, '::before').content }));
+    ok(EDITION_PLAIN ? 'one more photo (plain): no paw dots by the count' : 'one more photo: Iris\'s paw dots show by the count (photo 2 of 3)',
+      pawDots.photo === '2' && pawDots.of === '3' && (EDITION_PLAIN ? pawDots.dots === 'none' : pawDots.dots !== 'none'), JSON.stringify(pawDots));
     await pM.click('#runOcrBtn');
     await readEnds(pM);
     const merged = await pM.$$eval('#ocrLines input[id^="ocrLineText"]', els => els.map(e => e.value));
@@ -2135,6 +2138,70 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     }
     ok('capture card: no page errors', errorsV.length === 0, errorsV.join(' | '));
     await ctxV.close();
+  }
+
+  // MOD03 cute touches (approved 2026-10-21): paw crop handles with a corner dot (C1), the lynx-eye shutter (C2), Iris
+  // peeking on the empty Capture card with one wink (C3), paw dots by MOD04's "Photo 2 of 3" (C9). Branded only.
+  {
+    const ctxI = await newContext({ viewport: { width: 390, height: 844 } });
+    const pI = await ctxI.newPage();
+    const errorsI = [];
+    pI.on('pageerror', e => errorsI.push(e.message));
+    await pI.goto(ORIGIN); await pI.waitForTimeout(400);
+    const pseudo = (sel, which, prop) => pI.$eval(sel, (el, [w, p]) => getComputedStyle(el, w)[p], [which, prop]);
+    const winking = () => pI.$eval('#capIris', el => el.classList.contains('wink'));
+    if (EDITION_PLAIN) {
+      ok('plain: no Iris on the Capture card', !(await pI.isVisible('#capIris')));
+      ok('plain: the shutter keeps its plain white dot (no lynx eye)', (await pseudo('#captureBtn .cap-shutter-dot', '::after', 'content')) === 'none'
+        && /255, 255, 255/.test(await pseudo('#captureBtn .cap-shutter-dot', null, 'backgroundColor')));
+      await pI.evaluate(() => { const n = document.getElementById('photoCountNote'); n.dataset.photo = '2'; n.dataset.of = '3'; });
+      ok('plain: no paw dots by the photo count', (await pseudo('#photoCountNote', '::before', 'content')) === 'none');
+    } else {
+      const irisBox = await pI.$eval('#capIris', el => { const r = el.getBoundingClientRect(), c = document.getElementById('captureChoice').getBoundingClientRect(); return { h: r.height, above: r.bottom <= c.top + 1 }; });
+      ok('Iris peeks over a card above Take a photo / Upload a photo', await pI.isVisible('#capIris') && irisBox.h > 30 && irisBox.above, JSON.stringify(irisBox));
+      await pI.click('#capIris');
+      const wunk = await winking();
+      await pI.waitForTimeout(900);
+      ok('a tap on Iris winks one eye once, then she is still again', wunk && !(await winking()));
+      await pI.emulateMedia({ reducedMotion: 'reduce' });
+      await pI.click('#capIris');
+      ok('reduce motion: no wink', !(await winking()));
+      await pI.emulateMedia({ reducedMotion: 'no-preference' });
+
+      // C2: the shutter's eye; pressing narrows the pupil to a slit (a shape change, set while camera.js holds data-pressed)
+      const pupil = () => pseudo('#captureBtn .cap-shutter-dot', '::after', 'width').then(parseFloat);
+      const open = await pupil();
+      await pI.$eval('#captureBtn', b => { b.dataset.pressed = '1'; });
+      const slit = await pupil();
+      await pI.$eval('#captureBtn', b => { delete b.dataset.pressed; });
+      ok('the shutter is an amber lynx eye whose pupil narrows to a slit while pressed', /245, 158, 11/.test(await pseudo('#captureBtn .cap-shutter-dot', null, 'backgroundImage')) && open > 6 && slit < open / 2, JSON.stringify({ open, slit }));
+
+      // C9: the dots wait for MOD04's attributes, then fill one per photo already taken
+      ok('paw dots stay off until the photo count carries its numbers', (await pseudo('#photoCountNote', '::before', 'content')) === 'none');
+      const dots = async (photo) => { await pI.evaluate((ph) => { const n = document.getElementById('photoCountNote'); n.dataset.photo = ph; n.dataset.of = '3'; }, photo);
+        return (await pseudo('#photoCountNote', '::before', 'backgroundImage')).split('radial-gradient').length - 1; };
+      await dots('1'); const bg1 = await pseudo('#photoCountNote', '::before', 'backgroundImage');
+      await dots('2'); const bg2 = await pseudo('#photoCountNote', '::before', 'backgroundImage');
+      await dots('3'); const bg3 = await pseudo('#photoCountNote', '::before', 'backgroundImage');
+      ok('paw dots: three, the taken photos filled (photo 2 of 3: one, photo 3 of 3: two)', (await dots('3')) === 3 && new Set([bg1, bg2, bg3]).size === 3, JSON.stringify([bg1, bg2, bg3]));
+      await pI.evaluate(() => { const n = document.getElementById('photoCountNote'); delete n.dataset.photo; delete n.dataset.of; });
+
+      // A second photo is under way: Iris steps away while the count shows
+      await pI.evaluate(() => document.getElementById('photoCountNote').classList.remove('hidden'));
+      ok('Iris steps away while the photo count shows', !(await pI.isVisible('#capIris')));
+      await pI.evaluate(() => document.getElementById('photoCountNote').classList.add('hidden'));
+    }
+
+    // C1: the crop step's handles (upload a card photo); the corner dot and paw are branded only
+    await pI.setInputFiles('#imageUpload', await renderCardImage(pI)); await pI.waitForTimeout(400);
+    const handles = await pI.$$eval('.crop-handle', hs => hs.map(h => { const b = getComputedStyle(h, '::before'), a = getComputedStyle(h, '::after'), r = h.getBoundingClientRect();
+      return { corner: h.dataset.corner, w: r.width, toes: b.backgroundImage.split('radial-gradient').length - 1, turn: b.transform, dot: a.content !== 'none' && a.content !== '' ? a.width : null }; }));
+    ok('crop step: the Iris peek is gone once there is a photo', await pI.isVisible('#captureReview') && !(await pI.isVisible('#capIris')));
+    if (EDITION_PLAIN) ok('plain: the crop handles stay plain circles (no paws, no corner dot)', handles.length === 4 && handles.every(h => h.toes === 0 && !h.dot), JSON.stringify(handles));
+    else ok('crop handles are paw prints (four toes and a pad), turned out from each corner, with a fine dot on the corner, same size as before',
+      handles.length === 4 && handles.every(h => h.toes === 5 && h.dot === '6px' && h.turn !== 'none' && h.w >= 23) && new Set(handles.map(h => h.turn)).size === 4, JSON.stringify(handles));
+    ok('cute touches: no page errors', errorsI.length === 0, errorsI.join(' | '));
+    await ctxI.close();
   }
 
   // Camera in use by another app: busy at start, a virtual camera, the feed taken or muted mid-scan -> camera off + pop-up
