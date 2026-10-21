@@ -40,8 +40,9 @@ export function initShellArt(doc = document) {
         // A new window size or a scrolled header row moves it at once; only a change of card is walked
         if (still) { still = false; turtle.classList.add('is-still'); requestAnimationFrame(() => requestAnimationFrame(() => turtle.classList.remove('is-still'))); }
         turtle.style.setProperty('--turtle-x', `${x}px`);
-        // The first place it takes is not walked to: it is just there, and walks from then on.
-        if (lastX === null) requestAnimationFrame(() => turtle.classList.add('is-placed'));
+        // The first place it takes is not walked to: it is just there (its style is settled before it can walk), and walks
+        // from then on.
+        if (lastX === null) { turtle.getBoundingClientRect(); turtle.classList.add('is-placed'); }
         lastX = x;
     };
     const queue = () => { if (!queued) { queued = true; requestAnimationFrame(update); } };

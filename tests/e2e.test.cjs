@@ -325,6 +325,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('plain edition: no turtle and no shell plates', !a0.shown && !a0.platesShown, JSON.stringify(a0));
   } else {
     // The page opens on the Capture card: Shutout walks to Start and back (not Fields: its form pops in once, later)
+    await page.waitForFunction(() => document.getElementById('deckTurtle').classList.contains('is-placed'), null, { timeout: 5000 }).catch(() => {});
     await page.waitForTimeout(300);
     const a0 = await shellArt();
     ok('shell art: the turtle stands on the header\'s edge under the lit icon, and only that card\'s plate is current', a0.shown && a0.off <= 2 && a0.onEdge && a0.platesShown
