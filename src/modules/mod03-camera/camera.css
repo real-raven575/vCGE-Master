@@ -118,3 +118,70 @@ html[data-cb="1"] .cap-ok, html[data-cb="1"] .cap-btn-primary { background: #256
 @media (prefers-reduced-motion: reduce) {
     .cap-btn, .cap-shutter { transition: none; }
 }
+
+/* ---- Cute touches (raven575 approved 2026-10-21). Branded edition only: the plain edition keeps the plain look. ---- */
+
+/* C1: the crop handles become paw prints, toes pointing out from the card's corner, with a fine dot on the exact
+   corner, in the middle of the pad. The 24px button (and its touch target and focus ring) is unchanged. */
+html:not([data-edition="plain"]) .crop-handle { --paw: #16a34a; background: transparent; border-color: transparent; }
+html:not([data-edition="plain"]) .crop-handle:not(:focus) { box-shadow: none; }
+html[data-cb="1"]:not([data-edition="plain"]) .crop-handle { --paw: #2563eb; }
+html:not([data-edition="plain"]) .crop-handle::before {
+    content: ""; position: absolute; left: 50%; top: 50%; width: 36px; height: 36px; margin: -18px 0 0 -18px; pointer-events: none;
+    background:
+        radial-gradient(circle 3.2px at 22% 33%, var(--paw) 2.9px, transparent 3.2px),
+        radial-gradient(circle 3.4px at 39% 20%, var(--paw) 3.1px, transparent 3.4px),
+        radial-gradient(circle 3.4px at 61% 20%, var(--paw) 3.1px, transparent 3.4px),
+        radial-gradient(circle 3.2px at 78% 33%, var(--paw) 2.9px, transparent 3.2px),
+        radial-gradient(ellipse 8.5px 7px at 50% 54%, var(--paw) 8px, transparent 8.5px);
+    filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff) drop-shadow(0 1px 2px rgba(0, 0, 0, 0.5));
+}
+html:not([data-edition="plain"]) .crop-handle[data-corner="0"]::before { transform: rotate(-45deg); }
+html:not([data-edition="plain"]) .crop-handle[data-corner="1"]::before { transform: rotate(45deg); }
+html:not([data-edition="plain"]) .crop-handle[data-corner="2"]::before { transform: rotate(135deg); }
+html:not([data-edition="plain"]) .crop-handle[data-corner="3"]::before { transform: rotate(-135deg); }
+html:not([data-edition="plain"]) .crop-handle::after {
+    content: ""; position: absolute; left: 50%; top: 50%; width: 6px; height: 6px; margin: -3px 0 0 -3px; border-radius: 999px;
+    background: #fff; box-shadow: 0 0 0 1.5px #0f172a; pointer-events: none;
+}
+
+/* C2: the shutter's dot becomes an amber lynx eye with a tall pupil, which narrows to a slit while pressed (a plain
+   shape change, no movement, so it is the same under reduce motion). */
+html:not([data-edition="plain"]) .cap-shutter .cap-shutter-dot {
+    position: relative; width: 2.1rem; height: 2.1rem;
+    background: radial-gradient(circle at 50% 40%, #fde68a 0, #f59e0b 60%, #b45309 100%); box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92);
+}
+html:not([data-edition="plain"]) .cap-shutter .cap-shutter-dot::after {
+    content: ""; position: absolute; left: 50%; top: 50%; width: 0.6rem; height: 1.6rem; transform: translate(-50%, -50%);
+    border-radius: 50%; background: #0f172a;
+}
+html:not([data-edition="plain"]) .cap-shutter[data-pressed] .cap-shutter-dot::after { width: 0.18rem; }
+
+/* C3: Iris peeks over a card on the empty Capture card. Tapping her winks one eye once (camera.js; not under reduce
+   motion). She steps away once there is a photo, the camera is open, or a second photo is being taken. */
+.cap-iris { display: none; }
+html:not([data-edition="plain"]) .cap-iris { display: block; width: 7.5rem; margin: 0 auto -0.5rem; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+html:not([data-edition="plain"]) #cardCapture:has(#cameraPanel:not(.hidden)) .cap-iris,
+html:not([data-edition="plain"]) #cardCapture:has(#captureReview:not(.hidden)) .cap-iris,
+html:not([data-edition="plain"]) #cardCapture:has(#photoCountNote:not(.hidden)) .cap-iris { display: none; }
+.cap-iris svg { display: block; width: 100%; height: auto; }
+.cap-iris .iris-eye-r { transform-box: fill-box; transform-origin: 50% 50%; }
+.cap-iris.wink .iris-eye-r { animation: iris-wink 700ms ease-in-out 1; }
+@keyframes iris-wink { 0%, 100% { transform: scaleY(1); } 40%, 60% { transform: scaleY(0.12); } }
+
+/* C9: paw dots beside Glyph's "Photo 2 of 3" line, filled for the photos already taken. They key off data-photo and
+   data-of on #photoCountNote, so they show only once MOD04 sets those. Filled vs ring is shape, not just colour. */
+html:not([data-edition="plain"]) #photoCountNote[data-photo][data-of]::before {
+    --dot-full: radial-gradient(circle, currentColor 0 0.26em, transparent 0.29em);
+    --dot-open: radial-gradient(circle, transparent 0 0.17em, currentColor 0.18em 0.26em, transparent 0.29em);
+    content: ""; display: inline-block; vertical-align: -0.1em; margin-right: 0.4em; width: 3em; height: 0.8em;
+    background: var(--d1, var(--dot-open)) 0 50% / 1em 100% no-repeat, var(--d2, var(--dot-open)) 1em 50% / 1em 100% no-repeat,
+        var(--d3, var(--dot-open)) 2em 50% / 1em 100% no-repeat;
+}
+html:not([data-edition="plain"]) #photoCountNote[data-of="2"]::before { width: 2em; }
+html:not([data-edition="plain"]) #photoCountNote:is([data-photo="2"], [data-photo="3"])::before { --d1: var(--dot-full); }
+html:not([data-edition="plain"]) #photoCountNote[data-photo="3"]::before { --d2: var(--dot-full); }
+
+@media (prefers-reduced-motion: reduce) {
+    .cap-iris.wink .iris-eye-r { animation: none; }
+}

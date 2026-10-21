@@ -158,3 +158,40 @@ button.vault-switch[aria-checked="true"] { padding: 0 0.9rem 0 2.6rem; backgroun
 .dark button.vault-switch[aria-checked="true"] { background: #16a34a; color: #052e16; border-color: #22c55e; }
 button.vault-switch[aria-checked="true"] .vault-switch-knob { right: auto; left: 0.3rem; border-color: #15803d; }
 @media (prefers-reduced-motion: no-preference) { .vault-switch-knob { transition: left 0.15s, right 0.15s; } }
+
+/* ---- Ghost on the lock screen (cute round V1-V3, raven575 2026-10-21). Branded edition only; drawing only. ---------- */
+/* V1: Ghost peeks over the PIN box; while a PIN is typed (#vaultModal[data-peek="covered"]) its paws cover its eyes. */
+.vault-ghost { display: block; width: 3.5rem; height: 3.5rem; margin: 0 auto -0.25rem; overflow: visible; }
+.vault-ghost .vg-ear, .vault-ghost .vg-head { fill: #a8a29e; }
+.vault-ghost .vg-mask { fill: #3b0764; }
+.vault-ghost .vg-eye { fill: #ffffff; }
+.vault-ghost .vg-glint { fill: #3b0764; }
+.vault-ghost .vg-snout { fill: #f5f5f4; }
+.vault-ghost .vg-nose { fill: #1c1917; }
+.vault-ghost .vg-paw { fill: #78716c; stroke: #44403c; stroke-width: 1; }
+.vault-ghost .vg-toe { stroke: #44403c; stroke-width: 1.2; stroke-linecap: round; fill: none; }
+.dark .vault-ghost .vg-ear, .dark .vault-ghost .vg-head { fill: #d6d3d1; }
+.dark .vault-ghost .vg-mask { fill: #581c87; }
+.vault-ghost .vg-paws { transform: translateY(26px); opacity: 0; }
+#vaultModal[data-peek="covered"] .vault-ghost .vg-paws { transform: none; opacity: 1; }
+@media (prefers-reduced-motion: no-preference) { .vault-ghost .vg-paws { transition: transform 0.4s ease-out, opacity 0.4s ease-out; } }
+
+/* V2: four paw prints over the PIN box, one filled per digit. Empty paws are outlines, typed paws are solid, so the
+   shape carries the count (colour-blind mode); they are sized in em, so they grow with the text size. The box's own
+   dots are hidden under them; the box is unchanged for screen readers and the keyboard. */
+.vault-pin-wrap { position: relative; display: block; }
+.vault-pin-paws { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 0.6em; pointer-events: none; }
+.vault-paw { width: 1.35em; height: 1.35em; fill: none; stroke: #7e22ce; stroke-width: 1.6; }
+.dark .vault-paw { stroke: #d8b4fe; }
+.vault-pin-paws[data-filled="1"] .vault-paw:nth-child(-n+1), .vault-pin-paws[data-filled="2"] .vault-paw:nth-child(-n+2),
+.vault-pin-paws[data-filled="3"] .vault-paw:nth-child(-n+3), .vault-pin-paws[data-filled="4"] .vault-paw:nth-child(-n+4) { fill: #7e22ce; }
+.dark .vault-pin-paws[data-filled="1"] .vault-paw:nth-child(-n+1), .dark .vault-pin-paws[data-filled="2"] .vault-paw:nth-child(-n+2),
+.dark .vault-pin-paws[data-filled="3"] .vault-paw:nth-child(-n+3), .dark .vault-pin-paws[data-filled="4"] .vault-paw:nth-child(-n+4) { fill: #d8b4fe; }
+html:not([data-edition="plain"]) #vaultPin { color: transparent; caret-color: transparent; }
+
+/* V3: the lock ring as a ringed raccoon tail: dark bands over the green ring, cut by the countdown mask. */
+.vault-tail-bands { stroke: #1e1b4b; opacity: 0.45; }
+.dark .vault-tail-bands { stroke: #020617; opacity: 0.55; }
+
+/* Plain edition: none of it; the PIN box shows its own dots and the ring has no bands. */
+html[data-edition="plain"] .vault-ghost, html[data-edition="plain"] .vault-pin-paws, html[data-edition="plain"] .vault-tail-bands { display: none; }

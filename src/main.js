@@ -27,6 +27,7 @@ import { BiometricUnlock, biometricAvailable } from './modules/mod02-vault/biome
 import { maskSecretInputs } from './modules/mod02-vault/secretInputs.js';
 import { LockHandoff } from './modules/mod02-vault/lockHandoff.js';
 import { WipeDialog, startFresh } from './modules/mod02-vault/wipeDialog.js';
+import { syncLockFace } from './modules/mod02-vault/lockFace.js';
 import { VCGEActiveCamera } from './modules/mod03-camera/camera.js';
 import { CropEditor } from './modules/mod03-camera/cropEditor.js';
 import { executeOCRScan, shutdownOCREngine } from './modules/mod04-ocr/ocrWorker.js';
@@ -35,7 +36,7 @@ import { readIndicator, renderReviewRows, initReadCard, resetBlink, READER_UNAVA
 import { ContactFormMapper, LINE_ROLES, PHONE_FORMATS } from './modules/mod05-form/formMapper.js';
 import { PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES } from './share/contactOptions.js';
 import { AddressAutocompleteEngine } from './modules/mod05-form/addressAutocomplete.js';
-import { initFieldsCard, SAMPLE_PROMPT, PLAIN_SAMPLE_PROMPT } from './modules/mod05-form/fieldsCard.js';
+import { initFieldsCard, SAMPLE_PROMPT, PLAIN_SAMPLE_PROMPT, unplacedLines, showUnknownLines, clearUnknownLines } from './modules/mod05-form/fieldsCard.js';
 import { CardView, PRESETS, PLAIN_PRESETS, THEMES, themeKeyOf, prepareLogo } from './modules/mod06-gui/card3dView.js';
 import { vcgeQREngine } from './modules/mod07-qr/qrGenerator.js';
 import { egressController, PRINT_QR_PX } from './modules/mod08-egress/egressController.js';
@@ -174,6 +175,7 @@ function openPinModal(reason) {
         : `Locked after ${IDLE_PURGE_SECONDS / 60} minutes without activity.`} ${bio ? 'Use your fingerprint or face, or type your PIN.' : `Enter your ${PIN_LENGTH}-digit PIN to continue, or start over to wipe it.`}`;
     $('vaultError').textContent = '';
     $('vaultPin').value = '';
+    syncLockFace();
     // Fingerprint or face first and big when it is on; then no keyboard pops up on its own. Without it the PIN box takes focus.
     $('vaultBiometricBtn').classList.toggle('hidden', !bio);
     $('vaultOr').classList.toggle('hidden', !bio);
@@ -189,6 +191,7 @@ function keepPinInView() {
 
 function closePinModal() {
     $('vaultPin').value = '';
+    syncLockFace();
     $('vaultModal').classList.add('hidden');
 }
 
@@ -198,7 +201,9 @@ function updateQuickUnlockCountdown() {
     if (vaultMode !== 'quick') return;
     const left = resetRemaining();
     $('vaultLockRingTime').textContent = minutes(left);
-    $('vaultLockRing').setAttribute('stroke-dashoffset', (LOCK_RING_LENGTH * (1 - left / resetSpan)).toFixed(2));
+    const offset = (LOCK_RING_LENGTH * (1 - left / resetSpan)).toFixed(2);
+    $('vaultLockRing').setAttribute('stroke-dashoffset', offset);
+    $('vaultTailMaskRing').setAttribute('stroke-dashoffset', offset);   // the tail's bands go with the ring
     $('quickUnlockCountdown').textContent = `Your card is safe. Without activity, everything resets in ${minutes(left)}; then the card is wiped.`;
 }
 
@@ -243,6 +248,7 @@ async function submitPin(event) {
     if (result === 'locked_out') return wipeSession('too many wrong PINs', `${MAX_PIN_ATTEMPTS} wrong PINs: the card was wiped.`);
     if (result === 'not_set') return wipeSession('session PIN missing');
     $('vaultPin').value = '';
+    syncLockFace();
     $('vaultError').textContent = `Wrong PIN. ${attemptsLeft} ${attemptsLeft === 1 ? 'try' : 'tries'} left.`;
 }
 
@@ -310,6 +316,7 @@ async function unlockWithBiometric() {
 function onPinInput() {
     const input = $('vaultPin');
     input.value = input.value.replace(/[^0-9]/g, '').slice(0, PIN_LENGTH);
+    syncLockFace();
     if (input.value.length === PIN_LENGTH) submitPin();
 }
 
@@ -828,7 +835,9 @@ async function applyOcrReview() {
         if (!ocrReview) return;
         closeReviewDialog();
         cardView.changeWithUndo('Form filled. Please check the details.', () => cardView.mergeContact(fields),
-            { undone: 'Back to the lines: fix them, then press Proceed.', after: reopenLastScan });
+            { undone: 'Back to the lines: fix them, then press Proceed.', after: () => { clearUnknownLines(); reopenLastScan(); } });
+        // Lines nothing claimed wait in the Fields card's "Unknown" tray to be filed by hand (MOD05, video review #53)
+        showUnknownLines(unplacedLines(lines));
     } finally {
         applying = false;
     }
@@ -914,7 +923,7 @@ function wireIntake() {
     // 3D Card (the padlock hand-off follows the deck's signal; the card view already holds the details in memory).
     // The phone style lives in the mapper (memory only): new scans and edited numbers follow it, and a change restyles
     // every number already on the card.
-    initFieldsCard({ samples: isPlain() ? PLAIN_PRESETS : PRESETS, prompt: isPlain() ? PLAIN_SAMPLE_PROMPT : SAMPLE_PROMPT, onSample: (preset) => cardView.loadSample(preset), onDone: () => showCard('card'), onBeforeChange: beforeCardChange,
+    initFieldsCard({ samples: isPlain() ? PLAIN_PRESETS : PRESETS, prompt: isPlain() ? PLAIN_SAMPLE_PROMPT : SAMPLE_PROMPT, onSample: (preset) => cardView.loadSample(preset), onDone: () => showCard('card'), onBeforeChange: beforeCardChange, plain: isPlain(),
         phoneFormats: PHONE_FORMATS, phoneStyle: formMapper.phoneStyle,
         onPhoneStyle: (style) => { formMapper.phoneStyle = style; for (let i = 0; i < $('phoneList').children.length; i++) cardView.tidyListValue('phones', i); } });
     $('reopenScanBtn').addEventListener('click', reopenLastScan);

@@ -766,8 +766,32 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('lock screen: no Unlock button (the 4th digit unlocks), PIN box focused when no fingerprint is set', !(await p8.$('#vaultUnlockBtn')) && !(await p8.isVisible('#vaultBiometricBtn')) && (await p8.evaluate(() => document.activeElement && document.activeElement.id)) === 'vaultPin');
     ok('idle lock explains why it locked', (await t8('vaultModalHint')).startsWith('Locked after 2 minutes without activity. Enter your 4-digit PIN'));
     ok('quick lock: the held card is not in storage or the page', !(await p8.evaluate(() => JSON.stringify(localStorage) + document.body.innerText)).includes('Quick'));
+    // Ghost on the lock screen (cute round V1-V3, raven575 2026-10-21): drawing only, branded edition only
+    const face8 = () => p8.evaluate(() => {
+      const shown = (id) => { const el = document.getElementById(id); return !!el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0; };
+      return { peek: document.getElementById('vaultModal').dataset.peek, filled: document.getElementById('vaultPinPaws').dataset.filled,
+        ghost: shown('vaultGhost'), paws: shown('vaultPinPaws'), bands: shown('vaultTailBands'),
+        pawsCovered: getComputedStyle(document.querySelector('#vaultGhost .vg-paws')).opacity,
+        filledPaws: [...document.querySelectorAll('#vaultPinPaws .vault-paw')].filter(s => getComputedStyle(s).fill !== 'none').length,
+        pinColor: getComputedStyle(document.getElementById('vaultPin')).color,
+        ring: document.getElementById('vaultLockRing').getAttribute('stroke-dashoffset'), tail: document.getElementById('vaultTailMaskRing').getAttribute('stroke-dashoffset') };
+    });
+    const f0 = await face8();
+    if (EDITION_PLAIN) ok('plain edition: no Ghost, no paw prints and no tail bands on the lock screen; the PIN box shows its own dots', !f0.ghost && !f0.paws && !f0.bands && f0.pinColor !== 'rgba(0, 0, 0, 0)', JSON.stringify(f0));
+    else ok('lock screen: Ghost peeks with eyes open and four empty paw prints sit in the PIN box', f0.ghost && f0.paws && f0.peek === 'open' && f0.filled === '0' && f0.filledPaws === 0 && f0.pawsCovered === '0', JSON.stringify(f0));
+    ok('lock screen: the tail\'s bands follow the ring\'s countdown', f0.tail === f0.ring, JSON.stringify(f0));
+    await p8.type('#vaultPin', '13'); await p8.waitForTimeout(500);
+    const f2 = await face8();
+    ok('typing a PIN: Ghost covers its eyes and one paw print fills per digit', f2.peek === 'covered' && f2.filled === '2' && (EDITION_PLAIN || (f2.filledPaws === 2 && f2.pawsCovered === '1')), JSON.stringify(f2));
+    const box8 = await p8.evaluate(() => { const i = document.getElementById('vaultPin'); return { type: i.type, mask: i.style.webkitTextSecurity, max: i.maxLength, labels: i.labels.length, pawsHidden: document.getElementById('vaultPinPaws').getAttribute('aria-hidden'), ghostHidden: document.getElementById('vaultGhost').getAttribute('aria-hidden') }; });
+    ok('the paw prints are drawing only: the PIN box is still a masked 4-digit field', (box8.type === 'password' || (box8.type === 'text' && box8.mask === 'disc')) && box8.max === 4 && box8.labels > 0 && box8.pawsHidden === 'true' && box8.ghostHidden === 'true', JSON.stringify(box8));
+    await p8.fill('#vaultPin', ''); await p8.waitForTimeout(100);
+    const fx = await face8();
+    ok('PIN box emptied: the paws come down and the prints empty', fx.peek === 'open' && fx.filled === '0', JSON.stringify(fx));
     await p8.fill('#vaultPin', '1111'); await p8.waitForTimeout(300);
     ok('wrong session PIN (checked on the 4th digit) rejected with tries left', (await t8('vaultError')) === 'Wrong PIN. 4 tries left.' && (await p8.inputValue('#vaultPin')) === '', await t8('vaultError'));
+    const fw = await face8();
+    ok('wrong PIN: Ghost uncovers its eyes and the paw prints empty again', fw.peek === 'open' && fw.filled === '0', JSON.stringify(fw));
     await p8.fill('#vaultPin', '2468');
     await p8.waitForSelector('#vaultModal', { state: 'hidden' });
     ok('right session PIN unlocks on the 4th digit, no extra tap', (await p8.inputValue('#firstName')) === 'Quick' && (await t8('auditLog')).includes('Vault unlocked (session PIN)') && (await t8('vaultBadge')) === 'Vault: UNLOCKED');
@@ -796,6 +820,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p8.waitForFunction(() => document.getElementById('toastMessage').textContent.startsWith('Hidden after'), null, { timeout: 5000 }).catch(() => {});
     await fastForward(p8, 301000);
     ok('idle lock: 5 minutes after it the card is still held (the 7 minutes run from the lock)', await p8.isVisible('#vaultModal') && /^(2:0\d|1:5\d)$/.test(await t8('vaultLockRingTime')), await t8('vaultLockRingTime'));
+    const f5 = await face8();
+    ok('ringed tail: 5 minutes in, the tail has lost most of its bands with the ring', f5.tail === f5.ring && Number(f5.ring) > 200, JSON.stringify(f5));
     await fastForward(p8, 120000);   // 7 min 7 s after the lock was due
     await p8.waitForFunction(() => document.getElementById('toastMessage').textContent.startsWith('Reset: 7 minutes'), null, { timeout: 5000 }).catch(() => {});
     // A slow runner can still be closing the lock screen here; the next step needs the header, which it covers.
@@ -1241,6 +1267,77 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await ctx11.close();
   }
 
+  // Make it cute (MOD05, raven575 2026-10-21): the "Unknown" tray takes the scan lines nothing claimed (F4, video review #53,
+  // both editions); the pigeonhole tabs (F1) and the FILED stamp (F2) are branded only.
+  {
+    const ctxU = await browser.newContext();
+    const pU = await ctxU.newPage();
+    const errorsU = [];
+    pU.on('pageerror', e => errorsU.push(e.message));
+    await pU.goto(ORIGIN); await pU.waitForTimeout(300);
+    const tabs = await pU.$$eval('#fieldsForm .fields-slot:not(.fields-hole)', ts => ts.map(t => t.dataset.slot + (t.getAttribute('aria-hidden') === 'true' ? '' : '!')));
+    const stamp = await pU.$('#fieldsDoneBtn .fields-stamp');
+    if (EDITION_PLAIN) ok('plain edition: no pigeonhole tabs and no FILED stamp; the button still reads "Everything\'s correct"', tabs.length === 0 && !stamp && (await pU.textContent('#fieldsDoneBtn')).trim() === "Everything's correct", JSON.stringify(tabs));
+    else {
+      ok('F1: every box group carries a pigeonhole tab, hidden from screen readers (8 kinds, 14 tabs)', tabs.length === 14 && new Set(tabs).size === 8 && tabs.every(t => !t.endsWith('!'))
+        && (await pU.textContent('#fieldsForm label:has(#firstName) .field-label')).trim() === 'First name', JSON.stringify(tabs));
+      ok('F2: the FILED stamp sits on the green button, hidden from screen readers, and the label reads as before', (await pU.$eval('#fieldsDoneBtn .fields-stamp', s => s.textContent === 'FILED' && s.getAttribute('aria-hidden') === 'true'))
+        && (await pU.$eval('#fieldsDoneBtn', b => b.querySelector('span:not(.fields-stamp)').textContent)) === "Everything's correct");
+      await pU.click('#navFields'); await pU.waitForTimeout(600);
+      await pU.dispatchEvent('#fieldsDoneBtn', 'pointerdown');
+      const pressed = await pU.$eval('#fieldsDoneBtn', b => b.classList.contains('is-stamping') && getComputedStyle(b.querySelector('.fields-stamp')).animationName);
+      const pressEnded = await pU.waitForFunction(() => !document.getElementById('fieldsDoneBtn').classList.contains('is-stamping'), null, { timeout: 3000 }).then(() => true, () => false);
+      await pU.emulateMedia({ reducedMotion: 'reduce' });
+      await pU.dispatchEvent('#fieldsDoneBtn', 'pointerdown');
+      const stillUnderReduce = !(await pU.$eval('#fieldsDoneBtn', b => b.classList.contains('is-stamping')));
+      await pU.emulateMedia({ reducedMotion: 'no-preference' });
+      ok('F2: a press gives one stamp press that ends by itself; under reduce motion nothing moves', pressed === 'fields-stamp' && pressEnded && stillUnderReduce, JSON.stringify({ pressed, pressEnded, stillUnderReduce }));
+    }
+    ok('F4: the tray is hidden while there is nothing unplaced', await pU.$eval('#fieldsUnknown', t => t.classList.contains('hidden')));
+    await pU.setInputFiles('#imageUpload', await renderCardImage(pU)); await pU.waitForTimeout(300);
+    await pU.click('#runOcrBtn');
+    await readEnds(pU);
+    // Two lines set to Ignore in the review step, as a line the reader could not place would be
+    const lineIndex = (text) => pU.$$eval('#ocrLines input[id^="ocrLineText"]', (ins, text) => ins.findIndex(i => i.value.includes(text)), text);
+    const iTitle = await lineIndex('Director'), iOrg = await lineIndex('Northwind Systems');
+    await pU.selectOption(`#ocrLineRole${iTitle}`, 'ignore'); await pU.selectOption(`#ocrLineRole${iOrg}`, 'ignore');
+    await proceed(pU);
+    const trayLines = () => pU.$$eval('#fieldsUnknownList .fields-unknown-line', ls => ls.map(l => l.textContent));
+    const listed = await trayLines();
+    ok('F4: the lines nothing claimed wait in the "Unknown: tap to file" tray instead of being dropped', iTitle >= 0 && iOrg >= 0 && await pU.isVisible('#fieldsUnknown')
+      && listed.includes('Director of Engineering') && listed.includes('Northwind Systems') && (await pU.inputValue('#jobTitle')) === ''
+      && (await pU.textContent('#fieldsUnknownTitle')).trim() === 'Unknown: tap to file', JSON.stringify(listed));
+    ok(EDITION_PLAIN ? 'plain edition: the tray has no pigeonhole art' : 'F4: the tray title carries the empty pigeonhole', EDITION_PLAIN ? !(await pU.$('#fieldsUnknown .fields-hole')) : !!(await pU.$('#fieldsUnknown .fields-hole[aria-hidden="true"] svg')));
+    const titleLine = pU.locator('#fieldsUnknownList .fields-unknown-line', { hasText: 'Director of Engineering' });
+    await pU.waitForFunction(() => !document.getElementById('fieldsForm').classList.contains('is-popping'), null, { timeout: 3000 }).catch(() => {});   // measured at rest, not mid-pop
+    const lineBox = await titleLine.boundingBox();
+    await titleLine.click();
+    ok('F4: tapping a line picks it (pressed, with a dot) and says what to do next', (await titleLine.getAttribute('aria-pressed')) === 'true'
+      && (await pU.textContent('#fieldsUnknownHelp')).includes('Now tap the box for "Director of Engineering"') && lineBox.height >= 44, JSON.stringify(lineBox));
+    await pU.click('#jobTitle');
+    ok('F4: tapping a box files the line there, the card shows it, and the line leaves the tray', (await pU.inputValue('#jobTitle')) === 'Director of Engineering'
+      && (await pU.textContent('#previewTitle')) === 'Director of Engineering' && !(await trayLines()).includes('Director of Engineering')
+      && (await pU.textContent('#fieldsUnknownHelp')).trim() === 'Filed in Job title.', await pU.textContent('#fieldsUnknownHelp'));
+    // Keyboard: pick a line, then Enter in a box files it there (Notes is a text area: a click files into it)
+    const orgLine = pU.locator('#fieldsUnknownList .fields-unknown-line', { hasText: 'Northwind Systems' });
+    await orgLine.click(); await pU.keyboard.press('Escape');
+    ok('F4: Escape puts a picked line back', (await orgLine.getAttribute('aria-pressed')) === 'false');
+    await orgLine.click(); await pU.focus('#nickname'); await pU.keyboard.press('Enter');
+    ok('F4: Enter in a box files the picked line there', (await pU.inputValue('#nickname')) === 'Northwind Systems' && !(await trayLines()).includes('Northwind Systems'));
+    await pU.fill('#nickname', '');
+    // Leave out: every line still in the tray goes, then the tray hides
+    for (const n of await trayLines()) await pU.click(`#fieldsUnknownList [aria-label="Leave out: ${n}"]`);
+    ok('F4: Leave out drops a line; an empty tray hides', (await trayLines()).length === 0 && await pU.$eval('#fieldsUnknown', t => t.classList.contains('hidden')));
+    // The scan's Undo goes back to the lines and empties the tray; Proceed again refills it
+    await pU.click('#reopenScanBtn');
+    await proceed(pU);
+    ok('F4: proceeding again refills the tray from the lines', (await trayLines()).includes('Northwind Systems'));
+    await pU.click('#toastAction');
+    ok('F4: the scan\'s Undo empties the tray', (await trayLines()).length === 0 && await pU.$eval('#fieldsUnknown', t => t.classList.contains('hidden')));
+    ok('make it cute: no page errors', errorsU.length === 0, errorsU.join(' | '));
+    await ctxU.close();
+  }
+
   // A scan filled into a sample preset replaces the sample as a whole (none of its phones, fax or links are left);
   // Undo brings the sample back, and a second fill replaces it again.
   {
@@ -1300,8 +1397,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('fields: choosing a sample fills the form, pops it in (one animation, 8 steps over 0.32 s), offers Undo, and the list reads the prompt again',
       (await pF.inputValue('#firstName')) === samples()[2][0] && (await pF.inputValue('#organization')) === samples()[2][2] && (await pops()) === 2 && pop.names.includes('fields-pop') && pop.steps === 'steps(8)' && pop.ms === '0.32s'
       && await pF.isVisible('#toastAction') && (await pF.$eval('#fakeContactSelect', s => s.value)) === '' && (await card()) === 'fields', JSON.stringify({ pop, pops: await pops(), card: await card() }));
-    ok('fields: the list and the green button are at least 44 px tall; the button reads "Everything\'s correct" with the tick icon', (await pF.$$eval('#fakeContactSelect, #fieldsDoneBtn', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44)
-      && (await pF.textContent('#fieldsDoneBtn')).trim() === "Everything's correct" && !!(await pF.$('#fieldsDoneBtn svg use[href$="#circle-check"]')), JSON.stringify(await pF.$$eval('#fakeContactSelect, #fieldsDoneBtn', els => els.map(e => e.getBoundingClientRect().height))));
+    ok('fields: the list and the green button are at least 44 px tall; the button reads "Everything\'s correct" (its name for screen readers too; the FILED stamp is hidden from them) with the tick icon', (await pF.$$eval('#fakeContactSelect, #fieldsDoneBtn', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44)
+      && (await pF.$eval('#fieldsDoneBtn', b => b.querySelector(':scope > span:not(.fields-stamp)').textContent)) === "Everything's correct"
+      && (await pF.getByRole('button', { name: "Everything's correct", exact: true }).count()) === 1 && !!(await pF.$('#fieldsDoneBtn svg use[href$="#circle-check"]')), JSON.stringify(await pF.$$eval('#fakeContactSelect, #fieldsDoneBtn', els => els.map(e => e.getBoundingClientRect().height))));
     // The class goes on animationend, which a slow phone engine on CI can deliver well after 0.32 s: wait for it (3 s cap)
     const popEnded = await pF.waitForFunction(() => !document.getElementById('fieldsForm').classList.contains('is-popping'), null, { timeout: 3000 }).then(() => true, () => false);
     ok('fields: the pop class is gone once the animation ends', popEnded && !(await pF.$eval('#fieldsForm', f => f.classList.contains('is-popping'))));
@@ -1736,6 +1834,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pM.click('#ocrAnotherPhotoBtn');
     await pM.setInputFiles('#imageUpload', await card(pM, [['Jane Rivera', 44], ['jane@northwind.com', 34], ['Seattle, WA 98101', 34]])); await pM.waitForTimeout(300);
     ok('one more photo: the Capture card says this is photo 2 of 3 of the card', await pM.isVisible('#photoCountNote') && (await pM.textContent('#photoCountNote')).startsWith('Photo 2 of 3'));
+    const pawDots = await pM.$eval('#photoCountNote', n => ({ photo: n.dataset.photo, of: n.dataset.of, dots: getComputedStyle(n, '::before').content }));
+    ok(EDITION_PLAIN ? 'one more photo (plain): no paw dots by the count' : 'one more photo: Iris\'s paw dots show by the count (photo 2 of 3)',
+      pawDots.photo === '2' && pawDots.of === '3' && (EDITION_PLAIN ? pawDots.dots === 'none' : pawDots.dots !== 'none'), JSON.stringify(pawDots));
     await pM.click('#runOcrBtn');
     await readEnds(pM);
     const merged = await pM.$$eval('#ocrLines input[id^="ocrLineText"]', els => els.map(e => e.value));
@@ -2109,6 +2210,70 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     }
     ok('capture card: no page errors', errorsV.length === 0, errorsV.join(' | '));
     await ctxV.close();
+  }
+
+  // MOD03 cute touches (approved 2026-10-21): paw crop handles with a corner dot (C1), the lynx-eye shutter (C2), Iris
+  // peeking on the empty Capture card with one wink (C3), paw dots by MOD04's "Photo 2 of 3" (C9). Branded only.
+  {
+    const ctxI = await newContext({ viewport: { width: 390, height: 844 } });
+    const pI = await ctxI.newPage();
+    const errorsI = [];
+    pI.on('pageerror', e => errorsI.push(e.message));
+    await pI.goto(ORIGIN); await pI.waitForTimeout(400);
+    const pseudo = (sel, which, prop) => pI.$eval(sel, (el, [w, p]) => getComputedStyle(el, w)[p], [which, prop]);
+    const winking = () => pI.$eval('#capIris', el => el.classList.contains('wink'));
+    if (EDITION_PLAIN) {
+      ok('plain: no Iris on the Capture card', !(await pI.isVisible('#capIris')));
+      ok('plain: the shutter keeps its plain white dot (no lynx eye)', (await pseudo('#captureBtn .cap-shutter-dot', '::after', 'content')) === 'none'
+        && /255, 255, 255/.test(await pseudo('#captureBtn .cap-shutter-dot', null, 'backgroundColor')));
+      await pI.evaluate(() => { const n = document.getElementById('photoCountNote'); n.dataset.photo = '2'; n.dataset.of = '3'; });
+      ok('plain: no paw dots by the photo count', (await pseudo('#photoCountNote', '::before', 'content')) === 'none');
+    } else {
+      const irisBox = await pI.$eval('#capIris', el => { const r = el.getBoundingClientRect(), c = document.getElementById('captureChoice').getBoundingClientRect(); return { h: r.height, above: r.bottom <= c.top + 1 }; });
+      ok('Iris peeks over a card above Take a photo / Upload a photo', await pI.isVisible('#capIris') && irisBox.h > 30 && irisBox.above, JSON.stringify(irisBox));
+      await pI.click('#capIris');
+      const wunk = await winking();
+      await pI.waitForTimeout(900);
+      ok('a tap on Iris winks one eye once, then she is still again', wunk && !(await winking()));
+      await pI.emulateMedia({ reducedMotion: 'reduce' });
+      await pI.click('#capIris');
+      ok('reduce motion: no wink', !(await winking()));
+      await pI.emulateMedia({ reducedMotion: 'no-preference' });
+
+      // C2: the shutter's eye; pressing narrows the pupil to a slit (a shape change, set while camera.js holds data-pressed)
+      const pupil = () => pseudo('#captureBtn .cap-shutter-dot', '::after', 'width').then(parseFloat);
+      const open = await pupil();
+      await pI.$eval('#captureBtn', b => { b.dataset.pressed = '1'; });
+      const slit = await pupil();
+      await pI.$eval('#captureBtn', b => { delete b.dataset.pressed; });
+      ok('the shutter is an amber lynx eye whose pupil narrows to a slit while pressed', /245, 158, 11/.test(await pseudo('#captureBtn .cap-shutter-dot', null, 'backgroundImage')) && open > 6 && slit < open / 2, JSON.stringify({ open, slit }));
+
+      // C9: the dots wait for MOD04's attributes, then fill one per photo already taken
+      ok('paw dots stay off until the photo count carries its numbers', (await pseudo('#photoCountNote', '::before', 'content')) === 'none');
+      const dots = async (photo) => { await pI.evaluate((ph) => { const n = document.getElementById('photoCountNote'); n.dataset.photo = ph; n.dataset.of = '3'; }, photo);
+        return (await pseudo('#photoCountNote', '::before', 'backgroundImage')).split('radial-gradient').length - 1; };
+      await dots('1'); const bg1 = await pseudo('#photoCountNote', '::before', 'backgroundImage');
+      await dots('2'); const bg2 = await pseudo('#photoCountNote', '::before', 'backgroundImage');
+      await dots('3'); const bg3 = await pseudo('#photoCountNote', '::before', 'backgroundImage');
+      ok('paw dots: three, the taken photos filled (photo 2 of 3: one, photo 3 of 3: two)', (await dots('3')) === 3 && new Set([bg1, bg2, bg3]).size === 3, JSON.stringify([bg1, bg2, bg3]));
+      await pI.evaluate(() => { const n = document.getElementById('photoCountNote'); delete n.dataset.photo; delete n.dataset.of; });
+
+      // A second photo is under way: Iris steps away while the count shows
+      await pI.evaluate(() => document.getElementById('photoCountNote').classList.remove('hidden'));
+      ok('Iris steps away while the photo count shows', !(await pI.isVisible('#capIris')));
+      await pI.evaluate(() => document.getElementById('photoCountNote').classList.add('hidden'));
+    }
+
+    // C1: the crop step's handles (upload a card photo); the corner dot and paw are branded only
+    await pI.setInputFiles('#imageUpload', await renderCardImage(pI)); await pI.waitForTimeout(400);
+    const handles = await pI.$$eval('.crop-handle', hs => hs.map(h => { const b = getComputedStyle(h, '::before'), a = getComputedStyle(h, '::after'), r = h.getBoundingClientRect();
+      return { corner: h.dataset.corner, w: r.width, toes: b.backgroundImage.split('radial-gradient').length - 1, turn: b.transform, dot: a.content !== 'none' && a.content !== '' ? a.width : null }; }));
+    ok('crop step: the Iris peek is gone once there is a photo', await pI.isVisible('#captureReview') && !(await pI.isVisible('#capIris')));
+    if (EDITION_PLAIN) ok('plain: the crop handles stay plain circles (no paws, no corner dot)', handles.length === 4 && handles.every(h => h.toes === 0 && !h.dot), JSON.stringify(handles));
+    else ok('crop handles are paw prints (four toes and a pad), turned out from each corner, with a fine dot on the corner, same size as before',
+      handles.length === 4 && handles.every(h => h.toes === 5 && h.dot === '6px' && h.turn !== 'none' && h.w >= 23) && new Set(handles.map(h => h.turn)).size === 4, JSON.stringify(handles));
+    ok('cute touches: no page errors', errorsI.length === 0, errorsI.join(' | '));
+    await ctxI.close();
   }
 
   // Camera in use by another app: busy at start, a virtual camera, the feed taken or muted mid-scan -> camera off + pop-up

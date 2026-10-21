@@ -97,6 +97,22 @@
             <div class="deck-card-body space-y-4">
                 <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Scan a business card</h2>
                 <p id="photoCountNote" class="hidden text-sm text-slate-500 dark:text-slate-400" role="status"></p>
+                <!-- Iris peeking over a card (MOD03 cute touch; branded edition only, see camera.css). Tap: one wink. -->
+                <div id="capIris" class="cap-iris" role="img" aria-label="Iris the lynx peeking over a business card">
+                    <svg viewBox="0 0 120 80" aria-hidden="true" focusable="false">
+                        <path d="M33 34 L29 7 L48 25 Z" fill="#c08a4a"/><path d="M87 34 L91 7 L72 25 Z" fill="#c08a4a"/>
+                        <path d="M35 28 L33 14 L43 25 Z" fill="#f4c7b8"/><path d="M85 28 L87 14 L77 25 Z" fill="#f4c7b8"/>
+                        <path d="M29 7 L28 0 M91 7 L92 0" stroke="#3f2a17" stroke-width="2" stroke-linecap="round"/>
+                        <ellipse cx="60" cy="47" rx="31" ry="25" fill="#d9ab6c"/>
+                        <path d="M30 50 L22 56 L32 55 Z M90 50 L98 56 L88 55 Z" fill="#d9ab6c"/>
+                        <g class="iris-eye-l"><ellipse cx="48" cy="41" rx="5" ry="5.5" fill="#f59e0b"/><ellipse cx="48" cy="41" rx="1.5" ry="4.3" fill="#0f172a"/></g>
+                        <g class="iris-eye-r"><ellipse cx="72" cy="41" rx="5" ry="5.5" fill="#f59e0b"/><ellipse cx="72" cy="41" rx="1.5" ry="4.3" fill="#0f172a"/></g>
+                        <rect x="8" y="49" width="104" height="30" rx="4" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+                        <path d="M18 60 H58 M18 67 H74 M18 73 H50" stroke="#cbd5e1" stroke-width="2.5" stroke-linecap="round"/>
+                        <ellipse cx="42" cy="50" rx="7" ry="4.5" fill="#d9ab6c"/><ellipse cx="78" cy="50" rx="7" ry="4.5" fill="#d9ab6c"/>
+                        <path d="M39 48 V52 M42 47.5 V52.5 M45 48 V52 M75 48 V52 M78 47.5 V52.5 M81 48 V52" stroke="#a87436" stroke-width="1" stroke-linecap="round"/>
+                    </svg>
+                </div>
                 <!-- Capture (MOD03, Iris): Take a photo first, Upload a photo second; the picker is the device's own -->
                 <div id="captureChoice" class="cap-choice">
                     <button id="startCameraBtn" type="button" class="cap-btn cap-btn-primary"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#camera"></use></svg><span>Take a photo</span></button>
@@ -292,6 +308,12 @@
                 <!-- Categories (MOD05): tags typed by the person, comma separated; written as the vCard's CATEGORIES -->
                 <label class="block col-span-2"><span class="field-label">Categories</span><input id="categories" type="text" autocomplete="off" class="field-input" placeholder="Client, Plumber, Met at expo" aria-describedby="categoriesHint"></label>
                 <p id="categoriesHint" class="fields-hint col-span-2">Separate them with commas. Google Contacts and Outlook show them as labels; iPhone Contacts leaves them out.</p>
+                <!-- The "Unknown" tray (MOD05, F4): scan lines nothing claimed wait here to be filed by hand; on-screen only -->
+                <div id="fieldsUnknown" class="fields-unknown col-span-2 hidden" role="group" aria-labelledby="fieldsUnknownTitle">
+                    <p id="fieldsUnknownTitle" class="field-label">Unknown: tap to file</p>
+                    <p id="fieldsUnknownHelp" class="fields-hint" aria-live="polite"></p>
+                    <ul id="fieldsUnknownList" class="fields-unknown-list"></ul>
+                </div>
             </div>
             </div>
             <div class="deck-card-foot">
@@ -632,13 +654,31 @@
                 <span>Use fingerprint or face</span>
             </button>
             <p id="vaultOr" class="vault-or hidden">or</p>
-            <label id="vaultPinRow" class="block"><span class="field-label">Type your 4-digit PIN</span><input id="vaultPin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-bwignore data-form-type="other" class="field-input"></label>
+            <!-- Ghost (V1): peeks over the PIN box and covers its eyes while a PIN is typed. Drawing only; hidden in the plain edition -->
+            <svg id="vaultGhost" class="vault-ghost" viewBox="0 0 64 64" aria-hidden="true">
+                <title>Ghost the Raccoon</title>
+                <path class="vg-ear" d="M14 22 L12 8 L25 15 Z"/><path class="vg-ear" d="M50 22 L52 8 L39 15 Z"/>
+                <ellipse class="vg-head" cx="32" cy="34" rx="22" ry="18"/>
+                <path class="vg-mask" d="M11 33 Q20 23 29 31 Q32 34 35 31 Q44 23 53 33 Q46 42 37 37 Q32 35 27 37 Q18 42 11 33 Z"/>
+                <g class="vg-eyes"><circle class="vg-eye" cx="22" cy="32" r="3.2"/><circle class="vg-eye" cx="42" cy="32" r="3.2"/><circle class="vg-glint" cx="23" cy="31" r="1"/><circle class="vg-glint" cx="43" cy="31" r="1"/></g>
+                <ellipse class="vg-snout" cx="32" cy="43" rx="8" ry="5.5"/><ellipse class="vg-nose" cx="32" cy="40.5" rx="3" ry="2"/>
+                <g class="vg-paws"><ellipse class="vg-paw" cx="21" cy="32" rx="9" ry="6.5"/><ellipse class="vg-paw" cx="43" cy="32" rx="9" ry="6.5"/>
+                    <path class="vg-toe" d="M15 28.5 v2.5 M19 27 v2.5 M23 27 v2.5 M41 27 v2.5 M45 27 v2.5 M49 28.5 v2.5"/></g>
+            </svg>
+            <!-- Paw prints (V2): one fills per digit typed; the PIN box under them is unchanged for screen readers -->
+            <svg class="hidden" aria-hidden="true"><symbol id="vaultPawPrint" viewBox="0 0 24 24"><ellipse cx="12" cy="15.5" rx="5.2" ry="4.4"/><circle cx="5.6" cy="9.6" r="2.2"/><circle cx="9.6" cy="5.8" r="2.3"/><circle cx="14.4" cy="5.8" r="2.3"/><circle cx="18.4" cy="9.6" r="2.2"/></symbol></svg>
+            <label id="vaultPinRow" class="block"><span class="field-label">Type your 4-digit PIN</span><span class="vault-pin-wrap"><input id="vaultPin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-bwignore data-form-type="other" class="field-input"><span id="vaultPinPaws" class="vault-pin-paws" data-filled="0" aria-hidden="true"><svg class="vault-paw"><use href="#vaultPawPrint"></use></svg><svg class="vault-paw"><use href="#vaultPawPrint"></use></svg><svg class="vault-paw"><use href="#vaultPawPrint"></use></svg><svg class="vault-paw"><use href="#vaultPawPrint"></use></svg></span></span></label>
             <p id="vaultError" class="text-xs text-rose-600 dark:text-rose-400 min-h-4" role="alert"></p>
             <!-- Calm ring: time left before the reset (7, 10 or 15 minutes, chosen in Settings) wipes the held card -->
             <div class="vault-ring relative mx-auto">
                 <svg viewBox="0 0 120 120" class="w-full h-full -rotate-90" aria-hidden="true">
                     <circle cx="60" cy="60" r="52" fill="none" stroke-width="8" class="stroke-slate-200 dark:stroke-slate-700"></circle>
                     <circle id="vaultLockRing" cx="60" cy="60" r="52" fill="none" stroke-width="8" stroke-linecap="round" stroke-dasharray="326.73" stroke-dashoffset="0" class="stroke-brand-500"></circle>
+                    <!-- Ringed tail (V3): dark bands over the ring, cut by the same countdown, so they go as time runs out -->
+                    <mask id="vaultTailMask" maskUnits="userSpaceOnUse" x="0" y="0" width="120" height="120">
+                        <circle id="vaultTailMaskRing" cx="60" cy="60" r="52" fill="none" stroke="#fff" stroke-width="8" stroke-linecap="round" stroke-dasharray="326.73" stroke-dashoffset="0"></circle>
+                    </mask>
+                    <circle id="vaultTailBands" class="vault-tail-bands" cx="60" cy="60" r="52" fill="none" stroke-width="8" stroke-dasharray="20.42 20.42" mask="url(#vaultTailMask)"></circle>
                 </svg>
                 <div class="absolute inset-0 flex flex-col items-center justify-center">
                     <span id="vaultLockRingTime" class="text-2xl font-bold font-mono tabular-nums">7:00</span>

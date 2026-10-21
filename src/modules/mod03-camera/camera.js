@@ -22,6 +22,7 @@ const IN_USE_MESSAGE = 'Another app is using or watching your camera, so vCGE tu
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 export const ZOOM_EASE_MS = 320;      // the fader eases into each change rather than snapping
 export const SHUTTER_POP_MS = 260;    // the shutter pops back up after a press
+export const IRIS_WINK_MS = 700;     // one wink when Iris is tapped on the empty Capture card (camera.css iris-wink)
 export const CSS_ZOOM_MAX = 4;        // digital zoom range when the camera has no zoom of its own
 export const FIRST_FRAME_WAIT_MS = 1500;   // how long a shutter press waits for the camera's first picture
 
@@ -39,6 +40,7 @@ export class VCGEActiveCamera {
         this.eventLog = config.eventLog || document.getElementById('eventLog');
         this.cameraPanel = config.cameraPanel || document.getElementById('cameraPanel');
         this.toast = typeof config.toast === 'function' ? config.toast : () => {};
+        this.irisPeek = config.irisPeek || document.getElementById('capIris');
 
         this.currentFacingMode = config.facingMode || 'environment';
         this.activeStream = null;
@@ -183,6 +185,10 @@ export class VCGEActiveCamera {
             this.shutter.addEventListener('pointerdown', () => this.pressShutter(true));
             ['pointerup', 'pointercancel', 'pointerleave'].forEach(t => this.shutter.addEventListener(t, () => this.pressShutter(false)));
         }
+        if (this.irisPeek) {
+            // A hidden delight: one slow wink per tap, never repeated on its own, and skipped under reduce motion.
+            this.irisPeek.addEventListener('click', () => this.wink());
+        }
         if (this.viewfinderArea && typeof ResizeObserver !== 'undefined') {
             new ResizeObserver(() => this.layoutFrame()).observe(this.viewfinderArea);
         }
@@ -221,6 +227,12 @@ export class VCGEActiveCamera {
         } else if (this.videoEl) {
             this.videoEl.style.transform = z > 1 ? `scale(${z})` : '';
         }
+    }
+
+    wink() {
+        if (!this.irisPeek || this.reducedMotion() || this.irisPeek.classList.contains('wink')) return;
+        this.irisPeek.classList.add('wink');
+        setTimeout(() => this.irisPeek.classList.remove('wink'), IRIS_WINK_MS);
     }
 
     pressShutter(down) {
