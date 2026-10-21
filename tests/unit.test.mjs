@@ -1325,6 +1325,27 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     Object.values(ed.PLAIN_NAV).join() === 'Start,Capture,Read,Fields,Card,QR,Share' && ed.PLAIN_THANKS === 'Session ended.'
     && (html.match(/id="nav(?:Welcome|Capture|Read|Fields|Card|Qr|Share)"/g) || []).map(m => m.slice(4, -1)).join() === Object.keys(ed.PLAIN_NAV).join());
   ok('logo: no icon link points at a host', ![...html.matchAll(/<link[^>]+rel="(?:icon|apple-touch-icon)"[^>]*>/g)].some(m => /https?:/.test(m[0])));
+  // Shutout's touches (shellArt.js, the "make it cute" round): the turtle and the plates are pictures only, branded only
+  const art = await import(`${R}/modules/mod01-shell/shellArt.js`);
+  ok('shell art: the turtle is centred under a button, whatever the header\'s own left edge',
+    art.turtleX({ left: 100, width: 44 }, { left: 0 }, 24) === 110 && art.turtleX({ left: 130, width: 44 }, { left: 30 }, 24) === 110);
+  ok('shell art: the plate of the card in view is current, cards already seen are visited, the rest new',
+    art.plateStates(['welcome', 'capture', 'read'], new Set(['welcome', 'read']), 'read').join() === 'visited,new,current'
+    && art.plateStates(['welcome', 'capture'], new Set(), 'welcome').join() === 'current,new');
+  let artTouched = false;
+  art.initShellArt({ querySelector: () => { artTouched = true; return null; }, getElementById: () => null, documentElement: { dataset: { edition: 'plain' } } });
+  art.initShellArt({ addEventListener() {} });
+  ok('shell art: does nothing in the plain edition, or without a page', !artTouched);
+  const deckCss = fs.readFileSync(`${R}/modules/mod01-shell/deck.css`, 'utf8');
+  const turtleTag = (html.match(/<span id="deckTurtle"[^>]*>/) || [''])[0], platesTag = html.match(/<span id="deckPlates"[^>]*>([\s\S]*?)<\/span>/);
+  ok('shell art: the turtle and the six plates (one per card, in order) are hidden from screen readers, and hidden in plain',
+    / aria-hidden="true"/.test(turtleTag) && !!platesTag && / aria-hidden="true"/.test(platesTag[0])
+    && [...platesTag[1].matchAll(/data-card="(\w+)"/g)].map(m => m[1]).join() === 'welcome,capture,read,fields,card,share'
+    && /html\[data-edition="plain"\] \.deck-turtle, html\[data-edition="plain"\] \.deck-plates \{ display: none; \}/.test(deckCss));
+  ok('shell art: the turtle walks only when motion is allowed, and the sheets\' grab bar and pebble are branded only',
+    /@media \(prefers-reduced-motion: no-preference\) \{ \.deck-turtle\.is-placed \{ transition: transform 0\.4s ease-in-out; \} \}/.test(deckCss)
+    && !/\.deck-turtle[^{]*\{[^}]*transition: (?!none)/.test(deckCss.replace(/@media \(prefers-reduced-motion: no-preference\) \{[^\n]*\n/g, ''))
+    && /html:not\(\[data-edition="plain"\]\) \.vcge-sheet-panel::before \{/.test(deckCss) && /html:not\(\[data-edition="plain"\]\) \.vcge-sheet-close \{/.test(deckCss));
 }
 
 // MOD01 saved settings (settings.js): the one localStorage entry, `name=number` pairs, preferences only
