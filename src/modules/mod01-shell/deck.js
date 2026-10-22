@@ -312,7 +312,9 @@ function fitHeader() {
     const refit = () => { if (!queued) { queued = true; requestAnimationFrame(fit); } };
     fit();
     if (window.ResizeObserver) {
-        const ro = new ResizeObserver(refit);
+        // Fitted at once, not a frame later: the observer reports after layout, and in WebKit a new window size can reach
+        // the header before its resize event does (an iPad turned to portrait kept its names a frame too long).
+        const ro = new ResizeObserver(fit);
         ro.observe(header);
         header.querySelectorAll('.deck-brand, .deck-tools').forEach(el => ro.observe(el));
     }

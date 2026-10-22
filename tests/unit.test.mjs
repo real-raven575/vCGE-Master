@@ -1418,15 +1418,19 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     tier.tierFor(1000, 800, 1.25) === 'small-tablet' && tier.tierFor(1100, 800, 0.875) === 'laptop' && tier.tierFor(1000, 800, 0) === 'large-tablet');
   ok('layout: a 21:9 window counts as wide from monitor width on, not below it',
     tier.tierFor(2560, 1080) === 'wide' && tier.tierFor(1680, 720) === 'wide' && tier.tierFor(1400, 600) === 'laptop' && tier.tierFor(1920, 1080) === 'monitor');
-  let fakeRaf = [], fakeObs = null;
+  let fakeRaf = [], fakeObs = null, fakeRo = null, fakeRoOn = null;
   const fakeRoot = { dataset: {}, style: { getPropertyValue: () => '1.25' } };
   const fakeWin = { innerWidth: 1000, innerHeight: 450, document: { documentElement: fakeRoot }, addEventListener() {},
-    requestAnimationFrame: (f) => fakeRaf.push(f), MutationObserver: class { constructor(f) { fakeObs = f; } observe() {} } };
+    requestAnimationFrame: (f) => fakeRaf.push(f), MutationObserver: class { constructor(f) { fakeObs = f; } observe() {} },
+    ResizeObserver: class { constructor(f) { fakeRo = f; } observe(el) { fakeRoOn = el; } } };
   tier.initTier(fakeWin);
   const firstTier = `${fakeRoot.dataset.tier}/${fakeRoot.dataset.short}`;
   fakeWin.innerHeight = 800; fakeRoot.style.getPropertyValue = () => '1'; fakeObs(); fakeRaf.forEach(f => f());
   ok('layout: html gets its tier and the short mark at once, and both follow a new text size or window', firstTier === 'small-tablet/1'
     && fakeRoot.dataset.tier === 'large-tablet' && !('short' in fakeRoot.dataset), firstTier);
+  fakeWin.innerWidth = 1366; fakeRo();
+  ok('layout: a new page size seen by the resize observer updates the tier at once (WebKit can be late with the resize event)',
+    fakeRoOn === fakeRoot && fakeRoot.dataset.tier === 'laptop', fakeRoot.dataset.tier);
   const uiCssL = fs.readFileSync(`${R}/modules/mod01-shell/ui.css`, 'utf8');
   ok('layout: cards measure their own width, sizes stay today\'s up to a 52rem card, drop-downs are 44 px, short screens free the height',
     /@supports \(container-type: inline-size\) \{\s*\.deck-card \{ container: deck-card \/ inline-size; \}/.test(deckCss)

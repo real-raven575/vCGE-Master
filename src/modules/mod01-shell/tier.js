@@ -39,6 +39,8 @@ export function initTier(win = typeof window !== 'undefined' ? window : null) {
     };
     const queue = () => { if (!queued) { queued = true; win.requestAnimationFrame(update); } };
     win.addEventListener('resize', queue);
+    // The page's own size as well, at once: in WebKit a new window size can reach the layout before the resize event does
+    if (win.ResizeObserver) new win.ResizeObserver(update).observe(root);
     // A new text size (settings.js sets html[data-size]) changes the tier as well
     if (win.MutationObserver) new win.MutationObserver(queue).observe(root, { attributes: true, attributeFilter: ['data-size'] });
     update();   // at once, so the first frame already has its tier
