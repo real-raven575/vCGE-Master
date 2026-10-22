@@ -1173,6 +1173,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     && card.PLAIN_PRESETS.map(p => p.phones.length + p.websites.length + (p.namePrefix || '') + (p.nameSuffix ? 'S' : '')).join() === card.PRESETS.map(p => p.phones.length + p.websites.length + (p.namePrefix || '') + (p.nameSuffix ? 'S' : '')).join()
     && card.PLAIN_PRESETS.map(p => p.themePalette).join() === card.PRESETS.map(p => p.themePalette).join()
     && !JSON.stringify(card.PLAIN_PRESETS).match(/vCGE|Shutout|Ghost|Iris|Glyph|Pidge|Flipside|Checkers|Airlock|Tally|Cornerstone|pilot|Herd|Flight Deck|gmail/i), card.PLAIN_PRESETS.map(p => p.label).join());
+  ok('initials: first name and last name, a leading "the" skipped (Ghost the Raccoon is GR, Shutout the Box Turtle SB)',
+    card.initialsOf({ firstName: 'Ghost', lastName: 'the Raccoon' }) === 'GR' && card.initialsOf({ firstName: 'Shutout', lastName: 'the Box Turtle' }) === 'SB'
+    && card.initialsOf({ firstName: 'jane', lastName: 'doe' }) === 'JD' && card.initialsOf({ firstName: 'Ana', lastName: 'Theron' }) === 'AT'
+    && card.initialsOf({ firstName: 'Tom', lastName: 'The' }) === 'TT' && card.initialsOf({ firstName: 'Ana' }) === 'VC' && card.initialsOf() === 'VC'
+    && card.PRESETS.map(card.initialsOf).join() === 'SB,GR,IL,GO,PO,FC,CZ,AF,TH,CE');
   ok('the sample logo files are plain SVG drawings (no scripts, no links out)', card.PRESETS.every(p => { const t = fs6.readFileSync(`${R}/../${p.logo}`, 'utf8'); return t.startsWith('<svg') && !/<script|<a[\s>]|href=|on[a-z]+=|url\((?!#)|http(?!:\/\/www\.w3\.org\/)/i.test(t); }));
 
   // White background removal: the white joined to the edge goes see-through, white inside the logo stays

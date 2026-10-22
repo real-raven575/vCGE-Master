@@ -3149,7 +3149,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p6.click('#removeLogoNo');
     ok('logo: No keeps the logo and brings the Remove logo button back', !!(await p6.$(LOGO6)) && await p6.isVisible('#removeAvatarBtn') && !(await p6.isVisible('#removeLogoConfirm')));
     await p6.click('#removeAvatarBtn'); await p6.click('#removeLogoYes');
-    ok('logo: Remove takes the logo off and says so; the initials are back', !(await p6.$(LOGO6)) && (await p6.textContent('#previewAvatar')).trim() === (s1First[0] + s1Last[0]).toUpperCase() && (await p6.textContent('#toastMessage')) === 'Logo removed.');
+    ok('logo: Remove takes the logo off and says so; the initials are back', !(await p6.$(LOGO6)) && (await p6.textContent('#previewAvatar')).trim() === (EDITION_PLAIN ? s1First[0] + s1Last[0] : 'GR') && (await p6.textContent('#toastMessage')) === 'Logo removed.');
     ok('card: with the logo removed the rim goes too', await p6.$eval('#card3DFlipper', el => !('rim' in el.dataset) && !el.style.getPropertyValue('--card-rim')));
     await p6.click('#toastAction').catch(() => {});
     await p6.click('#navFields'); await p6.waitForTimeout(300);

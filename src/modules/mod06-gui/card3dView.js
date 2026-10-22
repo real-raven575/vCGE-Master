@@ -32,6 +32,13 @@ export const DEFAULT_THEME = 'slateblue';
 const LEGACY_THEMES = { ocean: 'slateblue', emerald: 'spruce', sunset: 'pumpkin', violet: 'twilight', slate: 'slateblue' };
 export const themeKeyOf = (key) => (THEMES[key] ? key : (LEGACY_THEMES[key] || DEFAULT_THEME));
 
+// The badge's initials: first name and last name, a leading "the" skipped so "Ghost the Raccoon" reads GR
+// (raven575, 2026-10-22). No name gives VC.
+export function initialsOf({ firstName = '', lastName = '' } = {}) {
+    const first = String(firstName).trim(), last = String(lastName).trim().replace(/^the\s+(?=\S)/i, '');
+    return first && last ? (first[0] + last[0]).toUpperCase() : 'VC';
+}
+
 // Sample contacts, as data: the Fields card (MOD05) lists them under "Insert Fake Contact?" and calls loadSample().
 // The ten pilots of Team vCGE as "Name the Animal", with the reserved fictional numbers (555-01xx), a vCGE.APP Gmail
 // plus-address each (so the inbox can filter by character), their future page on vcge.app, an address at their bench
@@ -474,8 +481,7 @@ export class CardView {
         $('previewAddress').replaceChildren(...this.lineCells('address', contact.addressType, address ? addressType : '', address || 'No address provided'));
         $('backCardName').textContent = fullName;
 
-        const initials = (contact.firstName && contact.lastName)
-            ? (contact.firstName[0] + contact.lastName[0]).toUpperCase() : 'VC';
+        const initials = initialsOf(contact);
         // A wide logo (a wordmark) gets a strip across the top of the card, where it is readable. The printed card has
         // no room for the strip, so there the logo stays in the badge.
         const wide = !!(this.logoDisplay && this.logoLook && this.logoLook.wide);
