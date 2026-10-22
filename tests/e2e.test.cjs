@@ -230,7 +230,7 @@ if (!DEVICE) throw new Error(`unknown VCGE_DEVICE "${process.env.VCGE_DEVICE}"`)
 const { defaultBrowserType, ...deviceOptions } = DEVICE;
 const RUN = BROWSER + (process.env.VCGE_DEVICE ? ` (${process.env.VCGE_DEVICE})` : '');
 
-let pass = 0, fail = 0, notRun = 0;
+let pass = 0, fail = 0, notRun = 0, crashReruns = 0;
 const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, console.log('FAIL', n, d)); };
 // A check whose test tool exists only in some engines: reported and counted, never silently dropped.
 const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`); };
@@ -261,8 +261,29 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // with no way to tell which error it was)
     if (typeof a[0] === 'string' && (a[0].startsWith('[vCGE-MOD04]') || a[0].startsWith('[vCGE] OCR failed'))) (window.__readerLog = window.__readerLog || []).push(`${Math.round(performance.now())} ms ${a[0].slice(0, 160)}${a[1] ? ` ${String(a[1] && (a[1].stack || a[1].message) || a[1]).slice(0, 300)}` : ''}`);
     return f.apply(console, a); }; });
-  browser.newContext = async (opts = {}) => { const c = await plainContext({ ...deviceOptions, ...opts }); await c.addInitScript(pressStartNow); await c.addInitScript(keepReaderLog); await editionRoute(c); return c; };
+  browser.newContext = async (opts = {}) => { const c = await plainContext({ ...deviceOptions, ...opts }); await c.addInitScript(pressStartNow); await c.addInitScript(keepReaderLog); await editionRoute(c);
+    c.on('page', p => p.once('crash', () => { pageCrashed = true; })); opened.push(c); return c; };
   const newContext = (options) => browser.newContext(options);
+  // raven575, 2026-10-22: Playwright's WebKit sometimes loses a whole page process while it reads a card ("Target
+  // crashed", the F4 block on 2026-10-21); no code in the page can catch that. A block that reads cards then runs once
+  // more on fresh pages, said in the log and counted in the summary. A FAIL from the crashed try still counts; a second
+  // crash, any other engine, or any other error fails the run as before.
+  let pageCrashed = false;
+  const opened = [];
+  const rerunIfPageCrashed = async (name, block) => {
+    const mark = { pass, notRun, opened: opened.length };
+    pageCrashed = false;
+    try { await block(); }
+    catch (e) {
+      if (ENGINE !== 'webkit' || !pageCrashed) throw e;
+      crashReruns++;
+      console.log(`PAGE CRASHED in "${name}": WebKit's page process died (${String(e.message).split('\n')[0]}); running the block once more on fresh pages`);
+      await Promise.all(opened.splice(mark.opened).map(c => c.close().catch(() => {})));
+      pass = mark.pass; notRun = mark.notRun;
+      pageCrashed = false;
+      await block();
+    }
+  };
   const context = await newContext({ acceptDownloads: true });
   const page = await context.newPage();
   const external = [], errors = [], notFound = [];
@@ -1100,7 +1121,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   }
 
   // Quick lock keeps the scan in progress: the open review comes back with the session PIN, sealed while locked
-  {
+  await rerunIfPageCrashed('quick lock with a scan open', async () => {
     const ctx10 = await newContext();
     const p10 = await ctx10.newPage();
     const errors10 = [];
@@ -1139,7 +1160,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('7 minutes after the lock wipe the card and the kept scan', !(await p10.isVisible('#vaultModal')) && !(await p10.isVisible('#reopenScanBtn')) && !(await p10.isVisible('#cropReviewModal')) && (await p10.inputValue('#firstName')) === '');
     ok('kept scan: no page errors', errors10.length === 0, errors10.join(' | '));
     await ctx10.close();
-  }
+  });
 
   // Tester feedback round 3: logos fitted square on an opaque background, and a JPEG vCard photo
   {
@@ -1269,7 +1290,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
 
   // Make it cute (MOD05, raven575 2026-10-21): the "Unknown" tray takes the scan lines nothing claimed (F4, video review #53,
   // both editions); the pigeonhole tabs (F1) and the FILED stamp (F2) are branded only.
-  {
+  await rerunIfPageCrashed('Fields make it cute (F4 tray)', async () => {
     const ctxU = await browser.newContext();
     const pU = await ctxU.newPage();
     const errorsU = [];
@@ -1336,11 +1357,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('F4: the scan\'s Undo empties the tray', (await trayLines()).length === 0 && await pU.$eval('#fieldsUnknown', t => t.classList.contains('hidden')));
     ok('make it cute: no page errors', errorsU.length === 0, errorsU.join(' | '));
     await ctxU.close();
-  }
+  });
 
   // A scan filled into a sample preset replaces the sample as a whole (none of its phones, fax or links are left);
   // Undo brings the sample back, and a second fill replaces it again.
-  {
+  await rerunIfPageCrashed('sample then scan', async () => {
     const ctxS = await browser.newContext();
     const pS = await ctxS.newPage();
     const errorsS = [];
@@ -1365,7 +1386,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('filling the sample again replaces it again', again.first === 'Maria' && again.phones.length === 1, JSON.stringify(again));
     ok('sample then scan: no page errors', errorsS.length === 0, errorsS.join(' | '));
     await ctxS.close();
-  }
+  });
 
   // Fields card (MOD05, redesign step 7): the "Sample vCGE pilot contact" list, the pop-in on arrival, "Everything's correct"
   {
@@ -1485,7 +1506,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   }
 
   // Tester feedback round 1: Undo after a sample / clear / scan fill, reopen the last scan, readable SMS and email, one-page print
-  {
+  await rerunIfPageCrashed('tester round 1', async () => {
     const ctx9 = await newContext();
     const p9 = await ctx9.newPage();
     const errors9 = [];
@@ -1636,10 +1657,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('PDF name: the box is unticked again on the next print, and a tap also puts the title back', !boxAgain && namedAgain === 'Maria Gonzalez' && (await p9.title()) === appTitle, `${boxAgain} ${namedAgain} / ${await p9.title()}`);
     ok('tester round 1: no page errors', errors9.length === 0, errors9.join(' | '));
     await ctx9.close();
-  }
+  });
 
   // Icons instead of labels: unlabelled numbers typed by their icons, a bare handle next to a social logo
-  {
+  await rerunIfPageCrashed('icons instead of labels', async () => {
     const ctx7 = await newContext();
     const p7 = await ctx7.newPage();
     await p7.goto(ORIGIN); await p7.waitForTimeout(300);
@@ -1668,10 +1689,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('typed phone rows reach the form', (await rowValue(p7, 'phone', 'mobile')) === '+1 (206) 555-9876' && (await rowValue(p7, 'phone', 'work')) === '+1 (206) 555-3400', JSON.stringify(await rows(p7, 'phone')));
     ok('audit log notes recognised icons', /icons? recognised/.test(await p7.textContent('#auditLog')), await p7.textContent('#auditLog'));
     await ctx7.close();
-  }
+  });
 
   // Lines to check: a ZIP code the card's state doesn't use is flagged under its line; editing the line clears the note
-  {
+  await rerunIfPageCrashed('lines to check', async () => {
     const ctxZ = await browser.newContext();
     const pZ = await ctxZ.newPage();
     await pZ.goto(ORIGIN); await pZ.waitForTimeout(300);
@@ -1723,7 +1744,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pZ.fill(`#ocrLineText${row2}`, 'Portage, MI 49024');
     ok('editing a flagged line clears its note and box at once', !(await pZ.$(`#ocrLineCheck${row2}`)) && !(await pZ.$(`#ocrLineOk${row2}`)) && (await pZ.textContent('#ocrSummary')).includes('49024'));
     await ctxZ.close();
-  }
+  });
 
   // Second look (bench run 2026-10-18): a web line leaning backwards was read as "noriinvind.comiSeat\e" and flagged;
   // re-read as a straightened strip it comes back right and sure. Text rendering differs between engines, so the
@@ -1755,7 +1776,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   }
 
   // Cancel while reading: the reader stops, the photo step comes back with Retake, and Extract works again
-  {
+  await rerunIfPageCrashed('Cancel while reading', async () => {
     const ctxS = await browser.newContext();
     const pS = await ctxS.newPage();
     const errorsS = []; pS.on('pageerror', e => errorsS.push(String(e)));
@@ -1779,7 +1800,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('after Cancel, Extract reads the photo with a fresh reader', (await pS.$$('#ocrLines select')).length >= 8);
     ok('Cancel while reading: no page errors', errorsS.length === 0, errorsS.join(' | '));
     await ctxS.close();
-  }
+  });
 
   // Cancel pressed just as the reader finishes (the wash fills, the review is a moment away) still cancels: it used to
   // be ignored and the review opened anyway (Shutout's local run, 2026-10-19)
@@ -1803,7 +1824,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
 
   // One more photo (raven575, 2026-10-20): a reading without the name asks for another photo; the two readings are put
   // together, and Fix it by hand opens the review with what the first photo got
-  {
+  await rerunIfPageCrashed('one more photo', async () => {
     const card = (page, lines) => page.evaluate((lines) => {
       const c = document.createElement('canvas'); c.width = 900; c.height = 420; const x = c.getContext('2d');
       x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111';
@@ -1886,7 +1907,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('between photos: the PIN brings the readings back, and the Capture card says photo 2 of 3', await pK.isVisible('#photoCountNote') && (await pK.textContent('#photoCountNote')).startsWith('Photo 2 of 3'),
       await pK.textContent('#photoCountNote'));
     await ctxK.close();
-  }
+  });
 
   // Reading that never finishes (a phone stopped the engine): the wash is full at 55 s, then Try Again or Cancel
   {
@@ -1915,7 +1936,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   }
 
   // Blurry photo: OCR runs but the result is unreadable -> retake prompt, form untouched
-  {
+  await rerunIfPageCrashed('blurry photo', async () => {
     const ctx4 = await newContext();
     const p4 = await ctx4.newPage();
     await p4.goto(ORIGIN); await p4.waitForTimeout(300);
@@ -1936,10 +1957,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await proceed(p4);
     ok('sharp retake is read normally', (await rowValue(p4, 'email', 'work')) === 'maria.gonzalez@northwind.com', JSON.stringify(await rows(p4, 'email')));
     await ctx4.close();
-  }
+  });
 
   // Crooked photo: drag the corners onto the card, extract, fix a line, change a picker, fill the form
-  {
+  await rerunIfPageCrashed('crooked photo', async () => {
     const ctx5 = await newContext();
     const p5 = await ctx5.newPage();
     await p5.goto(ORIGIN); await p5.waitForTimeout(300);
@@ -2023,7 +2044,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p5.mouse.dblclick(img5.x + img5.width / 2, img5.y + img5.height / 2); await p5.waitForTimeout(600);
     ok('a double click on the photo goes back to the whole photo, the corners stay put', (await p5.$eval('#cropView', v => v.style.transform)) === '' && (await p5.getAttribute('#cropPolygon', 'points')) === snapView.points, await p5.$eval('#cropView', v => v.style.transform));
     await ctx5.close();
-  }
+  });
 
   // OCR engine cannot start (language model missing, as on a host that refuses .gz): no hang, clear message, form untouched
   {
@@ -3405,7 +3426,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await ctxA.close();
   }
 
-  console.log(`\n${RUN}: ${pass} passed, ${fail} failed` + (notRun ? `, ${notRun} not run in this engine` : ''));
+  console.log(`\n${RUN}: ${pass} passed, ${fail} failed` + (notRun ? `, ${notRun} not run in this engine` : '')
+    + (crashReruns ? `, ${crashReruns} block${crashReruns > 1 ? 's' : ''} run again after a WebKit page crash` : ''));
   await browser.close(); server.kill();
   process.exitCode = fail ? 1 : 0;
 })().catch(e => { console.error(e); process.exit(1); });
