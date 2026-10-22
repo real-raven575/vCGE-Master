@@ -3168,7 +3168,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p6.waitForTimeout(300);
     const pick = await p6.evaluate(() => ({ toast: document.getElementById('toastMessage').textContent, img: !!document.querySelector('#previewAvatar img'), select: document.getElementById('logoPresetSelect').value, remove: !document.getElementById('removeAvatarBtn').classList.contains('hidden') }));
     ok('logo: a ready-made pumpkin goes on the card like an upload (Remove logo shown) and the picker is ready again', pick.toast === 'Logo: Pumpkin' && pick.img && pick.select === '' && pick.remove, JSON.stringify(pick));
-    const badge = () => p6.$eval('#previewAvatar', el => ({ w: Math.round(el.getBoundingClientRect().width), bg: el.style.background, ink: el.style.color }));
+    // offsetWidth: the logo's own size, before the card's 3D view and the deck scale it on screen (WebKit draws it 94%).
+    const badge = () => p6.$eval('#previewAvatar', el => ({ w: el.offsetWidth, bg: el.style.background, ink: el.style.color }));
     const sizes = {};
     for (const k of ['sm', 'md', 'lg']) { await p6.selectOption('#logoSizeSelect', k); sizes[k] = (await badge()).w; }
     const rem = await p6.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize));
