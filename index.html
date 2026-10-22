@@ -360,8 +360,11 @@
                 </div>
 
                 <!-- Logo look and card finish (raven575 test report, 2026-10-22): a ready-made logo, the logo's size and the
-                     colour behind it, and a texture over the card colour with its strength. Memory only, like the rest of the card. -->
-                <div id="cardLookRow" class="flex flex-wrap items-center gap-2">
+                     colour behind it, and a texture over the card colour with its strength. Memory only, like the rest of the card.
+                     Folded under one opener, closed at the start, so on a phone the card itself stays in view. -->
+                <details id="cardLookPanel" class="card-look">
+                <summary class="w-fit cursor-pointer px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition">Logo &amp; finish</summary>
+                <div id="cardLookRow" class="flex flex-wrap items-center gap-2 mt-2">
                     <select id="logoPresetSelect" class="px-2 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-xs font-semibold" aria-label="Ready-made logo"></select>
                     <select id="logoSizeSelect" class="px-2 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-xs font-semibold" aria-label="Logo size"></select>
                     <div id="logoBgGroup" role="group" aria-label="Colour behind the logo" class="flex items-center gap-1">
@@ -373,6 +376,7 @@
                         <input id="cardFinishStrength" type="range" min="5" max="35" step="1" value="15" class="w-24" aria-label="Finish strength (per cent)">
                     </label>
                 </div>
+                </details>
                 <div class="perspective-1000">
                     <div id="card3DFlipper" class="relative transform-style-3d cursor-pointer">
                         <div id="cardFront" class="card-face w-full min-h-64 rounded-3xl p-6 shadow-xl space-y-4 relative overflow-hidden backface-hidden font-sans">
