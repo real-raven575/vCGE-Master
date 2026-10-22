@@ -149,10 +149,10 @@
                 <!-- Crop & straighten (MOD03): the handles start at the photo's full edge; Snap to card finds the edges on request -->
                 <div id="captureReview" class="hidden space-y-3">
                     <p class="text-xs text-slate-500 dark:text-slate-400">The whole photo is read unless you move a corner. Drag the corners onto the card, or press Snap to card. Pinch the photo to zoom in. The photo stays on this device.</p>
-                    <!-- The stage clips the zoomed photo; a pinch on it zooms the photo, not the page (cropEditor.js) -->
-                    <div id="cropStage" class="crop-stage mx-auto w-fit max-w-full select-none">
-                        <div id="cropView" class="crop-view relative">
-                            <img id="reviewImage" alt="Captured business card" class="block max-w-full max-h-80 rounded-lg bg-slate-100 dark:bg-slate-800">
+                    <!-- The stage is the full width, the photo centred in it; it clips the zoomed photo, and a pinch on it zooms the photo, not the page (cropEditor.js) -->
+                    <div id="cropStage" class="crop-stage w-full select-none">
+                        <div id="cropView" class="crop-view relative mx-auto w-fit max-w-full">
+                            <img id="reviewImage" draggable="false" alt="Captured business card" class="block max-w-full max-h-80 rounded-lg bg-slate-100 dark:bg-slate-800">
                             <svg id="cropOverlay" class="absolute inset-0 w-full h-full pointer-events-none" preserveAspectRatio="none" aria-hidden="true">
                                 <path id="cropShade" class="crop-shade" d=""></path>
                                 <polygon id="cropPolygon" class="crop-outline" points=""></polygon>

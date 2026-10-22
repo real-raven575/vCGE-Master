@@ -2095,6 +2095,23 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const img5 = await p5.locator('#reviewImage').boundingBox();
     await p5.mouse.dblclick(img5.x + img5.width / 2, img5.y + img5.height / 2); await p5.waitForTimeout(600);
     ok('a double click on the photo goes back to the whole photo, the corners stay put', (await p5.$eval('#cropView', v => v.style.transform)) === '' && (await p5.getAttribute('#cropPolygon', 'points')) === snapView.points, await p5.$eval('#cropView', v => v.style.transform));
+    // Not boxed in (raven575, 2026-10-20): the stage is the full width, and zoomed in, the photo's corner can be dragged to
+    // the middle of the stage (it used to stop at the photo's own edges)
+    const stageFit = await p5.evaluate(() => { const s = document.getElementById('cropStage').getBoundingClientRect(), b = document.getElementById('captureReview').getBoundingClientRect(), i = document.getElementById('reviewImage').getBoundingClientRect(); return { s: s.width, review: b.width, photo: i.width }; });
+    ok('crop step: the stage is the full width of the crop step, wider than the photo', Math.abs(stageFit.s - stageFit.review) < 2 && stageFit.s > stageFit.photo, JSON.stringify(stageFit));
+    await p5.evaluate(() => { const s = document.getElementById('cropStage'), r = s.getBoundingClientRect();
+      for (let i = 0; i < 4; i++) s.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, ctrlKey: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true, cancelable: true })); });
+    const zoomedTo = await p5.$eval('#cropView', v => Number(v.style.getPropertyValue('--crop-scale')));
+    await p5.locator('#cropStage').scrollIntoViewIfNeeded();   // every drag must start and end on screen
+    const st5 = await p5.locator('#cropStage').boundingBox();
+    for (let i = 0; i < 8; i++) {   // mouse drags inside the stage toward its far corner (the browser's own image drag must not cut them short)
+      await p5.mouse.move(st5.x + 20, st5.y + 20); await p5.mouse.down();
+      await p5.mouse.move(st5.x + st5.width - 20, st5.y + st5.height - 20, { steps: 6 }); await p5.mouse.up();
+    }
+    const tl = await p5.evaluate(() => { const s = document.getElementById('cropStage').getBoundingClientRect(), i = document.getElementById('reviewImage').getBoundingClientRect();
+      return { dx: i.left - (s.left + s.width / 2), dy: i.top - (s.top + s.height / 2), drag: document.getElementById('reviewImage').draggable }; });
+    ok('crop step: zoomed in (up to 6x), the photo\'s corner can be dragged to the middle of the stage, not boxed in; the corners stay put', zoomedTo === 6 && !tl.drag && Math.abs(tl.dx) < 2 && Math.abs(tl.dy) < 2
+      && (await p5.getAttribute('#cropPolygon', 'points')) === snapView.points, JSON.stringify({ zoomedTo, tl }));
     await ctx5.close();
   });
 

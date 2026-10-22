@@ -679,7 +679,15 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 {
   const { clampView, zoomAbout, viewForCorners, CROP_ZOOM_MAX, SNAP_MARGIN } = await import(`${R}/modules/mod03-camera/cropView.js`);
   ok('crop zoom: never smaller than the whole photo, never past the maximum', clampView({ scale: 0.5, x: 10, y: 10 }, 400, 300).scale === 1 && clampView({ scale: 9, x: 0, y: 0 }, 400, 300).scale === CROP_ZOOM_MAX);
-  ok('crop zoom: the photo always covers the view (no gap at an edge)', JSON.stringify(clampView({ scale: 2, x: 50, y: -900 }, 400, 300)) === JSON.stringify({ scale: 2, x: 0, y: -300 }), JSON.stringify(clampView({ scale: 2, x: 50, y: -900 }, 400, 300)));
+  // Not boxed in (raven575, 2026-10-20): zoomed in, any point of the photo, edges and corners included, can be brought to the
+  // middle of the view, and no further. At 2x a 400 x 300 photo may move from x 200 (its left edge in the middle) to -600.
+  ok('crop zoom: zoomed in, the photo can move until an edge reaches the middle, no further', JSON.stringify(clampView({ scale: 2, x: 50, y: -900 }, 400, 300)) === JSON.stringify({ scale: 2, x: 50, y: -450 }), JSON.stringify(clampView({ scale: 2, x: 50, y: -900 }, 400, 300)));
+  const corner = clampView({ scale: 3, x: 1000, y: 1000 }, 400, 300);
+  ok('crop zoom: the photo\'s top-left corner can be brought to the middle of the view (not boxed in)', corner.x === 200 && corner.y === 150, JSON.stringify(corner));
+  const far = clampView({ scale: 3, x: -5000, y: -5000 }, 400, 300);
+  ok('crop zoom: the bottom-right corner can be brought to the middle too', far.x + 400 * 3 === 200 && far.y + 300 * 3 === 150, JSON.stringify(far));
+  ok('crop zoom: at the whole photo it stays in its place', JSON.stringify(clampView({ scale: 1, x: 80, y: -40 }, 400, 300)) === JSON.stringify({ scale: 1, x: 0, y: 0 }));
+  ok('crop zoom: zooms in up to 6x', CROP_ZOOM_MAX === 6);
   const z = zoomAbout({ scale: 1, x: 0, y: 0 }, 2, 100, 100, 400, 300);
   ok('crop zoom: a pinch keeps the point under the fingers in place', JSON.stringify(z) === JSON.stringify({ scale: 2, x: -100, y: -100 }), JSON.stringify(z));
   ok('crop zoom: pinching out past the whole photo stops at it', JSON.stringify(zoomAbout({ scale: 2, x: -100, y: -100 }, 0.25, 0, 0, 400, 300)) === JSON.stringify({ scale: 1, x: 0, y: 0 }));
@@ -691,6 +699,10 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('snap zoom: the whole card is in view with a margin round it', onScreen.every(p => p.x >= 400 * SNAP_MARGIN / 2 && p.x <= 400 * (1 - SNAP_MARGIN / 2) && p.y >= 0 && p.y <= 300), JSON.stringify(onScreen));
   ok('snap zoom: the card sits in the middle', Math.abs((Math.min(...onScreen.map(p => p.x)) + Math.max(...onScreen.map(p => p.x))) / 2 - 200) < 1, JSON.stringify(onScreen));
   ok('snap zoom: a card that fills the photo leaves the whole photo in view', JSON.stringify(viewForCorners([{ x: 0, y: 0 }, { x: 1600, y: 0 }, { x: 1600, y: 1200 }, { x: 0, y: 1200 }], 1600, 1200, 400, 300)) === JSON.stringify({ scale: 1, x: 0, y: 0 }));
+  // A portrait photo (300 x 400 on screen) seen through a full-width stage (400 x 400): a wide card can zoom in further
+  const wide = [{ x: 0, y: 500 }, { x: 1200, y: 500 }, { x: 1200, y: 1100 }, { x: 0, y: 1100 }];
+  const narrowView = viewForCorners(wide, 1200, 1600, 300, 400), wideView = viewForCorners(wide, 1200, 1600, 300, 400, 400, 400);
+  ok('snap zoom: a full-width stage lets a snapped card fill more of the window', wideView.scale > narrowView.scale, JSON.stringify({ narrowView, wideView }));
   ok('snap zoom: missing sizes are harmless', viewForCorners(card, 0, 0, 400, 300).scale === 1 && viewForCorners(null, 1600, 1200, 400, 300).scale === 1);
 }
 

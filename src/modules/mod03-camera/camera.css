@@ -106,11 +106,13 @@ html[data-cb="1"] .cap-ok, html[data-cb="1"] .cap-btn-primary { background: #256
 .cap-choice.hidden, .cap-btn.hidden, .cap-fader.hidden, .cap-shutter-slot.hidden, .cap-finder-tools.hidden,
 .cap-review-actions.hidden, .cap-quiet.hidden, .cap-ok.hidden, .cap-shutter-label.hidden { display: none; }
 
-/* The crop stage: the handles sit on the very edge, so the stage leaves room for their outer half. It clips the photo
+/* The crop stage: the full width, with the photo centred in it, so a zoomed photo can be moved about in a window wider
+   than the photo itself. The handles sit on the very edge, so the stage leaves room for their outer half. It clips the photo
    when zoomed. At the whole photo a swipe still moves the deck and scrolls the page, but a pinch is the photo's; zoomed
    in, every touch is the photo's (one finger pans it). The view scales about its top-left corner; the handles scale
    back so they keep their size at any zoom. */
-.crop-stage { overflow: hidden; padding: 1rem; touch-action: pan-x pan-y; }
+.crop-stage { overflow: hidden; padding: 1rem; touch-action: pan-x pan-y; border-radius: 0.75rem; background: rgba(15, 23, 42, 0.06); }
+.dark .crop-stage { background: rgba(0, 0, 0, 0.35); }
 .crop-stage[data-zoomed] { touch-action: none; }
 .crop-view { transform-origin: 0 0; }
 .crop-view .crop-handle { transform: scale(calc(1 / var(--crop-scale, 1))); }

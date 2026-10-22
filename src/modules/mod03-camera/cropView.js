@@ -13,19 +13,25 @@
  * A pinch on the photo zooms the photo like a camera, not the page (iPad finding 52, 2026-10-17): the buttons and the
  * rest of the card keep their size. After "Snap to card" the view zooms onto the card it found (finding 51). A view is
  * { scale, x, y }: the photo, shown at its fitted size, is scaled by `scale` about its top-left corner and then moved by
- * (x, y) screen pixels. It never zooms out past the fitted size and never leaves a gap at an edge.
+ * (x, y) screen pixels. It never zooms out past the fitted size. Zoomed in, any point of the photo, its edges and
+ * corners included, can be brought to the middle of the view, and no further (raven575, 2026-10-20: the zoom was boxed
+ * in by the photo's own shape, so a corner near an edge could never reach the middle).
  */
 
-export const CROP_ZOOM_MAX = 4;        // as far as a pinch or a snap zooms in
+export const CROP_ZOOM_MAX = 6;        // as far as a pinch or a snap zooms in
 export const SNAP_MARGIN = 0.08;       // room left around the card after a snap, as a fraction of its size
 
 export const FIT_VIEW = Object.freeze({ scale: 1, x: 0, y: 0 });
 
-/** Keeps a view inside the rules: scale between 1 and CROP_ZOOM_MAX, and the photo covering the whole `w` x `h` view. */
+/**
+ * Keeps a view inside the rules: scale between 1 and CROP_ZOOM_MAX; at scale 1 the whole photo in its place; zoomed in,
+ * the photo may move until its edge reaches the middle of the `w` x `h` view, never further.
+ */
 export function clampView(view, w, h) {
     const scale = Math.min(CROP_ZOOM_MAX, Math.max(1, Number(view && view.scale) || 1));
-    const x = Math.min(0, Math.max(w - w * scale, Number(view && view.x) || 0));
-    const y = Math.min(0, Math.max(h - h * scale, Number(view && view.y) || 0));
+    if (scale === 1) return { scale, x: 0, y: 0 };
+    const x = Math.min(w / 2, Math.max(w / 2 - w * scale, Number(view && view.x) || 0));
+    const y = Math.min(h / 2, Math.max(h / 2 - h * scale, Number(view && view.y) || 0));
     return { scale, x, y };
 }
 
@@ -38,15 +44,16 @@ export function zoomAbout(view, factor, px, py, w, h) {
 
 /**
  * The view that shows the box of `corners` (photo pixels) as large as it fits, with SNAP_MARGIN around it, centred.
- * `natW` x `natH` is the photo's own size, `w` x `h` the size it is shown at when fitted.
+ * `natW` x `natH` is the photo's own size, `w` x `h` the size it is shown at when fitted, and `winW` x `winH` the window
+ * it is seen through (the full-width crop stage, centred on the photo; the photo's own size when not given).
  */
-export function viewForCorners(corners, natW, natH, w, h) {
+export function viewForCorners(corners, natW, natH, w, h, winW = w, winH = h) {
     if (!corners || corners.length !== 4 || !(natW > 0) || !(natH > 0) || !(w > 0) || !(h > 0)) return { ...FIT_VIEW };
     const k = w / natW;                          // photo pixels to fitted screen pixels (the photo keeps its shape)
     const xs = corners.map(c => c.x * k), ys = corners.map(c => c.y * k);
     const left = Math.min(...xs), right = Math.max(...xs), top = Math.min(...ys), bottom = Math.max(...ys);
     const bw = Math.max(1, right - left) * (1 + 2 * SNAP_MARGIN), bh = Math.max(1, bottom - top) * (1 + 2 * SNAP_MARGIN);
-    const scale = Math.min(CROP_ZOOM_MAX, Math.max(1, Math.min(w / bw, h / bh)));
+    const scale = Math.min(CROP_ZOOM_MAX, Math.max(1, Math.min(Math.max(w, winW) / bw, Math.max(h, winH) / bh)));
     const cx = (left + right) / 2, cy = (top + bottom) / 2;
     return clampView({ scale, x: w / 2 - cx * scale, y: h / 2 - cy * scale }, w, h);
 }
