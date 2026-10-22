@@ -3189,9 +3189,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const dots = await finish();
     await p6.fill('#cardFinishStrength', '30');
     const strong = await finish();
-    const textOnTop = await p6.evaluate(() => { const r = document.getElementById('previewFullName').getBoundingClientRect(); const el = document.elementFromPoint(r.left + 4, r.top + r.height / 2); return !!el && document.getElementById('previewFullName').contains(el); });
+    // On a phone the open controls push the card down: the name is brought into view before asking what is on top of it.
+    const textOnTop = await p6.evaluate(async () => { const name = document.getElementById('previewFullName'); name.scrollIntoView({ block: 'center' }); await new Promise(r => setTimeout(r, 300));
+      const r = name.getBoundingClientRect(); const el = document.elementFromPoint(r.left + 4, r.top + r.height / 2); return !!el && name.contains(el) ? true : (el ? el.id || el.className || el.tagName : 'nothing'); });
     ok('card: a finish lays a texture over the card colour (Dots at 15%, the slider takes it to 30%), behind the text; Flat has none and no slider',
-      flat.image === 'none' && flat.off && dots.image.startsWith('radial-gradient') && dots.opacity === '0.15' && !dots.off && strong.opacity === '0.3' && dots.z === '-1' && textOnTop, JSON.stringify({ flat, dots, strong, textOnTop }));
+      flat.image === 'none' && flat.off && dots.image.startsWith('radial-gradient') && dots.opacity === '0.15' && !dots.off && strong.opacity === '0.3' && dots.z === '-1' && textOnTop === true, JSON.stringify({ flat, dots, strong, textOnTop }));
     await p6.selectOption('#cardFinishSelect', 'flat');
     await p6.click('#removeAvatarBtn'); await p6.click('#removeLogoYes');
     ok('card: no page errors, nothing fetched from outside, no missing files', errors6.length === 0 && external6.length === 0 && missing6.length === 0, errors6.concat(external6, missing6).join(' | '));
