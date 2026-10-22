@@ -105,10 +105,12 @@ function alike(a, b) {
  * are the same line in several readings (SAME_LINE alike) become one, in card order. For each, a reading that two photos
  * agree on wins, otherwise the surest; garbage never beats text. Where the readings disagree and the kept one isn't sure
  * (AGREE_CONFIDENCE), the line is passed on as unsure and the other reading's letters join its second guesses. Lines
- * that are garbage in every reading are kept only when the latest photo has them, marked `unreadable`.
+ * that are garbage in every reading are kept only when the latest photo has them, marked `unreadable`. A line with no
+ * letter or digit at all is logo or border debris and is dropped (raven575, 2026-10-22: ". {) ——" was listed), and a
+ * "%" read after a suite or house number is mended (fixNumberPercent).
  */
 export function mergeReadings(readings) {
-    const list = (readings || []).filter(Array.isArray);
+    const list = (readings || []).filter(Array.isArray).map(reading => reading.filter(line => /[A-Za-z0-9]/.test(String(line.text || ''))));
     const groups = [];
     list.forEach((reading, r) => {
         let after = -1;
@@ -128,19 +130,53 @@ export function mergeReadings(readings) {
     return groups.flatMap((group) => {
         const good = group.filter(m => !m.garbage);
         if (!good.length) return group.some(m => m.reading === latest) ? [{ ...strip(group[group.length - 1]), unreadable: true }] : [];
-        const votes = new Map();
-        good.forEach(m => votes.set(key(m.text), (votes.get(key(m.text)) || 0) + 1));
-        const top = Math.max(...votes.values());
-        const sure = (m) => (typeof m.confidence === 'number' ? m.confidence : 0);
-        const chosen = good.filter(m => votes.get(key(m.text)) === top).sort((a, b) => sure(b) - sure(a))[0];
-        const others = good.filter(m => key(m.text) !== key(chosen.text));
-        const out = strip(chosen);
-        if (!others.length || (top > 1 && top > good.length / 2)) return [out];
-        if (sure(chosen) >= AGREE_CONFIDENCE) return [out];
-        out.alts = others.reduce((alts, m) => mergeReadingAlts(m.text, m.alts, out.text, alts), out.alts || []);
-        out.unsure = out.text.split(' ').filter(w => w.length > 1);
-        return [out];
+        return mergeGroup(good).map(fixNumberPercent);
     });
+}
+
+// One merged line from the readings of it that are text (see mergeReadings).
+function mergeGroup(good) {
+    const votes = new Map();
+    good.forEach(m => votes.set(key(m.text), (votes.get(key(m.text)) || 0) + 1));
+    const top = Math.max(...votes.values());
+    const sure = (m) => (typeof m.confidence === 'number' ? m.confidence : 0);
+    const chosen = good.filter(m => votes.get(key(m.text)) === top).sort((a, b) => sure(b) - sure(a))[0];
+    const others = good.filter(m => key(m.text) !== key(chosen.text));
+    const out = strip(chosen);
+    if (!others.length || (top > 1 && top > good.length / 2)) return [out];
+    if (sure(chosen) >= AGREE_CONFIDENCE) return [out];
+    out.alts = others.reduce((alts, m) => mergeReadingAlts(m.text, m.alts, out.text, alts), out.alts || []);
+    out.unsure = out.text.split(' ').filter(w => w.length > 1);
+    return [out];
+}
+
+// A suite, unit or room number, or a house number at the start of a street line, just before the "%".
+const SUITE_BEFORE = /(?:\b(?:suite|ste|unit|apt|room|rm|floor|fl|bldg|building)\.?\s*#?\s*|#\s*)$/i;
+const STREET_WORD = /\b(road|rd|street|st|avenue|ave|boulevard|blvd|drive|dr|lane|ln|way|court|ct|parkway|pkwy|highway|hwy|place|pl)\b/i;
+
+/**
+ * A "%" right after a suite or house number is a misread digit (raven575, 2026-10-22: "Suite 40%" for "Suite 405"). It
+ * takes the engine's own digit guess for that letter when it has one; otherwise its word is passed on as unsure, so the
+ * review asks for a check. Any other "%" (a "20% off" line) is left alone.
+ */
+export function fixNumberPercent(line) {
+    let text = String(line.text || '');
+    const unsure = [...(line.unsure || [])];
+    let alts = line.alts || [];
+    for (const m of text.matchAll(/\d+%/g)) {
+        const before = text.slice(0, m.index);
+        if (!SUITE_BEFORE.test(before) && !(before === '' && STREET_WORD.test(text))) continue;
+        const at = m.index + m[0].length - 1;
+        const digit = String((alts.find(a => a.at === at) || {}).chars || '').match(/\d/);
+        if (digit) {
+            text = text.slice(0, at) + digit[0] + text.slice(at + 1);
+            alts = alts.filter(a => a.at !== at);
+        } else {
+            const word = text.slice(before.lastIndexOf(' ') + 1).split(' ')[0];
+            if (!unsure.includes(word)) unsure.push(word);
+        }
+    }
+    return text === line.text && unsure.length === (line.unsure || []).length ? line : { ...line, text, alts, unsure };
 }
 
 function strip({ reading, garbage, ...line }) {

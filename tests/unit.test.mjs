@@ -1012,6 +1012,17 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     ok('garbage in every reading: shown once, from the latest photo, as unreadable; garbage only in an older photo is dropped',
         stillBad.length === 2 && stillBad[0].unreadable && stillBad[0].text === 'Qwrtz Bkkgh' && rq.mergeReadings([[{ text: 'Rhtkp Qwxzt', confidence: 21 }], [{ text: 'jo@acme.com', confidence: 90 }]]).length === 1, JSON.stringify(stillBad));
     ok('photos per card: three at most', rq.MAX_PHOTOS === 3);
+    // raven575, 2026-10-22 (base card): a symbol-only logo line was listed, and "Suite 405" came back "Suite 40%"
+    const debris = rq.mergeReadings([[{ text: '. {) ——', confidence: 10 }, { text: 'Nick Zafer', confidence: 80 }, { text: 'A', confidence: 20 }]]);
+    ok('a line with no letter or digit is dropped, not listed; a stray letter is still listed as unreadable', debris.length === 2 && debris[0].text === 'Nick Zafer' && debris[1].unreadable, JSON.stringify(debris));
+    const suite = 'Moorsbridge Road, Suite 40%';
+    const mended = rq.mergeReadings([[{ text: suite, confidence: 70, alts: [{ at: 26, chars: '5' }], unsure: [] }]])[0];
+    const flagged = rq.fixNumberPercent({ text: suite, alts: [{ at: 26, chars: 'x' }], unsure: [] });
+    ok('a "%" after a suite number takes the reader\'s digit guess; without one its word is flagged to check',
+        mended.text === 'Moorsbridge Road, Suite 405' && !mended.alts.some(a => a.at === 26) && flagged.text === suite && flagged.unsure.join() === '40%', JSON.stringify({ mended, flagged }));
+    ok('a "%" after a house number on a street line or after #, too; any other "%" is left alone',
+        rq.fixNumberPercent({ text: '795% Main Street', alts: [{ at: 3, chars: '0' }] }).text === '7950 Main Street' && rq.fixNumberPercent({ text: 'Unit #12%' }).unsure.join() === '#12%'
+        && rq.fixNumberPercent({ text: '20% off your first visit' }).text === '20% off your first visit' && !rq.fixNumberPercent({ text: '20% off your first visit' }).unsure);
   }
 
   // "Preparing the reader…": reported only when the engine has to start first
