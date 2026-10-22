@@ -9,6 +9,7 @@
  * top, and the nine Team vCGE pilots as sample contacts.
  */
 import { CONTACT_FIELDS, createEmptyContact, normalizeContact } from '../../share/cardSchema.js';
+import { isPlain } from '../mod01-shell/edition.js';
 import {
     NAME_PREFIXES, NAME_SUFFIXES, UNIT_TYPES, ADDRESS_TYPES, PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES, COUNTRIES, REGIONS,
     regionLabels, splitStreetUnit, websiteTypeFor
@@ -138,6 +139,34 @@ const FONT_CLASSES = CARD_FONTS.map(([c]) => c);
 export const CARD_SIZES = [['sm', 'Small text'], ['md', 'Medium text'], ['lg', 'Large text'], ['xl', 'Extra large text']];
 export const DEFAULT_CARD_SIZE = 'md';
 const SIZE_CLASSES = CARD_SIZES.map(([k]) => `card-size-${k}`);
+
+// The logo's look and the card's finish (raven575 test report, 2026-10-22), memory only like the rest of the card.
+// The logo's size on screen (cardStyles.css; the printed card keeps its own); Medium is a step up from the old size.
+export const LOGO_SIZES = [['sm', 'Small logo'], ['md', 'Medium logo'], ['lg', 'Large logo']];
+export const DEFAULT_LOGO_SIZE = 'md';
+const LOGO_SIZE_CLASSES = LOGO_SIZES.map(([k]) => `logo-size-${k}`);
+// Quick picks for the colour behind a logo, with a colour wheel for any other: never pure white or black, which make a
+// picture look cut out. Auto is the card's own choice (a plate only where the logo would vanish).
+export const LOGO_BACKS = [['auto', 'Auto', null], ['white', 'Mostly white', '#f8fafc'], ['light', 'Light gray', '#e2e8f0'],
+    ['dark', 'Dark gray', '#334155'], ['charcoal', 'Charcoal', '#1e293b']];
+// A texture laid over the card colour in its ink colour, at a strength from 5 to 35 per cent (cardStyles.css).
+export const CARD_FINISHES = [['flat', 'Flat finish'], ['gradient', 'Soft gradient'], ['linen', 'Linen'], ['dots', 'Dots'], ['stripes', 'Stripes']];
+export const DEFAULT_FINISH_STRENGTH = 15;
+
+// Ready-made logos to match each palette, hand-drawn (no stock art), in their own colours.
+const grains = () => [0, 1, 2, 3, 4].map(i => { const y = 14 + i * 8;
+    return `<ellipse cx="25" cy="${y}" rx="4" ry="7" transform="rotate(-30 25 ${y})" fill="#eab308"/><ellipse cx="39" cy="${y}" rx="4" ry="7" transform="rotate(30 39 ${y})" fill="#eab308"/>`; }).join('');
+const THEME_LOGO_ART = {
+    pumpkin: '<path d="M32 16c-1-6 2-10 7-11" stroke="#3f6212" stroke-width="4" fill="none" stroke-linecap="round"/><ellipse cx="20" cy="38" rx="13" ry="18" fill="#ea7a1f"/><ellipse cx="44" cy="38" rx="13" ry="18" fill="#ea7a1f"/><ellipse cx="32" cy="38" rx="12" ry="20" fill="#f59a3c"/>',
+    maple: '<path d="M32 4l5 11 7-4-2 13 10-5-3 9 9 3-13 9 3 6-12-2v6h-8v-6l-12 2 3-6-13-9 9-3-3-9 10 5-2-13 7 4z" fill="#c2410c"/><path d="M32 30v30" stroke="#7c2d12" stroke-width="3" stroke-linecap="round"/>',
+    harvest: '<path d="M32 60V8" stroke="#a16207" stroke-width="3" stroke-linecap="round"/>' + grains() + '<ellipse cx="32" cy="8" rx="4" ry="7" fill="#eab308"/>',
+    cranberry: '<path d="M30 22c4-12 16-14 22-10-4 8-12 12-22 10z" fill="#4d7c0f"/><circle cx="22" cy="38" r="11" fill="#9f1239"/><circle cx="42" cy="40" r="12" fill="#be123c"/><circle cx="31" cy="52" r="9" fill="#881337"/><circle cx="19" cy="34" r="2.5" fill="#fecdd3"/><circle cx="38" cy="35" r="2.5" fill="#fecdd3"/>',
+    spruce: '<path d="M32 4L14 28h8L10 44h10L8 56h48L44 44h10L42 28h8z" fill="#166534"/><rect x="28" y="56" width="8" height="6" fill="#78350f"/>',
+    sage: '<path d="M12 52C12 24 32 8 54 10c2 22-14 42-42 42z" fill="#84a07a"/><path d="M12 52L44 20" stroke="#3f5a36" stroke-width="2.5" fill="none" stroke-linecap="round"/>',
+    slateblue: '<circle cx="46" cy="16" r="7" fill="#a9c6e3"/><path d="M2 56L22 22l10 14 8-10 22 30z" fill="#3e5572"/><path d="M22 22l-5 8 5-2 4 3z" fill="#eef3f9"/>',
+    twilight: '<path d="M40 8a24 24 0 1 0 16 40A20 20 0 0 1 40 8z" fill="#f5e6a8"/><circle cx="50" cy="14" r="2" fill="#bba9f2"/><circle cx="56" cy="26" r="1.5" fill="#bba9f2"/><circle cx="12" cy="12" r="1.5" fill="#bba9f2"/>'
+};
+const themeLogoUrl = (key) => svgDataUrl(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="256" height="256">${THEME_LOGO_ART[key]}</svg>`);
 const $ = (id) => document.getElementById(id);
 
 // Motion (shared rule, same numbers as mod03-camera/viewfinder.js): stepped at 26 fps, a 5 percent snap past the target.
@@ -205,6 +234,10 @@ export class CardView {
         this.undoWasSample = false;
         this.holdsSample = false;   // the card is a sample preset: the next scan fill replaces it instead of merging
         this.sampleLogoToken = 0;
+        this.logoSize = DEFAULT_LOGO_SIZE;
+        this.logoBack = null;       // the colour behind the logo the person picked, else null (Auto)
+        this.finish = 'flat';
+        this.finishStrength = DEFAULT_FINISH_STRENGTH;
     }
 
     init() {
@@ -212,6 +245,8 @@ export class CardView {
         this.buildPaletteMenu();
         this.attachListeners();
         this.applyTheme(this.themeKey);
+        this.applyLogoSize(this.logoSize);
+        this.applyFinish(this.finish, this.finishStrength);
         this.setAngle(0);
         this.reportFace();
     }
@@ -378,6 +413,10 @@ export class CardView {
         $('country').replaceChildren(...COUNTRIES.map(c => new Option(c, c)));
         $('cardFontSelect').replaceChildren(...CARD_FONTS.map(([v, label]) => new Option(label, v)));
         $('cardSizeSelect').replaceChildren(...CARD_SIZES.map(([v, label]) => new Option(label, v)));
+        $('logoSizeSelect').replaceChildren(...LOGO_SIZES.map(([v, label]) => new Option(label, v)));
+        $('cardFinishSelect').replaceChildren(...CARD_FINISHES.map(([v, label]) => new Option(label, v)));
+        this.buildLogoPresets();
+        this.buildLogoBacks();
         Object.keys(LISTS).forEach(key => this.renderList(key, []));
         this.setContact(createEmptyContact());
     }
@@ -528,6 +567,7 @@ export class CardView {
      * background, carried out to the tile's edge in its own edge colour (the inset around it is that colour too).
      */
     logoBacking() {
+        if (this.logoBack && this.avatarBase64) return 'shadow-lg';
         const look = this.logoDisplay && this.logoLook;
         if (!look || look.traced) return '';
         if (!look.transparent) return 'shadow-lg';
@@ -535,6 +575,7 @@ export class CardView {
     }
 
     plateColour() {
+        if (this.logoBack && this.avatarBase64) return this.logoBack;
         const look = this.logoDisplay && this.logoLook;
         if (!look || look.traced) return null;
         if (!look.transparent) return look.edge || null;
@@ -547,6 +588,8 @@ export class CardView {
     plate(el) {
         const colour = this.plateColour();
         if (colour) el.style.background = colour;
+        // A traced logo is drawn in the ink colour; on a picked colour it takes whichever of slate or near-white shows.
+        if (this.logoBack && this.logoLook && this.logoLook.traced) el.style.color = relativeLuminance(this.logoBack) > 0.4 ? '#1e293b' : '#f8fafc';
     }
 
     applyTheme(themeKey) {
@@ -559,6 +602,77 @@ export class CardView {
         flipper.style.setProperty('--card-ink', t.ink);
         flipper.style.setProperty('--card-accent', t.accent);
         flipper.dataset.theme = this.themeKey;
+    }
+
+    /** The logo's size on the card (screen only): one of LOGO_SIZES, else the default. */
+    applyLogoSize(size) {
+        this.logoSize = LOGO_SIZES.some(([k]) => k === size) ? size : DEFAULT_LOGO_SIZE;
+        $('logoSizeSelect').value = this.logoSize;
+        $('cardFront').classList.remove(...LOGO_SIZE_CLASSES);
+        $('cardFront').classList.add(`logo-size-${this.logoSize}`);
+    }
+
+    /** The colour behind the logo: a #rrggbb colour, or null for Auto. The card is drawn again with it. */
+    applyLogoBack(colour) {
+        this.logoBack = /^#[0-9a-f]{6}$/i.test(colour || '') ? colour.toLowerCase() : null;
+        const pick = LOGO_BACKS.find(([, , c]) => c === this.logoBack);
+        $('logoBgGroup').querySelectorAll('button[data-back]').forEach(b => b.setAttribute('aria-pressed', String(!!pick && b.dataset.back === pick[0])));
+        $('logoBgPicker').classList.toggle('is-on', !pick);
+        if (this.logoBack) $('logoBgPicker').value = this.logoBack;
+        this.render(this.getContact());
+    }
+
+    /** The card's finish (one of CARD_FINISHES, else flat) and its strength in per cent (5 to 35). */
+    applyFinish(finish, strength = this.finishStrength) {
+        this.finish = CARD_FINISHES.some(([k]) => k === finish) ? finish : 'flat';
+        this.finishStrength = Math.min(35, Math.max(5, Math.round(Number(strength)) || DEFAULT_FINISH_STRENGTH));
+        const flipper = $('card3DFlipper');
+        flipper.dataset.finish = this.finish;
+        flipper.style.setProperty('--finish-a', String(this.finishStrength / 100));
+        $('cardFinishSelect').value = this.finish;
+        $('cardFinishStrength').value = String(this.finishStrength);
+        $('cardFinishStrength').disabled = this.finish === 'flat';
+    }
+
+    /** The ready-made logos: the Team vCGE characters (branded edition only) and one to match each palette. */
+    buildLogoPresets() {
+        const select = $('logoPresetSelect');
+        const group = (label, items) => { const g = document.createElement('optgroup'); g.label = label; items.forEach(([v, text]) => g.appendChild(new Option(text, v))); return g; };
+        select.replaceChildren(new Option('Ready-made logo…', ''));
+        if (!isPlain()) select.appendChild(group('Team vCGE', PRESETS.map(p => [`pilot:${p.firstName}`, `${p.firstName} the ${p.lastName}`])));
+        select.appendChild(group('To match a palette', Object.keys(THEME_LOGO_ART).map(k => [`theme:${k}`, THEMES[k].label])));
+    }
+
+    buildLogoBacks() {
+        const picker = $('logoBgPicker');
+        LOGO_BACKS.forEach(([key, label, colour]) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.dataset.back = key;
+            btn.className = 'logo-bg-swatch';
+            btn.title = label;
+            btn.setAttribute('aria-label', label);
+            btn.setAttribute('aria-pressed', String(key === 'auto'));
+            if (colour) btn.style.background = colour;
+            btn.addEventListener('click', () => { this.applyLogoBack(colour); this.changed(); });
+            picker.before(btn);
+        });
+    }
+
+    /** Puts a ready-made logo on the card, as an upload would (kept in its own colours, not traced). */
+    useLogoPreset(value) {
+        const [kind, key] = String(value).split(':');
+        const pilot = kind === 'pilot' && !isPlain() ? PRESETS.find(p => p.firstName === key) : null;
+        const url = pilot ? pilot.logo : (kind === 'theme' && THEME_LOGO_ART[key] ? themeLogoUrl(key) : null);
+        if (!url) return Promise.resolve();
+        const name = pilot ? `${pilot.firstName} the ${pilot.lastName}` : THEMES[key].label;
+        const token = ++this.sampleLogoToken;
+        return prepareLogo(url, { trace: false }).then(({ photo, display }) => {
+            if (token !== this.sampleLogoToken) return;
+            this.setAvatar(photo, display);
+            this.changed();
+            this.showToast(`Logo: ${name}`);
+        }).catch(err => { console.warn('[vCGE] Ready-made logo not readable:', err); this.showToast('That logo could not be drawn.'); });
     }
 
     applyFont(fontClass) {
@@ -913,6 +1027,11 @@ export class CardView {
             this.applySize(e.target.value);
             this.changed();
         });
+        $('logoSizeSelect').addEventListener('change', (e) => { this.applyLogoSize(e.target.value); this.changed(); });
+        $('logoBgPicker').addEventListener('input', (e) => { this.applyLogoBack(e.target.value); this.changed(); });
+        $('cardFinishSelect').addEventListener('change', (e) => { this.applyFinish(e.target.value); this.changed(); });
+        $('cardFinishStrength').addEventListener('input', (e) => { this.applyFinish(this.finish, e.target.value); this.changed(); });
+        $('logoPresetSelect').addEventListener('change', (e) => { const v = e.target.value; e.target.value = ''; if (v) this.useLogoPreset(v); });
         $('cardIconsBtn').addEventListener('click', () => {
             this.applyIcons(!this.cardIcons);
             this.changed();

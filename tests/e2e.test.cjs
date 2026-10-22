@@ -2964,11 +2964,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const back = document.getElementById('cardBack').getBoundingClientRect(), qr = document.getElementById('qrCanvas').getBoundingClientRect(), pk = peek.getBoundingClientRect();
       return { peekShown: getComputedStyle(peek).display !== 'none', tailShown: getComputedStyle(tail).display !== 'none', hidden: peek.getAttribute('aria-hidden') === 'true' && tail.getAttribute('aria-hidden') === 'true',
         label: btn.textContent.trim(), noPress: getComputedStyle(peek).pointerEvents === 'none', moving: peek.getAnimations().length + tail.getAnimations().length,
-        onEdge: Math.abs(pk.bottom - back.bottom) <= 2 && pk.right <= back.right - 16, clearOfQr: pk.top >= qr.bottom || pk.left >= qr.right };
+        whole: pk.bottom <= back.bottom - 4 && pk.bottom >= back.bottom - 16 && pk.top > back.top && pk.left > back.left && pk.right <= back.right - 16 && pk.height >= 30, clearOfQr: pk.top >= qr.bottom || pk.left >= qr.right };
     });
     if (EDITION_PLAIN) ok('plain edition: no chameleon on the card\'s back and no tail on Flip card; the button still reads "Flip card"', !cute.peekShown && !cute.tailShown && cute.label === 'Flip card', JSON.stringify(cute));
-    else ok('card: Flipside peeks up over the bottom edge of the back, clear of the QR code, still and untouchable; Flip card has its curled tail and still reads "Flip card"; both hidden from screen readers',
-      cute.peekShown && cute.tailShown && cute.hidden && cute.label === 'Flip card' && cute.noPress && cute.moving === 0 && cute.onEdge && cute.clearOfQr, JSON.stringify(cute));
+    else ok('card: Flipside sits whole on the bottom edge of the back (none of it cut off), clear of the QR code, still and untouchable; Flip card has its curled tail and still reads "Flip card"; both hidden from screen readers',
+      cute.peekShown && cute.tailShown && cute.hidden && cute.label === 'Flip card' && cute.noPress && cute.moving === 0 && cute.whole && cute.clearOfQr, JSON.stringify(cute));
     ok('card: with no logo the card has no rim', await p6.$eval('#card3DFlipper', el => !('rim' in el.dataset) && getComputedStyle(document.getElementById('cardFront'), '::after').opacity === '0'));
     ok('card: the picker lists the eight fall palettes in order', (await p6.$$eval('#paletteListContainer button', bs => bs.map(b => b.textContent.trim()).join('|'))) === 'Pumpkin|Maple|Harvest Gold|Cranberry|Spruce|Sage|Slate Blue|Twilight');
     await p6.click('#paletteDropdownBtn'); await p6.click('#paletteListContainer [data-theme="pumpkin"]');
@@ -3156,6 +3156,42 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p6.click('#clearFormBtn'); await p6.click('#toastAction');
     await p6.waitForTimeout(300);
     ok('sample: Undo after Clear brings the sample back without its logo (removed before) and with its theme', (await p6.inputValue('#firstName')) === s1First && (await p6.textContent('#currentPaletteLabel')) === 'Twilight' && !(await p6.$(LOGO6)));
+    // The logo's look and the card's finish (raven575 test report, 2026-10-22)
+    await p6.click('#navCard'); await p6.waitForTimeout(300);
+    const presets = await p6.$$eval('#logoPresetSelect optgroup', gs => gs.map(g => g.label + ':' + g.children.length));
+    ok(EDITION_PLAIN ? 'plain edition: the ready-made logos are the eight palette pictures, with no team characters' : 'logo: the ready-made logos are every Team vCGE character (one per sample) and a picture for each of the eight palettes',
+      JSON.stringify(presets) === JSON.stringify(EDITION_PLAIN ? ['To match a palette:8'] : [`Team vCGE:${samples().length}`, 'To match a palette:8']), JSON.stringify(presets));
+    await p6.selectOption('#logoPresetSelect', 'theme:pumpkin');
+    await p6.waitForFunction(() => !!document.querySelector('#previewAvatar img'), null, { timeout: 5000 }).catch(() => {});
+    await p6.waitForTimeout(300);
+    const pick = await p6.evaluate(() => ({ toast: document.getElementById('toastMessage').textContent, img: !!document.querySelector('#previewAvatar img'), select: document.getElementById('logoPresetSelect').value, remove: !document.getElementById('removeAvatarBtn').classList.contains('hidden') }));
+    ok('logo: a ready-made pumpkin goes on the card like an upload (Remove logo shown) and the picker is ready again', pick.toast === 'Logo: Pumpkin' && pick.img && pick.select === '' && pick.remove, JSON.stringify(pick));
+    const badge = () => p6.$eval('#previewAvatar', el => ({ w: Math.round(el.getBoundingClientRect().width), bg: el.style.background, ink: el.style.color }));
+    const sizes = {};
+    for (const k of ['sm', 'md', 'lg']) { await p6.selectOption('#logoSizeSelect', k); sizes[k] = (await badge()).w; }
+    ok('logo: Small, Medium and Large make the logo 64, 80 and 96 px on screen; Medium is the start', sizes.sm === 64 && sizes.md === 80 && sizes.lg === 96 && (await p6.$eval('#logoSizeSelect', s => s.options[0].value + s.options[1].value + s.options[2].value)) === 'smmdlg', JSON.stringify(sizes));
+    await p6.selectOption('#logoSizeSelect', 'md');
+    await p6.click('#logoBgGroup [data-back="dark"]');
+    const dark = await badge();
+    await p6.evaluate(() => { const w = document.getElementById('logoBgPicker'); w.value = '#ff8800'; w.dispatchEvent(new Event('input', { bubbles: true })); });
+    const wheel = { ...(await badge()), on: await p6.$eval('#logoBgPicker', w => w.classList.contains('is-on')), pressed: await p6.$$eval('#logoBgGroup [aria-pressed="true"]', bs => bs.length) };
+    await p6.click('#logoBgGroup [data-back="auto"]');
+    const auto = { ...(await badge()), pressed: await p6.$eval('#logoBgGroup [data-back="auto"]', b => b.getAttribute('aria-pressed')) };
+    ok('logo: Dark gray sits behind the logo, the colour wheel sets any colour (no swatch then lit), Auto takes it away again',
+      dark.bg === 'rgb(51, 65, 85)' && wheel.bg === 'rgb(255, 136, 0)' && wheel.on && wheel.pressed === 0 && auto.bg !== 'rgb(255, 136, 0)' && auto.pressed === 'true', JSON.stringify({ dark, wheel, auto }));
+    const swatches = await p6.$$eval('#logoBgGroup button', bs => bs.map(b => b.getAttribute('aria-label')).join('|'));
+    ok('logo: the quick picks are Auto, Mostly white, Light gray, Dark gray and Charcoal, each named for screen readers (no pure white or black)', swatches === 'Auto|Mostly white|Light gray|Dark gray|Charcoal', swatches);
+    const finish = () => p6.evaluate(() => { const st = getComputedStyle(document.getElementById('cardFront'), '::before'); return { image: st.backgroundImage.slice(0, 22), opacity: st.opacity, z: st.zIndex, off: document.getElementById('cardFinishStrength').disabled }; });
+    const flat = await finish();
+    await p6.selectOption('#cardFinishSelect', 'dots');
+    const dots = await finish();
+    await p6.fill('#cardFinishStrength', '30');
+    const strong = await finish();
+    const textOnTop = await p6.evaluate(() => { const r = document.getElementById('previewFullName').getBoundingClientRect(); const el = document.elementFromPoint(r.left + 4, r.top + r.height / 2); return !!el && document.getElementById('previewFullName').contains(el); });
+    ok('card: a finish lays a texture over the card colour (Dots at 15%, the slider takes it to 30%), behind the text; Flat has none and no slider',
+      flat.image === 'none' && flat.off && dots.image.startsWith('radial-gradient') && dots.opacity === '0.15' && !dots.off && strong.opacity === '0.3' && dots.z === '-1' && textOnTop, JSON.stringify({ flat, dots, strong, textOnTop }));
+    await p6.selectOption('#cardFinishSelect', 'flat');
+    await p6.click('#removeAvatarBtn'); await p6.click('#removeLogoYes');
     ok('card: no page errors, nothing fetched from outside, no missing files', errors6.length === 0 && external6.length === 0 && missing6.length === 0, errors6.concat(external6, missing6).join(' | '));
     await ctx6.close();
   }

@@ -359,6 +359,20 @@
                     </div>
                 </div>
 
+                <!-- Logo look and card finish (raven575 test report, 2026-10-22): a ready-made logo, the logo's size and the
+                     colour behind it, and a texture over the card colour with its strength. Memory only, like the rest of the card. -->
+                <div id="cardLookRow" class="flex flex-wrap items-center gap-2">
+                    <select id="logoPresetSelect" class="px-2 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-xs font-semibold" aria-label="Ready-made logo"></select>
+                    <select id="logoSizeSelect" class="px-2 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-xs font-semibold" aria-label="Logo size"></select>
+                    <div id="logoBgGroup" role="group" aria-label="Colour behind the logo" class="flex items-center gap-1">
+                        <span class="text-xs font-semibold mr-1">Behind logo</span>
+                        <input id="logoBgPicker" type="color" value="#f8fafc" class="logo-bg-wheel" aria-label="Pick any colour behind the logo" title="Pick any colour">
+                    </div>
+                    <select id="cardFinishSelect" class="px-2 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-xs font-semibold" aria-label="Card finish"></select>
+                    <label id="cardFinishStrengthLabel" class="flex items-center gap-1 text-xs font-semibold">Strength
+                        <input id="cardFinishStrength" type="range" min="5" max="35" step="1" value="15" class="w-24" aria-label="Finish strength (per cent)">
+                    </label>
+                </div>
                 <div class="perspective-1000">
                     <div id="card3DFlipper" class="relative transform-style-3d cursor-pointer">
                         <div id="cardFront" class="card-face w-full min-h-64 rounded-3xl p-6 shadow-xl space-y-4 relative overflow-hidden backface-hidden font-sans">
@@ -382,16 +396,18 @@
                             <canvas id="qrCanvas" width="320" height="320" class="w-40 h-40 rounded-xl shadow-xl bg-white"></canvas>
                             <p id="qrHint" class="qr-hint hidden"><svg class="qr-tail" viewBox="0 0 12 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 1.5c4.5 0 6.5 3.5 6.5 6.5S7.5 13 5 13 2 11 3.5 9.5 6.5 9.5 6.5 11"/><path d="M2 1.2 3 2.2M3.2.6l.6 1.3M1.4 2.6l1.4-.2"/></svg>Point a phone camera here</p>
                             <p id="backCardName" class="text-sm font-bold">New Contact</p>
-                            <!-- D2: Flipside the Chameleon peeks up over the bottom edge (hand-drawn, still; the card's own colours) -->
-                            <svg class="card-peek" viewBox="0 0 64 36" aria-hidden="true" focusable="false">
-                                <path d="M14 36C6 30 4 20 12 17c6-2 9 5 4 7-3 1-4-2-2-3" class="peek-tail" fill="none" stroke-width="4" stroke-linecap="round"/>
-                                <path d="M10 36c4-14 20-20 34-16 8 2 14 8 16 16Z" class="peek-body" stroke-width="1.2"/>
-                                <path d="M39 20l6-8 7 6" class="peek-body" stroke-width="1.2" stroke-linejoin="round"/>
-                                <circle cx="24" cy="30" r="2" class="peek-spot"/><circle cx="32" cy="25" r="1.6" class="peek-spot"/><circle cx="38" cy="31" r="1.8" class="peek-spot"/>
-                                <circle cx="50" cy="22" r="5.5" class="peek-eye"/>
-                                <circle cx="50.5" cy="22" r="3" fill="#ffffff"/><circle cx="51.3" cy="21.6" r="1.5" class="peek-ink"/>
-                                <path d="M53 29q4 1.5 6-2" class="peek-line" fill="none" stroke-width="1.2" stroke-linecap="round"/>
-                                <path d="M29 36c0-5 6-5 6 0" class="peek-body" stroke-width="1.2"/>
+                            <!-- D2: Flipside the Chameleon sits on the bottom edge of the back (hand-drawn, still; the card's own colours) -->
+                            <svg class="card-peek" viewBox="0 0 80 48" aria-hidden="true" focusable="false">
+                                <path d="M23 37C11 37 4 29 8 21c4-8 16-6 16 2 0 6-8 7-9 2-.5-3 2-4.5 4-3" class="peek-tail" fill="none" stroke-width="5" stroke-linecap="round"/>
+                                <path d="M29 37l-3 9M55 37l2 9" class="peek-tail" fill="none" stroke-width="4.5" stroke-linecap="round"/>
+                                <path d="M20 37c0-12 12-19 26-19 10 0 15 6 15 12v7Z" class="peek-body" stroke-width="1.2" stroke-linejoin="round"/>
+                                <path d="M26 24l3-4 3 3 3-4 3 3 3-4 3 3" class="peek-line" fill="none" stroke-width="1.2" stroke-linejoin="round" stroke-linecap="round"/>
+                                <path d="M52 21c7-8 22-5 24 7 1 6-6 9-16 9h-6Z" class="peek-body" stroke-width="1.2" stroke-linejoin="round"/>
+                                <path d="M55 19l5-10 6 8" class="peek-body" stroke-width="1.2" stroke-linejoin="round"/>
+                                <circle cx="30" cy="31" r="2.2" class="peek-spot"/><circle cx="39" cy="26" r="1.8" class="peek-spot"/><circle cx="45" cy="32" r="2" class="peek-spot"/>
+                                <circle cx="64" cy="24" r="6" class="peek-eye"/>
+                                <circle cx="64.5" cy="24" r="3.6" fill="#ffffff"/><circle cx="65.6" cy="23.4" r="1.8" class="peek-ink"/>
+                                <path d="M67 32q4 1.5 7.5-1.5" class="peek-line" fill="none" stroke-width="1.3" stroke-linecap="round"/>
                             </svg>
                             <p id="qrNotice" class="hidden text-[10px] text-amber-600 dark:text-amber-400">QR code unavailable: see the message above</p>
                         </div>

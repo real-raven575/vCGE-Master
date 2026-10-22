@@ -71,12 +71,12 @@ html[data-edition="plain"] #cardCard > .deck-card-body { padding-top: 1.25rem; }
 @media print { .card-lines .card-line.print\:hidden { display: none; } }
 /* The make-it-cute touches (raven575, 2026-10-21; notes/cute-ideas): all still pictures or one fade, none in the plain
    edition or on the printed card. D1: the rim takes the logo's tint once (card3dView.js tintRim) and holds still; grey
-   in colour-blind mode. D2: Flipside peeks up over the bottom edge of the card's back. D3: a curled tail on Flip card. */
+   in colour-blind mode. D2: Flipside sits whole on the bottom edge of the card's back (raven575 2026-10-22: the peek cut off too much). D3: a curled tail on Flip card. */
 .card-face::after { content: ''; position: absolute; inset: 0; border-radius: inherit; border: 3px solid var(--card-rim, transparent); opacity: 0; pointer-events: none; }
 #card3DFlipper[data-rim] .card-face::after { opacity: 1; }
 @media (prefers-reduced-motion: no-preference) { .card-face::after { transition: opacity 0.6s ease-out; } }
 html[data-cb="1"] #card3DFlipper .card-face::after { border-color: #94a3b8; }
-.card-peek { position: absolute; bottom: 0; right: 1.75rem; width: calc(3.25rem * var(--card-scale)); height: auto; pointer-events: none; }
+.card-peek { position: absolute; bottom: 0.5rem; right: 1.5rem; width: calc(4.5rem * var(--card-scale)); aspect-ratio: 80 / 48; height: auto; pointer-events: none; }
 .card-peek .peek-tail { stroke: var(--card-accent); }
 .card-peek .peek-body, .card-peek .peek-eye { fill: var(--card-accent); stroke: var(--card-ink); stroke-width: 1.2; }
 .card-peek .peek-body { stroke-opacity: 0.35; }
@@ -86,6 +86,32 @@ html[data-cb="1"] #card3DFlipper .card-face::after { border-color: #94a3b8; }
 .flip-tail { display: inline-block; width: 1.1em; height: 1.1em; vertical-align: -0.25em; margin-right: 0.3em; }
 html[data-edition="plain"] .card-face::after, html[data-edition="plain"] .card-peek, html[data-edition="plain"] .flip-tail { display: none; }
 @media print { .card-face::after, .card-peek { display: none; } }
+/* The logo's size on screen (card3dView.js LOGO_SIZES; the printed card keeps its own sizes, print.css). */
+@media screen {
+    .logo-size-md #previewAvatar { width: 5rem; height: 5rem; }
+    .logo-size-lg #previewAvatar { width: 6rem; height: 6rem; }
+    .logo-size-md #previewLogoStrip > div { height: 4rem; }
+    .logo-size-lg #previewLogoStrip > div { height: 5rem; }
+}
+/* The colour behind the logo: quick-pick swatches and a colour wheel (card3dView.js LOGO_BACKS). Auto is half and half. */
+.logo-bg-swatch, .logo-bg-wheel { width: 2.75rem; height: 2.75rem; min-width: 2.75rem; min-height: 2.75rem; border-radius: 9999px; border: 2px solid rgb(148 163 184 / 0.6); padding: 0; cursor: pointer; }
+.logo-bg-swatch[data-back="auto"] { background: linear-gradient(135deg, #f8fafc 50%, #334155 50%); }
+.logo-bg-swatch[aria-pressed="true"], .logo-bg-wheel.is-on { border-color: #2563eb; box-shadow: 0 0 0 2px #2563eb; }
+.logo-bg-wheel { background: transparent; overflow: hidden; }
+.logo-bg-wheel::-webkit-color-swatch-wrapper { padding: 0; }
+.logo-bg-wheel::-webkit-color-swatch { border: 0; border-radius: 9999px; }
+.logo-bg-wheel::-moz-color-swatch { border: 0; border-radius: 9999px; }
+/* Colour-blind mode: the picked swatch is marked by a thick dark ring, not by colour alone. */
+html[data-cb="1"] .logo-bg-swatch[aria-pressed="true"], html[data-cb="1"] .logo-bg-wheel.is-on { border-width: 4px; border-color: #0f172a; }
+/* The card's finish: a texture in the ink colour over the card colour, at the strength picked (--finish-a, 0.05 to
+   0.35). It sits behind the card's text (isolation keeps it inside the face) and stays off the printed card. */
+.card-face { isolation: isolate; }
+.card-face::before { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: -1; opacity: var(--finish-a, 0.15); }
+#card3DFlipper[data-finish="gradient"] .card-face::before { background: linear-gradient(160deg, #ffffff 0%, transparent 55%, #000000 100%); }
+#card3DFlipper[data-finish="linen"] .card-face::before { background: repeating-linear-gradient(0deg, var(--card-ink) 0 1px, transparent 1px 4px), repeating-linear-gradient(90deg, var(--card-ink) 0 1px, transparent 1px 4px); }
+#card3DFlipper[data-finish="dots"] .card-face::before { background: radial-gradient(var(--card-ink) 1.2px, transparent 1.8px) 0 0 / 10px 10px; }
+#card3DFlipper[data-finish="stripes"] .card-face::before { background: repeating-linear-gradient(45deg, var(--card-ink) 0 6px, transparent 6px 16px); }
+@media print { .card-face::before { display: none; } }
 /* A traced logo is a drawing in the ink colour (currentColor); the plate, when there is one, is set inline. */
 .card-trace { display: block; fill: currentColor; }
 
