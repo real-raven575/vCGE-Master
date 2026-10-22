@@ -599,14 +599,33 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     dark: document.documentElement.classList.contains('dark'), body: getComputedStyle(document.body).fontFamily, entry: localStorage.getItem('vcge_settings') }));
   ok('before any change: nothing is stored, right hand, Inter, dark', (await settingsKeys()).length === 0 && (await htmlState()).hand === 'right' && (await htmlState()).dark && /Inter/.test((await htmlState()).body), JSON.stringify(await htmlState()));
   await page.click('#navSettings');
-  ok('the cog opens Settings: hand, colour-blind switch, theme, font, language "coming later", PIN button and the disclaimer', await page.isVisible('#settingsSheet') && await page.isVisible('#handRightBtn') && await page.isVisible('#cbToggle') && await page.isVisible('#themeToggle')
+  ok('the cog opens Settings: hand, colour-blind switch, theme, font, language "coming later", PIN button and the disclaimer', await page.isVisible('#settingsSheet') && await page.isVisible('#handRightBtn') && await page.isVisible('#cbToggle') && await page.isVisible('#themeSelect')
     && await page.isVisible('#fontSelect') && /coming later/.test(await page.textContent('#settingsSheet')) && await page.isVisible('#settingsVaultBtn')
     && (await text('settingsNote')) === 'vCGE keeps one small settings file on this device (hand, colors, theme, font, text size, wipe time). Nothing you scan, upload or type is ever saved.');
   ok('the font list is the seven fonts, alphabetical, Inter chosen', (await page.$$eval('#fontSelect option', os => os.map(o => o.textContent).join('|'))) === 'Atkinson Hyperlegible|Comic Neue|Inter|Lexend|Macondo|OpenDyslexic|Tinos'
     && (await page.$eval('#fontSelect', s => s.selectedOptions[0].textContent)) === 'Inter');
-  ok('every settings control is at least 44 px tall', (await page.$$eval('#handRightBtn, #handLeftBtn, #cbToggle, #themeToggle, #fontSelect, #sizeSelect, #wipeSelect', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44));
-  await page.click('#themeToggle');
-  ok('theme toggles to light and the entry appears, one key, name=number pairs', !(await htmlState()).dark && (await settingsKeys()).join() === 'vcge_settings' && (await htmlState()).entry === 'hand=0;cb=0;theme=1;font=0;size=0;wipe=0');
+  ok('every settings control is at least 44 px tall', (await page.$$eval('#handRightBtn, #handLeftBtn, #cbToggle, #themeSelect, #fontSelect, #sizeSelect, #wipeSelect', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44));
+  await page.selectOption('#themeSelect', '1');
+  ok('theme Light: light mode and the entry appears, one key, name=number pairs', !(await htmlState()).dark && (await settingsKeys()).join() === 'vcge_settings' && (await htmlState()).entry === 'hand=0;cb=0;theme=1;font=0;size=0;wipe=0');
+  // App themes (raven575's test report, 2026-10-22): Basic, the Autumn colours and, in the branded edition only, a dark and a light per character
+  const themeState = () => page.evaluate(() => ({ id: document.documentElement.dataset.appTheme || '', dark: document.documentElement.classList.contains('dark'),
+    bg: getComputedStyle(document.body).backgroundColor, card: getComputedStyle(document.querySelector('.deck-card.is-current')).backgroundColor,
+    on: getComputedStyle(document.querySelector('.deck-nav button.is-on')).backgroundColor, entry: localStorage.getItem('vcge_settings') }));
+  const themeGroups = await page.$$eval('#themeSelect optgroup', gs => gs.map(g => g.label + ':' + g.children.length).join('|'));
+  ok(EDITION_PLAIN ? 'the theme list is Basic (2) and Autumn (8), no characters in plain' : 'the theme list is Basic (2), Autumn (8) and Team vCGE (18)',
+    themeGroups === (EDITION_PLAIN ? 'Basic:2|Autumn:8' : 'Basic:2|Autumn:8|Team vCGE:18'), themeGroups);
+  await page.selectOption('#themeSelect', '2'); await page.waitForTimeout(150);
+  const pumpkin = await themeState();
+  ok('Pumpkin colours the page, the cards and the lit header icon, stays light, and its code 2 is saved', pumpkin.id === 'pumpkin' && !pumpkin.dark && pumpkin.bg === 'rgb(243, 221, 206)'
+    && pumpkin.card === 'rgb(250, 244, 240)' && pumpkin.on === 'rgb(225, 107, 24)' && pumpkin.entry === 'hand=0;cb=0;theme=2;font=0;size=0;wipe=0', JSON.stringify(pumpkin));
+  if (!EDITION_PLAIN) {
+    await page.selectOption('#themeSelect', '12'); await page.waitForTimeout(150);
+    const shutout = await themeState();
+    ok('Shutout the Box Turtle (dark) turns dark mode on with its own colours, code 12 saved', shutout.id === 'shutout-dark' && shutout.dark && shutout.bg === 'rgb(28, 32, 14)'
+      && shutout.entry === 'hand=0;cb=0;theme=12;font=0;size=0;wipe=0', JSON.stringify(shutout));
+  }
+  await page.selectOption('#themeSelect', '1'); await page.waitForTimeout(150);
+  ok('back to Light: the theme colours are gone', (await themeState()).id === '' && !(await htmlState()).dark && (await htmlState()).entry === 'hand=0;cb=0;theme=1;font=0;size=0;wipe=0');
   await page.click('#handLeftBtn');
   const headerOrder = () => page.evaluate(() => ['navSettings', 'navVault', 'navCapture', 'navShare'].map(id => document.getElementById(id).getBoundingClientRect().left));
   const [xSettings, xVault, xCapture, xShare] = await headerOrder();
@@ -650,15 +669,15 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   const after = await pS.evaluate(() => ({ hand: document.documentElement.dataset.hand, cb: document.documentElement.dataset.cb, dark: document.documentElement.classList.contains('dark'),
     body: getComputedStyle(document.body).fontFamily, entry: localStorage.getItem('vcge_settings'), keys: Object.keys(localStorage).join() }));
   ok('next start: light theme, colour-blind mode and Lexend come back from the one entry; still exactly one key', !after.dark && after.cb === '1' && /Lexend/.test(after.body) && after.hand === 'right' && after.keys === 'vcge_settings', JSON.stringify(after));
-  ok('the entry holds six numbers and no text', /^hand=\d;cb=\d;theme=\d;font=\d;size=\d;wipe=\d$/.test(after.entry), after.entry);
+  ok('the entry holds six numbers and no text', /^hand=\d;cb=\d;theme=\d\d?;font=\d;size=\d;wipe=\d$/.test(after.entry), after.entry);
   await pS.click('#navSettings');
-  ok('the sheet shows the saved choices', await pS.$eval('#cbToggle', c => c.checked) && (await pS.$eval('#fontSelect', s => s.selectedOptions[0].textContent)) === 'Lexend' && (await pS.$eval('#themeToggle', b => b.getAttribute('aria-pressed'))) === 'true');
-  await pS.click('#themeToggle'); await pS.uncheck('#cbToggle'); await pS.selectOption('#fontSelect', { label: 'Inter' });
+  ok('the sheet shows the saved choices', await pS.$eval('#cbToggle', c => c.checked) && (await pS.$eval('#fontSelect', s => s.selectedOptions[0].textContent)) === 'Lexend' && (await pS.$eval('#themeSelect', s => s.value)) === '1');
+  await pS.selectOption('#themeSelect', '0'); await pS.uncheck('#cbToggle'); await pS.selectOption('#fontSelect', { label: 'Inter' });
   await pS.waitForTimeout(300);
   ok('back to dark, colour-blind off, Inter', await pS.evaluate(() => document.documentElement.classList.contains('dark') && !document.documentElement.dataset.cb && /Inter/.test(getComputedStyle(document.body).fontFamily) && localStorage.getItem('vcge_settings') === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0'));
   await pS.close();
   await page.bringToFront();
-  await page.click('#navSettings'); await page.click('#themeToggle'); await page.uncheck('#cbToggle'); await page.selectOption('#fontSelect', { label: 'Inter' }); await page.click('#settingsSheet [data-sheet-close]');
+  await page.click('#navSettings'); await page.selectOption('#themeSelect', '0'); await page.uncheck('#cbToggle'); await page.selectOption('#fontSelect', { label: 'Inter' }); await page.click('#settingsSheet [data-sheet-close]');
   await page.waitForTimeout(300);
   ok('this tab follows too once its own controls are used: dark, Inter, scan still here', (await htmlState()).dark && /Inter/.test((await htmlState()).body) && await visible('reopenScanBtn'));
 

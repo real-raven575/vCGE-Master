@@ -10,7 +10,9 @@
  *   hand   0 right (default), 1 left: `html[data-hand="right|left"]` for the header mirror, the trash corner, the
  *          Welcome buttons' thumb line and any module that places a control by hand (MOD03's shutter and fader).
  *   cb     0 off (default), 1 on: colour-blind mode, `html[data-cb="1"]` (MOD02's wipe dialog reads it).
- *   theme  0 dark (default), 1 light: the `dark` class on <html> (Tailwind `darkMode: 'class'`).
+ *   theme  the colour theme by its fixed code (themes.js; 0 Dark, the default, 1 Light, then the Autumn and Team vCGE
+ *          themes): its mode sets the `dark` class on <html> (Tailwind `darkMode: 'class'`), its colours the --vcge-*
+ *          variables and html[data-app-theme]. Plain shows no branded theme and reads a saved one as Dark or Light.
  *   font   the UI font by its fixed code (FONT_CODES; Inter = 0): `html[data-font]` plus the --vcge-ui-font variable.
  *   size   the text size by its fixed code (TEXT_SIZES; Normal = 0): `html[data-size]` plus --vcge-size, the factor every
  *          rem-sized thing on the page grows by, except the header, which keeps its own size (deck.css, video #6).
@@ -25,6 +27,7 @@
  */
 import { globalEventBus, Events } from '../../share/eventBus.js';
 import { UI_FONTS, DEFAULT_UI_FONT } from './ui.js';
+import { THEMES, themesFor, applyTheme } from './themes.js';
 
 export const SETTINGS_KEY = 'vcge_settings';
 const OLD_THEME_KEY = 'vcge_theme_preference';
@@ -41,7 +44,7 @@ export const TEXT_SIZES = Object.freeze([
 // Wipe after the lock: fixed codes, shortest first. 7 minutes is the time vCGE has always had; 15 is the longest.
 export const WIPE_TIMES = Object.freeze([{ code: 0, minutes: 7 }, { code: 1, minutes: 10 }, { code: 2, minutes: 15 }]);
 export const DEFAULTS = Object.freeze({ hand: 0, cb: 0, theme: 0, font: FONT_CODES[DEFAULT_UI_FONT], size: 0, wipe: 0 });
-const RANGE = { hand: 1, cb: 1, theme: 1, font: Math.max(...Object.values(FONT_CODES)), size: Math.max(...TEXT_SIZES.map(t => t.code)),
+const RANGE = { hand: 1, cb: 1, theme: Math.max(...THEMES.map(t => t.code)), font: Math.max(...Object.values(FONT_CODES)), size: Math.max(...TEXT_SIZES.map(t => t.code)),
     wipe: Math.max(...WIPE_TIMES.map(t => t.code)) };
 
 /** The text-size factor for a code (1 when the code is unknown). */
@@ -104,12 +107,12 @@ export function clearSettings(storage = localStorage) {
     try { storage.removeItem(SETTINGS_KEY); storage.removeItem(OLD_THEME_KEY); } catch { /* nothing to remove */ }
 }
 
-/** Put the settings on <html>: the hand, colour-blind, font, size and wipe hooks and the dark class. */
+/** Put the settings on <html>: the hand, colour-blind, font, size and wipe hooks and the theme (the dark class and its colours). */
 export function applySettings(settings, root = document.documentElement) {
     const s = parseSettings(serializeRaw(settings));
     root.dataset.hand = s.hand === 1 ? 'left' : 'right';
     if (s.cb === 1) root.dataset.cb = '1'; else delete root.dataset.cb;
-    root.classList.toggle('dark', s.theme !== 1);
+    applyTheme(root, s.theme, root.dataset.edition === 'plain');
     root.dataset.font = String(s.font);
     root.style.setProperty('--vcge-ui-font', `'${fontFor(s.font)}'`);
     root.dataset.size = String(s.size);
@@ -122,7 +125,7 @@ export function applySettings(settings, root = document.documentElement) {
 
 /**
  * Wire the sheet's controls (any of them may be missing), apply the saved settings and listen for the wipe signal.
- * Controls: #handRightBtn / #handLeftBtn, #cbToggle (checkbox), #themeToggle (button), #fontSelect, #sizeSelect and #wipeSelect (selects).
+ * Controls: #handRightBtn / #handLeftBtn, #cbToggle (checkbox), #themeSelect, #fontSelect, #sizeSelect and #wipeSelect (selects).
  */
 export function initSettings(doc = document) {
     const $ = (id) => doc.getElementById(id);
@@ -130,16 +133,30 @@ export function initSettings(doc = document) {
 
     const set = (change) => { s = applySettings({ ...s, ...change }); saveSettings(s); reflect(); };
     const reflect = () => {
-        const right = $('handRightBtn'), left = $('handLeftBtn'), cb = $('cbToggle'), theme = $('themeToggle'), font = $('fontSelect'), size = $('sizeSelect'), wipe = $('wipeSelect');
+        const right = $('handRightBtn'), left = $('handLeftBtn'), cb = $('cbToggle'), theme = $('themeSelect'), font = $('fontSelect'), size = $('sizeSelect'), wipe = $('wipeSelect');
         if (right) right.setAttribute('aria-pressed', String(s.hand === 0));
         if (left) left.setAttribute('aria-pressed', String(s.hand === 1));
         if (cb) cb.checked = s.cb === 1;
-        if (theme) { theme.textContent = s.theme === 1 ? '☀️' : '🌙'; theme.setAttribute('aria-pressed', String(s.theme === 1)); }
+        if (theme) theme.value = String(themesFor(plain).some(t => t.code === s.theme) ? s.theme : (s.theme === 1 ? 1 : 0));
         if (font) font.value = String(s.font);
         if (size) size.value = String(s.size);
         if (wipe) wipe.value = String(s.wipe);
     };
 
+    const plain = doc.documentElement && doc.documentElement.dataset.edition === 'plain';
+    const theme = $('themeSelect');
+    if (theme && !theme.options.length) {
+        for (const group of [...new Set(themesFor(plain).map(t => t.group))]) {   // Basic, Autumn, then Team vCGE (branded)
+            const g = doc.createElement('optgroup');
+            g.label = group;
+            for (const t of themesFor(plain).filter(x => x.group === group)) {
+                const o = doc.createElement('option');
+                o.value = String(t.code); o.textContent = t.label;
+                g.append(o);
+            }
+            theme.append(g);
+        }
+    }
     const font = $('fontSelect');
     if (font && !font.options.length) {
         for (const name of UI_FONTS) {                      // alphabetical, each with its fixed code
@@ -167,7 +184,7 @@ export function initSettings(doc = document) {
     $('handRightBtn')?.addEventListener('click', () => set({ hand: 0 }));
     $('handLeftBtn')?.addEventListener('click', () => set({ hand: 1 }));
     $('cbToggle')?.addEventListener('change', (e) => set({ cb: e.target.checked ? 1 : 0 }));
-    $('themeToggle')?.addEventListener('click', () => set({ theme: s.theme === 1 ? 0 : 1 }));
+    theme?.addEventListener('change', (e) => set({ theme: Number(e.target.value) }));
     font?.addEventListener('change', (e) => set({ font: Number(e.target.value) }));
     size?.addEventListener('change', (e) => set({ size: Number(e.target.value) }));
     wipe?.addEventListener('change', (e) => set({ wipe: Number(e.target.value) }));

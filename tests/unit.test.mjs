@@ -1524,7 +1524,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('settings: the wipe after the lock is 7, 10 or 15 minutes, codes 0, 1, 2; 7 is the default and an unknown code is 7', st.WIPE_TIMES.map(t => `${t.code}:${t.minutes}`).join() === '0:7,1:10,2:15'
     && st.wipeMinutesFor(0) === 7 && st.wipeMinutesFor(1) === 10 && st.wipeMinutesFor(2) === 15 && st.wipeMinutesFor(9) === 7);
   {
-    const root = { dataset: {}, classList: { toggle() {} }, style: { setProperty() {} } };
+    const root = { dataset: {}, classList: { toggle() {} }, style: { setProperty() {}, removeProperty() {} } };
     const minutes = [0, 1, 2, 7].map(w => { st.applySettings({ wipe: w }, root); return root.dataset.wipe; }).join();
     ok('settings: applySettings puts the wipe time on html as data-wipe in minutes (7, 10, 15; out of range is 7)', minutes === '7,10,15,7', minutes);
   }
@@ -1545,11 +1545,36 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   localStorage.setItem('vcge_theme_preference', 'light');
   ok('settings: the old theme key is carried over once and removed', JSON.stringify(st.loadSettings()) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0}' && localStorage.getItem('vcge_theme_preference') === null && store.size === 0);
   const code = fs.readFileSync(`${R}/modules/mod01-shell/settings.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-  ok('settings: subscribes to SETTINGS_WIPE_REQUESTED, imports only the bus and ui.js, no network, cookies or markup', /subscribe\(Events\.SETTINGS_WIPE_REQUESTED/.test(code)
-    && (code.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ui.js'")) && !/fetch\(|document\.cookie|sessionStorage|indexedDB|innerHTML|publish\(/.test(code));
+  ok('settings: subscribes to SETTINGS_WIPE_REQUESTED, imports only the bus, ui.js and themes.js, no network, cookies or markup', /subscribe\(Events\.SETTINGS_WIPE_REQUESTED/.test(code)
+    && (code.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ui.js'") || l.includes("'./themes.js'")) && !/fetch\(|document\.cookie|sessionStorage|indexedDB|innerHTML|publish\(/.test(code));
   ok('settings: the only storage key named in the code is the settings key (plus the old theme key it removes)', [...code.matchAll(/(?:getItem|setItem|removeItem)\((\w+)/g)].every(m => m[1] === 'SETTINGS_KEY' || m[1] === 'OLD_THEME_KEY'));
   ok('settings: the Settings sheet and the Welcome card carry the one-file disclaimer', fs.readFileSync(`${R}/../index.html`, 'utf8').includes('vCGE keeps one small settings file on this device (hand, colors, theme, font, text size, wipe time). Nothing you scan, upload or type is ever saved.')
     && /remembers none of your sensitive data/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8')) && !fs.existsSync(`${R}/modules/mod01-shell/themeManager.js`));
+  // App themes (themes.js, theme step 1): fixed codes, readable colours, branded ones left out of plain
+  const th = await import(`${R}/modules/mod01-shell/themes.js`);
+  const lin = (h) => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(c => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  const lumOf = (h) => { const [r, g, b] = lin(h); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+  const ratio = (a, b) => { const [x, y] = [lumOf(a), lumOf(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+  const weak = th.COLOUR_THEMES.filter(t => { const v = t.vars;
+    return ratio(v.text, v.surface) < 4.5 || ratio(v.text, v.bg) < 4.5 || ratio(v.muted, v.surface) < 4.5 || ratio(v.onAccent, v.accent) < 4.5 || ratio(v.accent, v.surface) < 3; });
+  ok('themes: every colour theme reads at 4.5:1 (text and muted text on its surface, text on its page, the lit icon\'s text) and its accent at 3:1', weak.length === 0, weak.map(t => t.id).join());
+  const card3d = await import(`${R}/modules/mod06-gui/card3dView.js`);
+  ok('themes: Dark 0 and Light 1 as before, then the eight Autumn palettes, then a dark and a light for each of the nine characters; codes fixed and unique',
+    th.THEMES.map(t => t.code).join() === [...Array(28).keys()].join() && th.THEMES[0].id === 'dark' && th.THEMES[1].id === 'light'
+    && th.THEMES.filter(t => t.group === 'Autumn').map(t => t.id).join() === Object.keys(card3d.THEMES).join()
+    && th.THEMES.filter(t => t.group === 'Team vCGE').length === 18 && th.THEMES.filter(t => t.group === 'Team vCGE').every(t => t.branded)
+    && new Set(th.THEMES.map(t => t.id)).size === 28);
+  ok('themes: plain lists Basic and Autumn only, and reads a saved character theme as Dark or Light by its mode',
+    th.themesFor(true).length === 10 && th.themesFor(false).length === 28 && th.themeFor(13, true).id === 'light' && th.themeFor(12, true).id === 'dark'
+    && th.themeFor(12, false).id === 'shutout-dark' && th.themeFor(99).id === 'dark');
+  const props = {}, cls = {};
+  const troot = { dataset: {}, classList: { toggle: (c, on) => { cls[c] = on; } }, style: { setProperty: (k, v) => { props[k] = v; }, removeProperty: (k) => { delete props[k]; } } };
+  th.applyTheme(troot, 5);   // Cranberry, a dark theme
+  const cran = `${troot.dataset.appTheme}/${cls.dark}/${Object.keys(props).length}/${props['--vcge-accent']}`;
+  th.applyTheme(troot, 1);
+  ok('themes: a colour theme puts its seven colours and its name on html and sets dark by its mode; Light takes them all away again',
+    cran === `cranberry/true/7/${th.themeFor(5).vars.accent}` && !('appTheme' in troot.dataset) && cls.dark === false && Object.keys(props).length === 0, cran);
+  ok('settings: theme codes up to the last theme read back; past it is Dark', st.parseSettings('theme=27').theme === 27 && st.parseSettings('theme=28').theme === 0);
   localStorage.clear();
 }
 
