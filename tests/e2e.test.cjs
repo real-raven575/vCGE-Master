@@ -3171,7 +3171,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const badge = () => p6.$eval('#previewAvatar', el => ({ w: Math.round(el.getBoundingClientRect().width), bg: el.style.background, ink: el.style.color }));
     const sizes = {};
     for (const k of ['sm', 'md', 'lg']) { await p6.selectOption('#logoSizeSelect', k); sizes[k] = (await badge()).w; }
-    ok('logo: Small, Medium and Large make the logo 64, 80 and 96 px on screen; Medium is the start', sizes.sm === 64 && sizes.md === 80 && sizes.lg === 96 && (await p6.$eval('#logoSizeSelect', s => s.options[0].value + s.options[1].value + s.options[2].value)) === 'smmdlg', JSON.stringify(sizes));
+    const rem = await p6.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize));
+    ok('logo: Small, Medium and Large make the logo 4, 5 and 6 rem on screen (64, 80 and 96 px at the usual text size); Medium is the start', sizes.sm === Math.round(4 * rem) && sizes.md === Math.round(5 * rem) && sizes.lg === Math.round(6 * rem) && (await p6.$eval('#logoSizeSelect', s => s.options[0].value + s.options[1].value + s.options[2].value)) === 'smmdlg', JSON.stringify({ ...sizes, rem }));
     await p6.selectOption('#logoSizeSelect', 'md');
     await p6.click('#logoBgGroup [data-back="dark"]');
     const dark = await badge();
@@ -3189,11 +3190,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const dots = await finish();
     await p6.fill('#cardFinishStrength', '30');
     const strong = await finish();
-    // On a phone the open controls push the card down: the name is brought into view before asking what is on top of it.
-    const textOnTop = await p6.evaluate(async () => { const name = document.getElementById('previewFullName'); name.scrollIntoView({ block: 'center' }); await new Promise(r => setTimeout(r, 300));
-      const r = name.getBoundingClientRect(); const el = document.elementFromPoint(r.left + 4, r.top + r.height / 2); return !!el && name.contains(el) ? true : (el ? el.id || el.className || el.tagName : 'nothing'); });
+    // Behind the text by construction: the texture is stacked below the face's own content (z-index -1) inside the face
+    // (isolation), so it can never cover a line. (Hit-testing cannot see a pseudo-element, and on a phone the open
+    // controls push the card under other layers.)
+    const textOnTop = await p6.$eval('#cardFront', el => getComputedStyle(el).isolation === 'isolate');
     ok('card: a finish lays a texture over the card colour (Dots at 15%, the slider takes it to 30%), behind the text; Flat has none and no slider',
-      flat.image === 'none' && flat.off && dots.image.startsWith('radial-gradient') && dots.opacity === '0.15' && !dots.off && strong.opacity === '0.3' && dots.z === '-1' && textOnTop === true, JSON.stringify({ flat, dots, strong, textOnTop }));
+      flat.image === 'none' && flat.off && dots.image.startsWith('radial-gradient') && dots.opacity === '0.15' && !dots.off && strong.opacity === '0.3' && dots.z === '-1' && textOnTop, JSON.stringify({ flat, dots, strong, textOnTop }));
     await p6.selectOption('#cardFinishSelect', 'flat');
     await p6.click('#removeAvatarBtn'); await p6.click('#removeLogoYes');
     ok('card: no page errors, nothing fetched from outside, no missing files', errors6.length === 0 && external6.length === 0 && missing6.length === 0, errors6.concat(external6, missing6).join(' | '));
