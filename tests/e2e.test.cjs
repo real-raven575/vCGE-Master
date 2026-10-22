@@ -67,6 +67,20 @@ async function renderCardImage(page, blur = 0) {
   return { name: 'card.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') };
 }
 
+// Renders the card's top lines upside down and mirrored: sharp strokes the reader can't make words of (a stand-in for
+// the handwriting-style card raven575 read on 2026-10-22, which was sharp but got "too blurry").
+async function renderMirroredCard(page) {
+  const dataUrl = await page.evaluate(() => {
+    const c = document.createElement('canvas'); c.width = 1050; c.height = 600;
+    const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111';
+    x.translate(c.width, c.height); x.scale(-1, -1);
+    const lines = [['bold 56px Arial', 'Maria Gonzalez'], ['34px Arial', 'Director of Engineering'], ['30px Arial', '+1 (312) 555-0147'], ['30px Arial', 'maria.gonzalez@northwind.com']];
+    let y = 120; for (const [f, t] of lines) { x.font = f; x.fillText(t, 70, y); y += 110; }
+    return c.toDataURL('image/png');
+  });
+  return { name: 'mirrored.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') };
+}
+
 // Renders the same card rotated and sheared on a grey background (a crooked photo) and returns the card's corners.
 async function renderSkewedCard(page) {
   const { dataUrl, corners } = await page.evaluate(() => {
@@ -2010,18 +2024,41 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p4.click('#runOcrBtn');
     await p4.waitForSelector('#ocrRetakeNotice', { state: 'visible', timeout: 90000 }).catch(() => {});
     await p4.waitForFunction(() => document.documentElement.dataset.card === 'capture', null, { timeout: 5000 }).catch(() => {});
-    ok('blurry photo: retake prompt shown on the Capture card', await p4.isVisible('#ocrRetakeNotice') && await p4.isVisible('#retakePhotoBtn') && !(await p4.isVisible('#runOcrBtn')) && (await p4.evaluate(() => document.documentElement.dataset.card)) === 'capture', await readStage(p4));
+    ok('blurry photo: retake prompt shown on the Capture card, OK turned into Try again', await p4.isVisible('#ocrRetakeNotice') && await p4.isVisible('#retakePhotoBtn') && await p4.isVisible('#runOcrBtn') && (await p4.textContent('#runOcrBtn')).trim() === 'Try again' && (await p4.evaluate(() => document.documentElement.dataset.card)) === 'capture', await readStage(p4));
     ok('blurry photo: form left unchanged', (await p4.inputValue('#firstName')) === 'Typed' && (await p4.inputValue('#emailValue0')) === '');
+    ok('blurry photo: the retake advice is about blur, with no Type it in', (await p4.textContent('#ocrRetakeNotice')).includes('too blurry') && !(await p4.isVisible('#typeItInBtn')));
     const chooser = p4.waitForEvent('filechooser', { timeout: 5000 }).then(() => true, () => false);
     await p4.click('#retakePhotoBtn');
     ok('Retake photo opens the photo picker', await chooser && !(await p4.isVisible('#cropReviewModal')));
     await p4.setInputFiles('#imageUpload', await renderCardImage(p4)); await p4.waitForTimeout(300);
-    ok('new photo resets the crop step (OK back, prompt hidden)', await p4.isVisible('#runOcrBtn') && !(await p4.isVisible('#ocrRetakeNotice')));
+    ok('new photo resets the crop step (OK back, prompt hidden)', await p4.isVisible('#runOcrBtn') && (await p4.textContent('#runOcrBtn')).trim() === 'OK' && !(await p4.isVisible('#ocrRetakeNotice')));
     await p4.click('#runOcrBtn');
     await readEnds(p4);
     await proceed(p4);
     ok('sharp retake is read normally', (await rowValue(p4, 'email', 'work')) === 'maria.gonzalez@northwind.com', JSON.stringify(await rows(p4, 'email')));
     await ctx4.close();
+  });
+
+  // Sharp photo, lettering the reader can't read: say so (not "blurry") and offer Type it in (raven575, 2026-10-22)
+  await rerunIfPageCrashed('sharp photo, unreadable lettering', async () => {
+    const ctx = await newContext();
+    const p = await ctx.newPage();
+    await p.goto(ORIGIN); await p.waitForTimeout(300);
+    await p.setInputFiles('#imageUpload', await renderMirroredCard(p)); await p.waitForTimeout(300);
+    await p.click('#runOcrBtn');
+    await p.waitForSelector('#ocrRetakeNotice', { state: 'visible', timeout: 90000 }).catch(() => {});
+    const notice = await p.textContent('#ocrRetakeNotice');
+    ok('sharp unreadable photo: the advice names the lettering, not blur', await p.isVisible('#ocrRetakeNotice') && notice.includes('lettering') && !notice.includes('blurry'), `${notice} ${await readStage(p)}`);
+    ok('sharp unreadable photo: Type it in, Retake photo and Try again are offered', await p.isVisible('#typeItInBtn') && await p.isVisible('#retakePhotoBtn') && await p.isVisible('#runOcrBtn') && (await p.textContent('#runOcrBtn')).trim() === 'Try again');
+    // Try again reads the same photo once more: the notice goes while it reads, then comes back for this photo
+    await p.click('#runOcrBtn');
+    const hidWhileReading = await p.waitForSelector('#ocrRetakeNotice', { state: 'hidden', timeout: 5000 }).then(() => true, () => false);
+    await p.waitForSelector('#ocrRetakeNotice', { state: 'visible', timeout: 90000 }).catch(() => {});
+    ok('Try again reads the photo once more and lands on the same advice', hidWhileReading && await p.isVisible('#ocrRetakeNotice') && (await p.textContent('#ocrRetakeNotice')).includes('lettering') && await p.isVisible('#typeItInBtn'), await readStage(p));
+    await p.click('#typeItInBtn');
+    await p.waitForFunction(() => document.documentElement.dataset.card === 'fields', null, { timeout: 5000 }).catch(() => {});
+    ok('Type it in opens the Fields card ready for typing, the photo dropped', (await p.evaluate(() => document.documentElement.dataset.card)) === 'fields' && (await p.evaluate(() => document.activeElement && document.activeElement.id)) === 'firstName' && !(await p.isVisible('#typeItInBtn')) && !(await p.isVisible('#ocrRetakeNotice')), await p.evaluate(() => `${document.documentElement.dataset.card} ${document.activeElement && document.activeElement.id}`));
+    await ctx.close();
   });
 
   // Crooked photo: drag the corners onto the card, extract, fix a line, change a picker, fill the form

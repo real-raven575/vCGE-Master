@@ -624,11 +624,18 @@ function onActivity() {
 
 // ---- Intake: camera / upload (MOD03) -> OCR (MOD04) -> mapper (MOD05) -----------------------------------------
 
-// Retake prompt on the Capture card's crop step (shown when a photo is too blurry or unclear to read).
-function showRetakePrompt(show) {
+// Retake prompt on the Capture card's crop step (shown when a photo is too blurry or unclear to read). A sharp photo
+// whose lettering beat the reader gets its own words and Type it in (raven575, 2026-10-22: a clear card in a
+// handwriting-style font was called "too blurry"). OK stays, as Try again, so the same photo can be read once more
+// (raven575, 2026-10-22: "so you don't get stuck on that card").
+const BLURRY_NOTICE = 'This photo is too blurry or unclear to read. Retake it closer, in good light, and hold steady.';
+const LETTERING_NOTICE = 'The photo looks sharp, but the reader can\'t make out this card\'s lettering. Fancy or handwriting-style fonts are hard for it. Type the details in, or try another photo.';
+function showRetakePrompt(show, sharp = false) {
+    $('ocrRetakeNotice').textContent = sharp ? LETTERING_NOTICE : BLURRY_NOTICE;
     $('ocrRetakeNotice').classList.toggle('hidden', !show);
     $('retakePhotoBtn').classList.toggle('hidden', !show);
-    $('runOcrBtn').classList.toggle('hidden', show);
+    $('typeItInBtn').classList.toggle('hidden', !(show && sharp));
+    $('runOcrBtn').querySelector('span').textContent = show ? 'Try again' : 'OK';
 }
 
 // Labels for the "Will fill" summary of the review step.
@@ -748,7 +755,7 @@ async function runOcr() {
         console.error('[vCGE] OCR failed:', e);
         if (e && e.code === 'OCR_UNREADABLE') {
             backToPhoto();
-            showRetakePrompt(true);
+            showRetakePrompt(true, !!e.sharp);
         } else if (e && e.code === 'OCR_TIMEOUT') {
             // The reader was restarted; the photo stays for Try Again.
             readIndicator.stop(); readIndicator.set(1);
@@ -941,6 +948,14 @@ function wireIntake() {
     $('snapCardBtn').addEventListener('click', () => { if (!cropEditor.snapToCard()) deckToast('No card edges found. Drag the corners onto the card yourself.'); });
     // Cancel on the crop step drops the photo: back to Take a photo or Upload a photo.
     $('cancelReviewBtn').addEventListener('click', () => { showRetakePrompt(false); camera.discardPhoto(); if (heldReadings().length) openReviewFrom(heldReadings()); });
+    // Type it in: the unreadable photo is dropped and the Fields card opens for typing (or the review, if earlier photos
+    // of this card were read).
+    $('typeItInBtn').addEventListener('click', async () => {
+        showRetakePrompt(false); camera.discardPhoto();
+        if (heldReadings().length) return openReviewFrom(heldReadings());
+        await showCard('fields');
+        $('firstName').focus();
+    });
     $('ocrCancelBtn').addEventListener('click', backToPhoto);
     $('ocrBackBtn').addEventListener('click', backToPhoto);
     $('applyOcrBtn').addEventListener('click', applyOcrReview);

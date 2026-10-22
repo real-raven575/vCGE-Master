@@ -861,7 +861,9 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 
 // OCR worker (ESM): returns raw text, publishes on the shared bus, and fails loudly (never with made-up text)
 {
-  globalThis.document = { baseURI: 'http://localhost/', createElement: () => ({ getContext: () => ({ drawImage() {}, getImageData: () => ({ data: new Uint8ClampedArray(4) }), putImageData() {} }), toDataURL: () => 'data:image/png;base64,' }) };
+  // The fake canvas hands back `fakePixels(w, h)`: flat grey unless a check draws something (blur score checks)
+  let fakePixels = (w, h) => new Uint8ClampedArray(w * h * 4).fill(128);
+  globalThis.document = { baseURI: 'http://localhost/', createElement: () => ({ getContext: () => ({ drawImage() {}, getImageData: (x, y, w, h) => ({ data: fakePixels(w, h) }), putImageData() {} }), toDataURL: () => 'data:image/png;base64,' }) };
   globalThis.Image = class { set src(v) { this.width = 10; this.height = 10; setTimeout(() => this.onload && this.onload(), 0); } };
   const origLog = console.log, origErr = console.error; console.log = () => {}; console.error = () => {};
   const ocr = await import(`${R}/modules/mod04-ocr/ocrWorker.js`);
@@ -932,6 +934,26 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   result = { text: 'py A Year op WW es', confidence: 46, words: words(12, 70) };
   const blurry = await failure(ocr.executeOCRScan('data:image/png;base64,x'));
   ok('low-confidence photo rejected as unreadable (retake)', blurry && blurry.code === 'OCR_UNREADABLE' && blurry.confidence === 46 && evt === null, blurry && blurry.message);
+  ok('a photo with no sharp edges is called blurry, not hard lettering', blurry && blurry.sharp === false && blurry.message.includes('too blurry'), blurry && blurry.message);
+  // A sharp photo the reader still can't read (raven575, 2026-10-22: a clear card in a handwriting-style font)
+  const stripes = (w, h) => { const d = new Uint8ClampedArray(w * h * 4); for (let i = 0; i < w * h; i++) d.fill((i % w) % 4 < 2 ? 20 : 235, i * 4, i * 4 + 4); return d; };
+  fakePixels = stripes;
+  const lettering = await failure(ocr.executeOCRScan('data:image/png;base64,x'));
+  fakePixels = (w, h) => new Uint8ClampedArray(w * h * 4).fill(128);
+  ok('a sharp photo that still reads as garbage is unreadable with sharp set (hard lettering)', lettering && lettering.code === 'OCR_UNREADABLE' && lettering.sharp === true && lettering.message.includes('lettering') && evt === null, lettering && lettering.message);
+  {
+    // blurScore: sharp edges score low, the same edges blurred score high, and a flat picture counts as blurry
+    const w = 60, h = 40, sharpPic = new Uint8Array(w * h), soft = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) sharpPic[y * w + x] = ((x >> 3) + (y >> 3)) % 2 ? 230 : 25;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      let sum = 0, n = 0;
+      for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const xx = Math.min(w - 1, Math.max(0, x + dx)), yy = Math.min(h - 1, Math.max(0, y + dy)); sum += sharpPic[yy * w + xx]; n++; }
+      soft[y * w + x] = sum / n;
+    }
+    const sharpScore = ocr.blurScore(sharpPic, w, h), softScore = ocr.blurScore(soft, w, h);
+    ok('blur score: sharp edges are under the sharp limit, the same edges blurred are over it', sharpScore <= ocr.OCR_SHARP_BLUR && softScore > ocr.OCR_SHARP_BLUR, `${sharpScore.toFixed(2)} ${softScore.toFixed(2)}`);
+    ok('blur score: a flat picture has no edges and counts as blurry', ocr.blurScore(new Uint8Array(w * h).fill(90), w, h) === 1);
+  }
   result = { text: 'Kai Takahashi 206.555.9876 kai@studiocraft.design', confidence: 84, words: words(4, 90) };
   const minimal = await ocr.executeOCRScan('data:image/png;base64,x');
   ok('a sharp minimal card (4 words) is accepted, not sent back for a retake', minimal.confidence === 84, JSON.stringify(minimal));
