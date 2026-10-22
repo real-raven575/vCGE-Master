@@ -967,11 +967,11 @@ function wireIntake() {
 // ---- Egress (MOD08 only) ---------------------------------------------------------------------------------------
 
 // The QR for an export, drawn by MOD07 from the current contact in the chosen style. Returns what was drawn.
-function renderExportQr(canvas, { themed = true, dots = 'square', frame = 'none', logo = null, size = 320 } = {}) {
+function renderExportQr(canvas, { themed = true, ink = null, dots = 'square', frame = 'none', logo = null, size = 320 } = {}) {
     const contact = cardView.getContact();
     if (!vcgeQREngine.hasDetails(contact)) return { ok: false, themed: false };
     const text = vcgeQREngine.generateVCard30({ ...contact, avatarBase64: null });
-    const theme = themed ? THEMES[themeKeyOf(contact.themePalette)] : null;
+    const theme = ink ? { card: ink } : themed ? THEMES[themeKeyOf(contact.themePalette)] : null;
     const ok = vcgeQREngine.renderQRCode(canvas, text, { size, theme, dots, frame, logo });
     return { ok, themed: !!(ok && vcgeQREngine.lastRender && vcgeQREngine.lastRender.themed) };
 }

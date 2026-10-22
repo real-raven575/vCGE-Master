@@ -14,8 +14,9 @@
  */
 import { formatVCard } from '../../share/vcardFormatter.js';
 
-export const QR_DOTS = ['square', 'round'];
-export const QR_FRAMES = ['none', 'square', 'rounded', 'circle', 'stripes'];
+export const QR_DOTS = ['square', 'round', 'diamond'];
+export const QR_FRAMES = ['none', 'square', 'rounded', 'circle', 'stripes', 'checkers', 'polka'];
+const BAND_FRAMES = ['stripes', 'checkers', 'polka'];   // patterned bands, wider than a line frame
 export const QR_LOGO_LEVEL = 'H';          // a centre logo covers modules; the strongest correction recovers them
 export const QR_LOGO_FRACTION = 0.22;      // the logo plate, as a share of the code's width (under level H's 30 percent)
 export const QR_MIN_CONTRAST = 4;          // a themed code needs at least this ratio or it falls back to black on white
@@ -151,10 +152,10 @@ export class VCGEQREngine {
      *   level       error correction L/M/Q/H (default M; a logo forces H)
      *   theme       {card} theme colours; tinted when the contrast allows, else black on white
      *   foreground/background  explicit colours (override the theme)
-     *   dots        'square' | 'round' (finder patterns stay square so phones lock on)
-     *   frame       'none' | 'square' | 'rounded' | 'circle' | 'stripes', drawn outside the quiet zone in the dark colour
- *               (stripes: a band of diagonal zebra stripes, Checkers' own frame)
-     *   logo        an image or canvas drawn at the centre on a light plate (needs level H)
+     *   dots        'square' | 'round' | 'diamond' (finder patterns stay square so phones lock on)
+     *   frame       'none' | 'square' | 'rounded' | 'circle', or a patterned band: 'stripes' (diagonal zebra stripes),
+ *               'checkers' (a checkerboard) or 'polka' (dots); all drawn outside the quiet zone in the dark colour
+     *   logo        an image or canvas drawn at the centre on a light plate (needs level H), keeping its own shape
      * @returns {boolean} true when a real QR matrix was drawn, false when the labelled fallback was used
      */
     renderQRCode(canvas, text, options = {}) {
@@ -189,7 +190,7 @@ export class VCGEQREngine {
         const cells = n + QUIET * 2;
         const scale = Math.max(2, Math.floor(size / cells));
         const code = cells * scale;                       // the code with its quiet zone
-        const frameWidth = frame === 'none' ? 0 : frame === 'stripes' ? scale * 2 : scale;  // stroke width (the stripe band is wider)
+        const frameWidth = frame === 'none' ? 0 : BAND_FRAMES.includes(frame) ? scale * 2 : scale;  // stroke width (a patterned band is wider)
         const pad = frame === 'none' ? 0 : scale * 2;     // space between the quiet zone and the frame
         // A circle has to clear the code's corners, so it needs a larger canvas than the square frames.
         const outer = frame === 'circle'
@@ -219,24 +220,39 @@ export class VCGEQREngine {
                     ctx.beginPath();
                     ctx.arc(x + scale / 2, y + scale / 2, r, 0, Math.PI * 2);
                     ctx.fill();
+                } else if (dots === 'diamond' && !isFinder(row, col)) {
+                    const cx = x + scale / 2, cy = y + scale / 2, d = scale * 0.62;
+                    ctx.beginPath();
+                    ctx.moveTo(cx, cy - d); ctx.lineTo(cx + d, cy); ctx.lineTo(cx, cy + d); ctx.lineTo(cx - d, cy);
+                    ctx.closePath();
+                    ctx.fill();
                 } else {
                     ctx.fillRect(x, y, scale, scale);
                 }
             }
         }
 
-        if (frame === 'stripes') {
-            // Diagonal stripes, clipped to the band outside the quiet zone, so the code itself is untouched.
+        if (BAND_FRAMES.includes(frame)) {
+            // A pattern clipped to the band outside the quiet zone, so the code itself is untouched.
             ctx.save();
             ctx.beginPath();
             ctx.rect(0, 0, outer, outer);
             ctx.rect(frameWidth, frameWidth, outer - frameWidth * 2, outer - frameWidth * 2);
             ctx.clip('evenodd');
+            ctx.fillStyle = dark;
             ctx.strokeStyle = dark;
-            ctx.lineWidth = scale * 0.8;
-            ctx.beginPath();
-            for (let x = -outer; x < outer; x += scale * 2) { ctx.moveTo(x, 0); ctx.lineTo(x + outer, outer); }
-            ctx.stroke();
+            if (frame === 'stripes') {
+                ctx.lineWidth = scale * 0.8;
+                ctx.beginPath();
+                for (let x = -outer; x < outer; x += scale * 2) { ctx.moveTo(x, 0); ctx.lineTo(x + outer, outer); }
+                ctx.stroke();
+            } else if (frame === 'checkers') {
+                for (let y = 0, j = 0; y < outer; y += scale, j++) for (let x = 0, i = 0; x < outer; x += scale, i++) if ((i + j) % 2 === 0) ctx.fillRect(x, y, scale, scale);
+            } else {
+                ctx.beginPath();
+                for (let y = scale, j = 0; y < outer; y += scale * 2, j++) for (let x = j % 2 ? scale * 2 : scale; x < outer; x += scale * 2) { ctx.moveTo(x + scale * 0.45, y); ctx.arc(x, y, scale * 0.45, 0, Math.PI * 2); }
+                ctx.fill();
+            }
             ctx.restore();
         } else if (frame !== 'none') {
             ctx.strokeStyle = dark;
@@ -255,8 +271,11 @@ export class VCGEQREngine {
             const px = origin + Math.round((code - plate) / 2), py = px;
             ctx.fillStyle = light;
             ctx.fillRect(px, py, plate, plate);
-            const inner = Math.round(plate * 0.82), ix = px + Math.round((plate - inner) / 2);
-            try { ctx.drawImage(logo, ix, ix, inner, inner); } catch (e) { console.warn('[vCGE-MOD07] logo not drawable'); }
+            // The logo keeps its own shape: fitted inside the plate's inner square, centred, never stretched.
+            const inner = Math.round(plate * 0.82);
+            const lw = logo.naturalWidth || logo.width || inner, lh = logo.naturalHeight || logo.height || inner;
+            const fit = inner / Math.max(lw, lh), w = Math.max(1, Math.round(lw * fit)), h = Math.max(1, Math.round(lh * fit));
+            try { ctx.drawImage(logo, px + Math.round((plate - w) / 2), py + Math.round((plate - h) / 2), w, h); } catch (e) { console.warn('[vCGE-MOD07] logo not drawable'); }
         }
 
         this.lastRender = { themed: !options.foreground && !options.background && palette.themed, ratio: palette.ratio,

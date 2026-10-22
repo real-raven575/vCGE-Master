@@ -564,6 +564,10 @@
                         <div class="export-qr-choices">
                             <label><input type="radio" name="qrColour" value="themed" checked>Themed</label>
                             <label><input type="radio" name="qrColour" value="bw">Black &amp; White</label>
+                            <label><input type="radio" name="qrColour" value="navy">Navy</label>
+                            <label><input type="radio" name="qrColour" value="forest">Forest</label>
+                            <label><input type="radio" name="qrColour" value="plum">Plum</label>
+                            <label><input type="radio" name="qrColour" value="cocoa">Cocoa</label>
                         </div>
                     </div>
                     <div class="export-qr-group" role="radiogroup" aria-labelledby="qrDotsLabel">
@@ -571,17 +575,20 @@
                         <div class="export-qr-choices">
                             <label><input type="radio" name="qrDots" value="square" checked>Square</label>
                             <label><input type="radio" name="qrDots" value="round">Round</label>
+                            <label><input type="radio" name="qrDots" value="diamond">Diamond</label>
                         </div>
                     </div>
-                    <div class="export-qr-group" role="radiogroup" aria-labelledby="qrFrameLabel">
-                        <span id="qrFrameLabel">Frame</span>
-                        <div class="export-qr-choices">
-                            <label><input type="radio" name="qrFrame" value="none" checked>None</label>
-                            <label><input type="radio" name="qrFrame" value="square">Square</label>
-                            <label><input type="radio" name="qrFrame" value="rounded">Rounded</label>
-                            <label><input type="radio" name="qrFrame" value="circle">Circle</label>
-                            <label><input type="radio" name="qrFrame" value="stripes">Stripes</label>
-                        </div>
+                    <div class="export-qr-group">
+                        <label id="qrFrameLabel" for="qrFrameSelect">Frame</label>
+                        <select id="qrFrameSelect" class="vcge-select export-qr-select">
+                            <option value="none" selected>None</option>
+                            <option value="square">Square</option>
+                            <option value="rounded">Rounded</option>
+                            <option value="circle">Circle</option>
+                            <option value="stripes">Stripes</option>
+                            <option value="checkers">Checkers</option>
+                            <option value="polka">Polka dots</option>
+                        </select>
                     </div>
                     <div class="export-qr-group" role="radiogroup" aria-labelledby="qrLogoLabel">
                         <span id="qrLogoLabel">Centre logo</span>

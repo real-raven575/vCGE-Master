@@ -16,9 +16,11 @@
  */
 import { egressController } from './egressController.js';
 
-export const QR_COLOURS = ['themed', 'bw'];
-export const QR_DOTS = ['square', 'round'];
-export const QR_FRAMES = ['none', 'square', 'rounded', 'circle', 'stripes'];
+export const QR_COLOURS = ['themed', 'bw', 'navy', 'forest', 'plum', 'cocoa'];
+// The extra colours: MOD07 tints them like a card theme (a very dark shade on a pale tint, contrast checked)
+export const QR_INKS = Object.freeze({ navy: '#1e3a8a', forest: '#166534', plum: '#6b21a8', cocoa: '#7c4a1e' });
+export const QR_DOTS = ['square', 'round', 'diamond'];
+export const QR_FRAMES = ['none', 'square', 'rounded', 'circle', 'stripes', 'checkers', 'polka'];
 export const QR_LOGOS = ['none', 'scanned', 'upload'];
 export const LOGO_MAX_BYTES = 2 * 1024 * 1024;
 export const PREVIEW_PX = 320;
@@ -45,7 +47,7 @@ export function cleanChoices(c = {}) {
 /** The note under the preview, from what MOD07 drew. Empty when there is nothing to say. */
 export function previewNote({ ok, themed }, choices) {
     if (!ok) return 'Too much contact data for one QR code: use .vcf or Share instead.';
-    if (choices.colour === 'themed' && !themed) return 'The theme colours are not scannable here, so Black & White is used.';
+    if (choices.colour !== 'bw' && !themed) return 'Those colours are not scannable here, so Black & White is used.';
     return '';
 }
 
@@ -62,7 +64,8 @@ function loadImage(src) {
 export class ExportQrDialog {
     /**
      * @param {Object} hooks  set by the controller (main.js)
-     *   render(canvas, { themed, dots, frame, logo, size })  draws the current contact's code (MOD07); returns { ok, themed }
+     *   render(canvas, { themed, ink, dots, frame, logo, size })  draws the current contact's code (MOD07); returns { ok, themed }
+     *                     (ink: one of QR_INKS to tint with instead of the card's theme)
      *   logoOption()      { ok, reason } whether a centre logo fits (MOD07 level H)
      *   scannedLogo()     the logo shown on the card (a data URL) or null
      *   prepareLogo(src)  MOD06's logo preparation: { photo, display, traced, whiteRemoved, reason }
@@ -91,9 +94,11 @@ export class ExportQrDialog {
             logoReason: $('exportQrLogoReason'), useOnCard: $('exportQrUseOnCard'), useOnCardRow: $('exportQrUseOnCardRow'),
             fileName: $('exportQrFileName')
         };
-        root.querySelectorAll('input[name="qrColour"], input[name="qrDots"], input[name="qrFrame"], input[name="qrLogo"]').forEach(input => {
+        root.querySelectorAll('input[name="qrColour"], input[name="qrDots"], input[name="qrLogo"]').forEach(input => {
             input.addEventListener('change', () => this.onChoice(input.name, input.value));
         });
+        this.el.frame = $('qrFrameSelect');
+        this.el.frame.addEventListener('change', () => this.onChoice('qrFrame', this.el.frame.value));
         this.el.useOnCard.addEventListener('change', () => { this.choices.useOnCard = this.el.useOnCard.checked; });
         this.el.file.addEventListener('change', (e) => { const file = e.target.files[0]; e.target.value = ''; if (file) this.loadUpload(file); });
         this.el.save.addEventListener('click', () => this.save());
@@ -150,7 +155,8 @@ export class ExportQrDialog {
 
     paintChoices() {
         const set = (name, value) => { const input = this.root.querySelector(`input[name="${name}"][value="${value}"]`); if (input) input.checked = true; };
-        set('qrColour', this.choices.colour); set('qrDots', this.choices.dots); set('qrFrame', this.choices.frame); set('qrLogo', this.choices.logo);
+        set('qrColour', this.choices.colour); set('qrDots', this.choices.dots); set('qrLogo', this.choices.logo);
+        this.el.frame.value = this.choices.frame;
         this.el.useOnCard.checked = this.choices.useOnCard;
         this.el.useOnCardRow.classList.toggle('hidden', !this.upload);
     }
@@ -207,7 +213,7 @@ export class ExportQrDialog {
         this.rendering = (async () => {
             const logo = await this.logoImage();
             const c = this.choices;
-            const result = this.hooks.render(this.el.canvas, { themed: c.colour === 'themed', dots: c.dots, frame: c.frame, logo, size: PREVIEW_PX }) || { ok: false, themed: false };
+            const result = this.hooks.render(this.el.canvas, { themed: c.colour === 'themed', ink: QR_INKS[c.colour] || null, dots: c.dots, frame: c.frame, logo, size: PREVIEW_PX }) || { ok: false, themed: false };
             this.last = { ok: !!result.ok, themed: !!result.themed };
             if (!this.last.ok) this.el.canvas.width = this.el.canvas.height = 0;
             this.el.note.textContent = previewNote(this.last, c);

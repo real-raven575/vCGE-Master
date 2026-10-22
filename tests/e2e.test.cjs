@@ -1631,6 +1631,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('printed card is 3.5 in wide and at least 2 in tall, with the 1.5 in QR to its right', size.card[0] === 336 && size.card[1] >= 192 && size.qr[0] === 144 && size.qr[1] === 144 && size.qrRight, JSON.stringify(size));
     ok('printed card cuts nothing off: every line sits inside the card (raven575 2026-10-18)', size.cut.length === 0, JSON.stringify(size.cut));
     ok('themed print keeps the card\'s own colours', size.bg === size.cardBg && size.bg !== 'rgb(255, 255, 255)', JSON.stringify(size));
+    // Chrome's print preview sized the one-screen-tall body to the window, so a short card printed 4 sheets (raven575 2026-10-21)
+    const printBody = await p9.evaluate(() => ({ body: document.body.getBoundingClientRect().height, sheet: document.getElementById('printSheet').getBoundingClientRect().height, view: innerHeight }));
+    ok('in print the page is only as tall as the print sheet, not the window (no blank sheets after the card)', Math.abs(printBody.body - printBody.sheet) < 1 && printBody.body < printBody.view, JSON.stringify(printBody));
     await p9.emulateMedia({ media: null });
     if (ENGINE !== 'chromium') notRunHere('print is one 6 x 3.5 in page (no blank pages)', 'saving a page as PDF exists only in Chromium');
     else {
@@ -3393,6 +3396,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const coloursOf = (id) => pA.evaluate((id) => { const c = document.getElementById(id), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; const seen = new Set(); for (let i = 0; i < d.length; i += 4) seen.add(`${d[i]},${d[i + 1]},${d[i + 2]}`); return [...seen]; }, id);
     const tA = (id) => pA.$eval('#' + id, el => el.textContent.trim());
     // Each style choice is a 1 px hidden radio inside a 44 px label (export.css): tap the label as a person does, then report whether it took
+    const pickFrame = async (value) => { await pA.selectOption('#qrFrameSelect', value); return (await pA.inputValue('#qrFrameSelect')) === value; };
     const tapChoice = async (name, value) => { const input = `input[name="${name}"][value="${value}"]`; await pA.click(`label:has(> ${input})`); return pA.isChecked(input); };
 
     // An empty card: the Share card says so instead of opening the pop-up or printing
@@ -3419,9 +3423,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pA.click('#navCard'); await pA.waitForTimeout(500);
     const lightsOn = await pA.evaluate(() => {
       const dots = [...document.querySelectorAll('#readyToShareBtn .ready-light')].map(d => getComputedStyle(d));
-      return { lit: document.querySelectorAll('#readyToShareBtn .ready-light.is-lit').length, words: document.getElementById('readyLightsText').textContent, fills: dots.map(d => d.backgroundColor), borders: dots.map(d => d.borderTopWidth) };
+      return { popped: document.querySelectorAll('#readyToShareBtn .ready-light.is-popping').length, lit: document.querySelectorAll('#readyToShareBtn .ready-light.is-lit').length, words: document.getElementById('readyLightsText').textContent, fills: dots.map(d => d.backgroundColor), borders: dots.map(d => d.borderTopWidth) };
     });
-    ok('Airlock E3: a name, an email and a scannable code light all three, each filled (not just a colour change)', lightsOn.lit === 3 && lightsOn.words === 'Lit: a name, a way to reach them, a scannable QR code.' && lightsOn.fills.every(f => f !== 'rgba(0, 0, 0, 0)') && lightsOn.borders.every(b => b === '2px'), JSON.stringify(lightsOn));
+    ok('Airlock E3: a name, an email and a scannable code light all three, each filled (not just a colour change) and each grew once as it came on', lightsOn.lit === 3 && lightsOn.popped === 3 && lightsOn.words === 'Lit: a name, a way to reach them, a scannable QR code.' && lightsOn.fills.every(f => f !== 'rgba(0, 0, 0, 0)') && lightsOn.borders.every(b => b === '2px'), JSON.stringify(lightsOn));
     const unlitFill = await pA.evaluate(() => { const d = document.createElement('span'); d.className = 'ready-light'; document.getElementById('readyToShareBtn').append(d); const f = getComputedStyle(d).backgroundColor; d.remove(); return f; });
     ok('Airlock E3: an unlit light is only an outline (no fill)', unlitFill === 'rgba(0, 0, 0, 0)', unlitFill);
     const qrBack = await pA.evaluate(() => { const c = document.getElementById('qrCanvas'), h = document.getElementById('qrHint'), tail = h.querySelector('.qr-tail'); return { reveal: c.classList.contains('qr-reveal'), anim: getComputedStyle(c).animationName, hint: !h.classList.contains('hidden') && h.textContent.trim(), tail: getComputedStyle(tail).display }; });
@@ -3439,8 +3443,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
 
     // Export QR pop-up: a live preview from the same code as the card back, Themed by default
     await pA.click('#exportQrBtn');
-    const hatch = await pA.evaluate(() => { const h = document.querySelector('#exportQrBtn .hatch'); return { open: h.classList.contains('is-open'), shown: getComputedStyle(h).display, all: document.querySelectorAll('#cardShare button.share-btn .hatch').length }; });
-    ok(`Airlock E1: ${EDITION_PLAIN ? 'the plain edition has no hatch doors' : 'every Share button has a hatch door, and it opens on a press'}`, hatch.all === 7 && (EDITION_PLAIN ? hatch.shown === 'none' : hatch.shown !== 'none' && hatch.open), JSON.stringify(hatch));
+    const hatch = await pA.evaluate(() => { const h = document.querySelector('#exportQrBtn .hatch'); return { open: h.classList.contains('is-open'), ring: document.getElementById('exportQrBtn').classList.contains('is-launching'), whoosh: getComputedStyle(h, '::after').animationName, shown: getComputedStyle(h).display, all: document.querySelectorAll('#cardShare button.share-btn .hatch').length }; });
+    ok(`Airlock E1: ${EDITION_PLAIN ? 'the plain edition has no hatch doors' : 'every Share button has a hatch door; a press swings it open with air lines and a green ring'}`, hatch.all === 7 && (EDITION_PLAIN ? hatch.shown === 'none' : hatch.shown !== 'none' && hatch.open && hatch.ring && hatch.whoosh === 'hatch-whoosh'), JSON.stringify(hatch));
     await pA.waitForSelector('#exportQrSheet', { state: 'visible' });
     await pA.waitForFunction(() => document.getElementById('exportQrPreview').width > 0);
     const expected = await decodeQr(pA);
@@ -3454,21 +3458,28 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const bwColours = await coloursOf('exportQrPreview');
     ok('Black & White: pure black on pure white, still the same code', bwPicked && bwColours.length === 2 && bwColours.includes('0,0,0') && bwColours.includes('255,255,255') && (await decodeCanvas('exportQrPreview')) === expected, JSON.stringify(bwColours));
     const squareW = await pA.$eval('#exportQrPreview', c => c.width);
-    const roundPicked = await tapChoice('qrDots', 'round') && await tapChoice('qrFrame', 'circle'); await pA.waitForTimeout(200);
+    const roundPicked = await tapChoice('qrDots', 'round') && await pickFrame('circle'); await pA.waitForTimeout(200);
     const circleW = await pA.$eval('#exportQrPreview', c => c.width);
     ok('round dots in a circle frame still decode, on a larger canvas that clears the corners', roundPicked && (await decodeCanvas('exportQrPreview')) === expected && circleW > squareW, `${squareW} -> ${circleW}`);
-    const stripesPicked = await tapChoice('qrFrame', 'stripes'); await pA.waitForTimeout(200);
-    ok('Checkers Q2: the zebra-stripe frame still decodes to the same vCard', stripesPicked && (await decodeCanvas('exportQrPreview')) === expected);
+    const patterns = [];
+    for (const frame of ['stripes', 'checkers', 'polka']) { const picked = await pickFrame(frame); await pA.waitForTimeout(200); patterns.push(picked && (await decodeCanvas('exportQrPreview')) === expected ? 'ok' : frame); }
+    ok('Checkers Q2 + more patterns: the Stripes, Checkers and Polka dots frames (a dropdown) all still decode to the same vCard', patterns.every(p => p === 'ok'), patterns.join());
+    const inks = [];
+    for (const colour of ['navy', 'forest', 'plum', 'cocoa']) { const picked = await tapChoice('qrColour', colour); await pA.waitForTimeout(150); const cs = await coloursOf('exportQrPreview'); inks.push(picked && (await decodeCanvas('exportQrPreview')) === expected && !cs.includes('0,0,0') && (await tA('exportQrNote')) === '' ? 'ok' : colour); }
+    const diamondPicked = await tapChoice('qrDots', 'diamond'); await pA.waitForTimeout(150);
+    ok('more colours (Navy, Forest, Plum, Cocoa, tinted and contrast-checked) and Diamond dots still decode', inks.every(c => c === 'ok') && diamondPicked && (await decodeCanvas('exportQrPreview')) === expected, inks.join());
+    const bigger = await pA.evaluate(() => ({ preview: document.getElementById('exportQrPreview').getBoundingClientRect().width, label: document.querySelector('label:has(> input[name="qrColour"])').getBoundingClientRect().height, select: document.getElementById('qrFrameSelect').getBoundingClientRect().height }));
+    ok('the style options are larger: a bigger preview, 48 px buttons and dropdown', bigger.label >= 48 && bigger.select >= 48 && bigger.preview > 200, JSON.stringify(bigger));
     ok('the note is empty when there is nothing to say', (await tA('exportQrNote')) === '');
     // Esc (a Shell sheet: a sideways swipe or the X do the same) cancels; the next opening starts fresh
     await pA.keyboard.press('Escape');
     ok('Esc cancels the pop-up', !(await pA.isVisible('#exportQrSheet')));
     await pA.click('#exportQrBtn'); await pA.waitForSelector('#exportQrSheet', { state: 'visible' }); await pA.waitForTimeout(200);
-    ok('the pop-up opens fresh: Themed, square, no frame, no logo', await pA.isChecked('input[name="qrColour"][value="themed"]') && await pA.isChecked('input[name="qrDots"][value="square"]') && await pA.isChecked('input[name="qrFrame"][value="none"]') && await pA.isChecked('input[name="qrLogo"][value="none"]'));
+    ok('the pop-up opens fresh: Themed, square, no frame, no logo', await pA.isChecked('input[name="qrColour"][value="themed"]') && await pA.isChecked('input[name="qrDots"][value="square"]') && (await pA.inputValue('#qrFrameSelect')) === 'none' && await pA.isChecked('input[name="qrLogo"][value="none"]'));
 
     // Upload a logo for the centre: made ready on the device (traced into a drawing), drawn as an image; the code still decodes around it
     const logoPng = await pA.evaluate(() => { const c = document.createElement('canvas'); c.width = 320; c.height = 80; const x = c.getContext('2d'); x.fillStyle = '#1d4ed8'; x.font = 'bold 56px Arial'; x.fillText('ACME', 20, 62); return c.toDataURL('image/png'); });
-    const roundedPicked = await tapChoice('qrFrame', 'rounded');
+    const roundedPicked = await pickFrame('rounded');
     await pA.setInputFiles('#exportQrLogoFile', { name: 'acme.png', mimeType: 'image/png', buffer: Buffer.from(logoPng.split(',')[1], 'base64') });
     await pA.waitForFunction(() => document.querySelector('input[name="qrLogo"][value="upload"]').checked && !document.getElementById('exportQrUseOnCardRow').classList.contains('hidden'), null, { timeout: 5000 });
     await pA.waitForTimeout(300);
@@ -3479,9 +3490,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pA.check('#exportQrUseOnCard');
     const [dlQr] = await Promise.all([pA.waitForEvent('download'), pA.click('#exportQrSaveBtn')]);
     ok('Save PNG downloads "Jane Doe QR.png" and closes the pop-up', dlQr.suggestedFilename() === 'Jane Doe QR.png' && !(await pA.isVisible('#exportQrSheet')), dlQr.suggestedFilename());
-    const falconOf = () => pA.evaluate(() => { const f = document.getElementById('toastFalcon'), cs = getComputedStyle(f); return { hidden: f.classList.contains('hidden'), shown: cs.display, anim: cs.animationName, parcel: f.classList.contains('with-parcel') && getComputedStyle(f.querySelector('.falcon-parcel')).display !== 'none' }; });
+    const falconOf = () => pA.evaluate(() => { const f = document.getElementById('toastFalcon'), cs = getComputedStyle(f); return { hidden: f.classList.contains('hidden'), shown: cs.display, anim: cs.animationName, flap: getComputedStyle(f.querySelector('.falcon-body')).animationName, wide: f.getBoundingClientRect().width, parcel: f.classList.contains('with-parcel') && getComputedStyle(f.querySelector('.falcon-parcel')).display !== 'none' }; });
     const pngFalcon = await falconOf();
-    ok(`Airlock E2 + Checkers Q8: ${EDITION_PLAIN ? 'the plain edition shows no falcon' : 'after Save PNG the falcon glides over the toast carrying the striped parcel'}`, !pngFalcon.hidden && (EDITION_PLAIN ? pngFalcon.shown === 'none' : pngFalcon.shown !== 'none' && pngFalcon.anim === 'falcon-glide' && pngFalcon.parcel), JSON.stringify(pngFalcon));
+    ok(`Airlock E2 + Checkers Q8: ${EDITION_PLAIN ? 'the plain edition shows no falcon' : 'after Save PNG a big falcon swoops over the toast, beating its wings, carrying the striped parcel'}`, !pngFalcon.hidden && (EDITION_PLAIN ? pngFalcon.shown === 'none' : pngFalcon.shown !== 'none' && pngFalcon.anim === 'falcon-glide' && pngFalcon.flap === 'falcon-flap' && pngFalcon.wide >= 50 && pngFalcon.parcel), JSON.stringify(pngFalcon));
     const pngBytes = fs.readFileSync(await dlQr.path());
     ok('the saved file is a PNG', pngBytes.slice(1, 4).toString() === 'PNG');
     await pA.waitForFunction(() => !!document.querySelector('#previewAvatar img, #previewAvatar svg, #previewLogoStrip img, #previewLogoStrip svg'), null, { timeout: 5000 });
