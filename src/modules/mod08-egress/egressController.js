@@ -52,6 +52,11 @@ export function safeFileName(name, fallback = 'Contact') {
 
 // Every outbound action is announced on the bus so the shell can show a complete egress audit trail. Signals only
 // (Commandment 6): the method and flags, never a file name, name, number or any other part of the contact.
+/** The vCard without its PHOTO property (the line and its folded continuation lines). */
+export function withoutPhoto(vcard) {
+    return vcard.replace(/^PHOTO[;:].*(?:\r?\n[ \t].*)*\r?\n?/gm, '');
+}
+
 function audit(method, detail = {}) {
     globalEventBus.publish(Events.EXPORT_DISPATCHED, { module: 'vCGE-MOD08', method, timestamp: Date.now(), ...detail });
 }
@@ -246,9 +251,13 @@ export class EgressController {
         return new File([this.currentVCard], this.fileName('.vcf'), { type: 'text/vcard' });
     }
 
+    /**
+     * The email body leaves the PHOTO (logo) out: as base64 it made the mailto: link 10-20 KB, which Android Chrome's
+     * hand-off to the mail app drops (raven575 test 2026-10-22). The .vcf file and the share sheet still carry it.
+     */
     mailtoUrl() {
         const subject = encodeURIComponent(`Contact: ${this.displayName()}`);
-        const body = encodeURIComponent(`${this.contactSummary()}\n\nTo add this contact, save the text below as a .vcf file (or use the .vcf button in vCGE):\n\n${this.currentVCard}`);
+        const body = encodeURIComponent(`${this.contactSummary()}\n\nTo add this contact, save the text below as a .vcf file (or use the .vcf button in vCGE):\n\n${withoutPhoto(this.currentVCard)}`);
         return `mailto:?subject=${subject}&body=${body}`;
     }
 

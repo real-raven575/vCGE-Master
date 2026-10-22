@@ -1627,7 +1627,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 
 // MOD08 Export, video review 2026-10-17 (#76, #77, #98, Commandment 6): folded .vcf files, the share sheet, the readable summary, signal-only audit events
 {
-  const { EgressController } = await import(`${R}/modules/mod08-egress/egressController.js`);
+  const { EgressController, withoutPhoto } = await import(`${R}/modules/mod08-egress/egressController.js`);
   const { foldVCardLines, VCARD_LINE_OCTETS } = await import(`${R}/share/vcardFormatter.js`);
   const octets = (l) => new TextEncoder().encode(l).length;
   const unfold = (t) => t.replace(/\r\n[ \t]/g, '');
@@ -1652,6 +1652,13 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     'Nick Zafer', 'Owner & General Manager', 'TeamLogicIT', 'Work phone:  +1 (269) 492-7400', 'Mobile phone:  +1 (269) 254-5403', 'Work fax:  555',
     'Work email:  nzafer@TeamLogicIT.com', 'Work website:  TeamLogicIT.com/KalamazooMI', 'LinkedIn:  linkedin.com/in/nz',
     'Work address:  7950 Moorsbridge Road, Suite 405, Portage, MI 49024, United States'].join('\n'), JSON.stringify(e.contactSummary()));
+  const withLogo = new EgressController();
+  withLogo.setPayload(share.formatVCard({ ...contact, avatarBase64: `data:image/jpeg;base64,/9j/${'Q'.repeat(10000)}` }), contact, { hasDetails: true, qrReal: true });
+  const mailBody = decodeURIComponent(withLogo.mailtoUrl().split('&body=')[1]);
+  ok('MOD08 email: the .vcf keeps the logo, the email body leaves the PHOTO out and stays short (Android drops long mailto: links)',
+    withLogo.currentVCard.includes('PHOTO') && !mailBody.includes('PHOTO') && !mailBody.includes('QQQQ') && mailBody.includes('BEGIN:VCARD') && mailBody.includes('END:VCARD')
+      && mailBody.includes('TEL;TYPE=WORK') && withLogo.mailtoUrl().length < 2000, String(withLogo.mailtoUrl().length));
+  ok('MOD08 email: without a logo the vCard text is unchanged', withoutPhoto(e.currentVCard) === e.currentVCard);
   const homeOnly = new EgressController();
   homeOnly.setPayload('BEGIN:VCARD', { firstName: 'Kai', addressType: 'other', city: 'Boise', websites: [{ type: 'other', value: 'kai.dev' }] }, { hasDetails: true });
   ok('MOD08 summary: an "Other" website and address read "Website" and "Address"', homeOnly.contactSummary() === 'Kai\nWebsite:  kai.dev\nAddress:  Boise', JSON.stringify(homeOnly.contactSummary()));
