@@ -35,6 +35,9 @@ export const CHECK_NOTE_AT = 0.6;       // ...at this point of the box's fade
 /** What a person who cannot load the reader's files is told (the app's own files could not be reached, not a bad photo). */
 export const READER_UNAVAILABLE_MESSAGE = "The reader's files couldn't be reached, so nothing was read and your form was not changed. Check that the app still loads, then press OK again or type the details in.";
 
+/** What a person is told when the reader's files loaded but it stopped while starting, twice (raven575, 2026-10-22). */
+export const READER_STOPPED_MESSAGE = 'The reader stopped while starting. Press OK to try again.';
+
 const $ = (id) => document.getElementById(id);
 const reducedMotion = () => typeof window !== 'undefined' && !!window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const wait = (ms) => new Promise(res => setTimeout(res, ms));

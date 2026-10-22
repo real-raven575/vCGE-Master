@@ -20,7 +20,7 @@
 
 export const SMALL_SIDE = 240;         // the photo is read at this many pixels along its longer side
 export const MIN_CONTRAST = 20;        // centre and border shades must differ by this much (0 to 255)
-export const MIN_AREA = 0.12;          // the patch must cover this share of the photo
+export const MIN_AREA = 0.02;          // the patch must cover this share of the photo (2%: a card shot from farther away; 12% missed 3 of 6 on the edge bench)
 export const ASPECT_RANGE = [1.15, 2.6]; // long side over short side allowed for a card seen in perspective (3.5 : 2 = 1.75)
 
 /** The card's four corners in the photo's own pixels, ordered top-left, top-right, bottom-right, bottom-left, or null. */

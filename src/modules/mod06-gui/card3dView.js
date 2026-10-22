@@ -32,36 +32,40 @@ const LEGACY_THEMES = { ocean: 'slateblue', emerald: 'spruce', sunset: 'pumpkin'
 export const themeKeyOf = (key) => (THEMES[key] ? key : (LEGACY_THEMES[key] || DEFAULT_THEME));
 
 // Sample contacts, as data: the Fields card (MOD05) lists them under "Insert Fake Contact?" and calls loadSample().
-// The nine pilots of Team vCGE, with the reserved fictional numbers (555-01xx) and example.com, and the roster's animal
-// as the logo (bundled Noto Emoji, src/vendor/icons/animals/; where Noto has no such animal the nearest stands in).
+// The ten pilots of Team vCGE as "Name the Animal", with the reserved fictional numbers (555-01xx), a vCGE.APP Gmail
+// plus-address each (so the inbox can filter by character), their future page on vcge.app, an address at their bench
+// in Hangar 01 off the Flight Deck, and the roster's animal as the logo (bundled Noto Emoji, src/vendor/icons/animals/;
+// where Noto has no such animal the nearest stands in). raven575, 2026-10-22.
 const ANIMALS = 'src/vendor/icons/animals/';
-const pilot = (n, firstName, lastName, jobTitle, logo, themePalette, extra = {}) => ({
-    label: `MOD${n} ${firstName}`, firstName, lastName, organization: 'Team vCGE', jobTitle,
+const HQ = 'Herd of Helpers HEADQUARTERS';
+const pilot = (callSign, n, firstName, animal, bench, jobTitle, logo, themePalette, extra = {}) => ({
+    label: `${callSign} ${firstName}`, firstName, lastName: `the ${animal}`, organization: 'Team vCGE', jobTitle,
     phones: [{ type: 'mobile', value: `+1 (202) 555-01${n}` }, ...(extra.phones || [])],
-    emails: [{ type: 'work', value: `${firstName.toLowerCase()}@example.com` }],
-    websites: [{ type: 'work', value: `https://example.com/team-vcge/${firstName.toLowerCase()}` }, ...(extra.websites || [])],
-    addressType: 'work', street: '8 Formation Way', unitType: 'Hangar', unitNumber: String(Number(n)), city: 'Hollowpoint City', state: 'OH', zip: '44101',
+    emails: [{ type: 'work', value: `vcge.app+${firstName.toLowerCase()}@gmail.com` }],
+    websites: [{ type: 'work', value: `https://vcge.app/team_members/${callSign.toLowerCase()}-${firstName.toLowerCase()}` }, ...(extra.websites || [])],
+    addressType: 'work', street: `${Number(n)} Flight Deck Way, ${bench}`, unitType: 'Hangar', unitNumber: '01', city: HQ, state: 'OH', zip: '44101',
     country: 'United States', themePalette, logo: `${ANIMALS}${logo}.svg`, ...extra.fields
 });
 export const PRESETS = [
-    pilot('01', 'Shutout', 'Box Turtle', 'Shell pilot: egress lock and theme', 'turtle', 'spruce',
+    pilot('MOD01', '01', 'Shutout', 'Box Turtle', 'Lockout Gate', 'Shell pilot: egress lock and theme', 'turtle', 'spruce',
         { phones: [{ type: 'work', value: '+1 (202) 555-0111' }] }),
-    pilot('02', 'Ghost', 'Raccoon', 'Vault pilot: the temporary hub', 'raccoon', 'twilight'),
-    pilot('03', 'Iris', 'Lynx', 'Camera pilot: one clean shot', 'cat', 'pumpkin',
+    pilot('MOD02', '02', 'Ghost', 'Raccoon', 'Wipe Trials', 'Vault pilot: the temporary hub', 'raccoon', 'twilight'),
+    pilot('MOD03', '03', 'Iris', 'Lynx', 'Darkroom Edge Bench', 'Camera pilot: one clean shot', 'cat', 'pumpkin',
         { websites: [{ type: 'instagram', value: 'https://instagram.com/example' }] }),
-    pilot('04', 'Glyph', 'Owl', 'OCR pilot: photo to text, on the device', 'owl', 'harvest',
+    pilot('MOD04', '04', 'Glyph', 'Owl', 'Reading Room', 'OCR pilot: photo to text, on the device', 'owl', 'harvest',
         { fields: { namePrefix: 'Dr.' } }),
-    pilot('05', 'Pidge', 'Octopus', 'Field mapping pilot: every line in its slot', 'octopus', 'slateblue',
+    pilot('MOD05', '05', 'Pidge', 'Octopus', 'Sorting Room', 'Field mapping pilot: every line in its slot', 'octopus', 'slateblue',
         { phones: [{ type: 'work', value: '+1 (202) 555-0155' }, { type: 'workFax', value: '+1 (202) 555-0156' }] }),
-    pilot('06', 'Flipside', 'Chameleon', '3D Card pilot: colours, logo and sparkle', 'lizard', 'sage'),
-    pilot('07', 'Checkers', 'Zebra', 'QR pilot: a whole person in a square', 'zebra', 'cranberry'),
-    pilot('08', 'Airlock', 'Falcon', 'Export pilot: the one hatch out', 'eagle', 'maple',
+    pilot('MOD06', '06', 'Flipside', 'Chameleon', 'Paint Booth', '3D Card pilot: colours, logo and sparkle', 'lizard', 'sage'),
+    pilot('MOD07', '07', 'Checkers', 'Zebra', 'Checkerboard Bay', 'QR pilot: a whole person in a square', 'zebra', 'cranberry'),
+    pilot('MOD08', '08', 'Airlock', 'Falcon', 'Launch Hatch', 'Export pilot: the one hatch out', 'eagle', 'maple',
         { phones: [{ type: 'main', value: '+1 (202) 555-0180' }] }),
-    pilot('00', 'Cornerstone', 'Elephant', 'Project Manager: holds the formation', 'elephant', 'slateblue',
+    pilot('BNK01', '09', 'Tally', 'Hamster', 'Counting House', 'Banker pilot: always knows the count', 'hamster', 'harvest'),
+    pilot('PM-vCGE-00', '00', 'Cornerstone', 'Elephant', 'Control Tower', 'Project Manager: holds the formation', 'elephant', 'slateblue',
         { fields: { label: 'PM Cornerstone', nameSuffix: 'PM' } })
 ];
 
-// The plain edition's samples (mod01-shell/edition.js): nine made-up people with the same fields and extras as the
+// The plain edition's samples (mod01-shell/edition.js): ten made-up people with the same fields and extras as the
 // pilots (a second phone, a fax, Instagram, a prefix, an unlisted unit type and suffix), so every feature still has a
 // sample, and no logo.
 const person = (n, firstName, lastName, organization, jobTitle, themePalette, extra = {}) => ({
@@ -86,6 +90,7 @@ export const PLAIN_PRESETS = [
     person('07', 'Marcus', 'Chen', 'Summit Realty', 'Real Estate Agent', 'cranberry'),
     person('08', 'Grace', 'Thompson', 'Oakridge Bank', 'Branch Manager', 'maple',
         { phones: [{ type: 'main', value: '+1 (202) 555-0180' }] }),
+    person('09', 'Rosa', 'Delgado', 'Delgado Bookkeeping', 'Bookkeeper', 'harvest'),
     person('00', 'Daniel', 'Brooks', 'Brooks Consulting', 'Principal Consultant', 'slateblue',
         { fields: { nameSuffix: 'MBA' } })
 ];

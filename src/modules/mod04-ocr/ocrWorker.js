@@ -110,8 +110,21 @@ export class OcrUnavailableError extends Error {
 }
 
 /**
+ * Thrown when the reader's files all loaded but the engine stopped in its last start-up step (seen on WebKit, CI run
+ * 39702174014: "initializing api"). Not a missing file: the caller says the reader stopped and to try again.
+ */
+export class OcrStartFailedError extends Error {
+    constructor(reason) {
+        super(`The reader stopped while starting: ${reason}`);
+        this.name = 'OcrStartFailedError';
+        this.code = 'OCR_START_FAILED';
+    }
+}
+
+/**
  * Starts the bundled Tesseract.js worker once and reuses it. Rejects with OcrUnavailableError when the library is
- * missing, a start-up step fails (e.g. the language model cannot be fetched) or start-up exceeds the time limit.
+ * missing, a start-up step fails (e.g. the language model cannot be fetched) or start-up exceeds the time limit, and
+ * with OcrStartFailedError when the files loaded but the engine's own start-up step failed.
  * Tesseract.js 5 swallows failures of its language/initialize steps inside createWorker, whose promise then never
  * settles, so errors are caught through `errorHandler` and raced against the returned promise.
  */
@@ -121,7 +134,7 @@ async function initOCREngine(timeoutMs) {
     if (typeof Tesseract === 'undefined') throw new OcrUnavailableError('Tesseract.js is not loaded');
 
     console.log(`[${MODULE_ID}] Initializing offline Tesseract WASM worker...`);
-    let fail;
+    let fail, filesLoaded = false;
     const failed = new Promise((_, reject) => { fail = reject; });
     const timer = setTimeout(() => fail(new OcrUnavailableError(`start-up took longer than ${Math.round(timeoutMs / 1000)} s`)), timeoutMs);
     const created = Promise.resolve().then(() => Tesseract.createWorker('eng', 1, {
@@ -131,9 +144,10 @@ async function initOCREngine(timeoutMs) {
         gzip: true,
         cacheMethod: 'none',      // keep language data out of IndexedDB
         workerBlobURL: false,     // same-origin worker script, so the page CSP needs no 'wasm-unsafe-eval'
-        errorHandler: (err) => fail(new OcrUnavailableError(String(err))),
+        errorHandler: (err) => fail(filesLoaded ? new OcrStartFailedError(String(err)) : new OcrUnavailableError(String(err))),
         logger: m => {
             if (m && m.status) {
+                if (m.status === 'initializing api') filesLoaded = true;
                 console.log(`[${MODULE_ID}] OCR Progress: ${m.status} (${Math.round((m.progress || 0) * 100)}%)`);
             }
         }
@@ -152,7 +166,7 @@ async function initOCREngine(timeoutMs) {
         // A worker that still finishes starting after a failure is not kept.
         created.then(w => w.terminate(), () => {});
         console.error(`[${MODULE_ID}] Failed to initialize OCR worker:`, error);
-        throw error instanceof OcrUnavailableError || error instanceof OcrCancelledError ? error : new OcrUnavailableError(error && error.message || String(error));
+        throw error instanceof OcrUnavailableError || error instanceof OcrStartFailedError || error instanceof OcrCancelledError ? error : new OcrUnavailableError(error && error.message || String(error));
     } finally {
         clearTimeout(timer);
     }
@@ -401,7 +415,8 @@ async function linesWithIcons(processedImage, data) {
  * icon found in front of each line (or null) and the engine's close second guesses. Mapping lines to contact fields is
  * MOD05's job. `onStatus('starting')` is called when the engine has to start first (the first scan, or after a wipe:
  * about 7 MB of bundled files to load), then `onStatus('reading')`.
- * Rejects with OcrUnavailableError when the engine cannot start, with OcrUnreadableError when the photo is too
+ * Rejects with OcrUnavailableError when the engine cannot start, with OcrStartFailedError when it stopped while starting
+ * twice, with OcrUnreadableError when the photo is too
  * blurry or unclear, so neither made-up nor garbage text ever reaches the form, with OcrTimeoutError when reading took
  * longer than `readTimeoutMs` (the engine is restarted), and with OcrCancelledError when a wipe stopped it.
  */
@@ -424,8 +439,17 @@ async function scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started) {
     let timer;
     const late = new Promise((_, reject) => { timer = setTimeout(() => reject(new OcrUnavailableError(`preparing the photo took longer than ${Math.round(initTimeoutMs / 1000)} s`)), initTimeoutMs); });
     const processedImage = await Promise.race([preProcessImageBuffer(imageSrc), late]).finally(() => clearTimeout(timer));
+    // The engine stopping in its own start-up step (WebKit, CI run 39702174014) gets one fresh start (raven575, 2026-10-22).
+    const startEngine = async () => {
+        try { return await initOCREngine(initTimeoutMs); }
+        catch (error) {
+            if (!(error instanceof OcrStartFailedError) || generation !== started) throw error;
+            console.warn(`[${MODULE_ID}] ${error.message}; starting a fresh reader once more`);
+            return initOCREngine(initTimeoutMs);
+        }
+    };
     if (!tesseractWorker) onStatus('starting');
-    let worker = await initOCREngine(initTimeoutMs);
+    let worker = await startEngine();
     onStatus('reading');
     let result;
     try {
@@ -437,7 +461,7 @@ async function scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started) {
         console.warn(`[${MODULE_ID}] The reader crashed (${error.message}); reading once more with a fresh reader`);
         if (tesseractWorker === worker) tesseractWorker = null;
         Promise.resolve().then(() => worker.terminate()).catch(() => {});
-        worker = await initOCREngine(initTimeoutMs);
+        worker = await startEngine();
         if (generation !== started) throw new OcrCancelledError();
         result = await readWithin(worker, processedImage, readTimeoutMs);
     }
@@ -462,7 +486,7 @@ async function scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started) {
 
 /** A crash inside the engine's WebAssembly (not a timeout, a cancel or a photo it could not read). */
 export function isEngineCrash(error) {
-    if (!error || error instanceof OcrTimeoutError || error instanceof OcrCancelledError || error instanceof OcrUnavailableError) return false;
+    if (!error || error instanceof OcrTimeoutError || error instanceof OcrCancelledError || error instanceof OcrUnavailableError || error instanceof OcrStartFailedError) return false;
     return (typeof WebAssembly !== 'undefined' && WebAssembly.RuntimeError && error instanceof WebAssembly.RuntimeError)
         || /RuntimeError|memory access|unreachable|abort\(/i.test(`${error.name || ''} ${error.message || error}`);
 }

@@ -53,6 +53,8 @@ label:has(> input[type="file"]) {
     border-color: color-mix(in srgb, currentColor 40%, transparent);
 }
 label:not(.hidden):has(> input[type="file"]) { display: flex; align-items: center; justify-content: center; }
+/* Drop-down lists are at least 44 px tall too (layout step 1), in every module */
+select { min-height: var(--vcge-tap); }
 
 /* MOD-XX tag: sits on the top-right edge of each panel, the same place, font and size everywhere. One block per pilot,
    "GLYPH:  MOD-04" (ui.js puts the pilot's name on it), in Sixtyfour at its own stroke (SCAN 0: filled in to SCAN 100

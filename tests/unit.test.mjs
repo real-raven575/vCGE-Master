@@ -705,8 +705,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   m = mul(m, [Math.cos(-24 * deg), Math.sin(-24 * deg), -Math.sin(-24 * deg), Math.cos(-24 * deg), 0, 0]);
   m = mul(m, [1, 0, Math.tan(-12 * deg), 1, 0, 0]);
   m = mul(m, [1, 0, 0, 1, -525, -300]);
-  const render = (W, H, bg, card, text = true) => {
-    const data = new Uint8ClampedArray(W * H * 4), inv = invert(m);
+  const render = (W, H, bg, card, text = true, mat = m) => {
+    const data = new Uint8ClampedArray(W * H * 4), inv = invert(mat);
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       const [cx, cy] = apply(inv, x + 0.5, y + 0.5);
       let v = bg;
@@ -724,6 +724,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('finder: a photo that already is the card (edges off every side) gives null, so the handles stay at the full edge', findCardQuad({ data: new Uint8ClampedArray(400 * 240 * 4).fill(255), width: 400, height: 240 }) === null);
   const smallBlob = (() => { const W = 400, H = 300, data = new Uint8ClampedArray(W * H * 4).fill(60); for (let y = 140; y < 160; y++) for (let x = 190; x < 210; x++) { const o = (y * W + x) * 4; data[o] = data[o + 1] = data[o + 2] = 255; } return { data, width: W, height: H }; })();
   ok('finder: a patch too small to be a card gives null', findCardQuad(smallBlob) === null);
+  // A card photographed from farther away (edge bench, 2026-10-22): the same card at 0.35 scale covers about 4% of the photo
+  const far = mul([1, 0, 0, 1, 800, 600], mul([0.35, 0, 0, 0.35, 0, 0], mul([1, 0, 0, 1, -800, -600], m)));
+  const farCorners = [[0, 0], [1050, 0], [1050, 600], [0, 600]].map(([x, y]) => apply(far, x, y));
+  const farQuad = findCardQuad(render(1600, 1200, 110, 255, true, far));
+  ok('finder: a far-away card covering about 4% of the photo is found, every corner "good" on the edge bench (within 2% of the diagonal)', !!farQuad && farQuad.every((p, i) => Math.hypot(p.x - farCorners[i][0], p.y - farCorners[i][1]) < 0.02 * Math.hypot(1600, 1200)), JSON.stringify(farQuad));
   ok('convex hull drops inner points and keeps the corners', convexHull([[0, 0], [10, 0], [10, 10], [0, 10], [5, 5], [2, 3]]).length === 4);
   ok('corners are ordered top-left, top-right, bottom-right, bottom-left', orderCorners([{ x: 9, y: 9 }, { x: 0, y: 10 }, { x: 10, y: 0 }, { x: 1, y: 1 }]).map(p => `${p.x},${p.y}`).join(' ') === '1,1 10,0 9,9 0,10');
 }
@@ -867,6 +872,29 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const undecoded = await failure(ocr.executeOCRScan('data:image/png;base64,x', { initTimeoutMs: 50 }));
   globalThis.Image = NormalImage;
   ok('a photo the browser never finishes preparing ends at the start-up limit instead of hanging', undecoded && undecoded.code === 'OCR_UNAVAILABLE' && undecoded.message.includes('preparing the photo'), undecoded && undecoded.message);
+  // The engine stopping in its last start-up step after its files loaded (WebKit, CI run 39702174014): one fresh start,
+  // then OCR_START_FAILED ("stopped while starting"), never "files couldn't be reached"; a file that fails is not retried
+  {
+    let starts = 0, failFirst = 0, stopped = 0;
+    globalThis.Tesseract = { createWorker: (l, o, opts) => {
+      starts++;
+      if (starts <= failFirst) { setTimeout(() => { opts.logger({ status: 'initializing api', progress: 0 }); opts.errorHandler('RuntimeError: Out of bounds memory access'); }, 1); return new Promise(() => {}); }
+      return Promise.resolve({ setParameters: async () => {}, recognize: async () => ({ data: { text: 'Jane Doe\njane@example.com', confidence: 88, words: Array.from({ length: 8 }, () => ({ text: 'word', confidence: 90 })) } }), terminate() { stopped++; } });
+    } };
+    failFirst = 1;
+    const second = await ocr.executeOCRScan('data:image/png;base64,x');
+    ok('the engine stopping while starting gets one fresh start, and the photo is read', second.text.startsWith('Jane Doe') && starts === 2, String(starts));
+    evt = null;   // that read published as it should; the checks below are failures again
+    share.globalEventBus.publish(share.Events.VAULT_WIPED, { reason: 'test' });
+    await new Promise(r => setTimeout(r, 0));
+    starts = 0; failFirst = 2;
+    const stoppedTwice = await failure(ocr.executeOCRScan('data:image/png;base64,x'));
+    ok('stopping again ends the scan as OCR_START_FAILED after two starts', stoppedTwice && stoppedTwice.code === 'OCR_START_FAILED' && stoppedTwice instanceof ocr.OcrStartFailedError && !ocr.isEngineCrash(stoppedTwice) && stoppedTwice.message.includes('Out of bounds') && starts === 2, stoppedTwice && `${stoppedTwice.code} ${starts}`);
+    starts = 0;
+    globalThis.Tesseract = { createWorker: (l, o, opts) => { starts++; setTimeout(() => opts.errorHandler('Network error while fetching eng.traineddata.gz. Response code: 404'), 1); return new Promise(() => {}); } };
+    const notLoaded = await failure(ocr.executeOCRScan('data:image/png;base64,x'));
+    ok('a file that could not be loaded is still OCR_UNAVAILABLE, with no second start', notLoaded && notLoaded.code === 'OCR_UNAVAILABLE' && starts === 1, notLoaded && `${notLoaded.code} ${starts}`);
+  }
   ok('failed OCR publishes nothing to the form pipeline', evt === null);
 
   let created = 0, terminated = 0, psm = null, params = null, result = null, hold = false, psms = [];
@@ -1122,21 +1150,29 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('contrast ratio: white on black is 21, a colour on itself 1', Math.abs(card.contrastRatio('#fff', '#000') - 21) < 0.01 && card.contrastRatio('#e8792b', '#e8792b') === 1);
   ok('an old palette key (a card held through a lock) and an unknown one land on a fall theme', card.themeKeyOf('ocean') === 'slateblue' && card.themeKeyOf('sunset') === 'pumpkin' && card.themeKeyOf('nope') === card.DEFAULT_THEME && card.themeKeyOf('maple') === 'maple' && card.THEMES[card.DEFAULT_THEME]);
 
-  // The nine pilots as sample contacts: fictional numbers and addresses only, a bundled animal logo each, licence kept
+  // The ten pilots as sample contacts (raven575, 2026-10-22): "Name the Animal", fictional numbers, a vCGE.APP Gmail
+  // plus-address, a vcge.app team page and a bench at Hangar 01, a bundled animal logo each, licence kept
   const fs6 = await import('node:fs');
-  ok('nine samples, one per pilot plus the PM, all at Team vCGE with a first and last name', card.PRESETS.length === 9 && card.PRESETS.every(p => p.organization === 'Team vCGE' && p.firstName && p.lastName)
-    && card.PRESETS.map(p => p.firstName).join(',') === 'Shutout,Ghost,Iris,Glyph,Pidge,Flipside,Checkers,Airlock,Cornerstone');
-  ok('samples use only the reserved 555-01xx numbers and example.com', card.PRESETS.every(p => p.phones.every(ph => /^\+1 \(202\) 555-01\d\d$/.test(ph.value))
-    && p.emails.every(e => /@example\.com$/.test(e.value)) && p.websites.every(w => /^https:\/\/(www\.)?(example\.com|instagram\.com\/example)/.test(w.value))), JSON.stringify(card.PRESETS.map(p => [p.phones, p.emails, p.websites])));
+  ok('ten samples, one per pilot plus the Banker and the PM, all at Team vCGE as "Name the Animal"', card.PRESETS.length === 10 && card.PRESETS.every(p => p.organization === 'Team vCGE' && p.firstName && /^the [A-Z]/.test(p.lastName))
+    && card.PRESETS.map(p => `${p.firstName} ${p.lastName}`).join(',') === 'Shutout the Box Turtle,Ghost the Raccoon,Iris the Lynx,Glyph the Owl,Pidge the Octopus,Flipside the Chameleon,Checkers the Zebra,Airlock the Falcon,Tally the Hamster,Cornerstone the Elephant');
+  ok('samples use only the reserved 555-01xx numbers, a vcge.app+name Gmail address and their vcge.app team page', card.PRESETS.every(p => p.phones.every(ph => /^\+1 \(202\) 555-01\d\d$/.test(ph.value))
+    && p.emails.length === 1 && p.emails[0].value === `vcge.app+${p.firstName.toLowerCase()}@gmail.com`
+    && /^https:\/\/vcge\.app\/team_members\/(mod0[1-8]|bnk01|pm-vcge-00)-[a-z]+$/.test(p.websites[0].value) && p.websites[0].value.endsWith(`-${p.firstName.toLowerCase()}`)
+    && p.websites.slice(1).every(w => /^https:\/\/instagram\.com\/example$/.test(w.value)))
+    && card.PRESETS.find(p => p.firstName === 'Glyph').websites[0].value === 'https://vcge.app/team_members/mod04-glyph'
+    && card.PRESETS.find(p => p.firstName === 'Cornerstone').websites[0].value === 'https://vcge.app/team_members/pm-vcge-00-cornerstone', JSON.stringify(card.PRESETS.map(p => [p.phones, p.emails, p.websites])));
+  ok('each sample lives at its own bench on Flight Deck Way, Hangar 01, Herd of Helpers HEADQUARTERS', card.PRESETS.every(p => /^\d Flight Deck Way, [A-Z][A-Za-z ]+$/.test(p.street) && p.unitType === 'Hangar' && p.unitNumber === '01'
+    && p.city === 'Herd of Helpers HEADQUARTERS' && p.state === 'OH' && p.zip === '44101') && new Set(card.PRESETS.map(p => p.street)).size === 10
+    && card.PRESETS.find(p => p.firstName === 'Glyph').street === '4 Flight Deck Way, Reading Room', card.PRESETS.map(p => p.street).join(' | '));
   ok('every sample names a fall theme and a bundled animal logo that exists, with the Noto licence beside it',
     card.PRESETS.every(p => card.THEMES[p.themePalette] && /^src\/vendor\/icons\/animals\/[a-z]+\.svg$/.test(p.logo) && fs6.existsSync(`${R}/../${p.logo}`))
     && fs6.existsSync(`${R}/vendor/icons/animals/LICENSE-noto-emoji.txt`) && fs6.readFileSync(`${R}/vendor/icons/animals/LICENSE-noto-emoji.txt`, 'utf8').includes('Apache License'), card.PRESETS.map(p => p.logo).join(' '));
-  ok('plain edition: nine made-up people with no logo, the same fields and extras as the pilots, reserved numbers and example.com only',
-    card.PLAIN_PRESETS.length === 9 && card.PLAIN_PRESETS.every(p => !p.logo && p.firstName && p.lastName && p.organization && p.jobTitle && card.THEMES[p.themePalette]
+  ok('plain edition: ten made-up people with no logo, the same fields and extras as the pilots, reserved numbers and example.com only',
+    card.PLAIN_PRESETS.length === 10 && card.PLAIN_PRESETS.every(p => !p.logo && p.firstName && p.lastName && p.organization && p.jobTitle && card.THEMES[p.themePalette]
       && p.phones.every(ph => /^\+1 \(202\) 555-01\d\d$/.test(ph.value)) && p.emails.every(e => /@example\.com$/.test(e.value)) && p.websites.every(w => /^https:\/\/(example\.com|instagram\.com\/example)/.test(w.value)))
     && card.PLAIN_PRESETS.map(p => p.phones.length + p.websites.length + (p.namePrefix || '') + (p.nameSuffix ? 'S' : '')).join() === card.PRESETS.map(p => p.phones.length + p.websites.length + (p.namePrefix || '') + (p.nameSuffix ? 'S' : '')).join()
     && card.PLAIN_PRESETS.map(p => p.themePalette).join() === card.PRESETS.map(p => p.themePalette).join()
-    && !JSON.stringify(card.PLAIN_PRESETS).match(/vCGE|Shutout|Ghost|Iris|Glyph|Pidge|Flipside|Checkers|Airlock|Cornerstone|pilot/i), card.PLAIN_PRESETS.map(p => p.label).join());
+    && !JSON.stringify(card.PLAIN_PRESETS).match(/vCGE|Shutout|Ghost|Iris|Glyph|Pidge|Flipside|Checkers|Airlock|Tally|Cornerstone|pilot|Herd|Flight Deck|gmail/i), card.PLAIN_PRESETS.map(p => p.label).join());
   ok('the sample logo files are plain SVG drawings (no scripts, no links out)', card.PRESETS.every(p => { const t = fs6.readFileSync(`${R}/../${p.logo}`, 'utf8'); return t.startsWith('<svg') && !/<script|<a[\s>]|href=|on[a-z]+=|url\((?!#)|http(?!:\/\/www\.w3\.org\/)/i.test(t); }));
 
   // White background removal: the white joined to the edge goes see-through, white inside the logo stays
@@ -1372,6 +1408,35 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     /@media \(prefers-reduced-motion: no-preference\) \{ \.deck-turtle\.is-placed \{ transition: transform 0\.4s ease-in-out; \} \}/.test(deckCss)
     && !/\.deck-turtle[^{]*\{[^}]*transition: (?!none)/.test(deckCss.replace(/@media \(prefers-reduced-motion: no-preference\) \{[^\n]*\n/g, ''))
     && /html:not\(\[data-edition="plain"\]\) \.vcge-sheet-panel::before \{/.test(deckCss) && /html:not\(\[data-edition="plain"\]\) \.vcge-sheet-close \{/.test(deckCss));
+  // Layout step 1 (tier.js): the screen tier is the width over the text size; 21:9 from monitor width is wide
+  const tier = await import(`${R}/modules/mod01-shell/tier.js`);
+  const tiers = (pairs, size) => pairs.map(([w, h]) => tier.tierFor(w, h, size)).join();
+  ok('layout: each tier starts at its width (600, 900, 1200, 1600, 2200)',
+    tiers([[320, 640], [599, 800], [600, 800], [899, 800], [900, 800], [1199, 800], [1200, 800], [1599, 1000], [1600, 1000], [2199, 1200], [2200, 1200]])
+    === 'phone,phone,small-tablet,small-tablet,large-tablet,large-tablet,laptop,laptop,monitor,monitor,wide');
+  ok('layout: larger text lays out like a smaller screen, smaller text like a bigger one',
+    tier.tierFor(1000, 800, 1.25) === 'small-tablet' && tier.tierFor(1100, 800, 0.875) === 'laptop' && tier.tierFor(1000, 800, 0) === 'large-tablet');
+  ok('layout: a 21:9 window counts as wide from monitor width on, not below it',
+    tier.tierFor(2560, 1080) === 'wide' && tier.tierFor(1680, 720) === 'wide' && tier.tierFor(1400, 600) === 'laptop' && tier.tierFor(1920, 1080) === 'monitor');
+  let fakeRaf = [], fakeObs = null, fakeRo = null, fakeRoOn = null;
+  const fakeRoot = { dataset: {}, style: { getPropertyValue: () => '1.25' } };
+  const fakeWin = { innerWidth: 1000, innerHeight: 450, document: { documentElement: fakeRoot }, addEventListener() {},
+    requestAnimationFrame: (f) => fakeRaf.push(f), MutationObserver: class { constructor(f) { fakeObs = f; } observe() {} },
+    ResizeObserver: class { constructor(f) { fakeRo = f; } observe(el) { fakeRoOn = el; } } };
+  tier.initTier(fakeWin);
+  const firstTier = `${fakeRoot.dataset.tier}/${fakeRoot.dataset.short}`;
+  fakeWin.innerHeight = 800; fakeRoot.style.getPropertyValue = () => '1'; fakeObs(); fakeRaf.forEach(f => f());
+  ok('layout: html gets its tier and the short mark at once, and both follow a new text size or window', firstTier === 'small-tablet/1'
+    && fakeRoot.dataset.tier === 'large-tablet' && !('short' in fakeRoot.dataset), firstTier);
+  fakeWin.innerWidth = 1366; fakeRo();
+  ok('layout: a new page size seen by the resize observer updates the tier at once (WebKit can be late with the resize event)',
+    fakeRoOn === fakeRoot && fakeRoot.dataset.tier === 'laptop', fakeRoot.dataset.tier);
+  const uiCssL = fs.readFileSync(`${R}/modules/mod01-shell/ui.css`, 'utf8');
+  ok('layout: cards measure their own width, sizes stay today\'s up to a 52rem card, drop-downs are 44 px, short screens free the height',
+    /@supports \(container-type: inline-size\) \{\s*\.deck-card \{ container: deck-card \/ inline-size; \}/.test(deckCss)
+    && /padding: clamp\(1\.25rem, 1\.25rem \+ \(100cqi - 52rem\)/.test(deckCss) && /font-size: clamp\(1\.125rem, 1\.125rem \+ \(100cqi - 52rem\)/.test(deckCss)
+    && /\nselect \{ min-height: var\(--vcge-tap\); \}/.test(uiCssL)
+    && /@media \(max-height: 499\.98px\) \{ :root \{ --vcge-header-h: calc\(2\.75 \* var\(--vcge-hu\)\); --vcge-strip-h: var\(--vcge-vault-strip, 0px\); \} \}/.test(deckCss));
 }
 
 // MOD01 saved settings (settings.js): the one localStorage entry, `name=number` pairs, preferences only
@@ -1443,8 +1508,9 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const fc = await import(`${R}/modules/mod05-form/fieldsCard.js`);
   ok('the pop-in is 320 ms stepped at 26 fps (8 steps), like the padlock and the shimmer', fc.POP_MS === 320 && fc.POP_FPS === 26 && fc.POP_STEPS === 8);
   ok('the list prompt and the green button read as raven575 asked (#61: "Sample vCGE pilot contact")', fc.SAMPLE_PROMPT === 'Sample vCGE pilot contact' && fc.DONE_LABEL === "Everything's correct");
-  ok('#61: a pilot is listed by name with their animal in front', fc.sampleLabel({ firstName: 'Pidge', lastName: 'Octopus', organization: 'Team vCGE', logo: 'src/vendor/icons/animals/octopus.svg' }) === '🐙 Pidge Octopus'
-    && fc.sampleLabel({ firstName: 'Iris', lastName: 'Lynx', logo: 'src/vendor/icons/animals/cat.svg' }) === '🐈 Iris Lynx' && Object.keys(fc.ANIMAL_EMOJI).length === 9);
+  ok('#61: a pilot is listed by name with their animal in front', fc.sampleLabel({ firstName: 'Pidge', lastName: 'the Octopus', organization: 'Team vCGE', logo: 'src/vendor/icons/animals/octopus.svg' }) === '🐙 Pidge the Octopus'
+    && fc.sampleLabel({ firstName: 'Iris', lastName: 'the Lynx', logo: 'src/vendor/icons/animals/cat.svg' }) === '🐈 Iris the Lynx'
+    && fc.sampleLabel({ firstName: 'Tally', lastName: 'the Hamster', logo: 'src/vendor/icons/animals/hamster.svg' }) === '🐹 Tally the Hamster' && Object.keys(fc.ANIMAL_EMOJI).length === 10);
   const { PRESETS } = await import(`${R}/modules/mod06-gui/card3dView.js`).catch(() => ({ PRESETS: null }));
   ok('#61: every pilot sample has an animal in the list', !PRESETS || PRESETS.every(p => /^\p{Extended_Pictographic} \S+(?: \S+)+$/u.test(fc.sampleLabel(p))), PRESETS && PRESETS.map(fc.sampleLabel).join('|'));
   ok('plain edition: the list reads "Sample contact" and names each person with their company', fc.PLAIN_SAMPLE_PROMPT === 'Sample contact'

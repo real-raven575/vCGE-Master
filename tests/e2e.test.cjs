@@ -16,12 +16,12 @@ const FORCE_PLAIN = process.env.VCGE_EDITION === 'plain';
 let EDITION_PLAIN = FORCE_PLAIN;   // settled once the server is up
 
 // The sample contacts as the edition under test lists them (card3dView.js PRESETS / PLAIN_PRESETS): first, last, company
-const SAMPLES_BRANDED = [['Shutout', 'Box Turtle'], ['Ghost', 'Raccoon'], ['Iris', 'Lynx'], ['Glyph', 'Owl'], ['Pidge', 'Octopus'], ['Flipside', 'Chameleon'],
-  ['Checkers', 'Zebra'], ['Airlock', 'Falcon'], ['Cornerstone', 'Elephant']].map(n => [...n, 'Team vCGE']);
+const SAMPLES_BRANDED = [['Shutout', 'the Box Turtle'], ['Ghost', 'the Raccoon'], ['Iris', 'the Lynx'], ['Glyph', 'the Owl'], ['Pidge', 'the Octopus'], ['Flipside', 'the Chameleon'],
+  ['Checkers', 'the Zebra'], ['Airlock', 'the Falcon'], ['Tally', 'the Hamster'], ['Cornerstone', 'the Elephant']].map(n => [...n, 'Team vCGE']);
 const SAMPLES_PLAIN = [['Avery', 'Collins', 'Northwind Design'], ['Jordan', 'Patel', 'Brightline Legal'], ['Maya', 'Rivera', 'Rivera Photography'],
   ['Samuel', 'Okafor', 'Lakeside Clinic'], ['Priya', 'Nair', 'Harbor Logistics'], ['Lena', 'Fischer', 'Fischer and Co.'], ['Marcus', 'Chen', 'Summit Realty'],
-  ['Grace', 'Thompson', 'Oakridge Bank'], ['Daniel', 'Brooks', 'Brooks Consulting']];
-const ANIMALS = ['🐢', '🦝', '🐈', '🦉', '🐙', '🦎', '🦓', '🦅', '🐘'];
+  ['Grace', 'Thompson', 'Oakridge Bank'], ['Rosa', 'Delgado', 'Delgado Bookkeeping'], ['Daniel', 'Brooks', 'Brooks Consulting']];
+const ANIMALS = ['🐢', '🦝', '🐈', '🦉', '🐙', '🦎', '🦓', '🦅', '🐹', '🐘'];
 const samples = () => (EDITION_PLAIN ? SAMPLES_PLAIN : SAMPLES_BRANDED);
 const samplePrompt = () => (EDITION_PLAIN ? 'Sample contact' : 'Sample vCGE pilot contact');
 const sampleList = () => [samplePrompt(), ...samples().map(([f, l, o], i) => (EDITION_PLAIN ? `${f} ${l}, ${o}` : `${ANIMALS[i]} ${f} ${l}`))].join('|');
@@ -230,7 +230,7 @@ if (!DEVICE) throw new Error(`unknown VCGE_DEVICE "${process.env.VCGE_DEVICE}"`)
 const { defaultBrowserType, ...deviceOptions } = DEVICE;
 const RUN = BROWSER + (process.env.VCGE_DEVICE ? ` (${process.env.VCGE_DEVICE})` : '');
 
-let pass = 0, fail = 0, notRun = 0;
+let pass = 0, fail = 0, notRun = 0, crashReruns = 0;
 const ok = (n, c, d = '') => { c ? (pass++, console.log('PASS', n)) : (fail++, console.log('FAIL', n, d)); };
 // A check whose test tool exists only in some engines: reported and counted, never silently dropped.
 const notRunHere = (n, why) => { notRun++; console.log('NOT RUN', n, `(${why})`); };
@@ -258,11 +258,32 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   // The reader's own log lines ([vCGE-MOD04]) are kept on the page, so a read that never ends can say how far it got
   const keepReaderLog = () => ['log', 'error'].forEach(k => { const f = console[k]; console[k] = (...a) => {
     // The reader's own lines, and the error behind "Could not read that image." (an iPhone run, 2026-10-20, ended there
-    // with no way to tell which error it was)
-    if (typeof a[0] === 'string' && (a[0].startsWith('[vCGE-MOD04]') || a[0].startsWith('[vCGE] OCR failed'))) (window.__readerLog = window.__readerLog || []).push(`${Math.round(performance.now())} ms ${a[0].slice(0, 160)}${a[1] ? ` ${String(a[1] && (a[1].stack || a[1].message) || a[1]).slice(0, 300)}` : ''}`);
+    // with no way to tell which error it was). WebKit's stack leaves the message out, so both are kept (CI run 39702174014).
+    if (typeof a[0] === 'string' && (a[0].startsWith('[vCGE-MOD04]') || a[0].startsWith('[vCGE] OCR failed'))) (window.__readerLog = window.__readerLog || []).push(`${Math.round(performance.now())} ms ${a[0].slice(0, 160)}${a[1] ? ` ${String(a[1] && [a[1].message, a[1].stack].filter(Boolean).join(' | ') || a[1]).slice(0, 400)}` : ''}`);
     return f.apply(console, a); }; });
-  browser.newContext = async (opts = {}) => { const c = await plainContext({ ...deviceOptions, ...opts }); await c.addInitScript(pressStartNow); await c.addInitScript(keepReaderLog); await editionRoute(c); return c; };
+  browser.newContext = async (opts = {}) => { const c = await plainContext({ ...deviceOptions, ...opts }); await c.addInitScript(pressStartNow); await c.addInitScript(keepReaderLog); await editionRoute(c);
+    c.on('page', p => p.once('crash', () => { pageCrashed = true; })); opened.push(c); return c; };
   const newContext = (options) => browser.newContext(options);
+  // raven575, 2026-10-22: Playwright's WebKit sometimes loses a whole page process while it reads a card ("Target
+  // crashed", the F4 block on 2026-10-21); no code in the page can catch that. A block that reads cards then runs once
+  // more on fresh pages, said in the log and counted in the summary. A FAIL from the crashed try still counts; a second
+  // crash, any other engine, or any other error fails the run as before.
+  let pageCrashed = false;
+  const opened = [];
+  const rerunIfPageCrashed = async (name, block) => {
+    const mark = { pass, notRun, opened: opened.length };
+    pageCrashed = false;
+    try { await block(); }
+    catch (e) {
+      if (ENGINE !== 'webkit' || !pageCrashed) throw e;
+      crashReruns++;
+      console.log(`PAGE CRASHED in "${name}": WebKit's page process died (${String(e.message).split('\n')[0]}); running the block once more on fresh pages`);
+      await Promise.all(opened.splice(mark.opened).map(c => c.close().catch(() => {})));
+      pass = mark.pass; notRun = mark.notRun;
+      pageCrashed = false;
+      await block();
+    }
+  };
   const context = await newContext({ acceptDownloads: true });
   const page = await context.newPage();
   const external = [], errors = [], notFound = [];
@@ -349,6 +370,30 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   ok(EDITION_PLAIN ? 'plain edition: sheets keep the plain frame (no grab bar, no pebble)' : 'shell art: a sheet has a rounder top with a grab bar, and its close button is a round pebble',
     EDITION_PLAIN ? !sheetArt.bar && sheetArt.radius === '20px' && !sheetArt.pebble : sheetArt.bar && sheetArt.radius === '28px' && sheetArt.pebble, JSON.stringify(sheetArt));
   await page.keyboard.press('Escape'); await page.waitForSelector('#settingsSheet', { state: 'hidden' });
+  // Layout step 1 (tier.js, deck.css): the screen tier, cards that measure their own width, 44 px drop-downs, short screens
+  {
+    const vp = page.viewportSize();
+    const want = (w) => w < 600 ? 'phone' : w < 900 ? 'small-tablet' : w < 1200 ? 'large-tablet' : w < 1600 ? 'laptop' : w < 2200 ? 'monitor' : 'wide';
+    const lay = await page.evaluate(() => {
+      const card = document.querySelector('.deck-card.is-current'), body = card.querySelector('.deck-card-body'), title = body.querySelector(':scope > h2.deck-title');
+      // offsetHeight: the layout size (the cards beside the one in view are drawn smaller)
+      const selects = Array.from(document.querySelectorAll('select')).filter(s => s.getClientRects().length && getComputedStyle(s).visibility !== 'hidden');
+      return { tier: document.documentElement.dataset.tier, short: 'short' in document.documentElement.dataset, container: getComputedStyle(card).containerType,
+        pad: getComputedStyle(body).paddingTop, title: title ? getComputedStyle(title).fontSize : '18px', selects: selects.length,
+        lowSelects: selects.filter(s => s.offsetHeight < 44).map(s => s.id || s.name || s.className) };
+    });
+    ok('layout: the page names its screen tier, cards measure their own width and keep today\'s padding and title size',
+      lay.tier === want(vp.width) && !lay.short && lay.container === 'inline-size' && lay.pad === '20px' && lay.title === '18px', JSON.stringify({ vp, ...lay }));
+    ok('layout: every drop-down list on screen is at least 44 px tall', lay.lowSelects.length === 0, JSON.stringify(lay));
+    // A phone held sideways (390 px tall): the header is only as tall as its buttons and no band is held for the hidden timer strip
+    await page.setViewportSize({ width: 844, height: 390 }); await page.waitForTimeout(400);
+    const low = await page.evaluate(() => ({ short: document.documentElement.dataset.short, header: document.querySelector('.deck-header').getBoundingClientRect().height,
+      deckTop: getComputedStyle(document.getElementById('deck')).paddingTop, strip: !document.getElementById('vaultTimerStrip').classList.contains('hidden'),
+      buttons: Array.from(document.querySelectorAll('.deck-nav button')).every(b => b.getBoundingClientRect().height >= 43.5) }));
+    ok('layout: on a short screen the header is 44 px (its buttons still 44 px) and the cards get the timer strip\'s band back while it is hidden',
+      low.short === '1' && Math.abs(low.header - 44) < 1 && low.buttons && (low.strip || low.deckTop === '12px'), JSON.stringify(low));
+    await page.setViewportSize(vp); await page.waitForTimeout(500);
+  }
   ok('opens straight to an empty card (no passphrase dialog)', !(await visible('vaultModal')) && (await val('firstName')) === '');
   ok('header badge reads "Vault: UNLOCKED" and the indicator says memory only', (await text('vaultBadge')) === 'Vault: UNLOCKED' && (await text('vaultStateIndicator')) === 'UNLOCKED / memory only');
   ok('Lock button hidden until a session PIN is set', !(await lockOffered(page)));
@@ -733,10 +778,19 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
 
     ok('no session PIN offer on its own', !(await p8.isVisible('#quickSetupModal')) && (await t8('sessionPinStatus')) === 'Session PIN: not set');
     await openVault(p8);
-    const sw8 = (id) => p8.evaluate((id) => { const b = document.getElementById(id); return { on: b.getAttribute('aria-checked'), word: b.textContent.trim(), bg: getComputedStyle(b).backgroundColor }; }, id);
+    // (the fingerprint row is hidden where the device has none: it is shown for a moment to measure its switch)
+    const sw8 = (id) => p8.evaluate((id) => { const b = document.getElementById(id), row = b.closest('.vault-row.hidden'); if (row) row.classList.remove('hidden');
+      const r = b.getBoundingClientRect(), k = b.querySelector('.vault-switch-knob').getBoundingClientRect(); if (row) row.classList.add('hidden');
+      return { on: b.getAttribute('aria-checked'), word: b.textContent.trim(), bg: getComputedStyle(b).backgroundColor, knob: r.width ? (k.left + k.width / 2 < r.left + r.width / 2 ? 'left' : 'right') : 'unseen' }; }, id);
+    // raven575 2026-10-22: Off = knob on the left (red), On = knob on the right (green), and the left-hand setting never mirrors it
+    const handSwap8 = async (id) => { const hand = await p8.evaluate(() => document.documentElement.dataset.hand || '');
+      await p8.evaluate(() => { document.documentElement.dataset.hand = 'left'; }); const left = (await sw8(id)).knob;
+      await p8.evaluate((h) => { if (h) document.documentElement.dataset.hand = h; else delete document.documentElement.dataset.hand; }, hand); return left; };
     const pinOff8 = await sw8('pinSwitch');
     ok('Vault page: the PIN is a switch, red with "Off" and a note to turn it on, no green button while it is off', pinOff8.on === 'false' && pinOff8.word === 'Off' && ['rgb(254, 226, 226)', 'rgba(127, 29, 29, 0.45)'].includes(pinOff8.bg)
       && await p8.isVisible('#pinOffNote') && !(await p8.isVisible('#setSessionPinBtn')) && !(await p8.isVisible('#vaultLockNowBtn')), JSON.stringify(pinOff8));
+    const bioOff8 = await sw8('biometricSwitch');
+    ok('Vault page: Off switches have the knob on the left (PIN and fingerprint), with the right or the left hand set', pinOff8.knob === 'left' && bioOff8.knob === 'left' && (await handSwap8('pinSwitch')) === 'left' && (await handSwap8('biometricSwitch')) === 'left', JSON.stringify([pinOff8, bioOff8]));
     ok('Vault page: the title has its lock icon on the left', await p8.$eval('#vaultPageTitle', h => h.firstElementChild && h.firstElementChild.tagName === 'svg' && h.textContent.trim() === 'Vault'));
     await p8.click('#pinSwitch');
     await p8.fill('#sessionPinInput', '12'); await p8.click('#quickSetupSaveBtn');
@@ -747,6 +801,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const pinOn8 = await sw8('pinSwitch');
     ok('Vault page: the PIN switch turns green with "On", Change and Lock now appear, the note goes', pinOn8.on === 'true' && pinOn8.word === 'On' && pinOn8.bg === 'rgb(22, 163, 74)'
       && (await t8('setSessionPinBtn')) === 'Change' && await p8.isVisible('#vaultLockNowBtn') && !(await p8.isVisible('#pinOffNote')), JSON.stringify(pinOn8));
+    ok('Vault page: the On switch has its knob on the right, with the right or the left hand set', pinOn8.knob === 'right' && (await handSwap8('pinSwitch')) === 'right', JSON.stringify(pinOn8));
     ok('Vault page: with a PIN the countdown reads "Auto-lock" (it locks before it clears)', /^Auto-lock (idle|in \d+ s)$/.test(await t8('purgeCountdown')), await t8('purgeCountdown'));
     await closeVault(p8);
     await p8.fill('#firstName', 'Quick'); await p8.fill('#lastName', 'Unlock');
@@ -766,34 +821,47 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('lock screen: no Unlock button (the 4th digit unlocks), PIN box focused when no fingerprint is set', !(await p8.$('#vaultUnlockBtn')) && !(await p8.isVisible('#vaultBiometricBtn')) && (await p8.evaluate(() => document.activeElement && document.activeElement.id)) === 'vaultPin');
     ok('idle lock explains why it locked', (await t8('vaultModalHint')).startsWith('Locked after 2 minutes without activity. Enter your 4-digit PIN'));
     ok('quick lock: the held card is not in storage or the page', !(await p8.evaluate(() => JSON.stringify(localStorage) + document.body.innerText)).includes('Quick'));
-    // Ghost on the lock screen (cute round V1-V3, raven575 2026-10-21): drawing only, branded edition only
+    // Ghost on the lock screen (cute round V1-V3, raven575 2026-10-21; five faces 2026-10-22): drawing only, branded only
     const face8 = () => p8.evaluate(() => {
       const shown = (id) => { const el = document.getElementById(id); return !!el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0; };
-      return { peek: document.getElementById('vaultModal').dataset.peek, filled: document.getElementById('vaultPinPaws').dataset.filled,
+      const op = (sel) => getComputedStyle(document.querySelector('#vaultGhost ' + sel)).opacity;
+      return { face: document.getElementById('vaultModal').dataset.face, filled: document.getElementById('vaultPinPaws').dataset.filled,
         ghost: shown('vaultGhost'), paws: shown('vaultPinPaws'), bands: shown('vaultTailBands'),
-        pawsCovered: getComputedStyle(document.querySelector('#vaultGhost .vg-paws')).opacity,
+        look: getComputedStyle(document.querySelector('#vaultGhost .vg-glints')).transform,
+        pawL: op('.vg-paw-l'), pawR: op('.vg-paw-r'), eyeL: op('.vg-eye-l'), wink: op('.vg-wink'), brows: op('.vg-brows'), eyes: op('.vg-eyes'), shades: op('.vg-shades'),
         filledPaws: [...document.querySelectorAll('#vaultPinPaws .vault-paw')].filter(s => getComputedStyle(s).fill !== 'none').length,
         pinColor: getComputedStyle(document.getElementById('vaultPin')).color,
         ring: document.getElementById('vaultLockRing').getAttribute('stroke-dashoffset'), tail: document.getElementById('vaultTailMaskRing').getAttribute('stroke-dashoffset') };
     });
     const f0 = await face8();
     if (EDITION_PLAIN) ok('plain edition: no Ghost, no paw prints and no tail bands on the lock screen; the PIN box shows its own dots', !f0.ghost && !f0.paws && !f0.bands && f0.pinColor !== 'rgba(0, 0, 0, 0)', JSON.stringify(f0));
-    else ok('lock screen: Ghost peeks with eyes open and four empty paw prints sit in the PIN box', f0.ghost && f0.paws && f0.peek === 'open' && f0.filled === '0' && f0.filledPaws === 0 && f0.pawsCovered === '0', JSON.stringify(f0));
+    else ok('lock screen: Ghost has its eyes open but looks away, and four empty paw prints sit in the PIN box', f0.ghost && f0.paws && f0.face === 'away' && f0.look !== 'none' && f0.filled === '0' && f0.filledPaws === 0 && f0.pawL === '0' && f0.pawR === '0', JSON.stringify(f0));
     ok('lock screen: the tail\'s bands follow the ring\'s countdown', f0.tail === f0.ring, JSON.stringify(f0));
-    await p8.type('#vaultPin', '13'); await p8.waitForTimeout(500);
+    await p8.type('#vaultPin', '1'); await p8.waitForTimeout(500);
+    const f1 = await face8();
+    ok('1st digit: one paw covers one eye and one paw print fills', f1.face === 'one' && f1.filled === '1' && (EDITION_PLAIN || (f1.filledPaws === 1 && f1.pawL === '1' && f1.pawR === '0')), JSON.stringify(f1));
+    await p8.type('#vaultPin', '3'); await p8.waitForTimeout(500);
     const f2 = await face8();
-    ok('typing a PIN: Ghost covers its eyes and one paw print fills per digit', f2.peek === 'covered' && f2.filled === '2' && (EDITION_PLAIN || (f2.filledPaws === 2 && f2.pawsCovered === '1')), JSON.stringify(f2));
+    ok('2nd digit: both paws cover the eyes and two paw prints fill', f2.face === 'both' && f2.filled === '2' && (EDITION_PLAIN || (f2.filledPaws === 2 && f2.pawL === '1' && f2.pawR === '1')), JSON.stringify(f2));
+    await p8.type('#vaultPin', '5'); await p8.waitForTimeout(500);
+    const f3 = await face8();
+    ok('3rd digit: paws down, a wink and a raised eyebrow', f3.face === 'wink' && f3.filled === '3' && (EDITION_PLAIN || (f3.filledPaws === 3 && f3.pawL === '0' && f3.pawR === '0' && f3.eyeL === '0' && f3.wink === '1' && f3.brows === '1' && /, 2\.4\)$/.test(f3.look))), JSON.stringify(f3));
     const box8 = await p8.evaluate(() => { const i = document.getElementById('vaultPin'); return { type: i.type, mask: i.style.webkitTextSecurity, max: i.maxLength, labels: i.labels.length, pawsHidden: document.getElementById('vaultPinPaws').getAttribute('aria-hidden'), ghostHidden: document.getElementById('vaultGhost').getAttribute('aria-hidden') }; });
     ok('the paw prints are drawing only: the PIN box is still a masked 4-digit field', (box8.type === 'password' || (box8.type === 'text' && box8.mask === 'disc')) && box8.max === 4 && box8.labels > 0 && box8.pawsHidden === 'true' && box8.ghostHidden === 'true', JSON.stringify(box8));
     await p8.fill('#vaultPin', ''); await p8.waitForTimeout(100);
     const fx = await face8();
-    ok('PIN box emptied: the paws come down and the prints empty', fx.peek === 'open' && fx.filled === '0', JSON.stringify(fx));
+    ok('PIN box emptied: Ghost looks away again and the prints empty', fx.face === 'away' && fx.filled === '0', JSON.stringify(fx));
     await p8.fill('#vaultPin', '1111'); await p8.waitForTimeout(300);
     ok('wrong session PIN (checked on the 4th digit) rejected with tries left', (await t8('vaultError')) === 'Wrong PIN. 4 tries left.' && (await p8.inputValue('#vaultPin')) === '', await t8('vaultError'));
     const fw = await face8();
-    ok('wrong PIN: Ghost uncovers its eyes and the paw prints empty again', fw.peek === 'open' && fw.filled === '0', JSON.stringify(fw));
-    await p8.fill('#vaultPin', '2468');
+    ok('wrong PIN: the sunglasses come off, Ghost looks away again and the paw prints empty', fw.face === 'away' && fw.filled === '0' && (EDITION_PLAIN || (fw.shades === '0' && fw.eyes === '1')), JSON.stringify(fw));
+    await p8.fill('#vaultPin', '2468'); await p8.waitForTimeout(600);   // the sunglasses are on (0.4 s); the dissolve ends at 1 s
+    const f4 = await p8.evaluate(() => { const m = document.getElementById('vaultModal'); return { face: m.dataset.face, hidden: m.classList.contains('hidden'), dissolving: m.classList.contains('vault-dissolve'),
+      shades: getComputedStyle(document.querySelector('#vaultGhost .vg-shades')).opacity, card: document.getElementById('firstName').value }; });
+    if (EDITION_PLAIN) ok('plain edition: the right PIN unlocks at once, no dissolve', f4.hidden && !f4.dissolving, JSON.stringify(f4));
+    else ok('4th digit, right PIN: sunglasses on, then the lock screen dissolves before the card comes back', f4.face === 'shades' && f4.shades === '1' && f4.dissolving && !f4.hidden && f4.card === '', JSON.stringify(f4));
     await p8.waitForSelector('#vaultModal', { state: 'hidden' });
+    ok('after the dissolve the lock screen is reset for the next lock', await p8.evaluate(() => !document.getElementById('vaultModal').classList.contains('vault-dissolve')));
     ok('right session PIN unlocks on the 4th digit, no extra tap', (await p8.inputValue('#firstName')) === 'Quick' && (await t8('auditLog')).includes('Vault unlocked (session PIN)') && (await t8('vaultBadge')) === 'Vault: UNLOCKED');
 
     // Screen timeout with a PIN: locks at once, the card survives, and the PIN brings it straight back
@@ -1100,7 +1168,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   }
 
   // Quick lock keeps the scan in progress: the open review comes back with the session PIN, sealed while locked
-  {
+  await rerunIfPageCrashed('quick lock with a scan open', async () => {
     const ctx10 = await newContext();
     const p10 = await ctx10.newPage();
     const errors10 = [];
@@ -1139,7 +1207,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('7 minutes after the lock wipe the card and the kept scan', !(await p10.isVisible('#vaultModal')) && !(await p10.isVisible('#reopenScanBtn')) && !(await p10.isVisible('#cropReviewModal')) && (await p10.inputValue('#firstName')) === '');
     ok('kept scan: no page errors', errors10.length === 0, errors10.join(' | '));
     await ctx10.close();
-  }
+  });
 
   // Tester feedback round 3: logos fitted square on an opaque background, and a JPEG vCard photo
   {
@@ -1269,7 +1337,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
 
   // Make it cute (MOD05, raven575 2026-10-21): the "Unknown" tray takes the scan lines nothing claimed (F4, video review #53,
   // both editions); the pigeonhole tabs (F1) and the FILED stamp (F2) are branded only.
-  {
+  await rerunIfPageCrashed('Fields make it cute (F4 tray)', async () => {
     const ctxU = await browser.newContext();
     const pU = await ctxU.newPage();
     const errorsU = [];
@@ -1336,11 +1404,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('F4: the scan\'s Undo empties the tray', (await trayLines()).length === 0 && await pU.$eval('#fieldsUnknown', t => t.classList.contains('hidden')));
     ok('make it cute: no page errors', errorsU.length === 0, errorsU.join(' | '));
     await ctxU.close();
-  }
+  });
 
   // A scan filled into a sample preset replaces the sample as a whole (none of its phones, fax or links are left);
   // Undo brings the sample back, and a second fill replaces it again.
-  {
+  await rerunIfPageCrashed('sample then scan', async () => {
     const ctxS = await browser.newContext();
     const pS = await ctxS.newPage();
     const errorsS = [];
@@ -1365,7 +1433,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('filling the sample again replaces it again', again.first === 'Maria' && again.phones.length === 1, JSON.stringify(again));
     ok('sample then scan: no page errors', errorsS.length === 0, errorsS.join(' | '));
     await ctxS.close();
-  }
+  });
 
   // Fields card (MOD05, redesign step 7): the "Sample vCGE pilot contact" list, the pop-in on arrival, "Everything's correct"
   {
@@ -1485,7 +1553,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   }
 
   // Tester feedback round 1: Undo after a sample / clear / scan fill, reopen the last scan, readable SMS and email, one-page print
-  {
+  await rerunIfPageCrashed('tester round 1', async () => {
     const ctx9 = await newContext();
     const p9 = await ctx9.newPage();
     const errors9 = [];
@@ -1636,10 +1704,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('PDF name: the box is unticked again on the next print, and a tap also puts the title back', !boxAgain && namedAgain === 'Maria Gonzalez' && (await p9.title()) === appTitle, `${boxAgain} ${namedAgain} / ${await p9.title()}`);
     ok('tester round 1: no page errors', errors9.length === 0, errors9.join(' | '));
     await ctx9.close();
-  }
+  });
 
   // Icons instead of labels: unlabelled numbers typed by their icons, a bare handle next to a social logo
-  {
+  await rerunIfPageCrashed('icons instead of labels', async () => {
     const ctx7 = await newContext();
     const p7 = await ctx7.newPage();
     await p7.goto(ORIGIN); await p7.waitForTimeout(300);
@@ -1668,10 +1736,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('typed phone rows reach the form', (await rowValue(p7, 'phone', 'mobile')) === '+1 (206) 555-9876' && (await rowValue(p7, 'phone', 'work')) === '+1 (206) 555-3400', JSON.stringify(await rows(p7, 'phone')));
     ok('audit log notes recognised icons', /icons? recognised/.test(await p7.textContent('#auditLog')), await p7.textContent('#auditLog'));
     await ctx7.close();
-  }
+  });
 
   // Lines to check: a ZIP code the card's state doesn't use is flagged under its line; editing the line clears the note
-  {
+  await rerunIfPageCrashed('lines to check', async () => {
     const ctxZ = await browser.newContext();
     const pZ = await ctxZ.newPage();
     await pZ.goto(ORIGIN); await pZ.waitForTimeout(300);
@@ -1723,7 +1791,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pZ.fill(`#ocrLineText${row2}`, 'Portage, MI 49024');
     ok('editing a flagged line clears its note and box at once', !(await pZ.$(`#ocrLineCheck${row2}`)) && !(await pZ.$(`#ocrLineOk${row2}`)) && (await pZ.textContent('#ocrSummary')).includes('49024'));
     await ctxZ.close();
-  }
+  });
 
   // Second look (bench run 2026-10-18): a web line leaning backwards was read as "noriinvind.comiSeat\e" and flagged;
   // re-read as a straightened strip it comes back right and sure. Text rendering differs between engines, so the
@@ -1755,7 +1823,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   }
 
   // Cancel while reading: the reader stops, the photo step comes back with Retake, and Extract works again
-  {
+  await rerunIfPageCrashed('Cancel while reading', async () => {
     const ctxS = await browser.newContext();
     const pS = await ctxS.newPage();
     const errorsS = []; pS.on('pageerror', e => errorsS.push(String(e)));
@@ -1779,7 +1847,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('after Cancel, Extract reads the photo with a fresh reader', (await pS.$$('#ocrLines select')).length >= 8);
     ok('Cancel while reading: no page errors', errorsS.length === 0, errorsS.join(' | '));
     await ctxS.close();
-  }
+  });
 
   // Cancel pressed just as the reader finishes (the wash fills, the review is a moment away) still cancels: it used to
   // be ignored and the review opened anyway (Shutout's local run, 2026-10-19)
@@ -1803,7 +1871,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
 
   // One more photo (raven575, 2026-10-20): a reading without the name asks for another photo; the two readings are put
   // together, and Fix it by hand opens the review with what the first photo got
-  {
+  await rerunIfPageCrashed('one more photo', async () => {
     const card = (page, lines) => page.evaluate((lines) => {
       const c = document.createElement('canvas'); c.width = 900; c.height = 420; const x = c.getContext('2d');
       x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111';
@@ -1886,7 +1954,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('between photos: the PIN brings the readings back, and the Capture card says photo 2 of 3', await pK.isVisible('#photoCountNote') && (await pK.textContent('#photoCountNote')).startsWith('Photo 2 of 3'),
       await pK.textContent('#photoCountNote'));
     await ctxK.close();
-  }
+  });
 
   // Reading that never finishes (a phone stopped the engine): the wash is full at 55 s, then Try Again or Cancel
   {
@@ -1915,7 +1983,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   }
 
   // Blurry photo: OCR runs but the result is unreadable -> retake prompt, form untouched
-  {
+  await rerunIfPageCrashed('blurry photo', async () => {
     const ctx4 = await newContext();
     const p4 = await ctx4.newPage();
     await p4.goto(ORIGIN); await p4.waitForTimeout(300);
@@ -1936,10 +2004,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await proceed(p4);
     ok('sharp retake is read normally', (await rowValue(p4, 'email', 'work')) === 'maria.gonzalez@northwind.com', JSON.stringify(await rows(p4, 'email')));
     await ctx4.close();
-  }
+  });
 
   // Crooked photo: drag the corners onto the card, extract, fix a line, change a picker, fill the form
-  {
+  await rerunIfPageCrashed('crooked photo', async () => {
     const ctx5 = await newContext();
     const p5 = await ctx5.newPage();
     await p5.goto(ORIGIN); await p5.waitForTimeout(300);
@@ -2023,7 +2091,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p5.mouse.dblclick(img5.x + img5.width / 2, img5.y + img5.height / 2); await p5.waitForTimeout(600);
     ok('a double click on the photo goes back to the whole photo, the corners stay put', (await p5.$eval('#cropView', v => v.style.transform)) === '' && (await p5.getAttribute('#cropPolygon', 'points')) === snapView.points, await p5.$eval('#cropView', v => v.style.transform));
     await ctx5.close();
-  }
+  });
 
   // OCR engine cannot start (language model missing, as on a host that refuses .gz): no hang, clear message, form untouched
   {
@@ -2108,8 +2176,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pV.evaluate(() => { const s = document.getElementById('zoomSlider'); s.value = '2'; s.dispatchEvent(new Event('input', { bubbles: true })); });
     await pV.waitForTimeout(120);
     const midway = await pV.textContent('#zoomDisplay');
-    await pV.waitForFunction(() => document.getElementById('cameraStream').style.transform === 'scale(2)', null, { timeout: 2000 });
-    ok('zoom: the fader eases into the change instead of snapping', /^1\.[1-9]x$/.test(midway) && (await pV.textContent('#zoomDisplay')) === '2.0x', midway);
+    // The ease takes ZOOM_EASE_MS (320 ms); 5 s only absorbs a slow test machine (an iPhone CI run missed 2 s once). A miss is
+    // a failed check that says where the zoom and the camera stood, not a thrown wait that stops the whole run.
+    const landed = await pV.waitForFunction(() => document.getElementById('cameraStream').style.transform === 'scale(2)', null, { timeout: 5000 }).then(() => true, () => false);
+    const zoomState = landed ? '' : await pV.evaluate(() => { const v = document.getElementById('cameraStream');
+      return `transform "${v.style.transform}", readout ${document.getElementById('zoomDisplay').textContent}, camera ${v.srcObject ? 'on' : 'off'}, viewfinder ${document.getElementById('cameraPanel').classList.contains('hidden') ? 'hidden' : 'shown'}, log: ${document.getElementById('eventLog').textContent.trim()}`; });
+    ok('zoom: the fader eases into the change instead of snapping', landed && /^1\.[1-9]x$/.test(midway) && (await pV.textContent('#zoomDisplay')) === '2.0x', `midway ${midway}${zoomState ? ' | did not land on 2x within 5 s: ' + zoomState : ''}`);
 
     // The shutter sinks on the press and pops back after the release; the shot is the window the viewfinder showed
     await pV.mouse.move(shutter.l + shutter.w / 2, shutter.t + shutter.h / 2); await pV.mouse.down(); await pV.waitForTimeout(60);
@@ -2729,7 +2801,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
         return { id: b.id, l: inNav ? Math.max(r.left, nav.left) : r.left, r: inNav ? Math.min(r.right, nav.right) : r.right, spill: b.scrollWidth > b.clientWidth + 0.5 };
       }).filter(b => b.r > b.l).sort((a, b) => a.l - b.l);   // in screen order: left hand mirrors the header
       const overlaps = boxes.slice(1).filter((b, i) => b.l < boxes[i].r - 0.5).map(b => b.id);
-      done({ compact: h.classList.contains('is-compact'), names: getComputedStyle(h.querySelector('#navCapture span')).display !== 'none', overlaps, spills: boxes.filter(b => b.spill).map(b => b.id), wide: document.documentElement.scrollWidth > innerWidth });
+      done({ compact: h.classList.contains('is-compact'), names: getComputedStyle(h.querySelector('#navCapture span')).display !== 'none', overlaps, spills: boxes.filter(b => b.spill).map(b => b.id), wide: document.documentElement.scrollWidth > innerWidth,
+        // For a failure's report only: the window and header widths, how far the nav overflows, and the screen tier
+        iw: innerWidth, hw: Math.round(h.getBoundingClientRect().width), nav: [h.querySelector('.deck-nav').scrollWidth, h.querySelector('.deck-nav').clientWidth], tier: document.documentElement.dataset.tier });
     }))));
     await pV.setViewportSize({ width: 1366, height: 1024 });
     const land = await header();
@@ -3063,7 +3137,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('card: editing the contact keeps the rim as it is (no second fade)', (await p6.evaluate(() => window.__rimOff)) === 0 && (await rim()).set);
     const [dl6] = await Promise.all([p6.waitForEvent('download'), p6.click('#downloadVcfBtn')]);
     const vcf6 = fs.readFileSync(await dl6.path(), 'utf8');
-    const email6 = EDITION_PLAIN ? `${s1First}.${s1Last}@example.com`.toLowerCase() : 'ghost@example.com';
+    const email6 = EDITION_PLAIN ? `${s1First}.${s1Last}@example.com`.toLowerCase() : 'vcge.app+ghost@gmail.com';
     ok(`sample: the .vcf carries the ${EDITION_PLAIN ? 'logo' : 'animal'} as a JPEG photo and the 555-01 number`, /PHOTO;TYPE=JPEG;ENCODING=b:/.test(vcf6) && vcf6.includes('+1 (202) 555-0102') && vcf6.includes(email6), vcf6.split('\r\n').filter(l => /^(TEL|EMAIL|PHOTO)/.test(l)).map(l => l.slice(0, 40)).join(' | '));
     await p6.click('#navCard'); await p6.waitForTimeout(500);
     const sides = await p6.evaluate(() => { const r = document.getElementById('removeAvatarBtn').getBoundingClientRect(), u = document.getElementById('avatarUpload').parentElement.getBoundingClientRect(); return { gap: u.left - r.right, removeText: document.getElementById('removeAvatarBtn').textContent.trim() }; });
@@ -3075,7 +3149,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p6.click('#removeLogoNo');
     ok('logo: No keeps the logo and brings the Remove logo button back', !!(await p6.$(LOGO6)) && await p6.isVisible('#removeAvatarBtn') && !(await p6.isVisible('#removeLogoConfirm')));
     await p6.click('#removeAvatarBtn'); await p6.click('#removeLogoYes');
-    ok('logo: Remove takes the logo off and says so; the initials are back', !(await p6.$(LOGO6)) && (await p6.textContent('#previewAvatar')).trim() === s1First[0] + s1Last[0] && (await p6.textContent('#toastMessage')) === 'Logo removed.');
+    ok('logo: Remove takes the logo off and says so; the initials are back', !(await p6.$(LOGO6)) && (await p6.textContent('#previewAvatar')).trim() === (s1First[0] + s1Last[0]).toUpperCase() && (await p6.textContent('#toastMessage')) === 'Logo removed.');
     ok('card: with the logo removed the rim goes too', await p6.$eval('#card3DFlipper', el => !('rim' in el.dataset) && !el.style.getPropertyValue('--card-rim')));
     await p6.click('#toastAction').catch(() => {});
     await p6.click('#navFields'); await p6.waitForTimeout(300);
@@ -3405,7 +3479,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await ctxA.close();
   }
 
-  console.log(`\n${RUN}: ${pass} passed, ${fail} failed` + (notRun ? `, ${notRun} not run in this engine` : ''));
+  console.log(`\n${RUN}: ${pass} passed, ${fail} failed` + (notRun ? `, ${notRun} not run in this engine` : '')
+    + (crashReruns ? `, ${crashReruns} block${crashReruns > 1 ? 's' : ''} run again after a WebKit page crash` : ''));
   await browser.close(); server.kill();
   process.exitCode = fail ? 1 : 0;
 })().catch(e => { console.error(e); process.exit(1); });
