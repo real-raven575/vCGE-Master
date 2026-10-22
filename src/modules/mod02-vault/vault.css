@@ -143,24 +143,27 @@ button.vault-btn.hidden, button.vault-btn-quiet.hidden { display: none; }
 #vaultLockNowBtn.hidden { display: none; }
 button.vault-btn-quiet .vcge-icon { width: 1.1rem; height: 1.1rem; flex: none; }
 
-/* On / off switches: green with "On", red with "Off"; the word and the knob's side both carry the state */
+/* On / off switches: red "Off" with the knob on the left, green "On" with the knob on the right (raven575, 2026-10-22).
+   The word and the knob's side both carry the state; the left-hand setting never mirrors them. */
 button.vault-switch {
     position: relative; display: inline-flex; align-items: center; min-height: var(--vcge-tap, 2.75rem); min-width: 5.25rem;
-    padding: 0 2.6rem 0 0.9rem; border-radius: 999px; font-size: 0.85rem; font-weight: 700; cursor: pointer;
+    padding: 0 0.9rem 0 2.6rem; border-radius: 999px; font-size: 0.85rem; font-weight: 700; cursor: pointer;
     background: #fee2e2; color: #991b1b; border: 2px solid #dc2626;
 }
 .dark button.vault-switch { background: rgba(127, 29, 29, 0.45); color: #fecaca; border-color: #ef4444; }
 .vault-switch-knob {
-    position: absolute; right: 0.3rem; top: 50%; width: 1.9rem; height: 1.9rem; margin-top: -0.95rem; border-radius: 50%;
+    position: absolute; left: 0.3rem; top: 50%; width: 1.9rem; height: 1.9rem; margin-top: -0.95rem; border-radius: 50%;
     background: #ffffff; border: 2px solid #dc2626; box-sizing: border-box;
 }
-button.vault-switch[aria-checked="true"] { padding: 0 0.9rem 0 2.6rem; background: #16a34a; color: #052e16; border-color: #15803d; }
+button.vault-switch[aria-checked="true"] { padding: 0 2.6rem 0 0.9rem; background: #16a34a; color: #052e16; border-color: #15803d; }
 .dark button.vault-switch[aria-checked="true"] { background: #16a34a; color: #052e16; border-color: #22c55e; }
-button.vault-switch[aria-checked="true"] .vault-switch-knob { right: auto; left: 0.3rem; border-color: #15803d; }
+button.vault-switch[aria-checked="true"] .vault-switch-knob { left: auto; right: 0.3rem; border-color: #15803d; }
 @media (prefers-reduced-motion: no-preference) { .vault-switch-knob { transition: left 0.15s, right 0.15s; } }
 
 /* ---- Ghost on the lock screen (cute round V1-V3, raven575 2026-10-21). Branded edition only; drawing only. ---------- */
-/* V1: Ghost peeks over the PIN box; while a PIN is typed (#vaultModal[data-peek="covered"]) its paws cover its eyes. */
+/* V1: Ghost over the PIN box, one face per digit typed (#vaultModal[data-face], raven575 2026-10-22): "away" (eyes open,
+   looking away: not watching), "one" (a paw over one eye), "both" (both paws), "wink" (paws down, a wink and a raised
+   eyebrow), "shades" (sunglasses on). Then the lock screen dissolves (.vault-dissolve, from main.js). */
 .vault-ghost { display: block; width: 3.5rem; height: 3.5rem; margin: 0 auto -0.25rem; overflow: visible; }
 .vault-ghost .vg-ear, .vault-ghost .vg-head { fill: #a8a29e; }
 .vault-ghost .vg-mask { fill: #3b0764; }
@@ -172,9 +175,31 @@ button.vault-switch[aria-checked="true"] .vault-switch-knob { right: auto; left:
 .vault-ghost .vg-toe { stroke: #44403c; stroke-width: 1.2; stroke-linecap: round; fill: none; }
 .dark .vault-ghost .vg-ear, .dark .vault-ghost .vg-head { fill: #d6d3d1; }
 .dark .vault-ghost .vg-mask { fill: #581c87; }
-.vault-ghost .vg-paws { transform: translateY(26px); opacity: 0; }
-#vaultModal[data-peek="covered"] .vault-ghost .vg-paws { transform: none; opacity: 1; }
-@media (prefers-reduced-motion: no-preference) { .vault-ghost .vg-paws { transition: transform 0.4s ease-out, opacity 0.4s ease-out; } }
+.vault-ghost .vg-wink, .vault-ghost .vg-brows path { stroke-width: 2; stroke-linecap: round; fill: none; }
+.vault-ghost .vg-wink { stroke: #ffffff; }
+.vault-ghost .vg-brows path { stroke: #1c1917; }
+.vault-ghost .vg-lens { fill: #0f172a; stroke: #020617; stroke-width: 1; }
+.vault-ghost .vg-frame { stroke: #020617; stroke-width: 2; fill: none; }
+.vault-ghost .vg-shine { stroke: #e2e8f0; stroke-width: 1.4; stroke-linecap: round; fill: none; opacity: 0.8; }
+.vault-ghost .vg-wink, .vault-ghost .vg-brows, .vault-ghost .vg-shades { opacity: 0; }
+.vault-ghost .vg-shades { transform: translateY(-14px); }
+.vault-ghost .vg-paw-l, .vault-ghost .vg-paw-r { transform: translateY(26px); opacity: 0; }
+#vaultModal[data-face="away"] .vault-ghost .vg-glints { transform: translate(-1.6px, -1.7px); }
+#vaultModal[data-face="one"] .vault-ghost .vg-glints { transform: translate(-1.6px, -1.7px); }
+#vaultModal[data-face="one"] .vault-ghost .vg-paw-l,
+#vaultModal[data-face="both"] .vault-ghost .vg-paw-l, #vaultModal[data-face="both"] .vault-ghost .vg-paw-r { transform: none; opacity: 1; }
+#vaultModal[data-face="wink"] .vault-ghost .vg-eye-l, #vaultModal[data-face="wink"] .vault-ghost .vg-glint-l { opacity: 0; }
+#vaultModal[data-face="wink"] .vault-ghost .vg-glints { transform: translate(-1.6px, 2.4px); }   /* the open eye glances down at the PIN box */
+#vaultModal[data-face="wink"] .vault-ghost .vg-wink, #vaultModal[data-face="wink"] .vault-ghost .vg-brows { opacity: 1; }
+#vaultModal[data-face="shades"] .vault-ghost .vg-eyes { opacity: 0; }
+#vaultModal[data-face="shades"] .vault-ghost .vg-shades { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: no-preference) {
+    .vault-ghost .vg-paw-l, .vault-ghost .vg-paw-r, .vault-ghost .vg-shades { transition: transform 0.4s ease-out, opacity 0.4s ease-out; }
+    .vault-ghost .vg-glints, .vault-ghost .vg-eyes, .vault-ghost .vg-eye-l, .vault-ghost .vg-glint-l, .vault-ghost .vg-wink, .vault-ghost .vg-brows { transition: transform 0.3s ease, opacity 0.2s ease; }
+    /* The right PIN: Ghost keeps its sunglasses on for a moment, then the lock screen dissolves */
+    #vaultModal.vault-dissolve { animation: vault-dissolve 1s ease-in forwards; pointer-events: none; }
+}
+@keyframes vault-dissolve { 0%, 45% { opacity: 1; filter: none; } 100% { opacity: 0; filter: blur(6px); } }
 
 /* V2: four paw prints over the PIN box, one filled per digit. Empty paws are outlines, typed paws are solid, so the
    shape carries the count (colour-blind mode); they are sized in em, so they grow with the text size. The box's own

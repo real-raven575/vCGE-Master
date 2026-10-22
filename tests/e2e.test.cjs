@@ -754,10 +754,19 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
 
     ok('no session PIN offer on its own', !(await p8.isVisible('#quickSetupModal')) && (await t8('sessionPinStatus')) === 'Session PIN: not set');
     await openVault(p8);
-    const sw8 = (id) => p8.evaluate((id) => { const b = document.getElementById(id); return { on: b.getAttribute('aria-checked'), word: b.textContent.trim(), bg: getComputedStyle(b).backgroundColor }; }, id);
+    // (the fingerprint row is hidden where the device has none: it is shown for a moment to measure its switch)
+    const sw8 = (id) => p8.evaluate((id) => { const b = document.getElementById(id), row = b.closest('.vault-row.hidden'); if (row) row.classList.remove('hidden');
+      const r = b.getBoundingClientRect(), k = b.querySelector('.vault-switch-knob').getBoundingClientRect(); if (row) row.classList.add('hidden');
+      return { on: b.getAttribute('aria-checked'), word: b.textContent.trim(), bg: getComputedStyle(b).backgroundColor, knob: r.width ? (k.left + k.width / 2 < r.left + r.width / 2 ? 'left' : 'right') : 'unseen' }; }, id);
+    // raven575 2026-10-22: Off = knob on the left (red), On = knob on the right (green), and the left-hand setting never mirrors it
+    const handSwap8 = async (id) => { const hand = await p8.evaluate(() => document.documentElement.dataset.hand || '');
+      await p8.evaluate(() => { document.documentElement.dataset.hand = 'left'; }); const left = (await sw8(id)).knob;
+      await p8.evaluate((h) => { if (h) document.documentElement.dataset.hand = h; else delete document.documentElement.dataset.hand; }, hand); return left; };
     const pinOff8 = await sw8('pinSwitch');
     ok('Vault page: the PIN is a switch, red with "Off" and a note to turn it on, no green button while it is off', pinOff8.on === 'false' && pinOff8.word === 'Off' && ['rgb(254, 226, 226)', 'rgba(127, 29, 29, 0.45)'].includes(pinOff8.bg)
       && await p8.isVisible('#pinOffNote') && !(await p8.isVisible('#setSessionPinBtn')) && !(await p8.isVisible('#vaultLockNowBtn')), JSON.stringify(pinOff8));
+    const bioOff8 = await sw8('biometricSwitch');
+    ok('Vault page: Off switches have the knob on the left (PIN and fingerprint), with the right or the left hand set', pinOff8.knob === 'left' && bioOff8.knob === 'left' && (await handSwap8('pinSwitch')) === 'left' && (await handSwap8('biometricSwitch')) === 'left', JSON.stringify([pinOff8, bioOff8]));
     ok('Vault page: the title has its lock icon on the left', await p8.$eval('#vaultPageTitle', h => h.firstElementChild && h.firstElementChild.tagName === 'svg' && h.textContent.trim() === 'Vault'));
     await p8.click('#pinSwitch');
     await p8.fill('#sessionPinInput', '12'); await p8.click('#quickSetupSaveBtn');
@@ -768,6 +777,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const pinOn8 = await sw8('pinSwitch');
     ok('Vault page: the PIN switch turns green with "On", Change and Lock now appear, the note goes', pinOn8.on === 'true' && pinOn8.word === 'On' && pinOn8.bg === 'rgb(22, 163, 74)'
       && (await t8('setSessionPinBtn')) === 'Change' && await p8.isVisible('#vaultLockNowBtn') && !(await p8.isVisible('#pinOffNote')), JSON.stringify(pinOn8));
+    ok('Vault page: the On switch has its knob on the right, with the right or the left hand set', pinOn8.knob === 'right' && (await handSwap8('pinSwitch')) === 'right', JSON.stringify(pinOn8));
     ok('Vault page: with a PIN the countdown reads "Auto-lock" (it locks before it clears)', /^Auto-lock (idle|in \d+ s)$/.test(await t8('purgeCountdown')), await t8('purgeCountdown'));
     await closeVault(p8);
     await p8.fill('#firstName', 'Quick'); await p8.fill('#lastName', 'Unlock');
@@ -787,34 +797,47 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('lock screen: no Unlock button (the 4th digit unlocks), PIN box focused when no fingerprint is set', !(await p8.$('#vaultUnlockBtn')) && !(await p8.isVisible('#vaultBiometricBtn')) && (await p8.evaluate(() => document.activeElement && document.activeElement.id)) === 'vaultPin');
     ok('idle lock explains why it locked', (await t8('vaultModalHint')).startsWith('Locked after 2 minutes without activity. Enter your 4-digit PIN'));
     ok('quick lock: the held card is not in storage or the page', !(await p8.evaluate(() => JSON.stringify(localStorage) + document.body.innerText)).includes('Quick'));
-    // Ghost on the lock screen (cute round V1-V3, raven575 2026-10-21): drawing only, branded edition only
+    // Ghost on the lock screen (cute round V1-V3, raven575 2026-10-21; five faces 2026-10-22): drawing only, branded only
     const face8 = () => p8.evaluate(() => {
       const shown = (id) => { const el = document.getElementById(id); return !!el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0; };
-      return { peek: document.getElementById('vaultModal').dataset.peek, filled: document.getElementById('vaultPinPaws').dataset.filled,
+      const op = (sel) => getComputedStyle(document.querySelector('#vaultGhost ' + sel)).opacity;
+      return { face: document.getElementById('vaultModal').dataset.face, filled: document.getElementById('vaultPinPaws').dataset.filled,
         ghost: shown('vaultGhost'), paws: shown('vaultPinPaws'), bands: shown('vaultTailBands'),
-        pawsCovered: getComputedStyle(document.querySelector('#vaultGhost .vg-paws')).opacity,
+        look: getComputedStyle(document.querySelector('#vaultGhost .vg-glints')).transform,
+        pawL: op('.vg-paw-l'), pawR: op('.vg-paw-r'), eyeL: op('.vg-eye-l'), wink: op('.vg-wink'), brows: op('.vg-brows'), eyes: op('.vg-eyes'), shades: op('.vg-shades'),
         filledPaws: [...document.querySelectorAll('#vaultPinPaws .vault-paw')].filter(s => getComputedStyle(s).fill !== 'none').length,
         pinColor: getComputedStyle(document.getElementById('vaultPin')).color,
         ring: document.getElementById('vaultLockRing').getAttribute('stroke-dashoffset'), tail: document.getElementById('vaultTailMaskRing').getAttribute('stroke-dashoffset') };
     });
     const f0 = await face8();
     if (EDITION_PLAIN) ok('plain edition: no Ghost, no paw prints and no tail bands on the lock screen; the PIN box shows its own dots', !f0.ghost && !f0.paws && !f0.bands && f0.pinColor !== 'rgba(0, 0, 0, 0)', JSON.stringify(f0));
-    else ok('lock screen: Ghost peeks with eyes open and four empty paw prints sit in the PIN box', f0.ghost && f0.paws && f0.peek === 'open' && f0.filled === '0' && f0.filledPaws === 0 && f0.pawsCovered === '0', JSON.stringify(f0));
+    else ok('lock screen: Ghost has its eyes open but looks away, and four empty paw prints sit in the PIN box', f0.ghost && f0.paws && f0.face === 'away' && f0.look !== 'none' && f0.filled === '0' && f0.filledPaws === 0 && f0.pawL === '0' && f0.pawR === '0', JSON.stringify(f0));
     ok('lock screen: the tail\'s bands follow the ring\'s countdown', f0.tail === f0.ring, JSON.stringify(f0));
-    await p8.type('#vaultPin', '13'); await p8.waitForTimeout(500);
+    await p8.type('#vaultPin', '1'); await p8.waitForTimeout(500);
+    const f1 = await face8();
+    ok('1st digit: one paw covers one eye and one paw print fills', f1.face === 'one' && f1.filled === '1' && (EDITION_PLAIN || (f1.filledPaws === 1 && f1.pawL === '1' && f1.pawR === '0')), JSON.stringify(f1));
+    await p8.type('#vaultPin', '3'); await p8.waitForTimeout(500);
     const f2 = await face8();
-    ok('typing a PIN: Ghost covers its eyes and one paw print fills per digit', f2.peek === 'covered' && f2.filled === '2' && (EDITION_PLAIN || (f2.filledPaws === 2 && f2.pawsCovered === '1')), JSON.stringify(f2));
+    ok('2nd digit: both paws cover the eyes and two paw prints fill', f2.face === 'both' && f2.filled === '2' && (EDITION_PLAIN || (f2.filledPaws === 2 && f2.pawL === '1' && f2.pawR === '1')), JSON.stringify(f2));
+    await p8.type('#vaultPin', '5'); await p8.waitForTimeout(500);
+    const f3 = await face8();
+    ok('3rd digit: paws down, a wink and a raised eyebrow', f3.face === 'wink' && f3.filled === '3' && (EDITION_PLAIN || (f3.filledPaws === 3 && f3.pawL === '0' && f3.pawR === '0' && f3.eyeL === '0' && f3.wink === '1' && f3.brows === '1' && /, 2\.4\)$/.test(f3.look))), JSON.stringify(f3));
     const box8 = await p8.evaluate(() => { const i = document.getElementById('vaultPin'); return { type: i.type, mask: i.style.webkitTextSecurity, max: i.maxLength, labels: i.labels.length, pawsHidden: document.getElementById('vaultPinPaws').getAttribute('aria-hidden'), ghostHidden: document.getElementById('vaultGhost').getAttribute('aria-hidden') }; });
     ok('the paw prints are drawing only: the PIN box is still a masked 4-digit field', (box8.type === 'password' || (box8.type === 'text' && box8.mask === 'disc')) && box8.max === 4 && box8.labels > 0 && box8.pawsHidden === 'true' && box8.ghostHidden === 'true', JSON.stringify(box8));
     await p8.fill('#vaultPin', ''); await p8.waitForTimeout(100);
     const fx = await face8();
-    ok('PIN box emptied: the paws come down and the prints empty', fx.peek === 'open' && fx.filled === '0', JSON.stringify(fx));
+    ok('PIN box emptied: Ghost looks away again and the prints empty', fx.face === 'away' && fx.filled === '0', JSON.stringify(fx));
     await p8.fill('#vaultPin', '1111'); await p8.waitForTimeout(300);
     ok('wrong session PIN (checked on the 4th digit) rejected with tries left', (await t8('vaultError')) === 'Wrong PIN. 4 tries left.' && (await p8.inputValue('#vaultPin')) === '', await t8('vaultError'));
     const fw = await face8();
-    ok('wrong PIN: Ghost uncovers its eyes and the paw prints empty again', fw.peek === 'open' && fw.filled === '0', JSON.stringify(fw));
-    await p8.fill('#vaultPin', '2468');
+    ok('wrong PIN: the sunglasses come off, Ghost looks away again and the paw prints empty', fw.face === 'away' && fw.filled === '0' && (EDITION_PLAIN || (fw.shades === '0' && fw.eyes === '1')), JSON.stringify(fw));
+    await p8.fill('#vaultPin', '2468'); await p8.waitForTimeout(600);   // the sunglasses are on (0.4 s); the dissolve ends at 1 s
+    const f4 = await p8.evaluate(() => { const m = document.getElementById('vaultModal'); return { face: m.dataset.face, hidden: m.classList.contains('hidden'), dissolving: m.classList.contains('vault-dissolve'),
+      shades: getComputedStyle(document.querySelector('#vaultGhost .vg-shades')).opacity, card: document.getElementById('firstName').value }; });
+    if (EDITION_PLAIN) ok('plain edition: the right PIN unlocks at once, no dissolve', f4.hidden && !f4.dissolving, JSON.stringify(f4));
+    else ok('4th digit, right PIN: sunglasses on, then the lock screen dissolves before the card comes back', f4.face === 'shades' && f4.shades === '1' && f4.dissolving && !f4.hidden && f4.card === '', JSON.stringify(f4));
     await p8.waitForSelector('#vaultModal', { state: 'hidden' });
+    ok('after the dissolve the lock screen is reset for the next lock', await p8.evaluate(() => !document.getElementById('vaultModal').classList.contains('vault-dissolve')));
     ok('right session PIN unlocks on the 4th digit, no extra tap', (await p8.inputValue('#firstName')) === 'Quick' && (await t8('auditLog')).includes('Vault unlocked (session PIN)') && (await t8('vaultBadge')) === 'Vault: UNLOCKED');
 
     // Screen timeout with a PIN: locks at once, the card survives, and the PIN brings it straight back

@@ -27,7 +27,7 @@ import { BiometricUnlock, biometricAvailable } from './modules/mod02-vault/biome
 import { maskSecretInputs } from './modules/mod02-vault/secretInputs.js';
 import { LockHandoff } from './modules/mod02-vault/lockHandoff.js';
 import { WipeDialog, startFresh } from './modules/mod02-vault/wipeDialog.js';
-import { syncLockFace } from './modules/mod02-vault/lockFace.js';
+import { syncLockFace, farewell } from './modules/mod02-vault/lockFace.js';
 import { VCGEActiveCamera } from './modules/mod03-camera/camera.js';
 import { CropEditor } from './modules/mod03-camera/cropEditor.js';
 import { executeOCRScan, shutdownOCREngine } from './modules/mod04-ocr/ocrWorker.js';
@@ -200,6 +200,7 @@ function closePinModal() {
     $('vaultPin').value = '';
     syncLockFace();
     $('vaultModal').classList.add('hidden');
+    $('vaultModal').classList.remove('vault-dissolve');
 }
 
 // Lock screen: a calm green ring empties toward the 7-minute reset, with the time left in its middle.
@@ -251,7 +252,10 @@ async function submitPin(event) {
         checkingPin = false;
     }
     const { result, attemptsLeft } = check;
-    if (result === 'ok') return quickUnlock('session PIN');
+    if (result === 'ok') {
+        await farewell();   // Ghost's sunglasses, then the lock screen dissolves (none in plain or under reduce motion)
+        return quickUnlock('session PIN');
+    }
     if (result === 'locked_out') return wipeSession('too many wrong PINs', `${MAX_PIN_ATTEMPTS} wrong PINs: the card was wiped.`);
     if (result === 'not_set') return wipeSession('session PIN missing');
     $('vaultPin').value = '';
@@ -280,7 +284,19 @@ function quickLock(reason = 'idle', lockedAt = Date.now()) {
     openPinModal(reason);
 }
 
+let unlocking = false;
 async function quickUnlock(method) {
+    // One unlock at a time: a fingerprint during the PIN's farewell must not read the held card back a second time.
+    if (vaultMode !== 'quick' || unlocking) return;
+    unlocking = true;
+    try {
+        await unlockHeld(method);
+    } finally {
+        unlocking = false;
+    }
+}
+
+async function unlockHeld(method) {
     const sealed = await holding;
     let held = null;
     try {
