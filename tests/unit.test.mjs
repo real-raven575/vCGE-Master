@@ -14,7 +14,8 @@ globalThis.localStorage = {
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {
   if (cond) { pass++; console.log('PASS', name); }
-  else { fail++; console.log('FAIL', name, detail); }
+  // FAIL lines go straight to stdout: some sections silence console.log, and a failure must always name itself
+  else { fail++; process.stdout.write(`FAIL ${name} ${detail}\n`); }
 };
 
 const share = await import(`${R}/share/index.js`);
