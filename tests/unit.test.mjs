@@ -1442,9 +1442,25 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     && [...platesTag[1].matchAll(/data-card="(\w+)"/g)].map(m => m[1]).join() === 'welcome,capture,read,fields,card,share'
     && /html\[data-edition="plain"\] \.deck-turtle, html\[data-edition="plain"\] \.deck-plates \{ display: none; \}/.test(deckCss));
   ok('shell art: the turtle walks only when motion is allowed, and the sheets\' grab bar and pebble are branded only',
-    /@media \(prefers-reduced-motion: no-preference\) \{ \.deck-turtle\.is-placed \{ transition: transform 0\.4s ease-in-out; \} \}/.test(deckCss)
+    /@media \(prefers-reduced-motion: no-preference\) \{ \.deck-turtle\.is-placed \{ transition: top 0\.3s ease-out; \} \}/.test(deckCss)
     && !/\.deck-turtle[^{]*\{[^}]*transition: (?!none)/.test(deckCss.replace(/@media \(prefers-reduced-motion: no-preference\) \{[^\n]*\n/g, ''))
     && /html:not\(\[data-edition="plain"\]\) \.vcge-sheet-panel::before \{/.test(deckCss) && /html:not\(\[data-edition="plain"\]\) \.vcge-sheet-close \{/.test(deckCss));
+  // The walk (raven575's test report 2026-10-22): a capped spring, simulated at 60 frames a second
+  const walkFor = (from, to, seconds = 8) => {
+    let st = { x: from, v: 0 }, t = 0, top = 0, past = 0, at01 = null, settledAt = null;
+    while (t < seconds && settledAt === null) {
+      st = art.stepWalk(st, to, 1 / 60); t += 1 / 60;
+      top = Math.max(top, Math.abs(st.v)); past = Math.max(past, (st.x - to) * Math.sign(to - from));
+      if (at01 === null && t >= 0.1) at01 = Math.abs(st.x - from) / Math.abs(to - from);
+      if (st.settled) settledAt = t;
+    }
+    return { top, past, at01, settledAt, x: st.x };
+  };
+  const hop = walkFor(0, 120), far = walkFor(900, 0);
+  ok('shell art: the turtle gains speed slowly, runs a little past the icon, eases back and stops exactly on it',
+    hop.at01 < 0.1 && hop.past > 2 && hop.past < 0.2 * 120 && hop.settledAt !== null && hop.settledAt < 3 && hop.x === 120, JSON.stringify(hop));
+  ok('shell art: the turtle has a top speed, so a long way takes him a while, and he still gets there',
+    far.top <= art.WALK.maxSpeed && far.settledAt > 2 && far.settledAt < 6 && far.x === 0, JSON.stringify(far));
   // Layout step 1 (tier.js): the screen tier is the width over the text size; 21:9 from monitor width is wide
   const tier = await import(`${R}/modules/mod01-shell/tier.js`);
   const tiers = (pairs, size) => pairs.map(([w, h]) => tier.tierFor(w, h, size)).join();

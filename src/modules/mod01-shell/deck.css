@@ -68,22 +68,21 @@
     .deck-nav button { padding: 0; min-width: calc(2.2 * var(--vcge-hu)); }
 }
 
-/* ---- Shutout's touches (shellArt.js): the turtle under the lit icon and the shell plates (branded edition only) --- */
-/* The turtle stands on the header's bottom edge, centred under the lit card icon (shellArt.js sets --turtle-x), and walks
-   to the next icon in 0.4 s. Under reduced motion it is simply there. It faces the way it last walked. */
+/* ---- Shutout's touches (shellArt.js): the turtle by the lit icon and the shell plates (branded edition only) ------- */
+/* The turtle (Shutout's comic medal) is tucked in behind the lit card icon, the lower half of the medal peeking out
+   under it. While he walks (shellArt.js moves --turtle-x on a spring) he stands a little lower, on the header's bottom
+   edge. The card icons sit above him. He faces the way he walks (the medal faces left). Under reduced motion he
+   never walks and never steps down: he is simply there. */
+.deck-nav button { position: relative; z-index: 2; }
 .deck-turtle {
-    position: absolute; left: 0; top: calc(100% - 0.5 * var(--vcge-hu)); z-index: 1; pointer-events: none; visibility: hidden;
-    width: calc(1.5 * var(--vcge-hu)); height: calc(0.875 * var(--vcge-hu)); transform: translateX(var(--turtle-x, 0));
+    position: absolute; left: 0; top: calc(100% - 0.25 * var(--vcge-hu)); z-index: 1; pointer-events: none; visibility: hidden;
+    width: calc(1.5 * var(--vcge-hu)); height: calc(1.5 * var(--vcge-hu)); transform: translateX(var(--turtle-x, 0));
 }
 .deck-turtle.is-placed { visibility: visible; }
-@media (prefers-reduced-motion: no-preference) { .deck-turtle.is-placed { transition: transform 0.4s ease-in-out; } }
-.deck-turtle.is-still { transition: none; }
-.deck-turtle svg { display: block; width: 100%; height: 100%; overflow: visible; }
-.deck-turtle[data-dir="left"] svg { transform: scaleX(-1); }
-.deck-turtle .turtle-shell { fill: #16a34a; stroke: #14532d; stroke-width: 0.8; }
-.deck-turtle .turtle-plates { fill: none; stroke: #14532d; stroke-width: 0.7; stroke-linejoin: round; }
-.deck-turtle .turtle-skin { fill: #86efac; stroke: #14532d; stroke-width: 0.6; }
-.deck-turtle .turtle-eye { fill: #14532d; }
+.deck-turtle.is-tucked { top: calc(100% - 0.875 * var(--vcge-hu)); }
+@media (prefers-reduced-motion: no-preference) { .deck-turtle.is-placed { transition: top 0.3s ease-out; } }
+.deck-turtle > svg { display: block; width: 100%; height: 100%; overflow: visible; }
+.deck-turtle[data-dir="right"] > svg { transform: scaleX(-1); }
 /* One shell plate per card, just above the cards' top left corner (the MOD tags are on the right): a card you have been to
    is filled in, the one in view has a thick outline. Nothing moves. */
 .deck-plates {

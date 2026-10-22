@@ -339,7 +339,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const t = document.getElementById('deckTurtle'), on = document.querySelector('.deck-nav button.is-on');
     const tr = t.getBoundingClientRect(), br = on.getBoundingClientRect(), hr = document.querySelector('.deck-header').getBoundingClientRect();
     return { shown: getComputedStyle(t).display !== 'none' && getComputedStyle(t).visibility === 'visible', off: Math.abs((tr.left + tr.width / 2) - (br.left + br.width / 2)),
-      onEdge: tr.top < hr.bottom && tr.bottom > hr.bottom, walk: getComputedStyle(t).transitionDuration,
+      onEdge: tr.top < hr.bottom && tr.bottom > hr.bottom, tucked: t.classList.contains('is-tucked'), behind: tr.top < br.bottom - 8 && tr.bottom > br.bottom,
       plates: Array.from(document.querySelectorAll('#deckPlates [data-card]')).map(p => p.dataset.state || '').join(),
       platesShown: getComputedStyle(document.getElementById('deckPlates')).display !== 'none', hidden: t.getAttribute('aria-hidden') + document.getElementById('deckPlates').getAttribute('aria-hidden') };
   });
@@ -350,17 +350,30 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // The page opens on the Capture card: Shutout walks to Start and back (not Fields: its form pops in once, later)
     await page.waitForFunction(() => document.getElementById('deckTurtle').classList.contains('is-placed'), null, { timeout: 5000 }).catch(() => {});
     await page.waitForTimeout(300);
+    const settled = () => page.waitForFunction(() => document.getElementById('deckTurtle').classList.contains('is-tucked'), null, { timeout: 8000 }).catch(() => {});
     const a0 = await shellArt();
-    ok('shell art: the turtle stands on the header\'s edge under the lit icon, and only that card\'s plate is current', a0.shown && a0.off <= 2 && a0.onEdge && a0.platesShown
-      && a0.plates === 'new,current,new,new,new,new' && a0.hidden === 'truetrue', JSON.stringify(a0));
-    await page.click('#navWelcome'); await page.waitForTimeout(900);
+    ok('shell art: the turtle is tucked in behind the lit icon, on the header\'s edge, and only that card\'s plate is current', a0.shown && a0.off <= 2 && a0.onEdge && a0.tucked && a0.behind
+      && a0.platesShown && a0.plates === 'new,current,new,new,new,new' && a0.hidden === 'truetrue', JSON.stringify(a0));
+    await page.click('#navWelcome'); await page.waitForTimeout(150);
+    const aw = await shellArt();
+    await settled(); await page.waitForTimeout(350);
     const a1 = await shellArt();
-    ok('shell art: the turtle walks (0.4 s) to the Start icon; Capture is now a visited plate, Start the current one', a1.shown && a1.off <= 2 && a1.walk === '0.4s'
-      && a1.plates === 'current,visited,new,new,new,new', JSON.stringify(a1));
+    ok('shell art: the turtle steps out and walks to the Start icon, then tucks in behind it; Capture is now a visited plate', !aw.tucked && aw.off > 2
+      && a1.shown && a1.off <= 2 && a1.tucked && a1.behind && a1.plates === 'current,visited,new,new,new,new', JSON.stringify({ aw, a1 }));
+    // Left/Right mirrors the header: he goes over to the lit icon's new place by himself
+    await page.evaluate(() => document.getElementById('handLeftBtn').click()); await page.waitForTimeout(150);
+    await settled(); await page.waitForTimeout(350);
+    const ah = await shellArt();
+    await page.evaluate(() => document.getElementById('handRightBtn').click()); await page.waitForTimeout(150);
+    await settled(); await page.waitForTimeout(350);
+    const ar = await shellArt();
+    ok('shell art: when Left/Right mirrors the header, the turtle goes to the lit icon\'s new place and tucks in', ah.shown && ah.off <= 2 && ah.tucked && ar.off <= 2 && ar.tucked, JSON.stringify({ ah, ar }));
+    // The flip saved a settings entry: take it away again, so the Settings checks below start from nothing stored
+    await page.evaluate(() => localStorage.removeItem('vcge_settings'));
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.click('#navCapture'); await page.waitForTimeout(600);
+    await page.click('#navCapture'); await page.waitForTimeout(250);
     const a2 = await shellArt();
-    ok('shell art: under reduced motion the turtle does not walk, it is simply under the new icon', a2.shown && a2.off <= 2 && a2.walk === '0s'
+    ok('shell art: under reduced motion the turtle does not walk, it is simply tucked in behind the new icon', a2.shown && a2.off <= 2 && a2.tucked
       && a2.plates === 'visited,current,new,new,new,new', JSON.stringify(a2));
     await page.emulateMedia({ reducedMotion: null });
   }
