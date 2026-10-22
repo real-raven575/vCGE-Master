@@ -3232,6 +3232,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const presets = await p6.$$eval('#logoPresetSelect optgroup', gs => gs.map(g => g.label + ':' + g.children.length));
     ok(EDITION_PLAIN ? 'plain edition: the ready-made logos are the eight palette pictures, with no team characters' : 'logo: the ready-made logos are every Team vCGE character (one per sample) and a picture for each of the eight palettes',
       JSON.stringify(presets) === JSON.stringify(EDITION_PLAIN ? ['To match a palette:8'] : [`Team vCGE:${samples().length}`, 'To match a palette:8']), JSON.stringify(presets));
+    if (!EDITION_PLAIN) {
+      const names = await p6.$$eval('#logoPresetSelect optgroup:first-of-type option', os => os.map(o => o.textContent));
+      ok('logo: each Team vCGE logo is named as the sample is ("Ghost the Raccoon", never "the the")', names.includes(`${samples()[1][0]} ${samples()[1][1]}`) && !names.some(n => /\bthe the\b/i.test(n)), JSON.stringify(names));
+    }
     await p6.selectOption('#logoPresetSelect', 'theme:pumpkin');
     await p6.waitForFunction(() => !!document.querySelector('#previewAvatar img'), null, { timeout: 5000 }).catch(() => {});
     await p6.waitForTimeout(300);

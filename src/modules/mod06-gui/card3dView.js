@@ -645,7 +645,7 @@ export class CardView {
         const select = $('logoPresetSelect');
         const group = (label, items) => { const g = document.createElement('optgroup'); g.label = label; items.forEach(([v, text]) => g.appendChild(new Option(text, v))); return g; };
         select.replaceChildren(new Option('Ready-made logo…', ''));
-        if (!isPlain()) select.appendChild(group('Team vCGE', PRESETS.map(p => [`pilot:${p.firstName}`, `${p.firstName} the ${p.lastName}`])));
+        if (!isPlain()) select.appendChild(group('Team vCGE', PRESETS.map(p => [`pilot:${p.firstName}`, `${p.firstName} ${p.lastName}`])));
         select.appendChild(group('To match a palette', Object.keys(THEME_LOGO_ART).map(k => [`theme:${k}`, THEMES[k].label])));
     }
 
@@ -671,7 +671,7 @@ export class CardView {
         const pilot = kind === 'pilot' && !isPlain() ? PRESETS.find(p => p.firstName === key) : null;
         const url = pilot ? pilot.logo : (kind === 'theme' && THEME_LOGO_ART[key] ? themeLogoUrl(key) : null);
         if (!url) return Promise.resolve();
-        const name = pilot ? `${pilot.firstName} the ${pilot.lastName}` : THEMES[key].label;
+        const name = pilot ? `${pilot.firstName} ${pilot.lastName}` : THEMES[key].label;
         const token = ++this.sampleLogoToken;
         return prepareLogo(url, { trace: false }).then(({ photo, display }) => {
             if (token !== this.sampleLogoToken) return;
