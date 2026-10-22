@@ -705,8 +705,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   m = mul(m, [Math.cos(-24 * deg), Math.sin(-24 * deg), -Math.sin(-24 * deg), Math.cos(-24 * deg), 0, 0]);
   m = mul(m, [1, 0, Math.tan(-12 * deg), 1, 0, 0]);
   m = mul(m, [1, 0, 0, 1, -525, -300]);
-  const render = (W, H, bg, card, text = true) => {
-    const data = new Uint8ClampedArray(W * H * 4), inv = invert(m);
+  const render = (W, H, bg, card, text = true, mat = m) => {
+    const data = new Uint8ClampedArray(W * H * 4), inv = invert(mat);
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       const [cx, cy] = apply(inv, x + 0.5, y + 0.5);
       let v = bg;
@@ -724,6 +724,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('finder: a photo that already is the card (edges off every side) gives null, so the handles stay at the full edge', findCardQuad({ data: new Uint8ClampedArray(400 * 240 * 4).fill(255), width: 400, height: 240 }) === null);
   const smallBlob = (() => { const W = 400, H = 300, data = new Uint8ClampedArray(W * H * 4).fill(60); for (let y = 140; y < 160; y++) for (let x = 190; x < 210; x++) { const o = (y * W + x) * 4; data[o] = data[o + 1] = data[o + 2] = 255; } return { data, width: W, height: H }; })();
   ok('finder: a patch too small to be a card gives null', findCardQuad(smallBlob) === null);
+  // A card photographed from farther away (edge bench, 2026-10-22): the same card at 0.35 scale covers about 4% of the photo
+  const far = mul([1, 0, 0, 1, 800, 600], mul([0.35, 0, 0, 0.35, 0, 0], mul([1, 0, 0, 1, -800, -600], m)));
+  const farCorners = [[0, 0], [1050, 0], [1050, 600], [0, 600]].map(([x, y]) => apply(far, x, y));
+  const farQuad = findCardQuad(render(1600, 1200, 110, 255, true, far));
+  ok('finder: a far-away card covering about 4% of the photo is found, every corner "good" on the edge bench (within 2% of the diagonal)', !!farQuad && farQuad.every((p, i) => Math.hypot(p.x - farCorners[i][0], p.y - farCorners[i][1]) < 0.02 * Math.hypot(1600, 1200)), JSON.stringify(farQuad));
   ok('convex hull drops inner points and keeps the corners', convexHull([[0, 0], [10, 0], [10, 10], [0, 10], [5, 5], [2, 3]]).length === 4);
   ok('corners are ordered top-left, top-right, bottom-right, bottom-left', orderCorners([{ x: 9, y: 9 }, { x: 0, y: 10 }, { x: 10, y: 0 }, { x: 1, y: 1 }]).map(p => `${p.x},${p.y}`).join(' ') === '1,1 10,0 9,9 0,10');
 }
