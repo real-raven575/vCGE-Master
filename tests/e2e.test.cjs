@@ -2129,8 +2129,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pV.evaluate(() => { const s = document.getElementById('zoomSlider'); s.value = '2'; s.dispatchEvent(new Event('input', { bubbles: true })); });
     await pV.waitForTimeout(120);
     const midway = await pV.textContent('#zoomDisplay');
-    await pV.waitForFunction(() => document.getElementById('cameraStream').style.transform === 'scale(2)', null, { timeout: 2000 });
-    ok('zoom: the fader eases into the change instead of snapping', /^1\.[1-9]x$/.test(midway) && (await pV.textContent('#zoomDisplay')) === '2.0x', midway);
+    // The ease takes ZOOM_EASE_MS (320 ms); 5 s only absorbs a slow test machine (an iPhone CI run missed 2 s once). A miss is
+    // a failed check that says where the zoom and the camera stood, not a thrown wait that stops the whole run.
+    const landed = await pV.waitForFunction(() => document.getElementById('cameraStream').style.transform === 'scale(2)', null, { timeout: 5000 }).then(() => true, () => false);
+    const zoomState = landed ? '' : await pV.evaluate(() => { const v = document.getElementById('cameraStream');
+      return `transform "${v.style.transform}", readout ${document.getElementById('zoomDisplay').textContent}, camera ${v.srcObject ? 'on' : 'off'}, viewfinder ${document.getElementById('cameraPanel').classList.contains('hidden') ? 'hidden' : 'shown'}, log: ${document.getElementById('eventLog').textContent.trim()}`; });
+    ok('zoom: the fader eases into the change instead of snapping', landed && /^1\.[1-9]x$/.test(midway) && (await pV.textContent('#zoomDisplay')) === '2.0x', `midway ${midway}${zoomState ? ' | did not land on 2x within 5 s: ' + zoomState : ''}`);
 
     // The shutter sinks on the press and pops back after the release; the shot is the window the viewfinder showed
     await pV.mouse.move(shutter.l + shutter.w / 2, shutter.t + shutter.h / 2); await pV.mouse.down(); await pV.waitForTimeout(60);
