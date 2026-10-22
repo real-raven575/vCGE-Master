@@ -370,6 +370,30 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   ok(EDITION_PLAIN ? 'plain edition: sheets keep the plain frame (no grab bar, no pebble)' : 'shell art: a sheet has a rounder top with a grab bar, and its close button is a round pebble',
     EDITION_PLAIN ? !sheetArt.bar && sheetArt.radius === '20px' && !sheetArt.pebble : sheetArt.bar && sheetArt.radius === '28px' && sheetArt.pebble, JSON.stringify(sheetArt));
   await page.keyboard.press('Escape'); await page.waitForSelector('#settingsSheet', { state: 'hidden' });
+  // Layout step 1 (tier.js, deck.css): the screen tier, cards that measure their own width, 44 px drop-downs, short screens
+  {
+    const vp = page.viewportSize();
+    const want = (w) => w < 600 ? 'phone' : w < 900 ? 'small-tablet' : w < 1200 ? 'large-tablet' : w < 1600 ? 'laptop' : w < 2200 ? 'monitor' : 'wide';
+    const lay = await page.evaluate(() => {
+      const card = document.querySelector('.deck-card.is-current'), body = card.querySelector('.deck-card-body'), title = body.querySelector(':scope > h2.deck-title');
+      // offsetHeight: the layout size (the cards beside the one in view are drawn smaller)
+      const selects = Array.from(document.querySelectorAll('select')).filter(s => s.getClientRects().length && getComputedStyle(s).visibility !== 'hidden');
+      return { tier: document.documentElement.dataset.tier, short: 'short' in document.documentElement.dataset, container: getComputedStyle(card).containerType,
+        pad: getComputedStyle(body).paddingTop, title: title ? getComputedStyle(title).fontSize : '18px', selects: selects.length,
+        lowSelects: selects.filter(s => s.offsetHeight < 44).map(s => s.id || s.name || s.className) };
+    });
+    ok('layout: the page names its screen tier, cards measure their own width and keep today\'s padding and title size',
+      lay.tier === want(vp.width) && !lay.short && lay.container === 'inline-size' && lay.pad === '20px' && lay.title === '18px', JSON.stringify({ vp, ...lay }));
+    ok('layout: every drop-down list on screen is at least 44 px tall', lay.lowSelects.length === 0, JSON.stringify(lay));
+    // A phone held sideways (390 px tall): the header is only as tall as its buttons and no band is held for the hidden timer strip
+    await page.setViewportSize({ width: 844, height: 390 }); await page.waitForTimeout(400);
+    const low = await page.evaluate(() => ({ short: document.documentElement.dataset.short, header: document.querySelector('.deck-header').getBoundingClientRect().height,
+      deckTop: getComputedStyle(document.getElementById('deck')).paddingTop, strip: !document.getElementById('vaultTimerStrip').classList.contains('hidden'),
+      buttons: Array.from(document.querySelectorAll('.deck-nav button')).every(b => b.getBoundingClientRect().height >= 43.5) }));
+    ok('layout: on a short screen the header is 44 px (its buttons still 44 px) and the cards get the timer strip\'s band back while it is hidden',
+      low.short === '1' && Math.abs(low.header - 44) < 1 && low.buttons && (low.strip || low.deckTop === '12px'), JSON.stringify(low));
+    await page.setViewportSize(vp); await page.waitForTimeout(500);
+  }
   ok('opens straight to an empty card (no passphrase dialog)', !(await visible('vaultModal')) && (await val('firstName')) === '');
   ok('header badge reads "Vault: UNLOCKED" and the indicator says memory only', (await text('vaultBadge')) === 'Vault: UNLOCKED' && (await text('vaultStateIndicator')) === 'UNLOCKED / memory only');
   ok('Lock button hidden until a session PIN is set', !(await lockOffered(page)));

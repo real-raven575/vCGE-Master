@@ -19,6 +19,10 @@
    first card could never come to the middle (it sat against the left edge on a tablet) */
 @media (max-width: 1199.98px) { :root { --deck-card-w: 84vw; --deck-gap: 0.75rem; } }
 @media (max-width: 599.98px) { :root { --deck-card-w: 100%; --deck-gap: 0; --deck-pad: 0.5rem; } }
+/* Short screens (layout step 1: under 500 px tall, a phone held sideways): the header is only as tall as its 44 px
+   buttons, and the band for the Vault's timer strip is held only while the strip shows (main.js sets
+   --vcge-vault-strip), so the cards get the height back. */
+@media (max-height: 499.98px) { :root { --vcge-header-h: calc(2.75 * var(--vcge-hu)); --vcge-strip-h: var(--vcge-vault-strip, 0px); } }
 
 /* ---- Header -------------------------------------------------------------------------------------------------- */
 .deck-header { height: var(--vcge-header-h); min-height: var(--vcge-header-h); padding: 0 calc(0.5 * var(--vcge-hu)); gap: calc(0.5 * var(--vcge-hu)); }
@@ -133,6 +137,13 @@ body.h-screen { height: 100vh; height: 100dvh; }
 .deck-card-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 1.25rem; }
 .deck-card-body > h2.deck-title { font-size: 1.125rem; font-weight: 700; margin: 0 0 0.75rem; }
 .deck-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.5rem 0.75rem 0.75rem; }
+/* Layout step 1: each card measures its own width (container queries), so later steps can lay a card out by the room
+   it has. Its padding and title grow on cards wider than today's widest (52rem) and are today's sizes up to it. */
+@supports (container-type: inline-size) {
+    .deck-card { container: deck-card / inline-size; }
+    .deck-card-body { padding: clamp(1.25rem, 1.25rem + (100cqi - 52rem) * 0.05, 2rem); }
+    .deck-card-body > h2.deck-title { font-size: clamp(1.125rem, 1.125rem + (100cqi - 52rem) * 0.025, 1.5rem); }
+}
 /* A card that is not in view takes no taps: a tap on it brings it into view instead. */
 .deck-cover { position: absolute; inset: 0; z-index: 5; border-radius: inherit; cursor: pointer; }
 .deck-card.is-current > .deck-cover { display: none; }

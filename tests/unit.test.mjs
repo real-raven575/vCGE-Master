@@ -1408,6 +1408,31 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     /@media \(prefers-reduced-motion: no-preference\) \{ \.deck-turtle\.is-placed \{ transition: transform 0\.4s ease-in-out; \} \}/.test(deckCss)
     && !/\.deck-turtle[^{]*\{[^}]*transition: (?!none)/.test(deckCss.replace(/@media \(prefers-reduced-motion: no-preference\) \{[^\n]*\n/g, ''))
     && /html:not\(\[data-edition="plain"\]\) \.vcge-sheet-panel::before \{/.test(deckCss) && /html:not\(\[data-edition="plain"\]\) \.vcge-sheet-close \{/.test(deckCss));
+  // Layout step 1 (tier.js): the screen tier is the width over the text size; 21:9 from monitor width is wide
+  const tier = await import(`${R}/modules/mod01-shell/tier.js`);
+  const tiers = (pairs, size) => pairs.map(([w, h]) => tier.tierFor(w, h, size)).join();
+  ok('layout: each tier starts at its width (600, 900, 1200, 1600, 2200)',
+    tiers([[320, 640], [599, 800], [600, 800], [899, 800], [900, 800], [1199, 800], [1200, 800], [1599, 1000], [1600, 1000], [2199, 1200], [2200, 1200]])
+    === 'phone,phone,small-tablet,small-tablet,large-tablet,large-tablet,laptop,laptop,monitor,monitor,wide');
+  ok('layout: larger text lays out like a smaller screen, smaller text like a bigger one',
+    tier.tierFor(1000, 800, 1.25) === 'small-tablet' && tier.tierFor(1100, 800, 0.875) === 'laptop' && tier.tierFor(1000, 800, 0) === 'large-tablet');
+  ok('layout: a 21:9 window counts as wide from monitor width on, not below it',
+    tier.tierFor(2560, 1080) === 'wide' && tier.tierFor(1680, 720) === 'wide' && tier.tierFor(1400, 600) === 'laptop' && tier.tierFor(1920, 1080) === 'monitor');
+  let fakeRaf = [], fakeObs = null;
+  const fakeRoot = { dataset: {}, style: { getPropertyValue: () => '1.25' } };
+  const fakeWin = { innerWidth: 1000, innerHeight: 450, document: { documentElement: fakeRoot }, addEventListener() {},
+    requestAnimationFrame: (f) => fakeRaf.push(f), MutationObserver: class { constructor(f) { fakeObs = f; } observe() {} } };
+  tier.initTier(fakeWin);
+  const firstTier = `${fakeRoot.dataset.tier}/${fakeRoot.dataset.short}`;
+  fakeWin.innerHeight = 800; fakeRoot.style.getPropertyValue = () => '1'; fakeObs(); fakeRaf.forEach(f => f());
+  ok('layout: html gets its tier and the short mark at once, and both follow a new text size or window', firstTier === 'small-tablet/1'
+    && fakeRoot.dataset.tier === 'large-tablet' && !('short' in fakeRoot.dataset), firstTier);
+  const uiCssL = fs.readFileSync(`${R}/modules/mod01-shell/ui.css`, 'utf8');
+  ok('layout: cards measure their own width, sizes stay today\'s up to a 52rem card, drop-downs are 44 px, short screens free the height',
+    /@supports \(container-type: inline-size\) \{\s*\.deck-card \{ container: deck-card \/ inline-size; \}/.test(deckCss)
+    && /padding: clamp\(1\.25rem, 1\.25rem \+ \(100cqi - 52rem\)/.test(deckCss) && /font-size: clamp\(1\.125rem, 1\.125rem \+ \(100cqi - 52rem\)/.test(deckCss)
+    && /\nselect \{ min-height: var\(--vcge-tap\); \}/.test(uiCssL)
+    && /@media \(max-height: 499\.98px\) \{ :root \{ --vcge-header-h: calc\(2\.75 \* var\(--vcge-hu\)\); --vcge-strip-h: var\(--vcge-vault-strip, 0px\); \} \}/.test(deckCss));
 }
 
 // MOD01 saved settings (settings.js): the one localStorage entry, `name=number` pairs, preferences only

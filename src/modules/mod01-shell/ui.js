@@ -9,6 +9,7 @@
 
 import { isPlain, applyEdition } from './edition.js';
 import { initShellArt } from './shellArt.js';
+import { initTier } from './tier.js';
 
 export const BREAKPOINTS = { tablet: 600, desktop: 1200 };
 
@@ -59,6 +60,7 @@ export function initTags(doc = document) {
 
 if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
     applyEdition();
+    initTier();
     initTags();
     initShellArt();
     let touching = false;
