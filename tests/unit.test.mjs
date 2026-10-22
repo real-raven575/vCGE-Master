@@ -1150,21 +1150,29 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('contrast ratio: white on black is 21, a colour on itself 1', Math.abs(card.contrastRatio('#fff', '#000') - 21) < 0.01 && card.contrastRatio('#e8792b', '#e8792b') === 1);
   ok('an old palette key (a card held through a lock) and an unknown one land on a fall theme', card.themeKeyOf('ocean') === 'slateblue' && card.themeKeyOf('sunset') === 'pumpkin' && card.themeKeyOf('nope') === card.DEFAULT_THEME && card.themeKeyOf('maple') === 'maple' && card.THEMES[card.DEFAULT_THEME]);
 
-  // The nine pilots as sample contacts: fictional numbers and addresses only, a bundled animal logo each, licence kept
+  // The ten pilots as sample contacts (raven575, 2026-10-22): "Name the Animal", fictional numbers, a vCGE.APP Gmail
+  // plus-address, a vcge.app team page and a bench at Hangar 01, a bundled animal logo each, licence kept
   const fs6 = await import('node:fs');
-  ok('nine samples, one per pilot plus the PM, all at Team vCGE with a first and last name', card.PRESETS.length === 9 && card.PRESETS.every(p => p.organization === 'Team vCGE' && p.firstName && p.lastName)
-    && card.PRESETS.map(p => p.firstName).join(',') === 'Shutout,Ghost,Iris,Glyph,Pidge,Flipside,Checkers,Airlock,Cornerstone');
-  ok('samples use only the reserved 555-01xx numbers and example.com', card.PRESETS.every(p => p.phones.every(ph => /^\+1 \(202\) 555-01\d\d$/.test(ph.value))
-    && p.emails.every(e => /@example\.com$/.test(e.value)) && p.websites.every(w => /^https:\/\/(www\.)?(example\.com|instagram\.com\/example)/.test(w.value))), JSON.stringify(card.PRESETS.map(p => [p.phones, p.emails, p.websites])));
+  ok('ten samples, one per pilot plus the Banker and the PM, all at Team vCGE as "Name the Animal"', card.PRESETS.length === 10 && card.PRESETS.every(p => p.organization === 'Team vCGE' && p.firstName && /^the [A-Z]/.test(p.lastName))
+    && card.PRESETS.map(p => `${p.firstName} ${p.lastName}`).join(',') === 'Shutout the Box Turtle,Ghost the Raccoon,Iris the Lynx,Glyph the Owl,Pidge the Octopus,Flipside the Chameleon,Checkers the Zebra,Airlock the Falcon,Tally the Hamster,Cornerstone the Elephant');
+  ok('samples use only the reserved 555-01xx numbers, a vcge.app+name Gmail address and their vcge.app team page', card.PRESETS.every(p => p.phones.every(ph => /^\+1 \(202\) 555-01\d\d$/.test(ph.value))
+    && p.emails.length === 1 && p.emails[0].value === `vcge.app+${p.firstName.toLowerCase()}@gmail.com`
+    && /^https:\/\/vcge\.app\/team_members\/(mod0[1-8]|bnk01|pm-vcge-00)-[a-z]+$/.test(p.websites[0].value) && p.websites[0].value.endsWith(`-${p.firstName.toLowerCase()}`)
+    && p.websites.slice(1).every(w => /^https:\/\/instagram\.com\/example$/.test(w.value)))
+    && card.PRESETS.find(p => p.firstName === 'Glyph').websites[0].value === 'https://vcge.app/team_members/mod04-glyph'
+    && card.PRESETS.find(p => p.firstName === 'Cornerstone').websites[0].value === 'https://vcge.app/team_members/pm-vcge-00-cornerstone', JSON.stringify(card.PRESETS.map(p => [p.phones, p.emails, p.websites])));
+  ok('each sample lives at its own bench on Flight Deck Way, Hangar 01, Herd of Helpers HEADQUARTERS', card.PRESETS.every(p => /^\d Flight Deck Way, [A-Z][A-Za-z ]+$/.test(p.street) && p.unitType === 'Hangar' && p.unitNumber === '01'
+    && p.city === 'Herd of Helpers HEADQUARTERS' && p.state === 'OH' && p.zip === '44101') && new Set(card.PRESETS.map(p => p.street)).size === 10
+    && card.PRESETS.find(p => p.firstName === 'Glyph').street === '4 Flight Deck Way, Reading Room', card.PRESETS.map(p => p.street).join(' | '));
   ok('every sample names a fall theme and a bundled animal logo that exists, with the Noto licence beside it',
     card.PRESETS.every(p => card.THEMES[p.themePalette] && /^src\/vendor\/icons\/animals\/[a-z]+\.svg$/.test(p.logo) && fs6.existsSync(`${R}/../${p.logo}`))
     && fs6.existsSync(`${R}/vendor/icons/animals/LICENSE-noto-emoji.txt`) && fs6.readFileSync(`${R}/vendor/icons/animals/LICENSE-noto-emoji.txt`, 'utf8').includes('Apache License'), card.PRESETS.map(p => p.logo).join(' '));
-  ok('plain edition: nine made-up people with no logo, the same fields and extras as the pilots, reserved numbers and example.com only',
-    card.PLAIN_PRESETS.length === 9 && card.PLAIN_PRESETS.every(p => !p.logo && p.firstName && p.lastName && p.organization && p.jobTitle && card.THEMES[p.themePalette]
+  ok('plain edition: ten made-up people with no logo, the same fields and extras as the pilots, reserved numbers and example.com only',
+    card.PLAIN_PRESETS.length === 10 && card.PLAIN_PRESETS.every(p => !p.logo && p.firstName && p.lastName && p.organization && p.jobTitle && card.THEMES[p.themePalette]
       && p.phones.every(ph => /^\+1 \(202\) 555-01\d\d$/.test(ph.value)) && p.emails.every(e => /@example\.com$/.test(e.value)) && p.websites.every(w => /^https:\/\/(example\.com|instagram\.com\/example)/.test(w.value)))
     && card.PLAIN_PRESETS.map(p => p.phones.length + p.websites.length + (p.namePrefix || '') + (p.nameSuffix ? 'S' : '')).join() === card.PRESETS.map(p => p.phones.length + p.websites.length + (p.namePrefix || '') + (p.nameSuffix ? 'S' : '')).join()
     && card.PLAIN_PRESETS.map(p => p.themePalette).join() === card.PRESETS.map(p => p.themePalette).join()
-    && !JSON.stringify(card.PLAIN_PRESETS).match(/vCGE|Shutout|Ghost|Iris|Glyph|Pidge|Flipside|Checkers|Airlock|Cornerstone|pilot/i), card.PLAIN_PRESETS.map(p => p.label).join());
+    && !JSON.stringify(card.PLAIN_PRESETS).match(/vCGE|Shutout|Ghost|Iris|Glyph|Pidge|Flipside|Checkers|Airlock|Tally|Cornerstone|pilot|Herd|Flight Deck|gmail/i), card.PLAIN_PRESETS.map(p => p.label).join());
   ok('the sample logo files are plain SVG drawings (no scripts, no links out)', card.PRESETS.every(p => { const t = fs6.readFileSync(`${R}/../${p.logo}`, 'utf8'); return t.startsWith('<svg') && !/<script|<a[\s>]|href=|on[a-z]+=|url\((?!#)|http(?!:\/\/www\.w3\.org\/)/i.test(t); }));
 
   // White background removal: the white joined to the edge goes see-through, white inside the logo stays
@@ -1471,8 +1479,9 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const fc = await import(`${R}/modules/mod05-form/fieldsCard.js`);
   ok('the pop-in is 320 ms stepped at 26 fps (8 steps), like the padlock and the shimmer', fc.POP_MS === 320 && fc.POP_FPS === 26 && fc.POP_STEPS === 8);
   ok('the list prompt and the green button read as raven575 asked (#61: "Sample vCGE pilot contact")', fc.SAMPLE_PROMPT === 'Sample vCGE pilot contact' && fc.DONE_LABEL === "Everything's correct");
-  ok('#61: a pilot is listed by name with their animal in front', fc.sampleLabel({ firstName: 'Pidge', lastName: 'Octopus', organization: 'Team vCGE', logo: 'src/vendor/icons/animals/octopus.svg' }) === '🐙 Pidge Octopus'
-    && fc.sampleLabel({ firstName: 'Iris', lastName: 'Lynx', logo: 'src/vendor/icons/animals/cat.svg' }) === '🐈 Iris Lynx' && Object.keys(fc.ANIMAL_EMOJI).length === 9);
+  ok('#61: a pilot is listed by name with their animal in front', fc.sampleLabel({ firstName: 'Pidge', lastName: 'the Octopus', organization: 'Team vCGE', logo: 'src/vendor/icons/animals/octopus.svg' }) === '🐙 Pidge the Octopus'
+    && fc.sampleLabel({ firstName: 'Iris', lastName: 'the Lynx', logo: 'src/vendor/icons/animals/cat.svg' }) === '🐈 Iris the Lynx'
+    && fc.sampleLabel({ firstName: 'Tally', lastName: 'the Hamster', logo: 'src/vendor/icons/animals/hamster.svg' }) === '🐹 Tally the Hamster' && Object.keys(fc.ANIMAL_EMOJI).length === 10);
   const { PRESETS } = await import(`${R}/modules/mod06-gui/card3dView.js`).catch(() => ({ PRESETS: null }));
   ok('#61: every pilot sample has an animal in the list', !PRESETS || PRESETS.every(p => /^\p{Extended_Pictographic} \S+(?: \S+)+$/u.test(fc.sampleLabel(p))), PRESETS && PRESETS.map(fc.sampleLabel).join('|'));
   ok('plain edition: the list reads "Sample contact" and names each person with their company', fc.PLAIN_SAMPLE_PROMPT === 'Sample contact'

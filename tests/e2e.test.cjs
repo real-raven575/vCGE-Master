@@ -16,12 +16,12 @@ const FORCE_PLAIN = process.env.VCGE_EDITION === 'plain';
 let EDITION_PLAIN = FORCE_PLAIN;   // settled once the server is up
 
 // The sample contacts as the edition under test lists them (card3dView.js PRESETS / PLAIN_PRESETS): first, last, company
-const SAMPLES_BRANDED = [['Shutout', 'Box Turtle'], ['Ghost', 'Raccoon'], ['Iris', 'Lynx'], ['Glyph', 'Owl'], ['Pidge', 'Octopus'], ['Flipside', 'Chameleon'],
-  ['Checkers', 'Zebra'], ['Airlock', 'Falcon'], ['Cornerstone', 'Elephant']].map(n => [...n, 'Team vCGE']);
+const SAMPLES_BRANDED = [['Shutout', 'the Box Turtle'], ['Ghost', 'the Raccoon'], ['Iris', 'the Lynx'], ['Glyph', 'the Owl'], ['Pidge', 'the Octopus'], ['Flipside', 'the Chameleon'],
+  ['Checkers', 'the Zebra'], ['Airlock', 'the Falcon'], ['Tally', 'the Hamster'], ['Cornerstone', 'the Elephant']].map(n => [...n, 'Team vCGE']);
 const SAMPLES_PLAIN = [['Avery', 'Collins', 'Northwind Design'], ['Jordan', 'Patel', 'Brightline Legal'], ['Maya', 'Rivera', 'Rivera Photography'],
   ['Samuel', 'Okafor', 'Lakeside Clinic'], ['Priya', 'Nair', 'Harbor Logistics'], ['Lena', 'Fischer', 'Fischer and Co.'], ['Marcus', 'Chen', 'Summit Realty'],
-  ['Grace', 'Thompson', 'Oakridge Bank'], ['Daniel', 'Brooks', 'Brooks Consulting']];
-const ANIMALS = ['🐢', '🦝', '🐈', '🦉', '🐙', '🦎', '🦓', '🦅', '🐘'];
+  ['Grace', 'Thompson', 'Oakridge Bank'], ['Rosa', 'Delgado', 'Delgado Bookkeeping'], ['Daniel', 'Brooks', 'Brooks Consulting']];
+const ANIMALS = ['🐢', '🦝', '🐈', '🦉', '🐙', '🦎', '🦓', '🦅', '🐹', '🐘'];
 const samples = () => (EDITION_PLAIN ? SAMPLES_PLAIN : SAMPLES_BRANDED);
 const samplePrompt = () => (EDITION_PLAIN ? 'Sample contact' : 'Sample vCGE pilot contact');
 const sampleList = () => [samplePrompt(), ...samples().map(([f, l, o], i) => (EDITION_PLAIN ? `${f} ${l}, ${o}` : `${ANIMALS[i]} ${f} ${l}`))].join('|');
@@ -3088,7 +3088,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('card: editing the contact keeps the rim as it is (no second fade)', (await p6.evaluate(() => window.__rimOff)) === 0 && (await rim()).set);
     const [dl6] = await Promise.all([p6.waitForEvent('download'), p6.click('#downloadVcfBtn')]);
     const vcf6 = fs.readFileSync(await dl6.path(), 'utf8');
-    const email6 = EDITION_PLAIN ? `${s1First}.${s1Last}@example.com`.toLowerCase() : 'ghost@example.com';
+    const email6 = EDITION_PLAIN ? `${s1First}.${s1Last}@example.com`.toLowerCase() : 'vcge.app+ghost@gmail.com';
     ok(`sample: the .vcf carries the ${EDITION_PLAIN ? 'logo' : 'animal'} as a JPEG photo and the 555-01 number`, /PHOTO;TYPE=JPEG;ENCODING=b:/.test(vcf6) && vcf6.includes('+1 (202) 555-0102') && vcf6.includes(email6), vcf6.split('\r\n').filter(l => /^(TEL|EMAIL|PHOTO)/.test(l)).map(l => l.slice(0, 40)).join(' | '));
     await p6.click('#navCard'); await p6.waitForTimeout(500);
     const sides = await p6.evaluate(() => { const r = document.getElementById('removeAvatarBtn').getBoundingClientRect(), u = document.getElementById('avatarUpload').parentElement.getBoundingClientRect(); return { gap: u.left - r.right, removeText: document.getElementById('removeAvatarBtn').textContent.trim() }; });
@@ -3100,7 +3100,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p6.click('#removeLogoNo');
     ok('logo: No keeps the logo and brings the Remove logo button back', !!(await p6.$(LOGO6)) && await p6.isVisible('#removeAvatarBtn') && !(await p6.isVisible('#removeLogoConfirm')));
     await p6.click('#removeAvatarBtn'); await p6.click('#removeLogoYes');
-    ok('logo: Remove takes the logo off and says so; the initials are back', !(await p6.$(LOGO6)) && (await p6.textContent('#previewAvatar')).trim() === s1First[0] + s1Last[0] && (await p6.textContent('#toastMessage')) === 'Logo removed.');
+    ok('logo: Remove takes the logo off and says so; the initials are back', !(await p6.$(LOGO6)) && (await p6.textContent('#previewAvatar')).trim() === (s1First[0] + s1Last[0]).toUpperCase() && (await p6.textContent('#toastMessage')) === 'Logo removed.');
     ok('card: with the logo removed the rim goes too', await p6.$eval('#card3DFlipper', el => !('rim' in el.dataset) && !el.style.getPropertyValue('--card-rim')));
     await p6.click('#toastAction').catch(() => {});
     await p6.click('#navFields'); await p6.waitForTimeout(300);

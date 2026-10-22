@@ -117,7 +117,7 @@ console.log(`${String(APP_ICONS.length).padStart(6)} SVG src/vendor/icons/app/ (
 // (Apache-2.0, via @iconify-json/noto), written out as plain SVG files. Where Noto has no such animal, the nearest one
 // stands in (lynx: cat, chameleon: lizard, falcon: eagle). The Apache licence text ships beside them (the npm package
 // carries only the SPDX id, so the text is kept in scripts/licenses/).
-const ANIMALS = ['turtle', 'raccoon', 'cat', 'owl', 'octopus', 'lizard', 'zebra', 'eagle', 'elephant'];
+const ANIMALS = ['turtle', 'raccoon', 'cat', 'owl', 'octopus', 'lizard', 'zebra', 'eagle', 'hamster', 'elephant'];
 const noto = JSON.parse(fs.readFileSync(path.join(NM, '@iconify-json/noto/icons.json'), 'utf8'));
 const animalsOut = path.join(iconsOut, 'animals');
 fs.mkdirSync(animalsOut, { recursive: true });

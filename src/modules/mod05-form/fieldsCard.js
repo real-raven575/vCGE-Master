@@ -37,10 +37,10 @@ let isPlain = false;   // the plain edition (initFieldsCard's `plain`)
 
 // The pilot's animal in front of their name: the same animal as the sample's bundled logo (src/vendor/icons/animals/),
 // as the system's own emoji, since a list entry can carry text only.
-export const ANIMAL_EMOJI = Object.freeze({ turtle: '🐢', raccoon: '🦝', cat: '🐈', owl: '🦉', octopus: '🐙', lizard: '🦎', zebra: '🦓', eagle: '🦅', elephant: '🐘' });
+export const ANIMAL_EMOJI = Object.freeze({ turtle: '🐢', raccoon: '🦝', cat: '🐈', owl: '🦉', octopus: '🐙', lizard: '🦎', zebra: '🦓', eagle: '🦅', hamster: '🐹', elephant: '🐘' });
 
 /**
- * The list entry for a sample contact. A pilot (a sample with an animal logo): "🐙 Pidge Octopus". Any other sample:
+ * The list entry for a sample contact. A pilot (a sample with an animal logo): "🐙 Pidge the Octopus". Any other sample:
  * "Elena Rostova, NeuralShift AI" (the sample's own emoji label is never shown).
  */
 export function sampleLabel(sample = {}) {
