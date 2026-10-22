@@ -32,7 +32,7 @@ import { VCGEActiveCamera } from './modules/mod03-camera/camera.js';
 import { CropEditor } from './modules/mod03-camera/cropEditor.js';
 import { executeOCRScan, shutdownOCREngine } from './modules/mod04-ocr/ocrWorker.js';
 import { mergeReadings, missingParts, describeMissing, MAX_PHOTOS } from './modules/mod04-ocr/readingQuality.js';
-import { readIndicator, renderReviewRows, initReadCard, resetBlink, READER_UNAVAILABLE_MESSAGE } from './modules/mod04-ocr/readCard.js';
+import { readIndicator, renderReviewRows, initReadCard, resetBlink, READER_UNAVAILABLE_MESSAGE, READER_STOPPED_MESSAGE } from './modules/mod04-ocr/readCard.js';
 import { ContactFormMapper, LINE_ROLES, PHONE_FORMATS } from './modules/mod05-form/formMapper.js';
 import { PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES } from './share/contactOptions.js';
 import { AddressAutocompleteEngine } from './modules/mod05-form/addressAutocomplete.js';
@@ -741,6 +741,9 @@ async function runOcr() {
         } else if (e && e.code === 'OCR_UNAVAILABLE') {
             backToPhoto();
             cardView.showToast(READER_UNAVAILABLE_MESSAGE);
+        } else if (e && e.code === 'OCR_START_FAILED') {
+            backToPhoto();
+            cardView.showToast(READER_STOPPED_MESSAGE);
         } else {
             backToPhoto();
             cardView.showToast('Could not read that image.');

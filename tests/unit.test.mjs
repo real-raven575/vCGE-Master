@@ -872,6 +872,29 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const undecoded = await failure(ocr.executeOCRScan('data:image/png;base64,x', { initTimeoutMs: 50 }));
   globalThis.Image = NormalImage;
   ok('a photo the browser never finishes preparing ends at the start-up limit instead of hanging', undecoded && undecoded.code === 'OCR_UNAVAILABLE' && undecoded.message.includes('preparing the photo'), undecoded && undecoded.message);
+  // The engine stopping in its last start-up step after its files loaded (WebKit, CI run 39702174014): one fresh start,
+  // then OCR_START_FAILED ("stopped while starting"), never "files couldn't be reached"; a file that fails is not retried
+  {
+    let starts = 0, failFirst = 0, stopped = 0;
+    globalThis.Tesseract = { createWorker: (l, o, opts) => {
+      starts++;
+      if (starts <= failFirst) { setTimeout(() => { opts.logger({ status: 'initializing api', progress: 0 }); opts.errorHandler('RuntimeError: Out of bounds memory access'); }, 1); return new Promise(() => {}); }
+      return Promise.resolve({ setParameters: async () => {}, recognize: async () => ({ data: { text: 'Jane Doe\njane@example.com', confidence: 88, words: Array.from({ length: 8 }, () => ({ text: 'word', confidence: 90 })) } }), terminate() { stopped++; } });
+    } };
+    failFirst = 1;
+    const second = await ocr.executeOCRScan('data:image/png;base64,x');
+    ok('the engine stopping while starting gets one fresh start, and the photo is read', second.text.startsWith('Jane Doe') && starts === 2, String(starts));
+    evt = null;   // that read published as it should; the checks below are failures again
+    share.globalEventBus.publish(share.Events.VAULT_WIPED, { reason: 'test' });
+    await new Promise(r => setTimeout(r, 0));
+    starts = 0; failFirst = 2;
+    const stoppedTwice = await failure(ocr.executeOCRScan('data:image/png;base64,x'));
+    ok('stopping again ends the scan as OCR_START_FAILED after two starts', stoppedTwice && stoppedTwice.code === 'OCR_START_FAILED' && stoppedTwice instanceof ocr.OcrStartFailedError && !ocr.isEngineCrash(stoppedTwice) && stoppedTwice.message.includes('Out of bounds') && starts === 2, stoppedTwice && `${stoppedTwice.code} ${starts}`);
+    starts = 0;
+    globalThis.Tesseract = { createWorker: (l, o, opts) => { starts++; setTimeout(() => opts.errorHandler('Network error while fetching eng.traineddata.gz. Response code: 404'), 1); return new Promise(() => {}); } };
+    const notLoaded = await failure(ocr.executeOCRScan('data:image/png;base64,x'));
+    ok('a file that could not be loaded is still OCR_UNAVAILABLE, with no second start', notLoaded && notLoaded.code === 'OCR_UNAVAILABLE' && starts === 1, notLoaded && `${notLoaded.code} ${starts}`);
+  }
   ok('failed OCR publishes nothing to the form pipeline', evt === null);
 
   let created = 0, terminated = 0, psm = null, params = null, result = null, hold = false, psms = [];

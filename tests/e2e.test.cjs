@@ -258,8 +258,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   // The reader's own log lines ([vCGE-MOD04]) are kept on the page, so a read that never ends can say how far it got
   const keepReaderLog = () => ['log', 'error'].forEach(k => { const f = console[k]; console[k] = (...a) => {
     // The reader's own lines, and the error behind "Could not read that image." (an iPhone run, 2026-10-20, ended there
-    // with no way to tell which error it was)
-    if (typeof a[0] === 'string' && (a[0].startsWith('[vCGE-MOD04]') || a[0].startsWith('[vCGE] OCR failed'))) (window.__readerLog = window.__readerLog || []).push(`${Math.round(performance.now())} ms ${a[0].slice(0, 160)}${a[1] ? ` ${String(a[1] && (a[1].stack || a[1].message) || a[1]).slice(0, 300)}` : ''}`);
+    // with no way to tell which error it was). WebKit's stack leaves the message out, so both are kept (CI run 39702174014).
+    if (typeof a[0] === 'string' && (a[0].startsWith('[vCGE-MOD04]') || a[0].startsWith('[vCGE] OCR failed'))) (window.__readerLog = window.__readerLog || []).push(`${Math.round(performance.now())} ms ${a[0].slice(0, 160)}${a[1] ? ` ${String(a[1] && [a[1].message, a[1].stack].filter(Boolean).join(' | ') || a[1]).slice(0, 400)}` : ''}`);
     return f.apply(console, a); }; });
   browser.newContext = async (opts = {}) => { const c = await plainContext({ ...deviceOptions, ...opts }); await c.addInitScript(pressStartNow); await c.addInitScript(keepReaderLog); await editionRoute(c);
     c.on('page', p => p.once('crash', () => { pageCrashed = true; })); opened.push(c); return c; };
