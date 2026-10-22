@@ -14,7 +14,8 @@ globalThis.localStorage = {
 let pass = 0, fail = 0;
 const ok = (name, cond, detail = '') => {
   if (cond) { pass++; console.log('PASS', name); }
-  else { fail++; console.log('FAIL', name, detail); }
+  // FAIL lines go straight to stdout: some sections silence console.log, and a failure must always name itself
+  else { fail++; process.stdout.write(`FAIL ${name} ${detail}\n`); }
 };
 
 const share = await import(`${R}/share/index.js`);
@@ -678,7 +679,15 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 {
   const { clampView, zoomAbout, viewForCorners, CROP_ZOOM_MAX, SNAP_MARGIN } = await import(`${R}/modules/mod03-camera/cropView.js`);
   ok('crop zoom: never smaller than the whole photo, never past the maximum', clampView({ scale: 0.5, x: 10, y: 10 }, 400, 300).scale === 1 && clampView({ scale: 9, x: 0, y: 0 }, 400, 300).scale === CROP_ZOOM_MAX);
-  ok('crop zoom: the photo always covers the view (no gap at an edge)', JSON.stringify(clampView({ scale: 2, x: 50, y: -900 }, 400, 300)) === JSON.stringify({ scale: 2, x: 0, y: -300 }), JSON.stringify(clampView({ scale: 2, x: 50, y: -900 }, 400, 300)));
+  // Not boxed in (raven575, 2026-10-20): zoomed in, any point of the photo, edges and corners included, can be brought to the
+  // middle of the view, and no further. At 2x a 400 x 300 photo may move from x 200 (its left edge in the middle) to -600.
+  ok('crop zoom: zoomed in, the photo can move until an edge reaches the middle, no further', JSON.stringify(clampView({ scale: 2, x: 50, y: -900 }, 400, 300)) === JSON.stringify({ scale: 2, x: 50, y: -450 }), JSON.stringify(clampView({ scale: 2, x: 50, y: -900 }, 400, 300)));
+  const corner = clampView({ scale: 3, x: 1000, y: 1000 }, 400, 300);
+  ok('crop zoom: the photo\'s top-left corner can be brought to the middle of the view (not boxed in)', corner.x === 200 && corner.y === 150, JSON.stringify(corner));
+  const far = clampView({ scale: 3, x: -5000, y: -5000 }, 400, 300);
+  ok('crop zoom: the bottom-right corner can be brought to the middle too', far.x + 400 * 3 === 200 && far.y + 300 * 3 === 150, JSON.stringify(far));
+  ok('crop zoom: at the whole photo it stays in its place', JSON.stringify(clampView({ scale: 1, x: 80, y: -40 }, 400, 300)) === JSON.stringify({ scale: 1, x: 0, y: 0 }));
+  ok('crop zoom: zooms in up to 6x', CROP_ZOOM_MAX === 6);
   const z = zoomAbout({ scale: 1, x: 0, y: 0 }, 2, 100, 100, 400, 300);
   ok('crop zoom: a pinch keeps the point under the fingers in place', JSON.stringify(z) === JSON.stringify({ scale: 2, x: -100, y: -100 }), JSON.stringify(z));
   ok('crop zoom: pinching out past the whole photo stops at it', JSON.stringify(zoomAbout({ scale: 2, x: -100, y: -100 }, 0.25, 0, 0, 400, 300)) === JSON.stringify({ scale: 1, x: 0, y: 0 }));
@@ -690,6 +699,10 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('snap zoom: the whole card is in view with a margin round it', onScreen.every(p => p.x >= 400 * SNAP_MARGIN / 2 && p.x <= 400 * (1 - SNAP_MARGIN / 2) && p.y >= 0 && p.y <= 300), JSON.stringify(onScreen));
   ok('snap zoom: the card sits in the middle', Math.abs((Math.min(...onScreen.map(p => p.x)) + Math.max(...onScreen.map(p => p.x))) / 2 - 200) < 1, JSON.stringify(onScreen));
   ok('snap zoom: a card that fills the photo leaves the whole photo in view', JSON.stringify(viewForCorners([{ x: 0, y: 0 }, { x: 1600, y: 0 }, { x: 1600, y: 1200 }, { x: 0, y: 1200 }], 1600, 1200, 400, 300)) === JSON.stringify({ scale: 1, x: 0, y: 0 }));
+  // A portrait photo (300 x 400 on screen) seen through a full-width stage (400 x 400): a wide card can zoom in further
+  const wide = [{ x: 0, y: 500 }, { x: 1200, y: 500 }, { x: 1200, y: 1100 }, { x: 0, y: 1100 }];
+  const narrowView = viewForCorners(wide, 1200, 1600, 300, 400), wideView = viewForCorners(wide, 1200, 1600, 300, 400, 400, 400);
+  ok('snap zoom: a full-width stage lets a snapped card fill more of the window', wideView.scale > narrowView.scale, JSON.stringify({ narrowView, wideView }));
   ok('snap zoom: missing sizes are harmless', viewForCorners(card, 0, 0, 400, 300).scale === 1 && viewForCorners(null, 1600, 1200, 400, 300).scale === 1);
 }
 
@@ -750,15 +763,18 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const makeCanvas = () => {
     const c = { width: 0, height: 0, _px: null };
     const rgb = (style) => { const h = style.replace('#', ''); const n = parseInt(h.length === 3 ? h.split('').map(x => x + x).join('') : h, 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; };
-    const put = (x, y, [r, g, b]) => { if (x < 0 || y < 0 || x >= c.width || y >= c.height) return; const o = (y * c.width + x) * 4; c._px[o] = r; c._px[o + 1] = g; c._px[o + 2] = b; c._px[o + 3] = 255; };
+    // clip('evenodd') over two rects (a frame's band) is honoured: paint lands only between them
+    let rects = [], band = null;
+    const inRect = (x, y, [rx, ry, rw, rh]) => x >= rx && y >= ry && x < rx + rw && y < ry + rh;
+    const put = (x, y, [r, g, b]) => { if (x < 0 || y < 0 || x >= c.width || y >= c.height) return; if (band && (!inRect(x, y, band[0]) || inRect(x, y, band[1]))) return; const o = (y * c.width + x) * 4; c._px[o] = r; c._px[o + 1] = g; c._px[o + 2] = b; c._px[o + 3] = 255; };
     const ensure = () => { if (!c._px || c._px.length !== c.width * c.height * 4) c._px = new Uint8ClampedArray(c.width * c.height * 4); };
     let path = [];
     const ctx = {
       fillStyle: '#000000', strokeStyle: '#000000', lineWidth: 1, font: '', textAlign: '',
       fillRect(x, y, w, h) { ensure(); const col = rgb(this.fillStyle); for (let j = Math.round(y); j < Math.round(y + h); j++) for (let i = Math.round(x); i < Math.round(x + w); i++) put(i, j, col); },
-      beginPath() { path = []; },
+      beginPath() { path = []; rects = []; },
       arc(cx, cy, r) { path.push({ cx, cy, r }); },
-      rect() {}, roundRect() {}, stroke() {}, save() {}, restore() {}, clip() {}, moveTo() {}, lineTo() {},
+      rect(x, y, w, h) { rects.push([x, y, w, h]); }, roundRect() {}, stroke() {}, save() {}, restore() { band = null; }, clip() { if (rects.length === 2) band = rects.slice(); }, moveTo() {}, lineTo() {}, closePath() {},
       fill() { ensure(); const col = rgb(this.fillStyle); for (const { cx, cy, r } of path) for (let j = Math.floor(cy - r); j <= Math.ceil(cy + r); j++) for (let i = Math.floor(cx - r); i <= Math.ceil(cx + r); i++) if ((i + 0.5 - cx) ** 2 + (j + 0.5 - cy) ** 2 <= r * r) put(i, j, col); },
       drawImage(img, x, y, w, h) { const keep = this.fillStyle; this.fillStyle = '#777777'; this.fillRect(x, y, w, h); this.fillStyle = keep; },
       fillText() {}
@@ -801,13 +817,18 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('MOD07 without a theme the QR is black on white and reports themed=false', q.lastRender.themed === false && q.lastRender.dark === '#000000' && decodes(plain) === text);
   const round = makeCanvas();
   ok('MOD07 round dots decode (finder squares stay square)', q.renderQRCode(round, text, { size: 320, dots: 'round', theme: { card: themes.spruce } }) && q.lastRender.dots === 'round' && decodes(round) === text);
-  const framed = ['square', 'rounded', 'circle', 'stripes'].every((frame) => { const cv = makeCanvas(); return q.renderQRCode(cv, text, { size: 320, frame, dots: 'round' }) && q.lastRender.frame === frame && cv.width > 0 && decodes(cv) === text; });
-  ok('MOD07 square, rounded, circle and stripes frames keep the code scannable', framed);
+  const framed = ['square', 'rounded', 'circle', 'stripes', 'checkers', 'polka'].every((frame) => { const cv = makeCanvas(); return q.renderQRCode(cv, text, { size: 320, frame, dots: 'round' }) && q.lastRender.frame === frame && cv.width > 0 && decodes(cv) === text; });
+  ok('MOD07 square, rounded, circle, stripes, checkers and polka frames keep the code scannable', framed);
   const circle = makeCanvas(); q.renderQRCode(circle, text, { size: 200, frame: 'circle' });
   const square = makeCanvas(); q.renderQRCode(square, text, { size: 200, frame: 'square' });
   ok('MOD07 a circle frame gets a larger canvas than a square one, so it clears the corners', circle.width > square.width);
   const striped = makeCanvas(); q.renderQRCode(striped, text, { size: 200, frame: 'stripes' });
   ok('MOD07 the stripes frame is a wider band than the square frame, outside the quiet zone', striped.width > square.width && q.lastRender.frame === 'stripes');
+  const wide = makeCanvas(), drawnAt = [];
+  q.renderQRCode(wide, text, { size: 320, logo: { width: 200, height: 50 } });
+  const wctx = wide.getContext('2d'), keepDraw = wctx.drawImage; wctx.drawImage = function (...a) { drawnAt.push(a.slice(3)); return keepDraw.apply(this, a); };
+  q.renderQRCode(wide, text, { size: 320, logo: { width: 200, height: 50 } }); wctx.drawImage = keepDraw;
+  ok('MOD07 a wide logo keeps its shape in the centre (4:1 stays 4:1, never squeezed square) and the code still decodes', drawnAt.length === 1 && Math.abs(drawnAt[0][0] / drawnAt[0][1] - 4) < 0.2 && decodes(wide) === text, JSON.stringify(drawnAt));
   const logoed = makeCanvas();
   ok('MOD07 a centre logo forces level H and the code still decodes around it', q.renderQRCode(logoed, text, { size: 320, logo: {} }) && q.lastRender.level === 'H' && q.lastRender.logo === true && decodes(logoed) === text);
   ok('MOD07 logo option is offered when the contact fits at level H', q.logoOption(text).ok === true && q.fits(text, 'H') === true);
@@ -1004,6 +1025,17 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     ok('garbage in every reading: shown once, from the latest photo, as unreadable; garbage only in an older photo is dropped',
         stillBad.length === 2 && stillBad[0].unreadable && stillBad[0].text === 'Qwrtz Bkkgh' && rq.mergeReadings([[{ text: 'Rhtkp Qwxzt', confidence: 21 }], [{ text: 'jo@acme.com', confidence: 90 }]]).length === 1, JSON.stringify(stillBad));
     ok('photos per card: three at most', rq.MAX_PHOTOS === 3);
+    // raven575, 2026-10-22 (base card): a symbol-only logo line was listed, and "Suite 405" came back "Suite 40%"
+    const debris = rq.mergeReadings([[{ text: '. {) ——', confidence: 10 }, { text: 'Nick Zafer', confidence: 80 }, { text: 'A', confidence: 20 }]]);
+    ok('a line with no letter or digit is dropped, not listed; a stray letter is still listed as unreadable', debris.length === 2 && debris[0].text === 'Nick Zafer' && debris[1].unreadable, JSON.stringify(debris));
+    const suite = 'Moorsbridge Road, Suite 40%';
+    const mended = rq.mergeReadings([[{ text: suite, confidence: 70, alts: [{ at: 26, chars: '5' }], unsure: [] }]])[0];
+    const flagged = rq.fixNumberPercent({ text: suite, alts: [{ at: 26, chars: 'x' }], unsure: [] });
+    ok('a "%" after a suite number takes the reader\'s digit guess; without one its word is flagged to check',
+        mended.text === 'Moorsbridge Road, Suite 405' && !mended.alts.some(a => a.at === 26) && flagged.text === suite && flagged.unsure.join() === '40%', JSON.stringify({ mended, flagged }));
+    ok('a "%" after a house number on a street line or after #, too; any other "%" is left alone',
+        rq.fixNumberPercent({ text: '795% Main Street', alts: [{ at: 3, chars: '0' }] }).text === '7950 Main Street' && rq.fixNumberPercent({ text: 'Unit #12%' }).unsure.join() === '#12%'
+        && rq.fixNumberPercent({ text: '20% off your first visit' }).text === '20% off your first visit' && !rq.fixNumberPercent({ text: '20% off your first visit' }).unsure);
   }
 
   // "Preparing the reader…": reported only when the engine has to start first
@@ -1173,6 +1205,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     && card.PLAIN_PRESETS.map(p => p.phones.length + p.websites.length + (p.namePrefix || '') + (p.nameSuffix ? 'S' : '')).join() === card.PRESETS.map(p => p.phones.length + p.websites.length + (p.namePrefix || '') + (p.nameSuffix ? 'S' : '')).join()
     && card.PLAIN_PRESETS.map(p => p.themePalette).join() === card.PRESETS.map(p => p.themePalette).join()
     && !JSON.stringify(card.PLAIN_PRESETS).match(/vCGE|Shutout|Ghost|Iris|Glyph|Pidge|Flipside|Checkers|Airlock|Tally|Cornerstone|pilot|Herd|Flight Deck|gmail/i), card.PLAIN_PRESETS.map(p => p.label).join());
+  ok('initials: first name and last name, a leading "the" skipped (Ghost the Raccoon is GR, Shutout the Box Turtle SB)',
+    card.initialsOf({ firstName: 'Ghost', lastName: 'the Raccoon' }) === 'GR' && card.initialsOf({ firstName: 'Shutout', lastName: 'the Box Turtle' }) === 'SB'
+    && card.initialsOf({ firstName: 'jane', lastName: 'doe' }) === 'JD' && card.initialsOf({ firstName: 'Ana', lastName: 'Theron' }) === 'AT'
+    && card.initialsOf({ firstName: 'Tom', lastName: 'The' }) === 'TT' && card.initialsOf({ firstName: 'Ana' }) === 'VC' && card.initialsOf() === 'VC'
+    && card.PRESETS.map(card.initialsOf).join() === 'SB,GR,IL,GO,PO,FC,CZ,AF,TH,CE');
   ok('the sample logo files are plain SVG drawings (no scripts, no links out)', card.PRESETS.every(p => { const t = fs6.readFileSync(`${R}/../${p.logo}`, 'utf8'); return t.startsWith('<svg') && !/<script|<a[\s>]|href=|on[a-z]+=|url\((?!#)|http(?!:\/\/www\.w3\.org\/)/i.test(t); }));
 
   // White background removal: the white joined to the edge goes see-through, white inside the logo stays
@@ -1405,9 +1442,25 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     && [...platesTag[1].matchAll(/data-card="(\w+)"/g)].map(m => m[1]).join() === 'welcome,capture,read,fields,card,share'
     && /html\[data-edition="plain"\] \.deck-turtle, html\[data-edition="plain"\] \.deck-plates \{ display: none; \}/.test(deckCss));
   ok('shell art: the turtle walks only when motion is allowed, and the sheets\' grab bar and pebble are branded only',
-    /@media \(prefers-reduced-motion: no-preference\) \{ \.deck-turtle\.is-placed \{ transition: transform 0\.4s ease-in-out; \} \}/.test(deckCss)
+    /@media \(prefers-reduced-motion: no-preference\) \{ \.deck-turtle\.is-placed \{ transition: top 0\.3s ease-out; \} \}/.test(deckCss)
     && !/\.deck-turtle[^{]*\{[^}]*transition: (?!none)/.test(deckCss.replace(/@media \(prefers-reduced-motion: no-preference\) \{[^\n]*\n/g, ''))
     && /html:not\(\[data-edition="plain"\]\) \.vcge-sheet-panel::before \{/.test(deckCss) && /html:not\(\[data-edition="plain"\]\) \.vcge-sheet-close \{/.test(deckCss));
+  // The walk (raven575's test report 2026-10-22): a capped spring, simulated at 60 frames a second
+  const walkFor = (from, to, seconds = 8) => {
+    let st = { x: from, v: 0 }, t = 0, top = 0, past = 0, at01 = null, settledAt = null;
+    while (t < seconds && settledAt === null) {
+      st = art.stepWalk(st, to, 1 / 60); t += 1 / 60;
+      top = Math.max(top, Math.abs(st.v)); past = Math.max(past, (st.x - to) * Math.sign(to - from));
+      if (at01 === null && t >= 0.1) at01 = Math.abs(st.x - from) / Math.abs(to - from);
+      if (st.settled) settledAt = t;
+    }
+    return { top, past, at01, settledAt, x: st.x };
+  };
+  const hop = walkFor(0, 120), far = walkFor(900, 0);
+  ok('shell art: the turtle gains speed slowly, runs a little past the icon, eases back and stops exactly on it',
+    hop.at01 < 0.1 && hop.past > 2 && hop.past < 0.2 * 120 && hop.settledAt !== null && hop.settledAt < 3 && hop.x === 120, JSON.stringify(hop));
+  ok('shell art: the turtle has a top speed, so a long way takes him a while, and he still gets there',
+    far.top <= art.WALK.maxSpeed && far.settledAt > 2 && far.settledAt < 6 && far.x === 0, JSON.stringify(far));
   // Layout step 1 (tier.js): the screen tier is the width over the text size; 21:9 from monitor width is wide
   const tier = await import(`${R}/modules/mod01-shell/tier.js`);
   const tiers = (pairs, size) => pairs.map(([w, h]) => tier.tierFor(w, h, size)).join();
@@ -1536,6 +1589,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 {
   const { EgressController, safeFileName, FILE_NAME_MAX } = await import(`${R}/modules/mod08-egress/egressController.js`);
   const { cleanChoices, defaultChoices, previewNote, QR_FRAMES, QR_DOTS } = await import(`${R}/modules/mod08-egress/exportDialogs.js`);
+  const { QR_FRAMES: MOD07_FRAMES, QR_DOTS: MOD07_DOTS } = await import(`${R}/modules/mod07-qr/qrGenerator.js`);
   ok('MOD08 safe file names keep spaces and drop what Windows, macOS and Linux forbid', safeFileName('Jane Doe') === 'Jane Doe' && safeFileName(' Smith / Jones: "Co" <*?> |x| ') === 'Smith Jones Co x' && safeFileName('a\u0000b\u001fc') === 'abc');
   ok('MOD08 leading and trailing dots and spaces go; an empty name gives the fallback', safeFileName('.. hidden ..') === 'hidden' && safeFileName('   ') === 'Contact' && safeFileName('///', 'Card') === 'Card');
   ok('MOD08 very long names are cut', safeFileName('x'.repeat(200)).length === FILE_NAME_MAX);
@@ -1562,7 +1616,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('MOD08 Export still has no standing read of the contact through its handle', (() => { try { store.handle('mod08').get('contact'); return false; } catch (err) { return err.message.startsWith('VAULT_DENIED'); } })());
   // The pop-up's choices: themed, square, no frame, no logo by default; anything unknown falls back
   ok('MOD08 QR pop-up defaults: Themed, square dots, no frame, no logo, not on the card', JSON.stringify(defaultChoices()) === '{"colour":"themed","dots":"square","frame":"none","logo":"none","useOnCard":false}');
-  ok('MOD08 QR pop-up: every frame and dot style MOD07 draws is offered', QR_FRAMES.join() === 'none,square,rounded,circle,stripes' && QR_DOTS.join() === 'square,round');
+  ok('MOD08 QR pop-up: every frame and dot style MOD07 draws is offered', QR_FRAMES.join() === 'none,square,rounded,circle,stripes,checkers,polka' && QR_DOTS.join() === 'square,round,diamond' && QR_FRAMES.join() === MOD07_FRAMES.join() && QR_DOTS.join() === MOD07_DOTS.join());
   const { readyLights, readyLightsText } = await import(`${R}/modules/mod08-egress/airlockTouches.js`);
   ok('MOD08 runway lights: none for an empty card, then a name, a way to reach them and a scannable code', readyLights({}, false).join() === 'false,false,false' && readyLights({ organization: 'B' }, true).join() === 'true,false,true' && readyLights({ firstName: ' ', emails: [{ value: 'a@b.c' }] }, false).join() === 'false,true,false');
   ok('MOD08 runway lights read the same in words', readyLightsText([false, false, false]) === 'Lit: none yet.' && readyLightsText([true, true, true]) === 'Lit: a name, a way to reach them, a scannable QR code.' && readyLightsText([true, false, true]) === 'Lit: a name, a scannable QR code.');
@@ -1628,7 +1682,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     && printPageHeight(450) === 5.29 && printPageHeight(451) === 5.3, [printPageHeight(278), printPageHeight(450), printPageHeight(451)].join());
   ok('MOD08 audit events name what happened: share_file, share_text, clipboard, sms, email', methods === 'share_file,share_text,clipboard,sms,email', methods);
   ok('MOD08 audit events carry signals only: no file name, name, number or address (Commandment 6)', events.every(d => Object.keys(d).every(k => ['module', 'method', 'timestamp', 'themed'].includes(k)))
-    && !leaks.some(w => JSON.stringify(events).includes(w)), JSON.stringify(events));
+    // the timestamp is left out of the search: its digits are never contact data, and "269" turned up in one now and then
+    && !leaks.some(w => JSON.stringify(events.map(({ timestamp, ...signal }) => signal)).includes(w)), JSON.stringify(events));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

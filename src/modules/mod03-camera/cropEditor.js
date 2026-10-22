@@ -108,7 +108,7 @@ export class CropEditor {
         if (!quad) return false;
         this.setCorners(quad.map(p => ({ x: p.x / scale, y: p.y / scale })));
         const { w, h } = this.viewSize();
-        this.setView(viewForCorners(this.corners, img.naturalWidth, img.naturalHeight, w, h), { animate: true });
+        this.setView(viewForCorners(this.corners, img.naturalWidth, img.naturalHeight, w, h, this.stage.clientWidth, this.stage.clientHeight), { animate: true });
         return true;
     }
 

@@ -126,6 +126,12 @@
         display: none !important;
     }
 
+    /* The body is one screen tall on screen (h-screen); in Chrome's print preview that height is the window's, which
+       added blank pages after the card. In print the page holds only the sheet, so the height follows it. */
+    html, body {
+        height: auto !important;
+    }
+
     body {
         background: #ffffff !important;
         min-height: 0 !important;

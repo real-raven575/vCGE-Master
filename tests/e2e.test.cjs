@@ -256,9 +256,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   const editionRoute = (c) => (FORCE_PLAIN ? c.route(u => u.origin + u.pathname === ORIGIN || u.origin + u.pathname === ORIGIN + 'index.html',
     async (route) => { const r = await route.fetch(); await route.fulfill({ response: r, body: (await r.text()).replace('<html lang="en"', '<html lang="en" data-edition="plain"') }); }) : null);
   // The reader's own log lines ([vCGE-MOD04]) are kept on the page, so a read that never ends can say how far it got
-  const keepReaderLog = () => ['log', 'error'].forEach(k => { const f = console[k]; console[k] = (...a) => {
+  const keepReaderLog = () => ['log', 'warn', 'error'].forEach(k => { const f = console[k]; console[k] = (...a) => {
     // The reader's own lines, and the error behind "Could not read that image." (an iPhone run, 2026-10-20, ended there
     // with no way to tell which error it was). WebKit's stack leaves the message out, so both are kept (CI run 39702174014).
+    // Its warnings too: "reading once more with a fresh reader" shows whether a crash was retried (raven575, 2026-10-22;
+    // iPhone plain job 119710466238 crashed and the log could not say).
     if (typeof a[0] === 'string' && (a[0].startsWith('[vCGE-MOD04]') || a[0].startsWith('[vCGE] OCR failed'))) (window.__readerLog = window.__readerLog || []).push(`${Math.round(performance.now())} ms ${a[0].slice(0, 160)}${a[1] ? ` ${String(a[1] && [a[1].message, a[1].stack].filter(Boolean).join(' | ') || a[1]).slice(0, 400)}` : ''}`);
     return f.apply(console, a); }; });
   browser.newContext = async (opts = {}) => { const c = await plainContext({ ...deviceOptions, ...opts }); await c.addInitScript(pressStartNow); await c.addInitScript(keepReaderLog); await editionRoute(c);
@@ -337,7 +339,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const t = document.getElementById('deckTurtle'), on = document.querySelector('.deck-nav button.is-on');
     const tr = t.getBoundingClientRect(), br = on.getBoundingClientRect(), hr = document.querySelector('.deck-header').getBoundingClientRect();
     return { shown: getComputedStyle(t).display !== 'none' && getComputedStyle(t).visibility === 'visible', off: Math.abs((tr.left + tr.width / 2) - (br.left + br.width / 2)),
-      onEdge: tr.top < hr.bottom && tr.bottom > hr.bottom, walk: getComputedStyle(t).transitionDuration,
+      onEdge: tr.top < hr.bottom && tr.bottom > hr.bottom, tucked: t.classList.contains('is-tucked'), behind: tr.top < br.bottom - 8 && tr.bottom > br.bottom,
       plates: Array.from(document.querySelectorAll('#deckPlates [data-card]')).map(p => p.dataset.state || '').join(),
       platesShown: getComputedStyle(document.getElementById('deckPlates')).display !== 'none', hidden: t.getAttribute('aria-hidden') + document.getElementById('deckPlates').getAttribute('aria-hidden') };
   });
@@ -348,17 +350,30 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // The page opens on the Capture card: Shutout walks to Start and back (not Fields: its form pops in once, later)
     await page.waitForFunction(() => document.getElementById('deckTurtle').classList.contains('is-placed'), null, { timeout: 5000 }).catch(() => {});
     await page.waitForTimeout(300);
+    const settled = () => page.waitForFunction(() => document.getElementById('deckTurtle').classList.contains('is-tucked'), null, { timeout: 8000 }).catch(() => {});
     const a0 = await shellArt();
-    ok('shell art: the turtle stands on the header\'s edge under the lit icon, and only that card\'s plate is current', a0.shown && a0.off <= 2 && a0.onEdge && a0.platesShown
-      && a0.plates === 'new,current,new,new,new,new' && a0.hidden === 'truetrue', JSON.stringify(a0));
-    await page.click('#navWelcome'); await page.waitForTimeout(900);
+    ok('shell art: the turtle is tucked in behind the lit icon, on the header\'s edge, and only that card\'s plate is current', a0.shown && a0.off <= 2 && a0.onEdge && a0.tucked && a0.behind
+      && a0.platesShown && a0.plates === 'new,current,new,new,new,new' && a0.hidden === 'truetrue', JSON.stringify(a0));
+    await page.click('#navWelcome'); await page.waitForTimeout(150);
+    const aw = await shellArt();
+    await settled(); await page.waitForTimeout(350);
     const a1 = await shellArt();
-    ok('shell art: the turtle walks (0.4 s) to the Start icon; Capture is now a visited plate, Start the current one', a1.shown && a1.off <= 2 && a1.walk === '0.4s'
-      && a1.plates === 'current,visited,new,new,new,new', JSON.stringify(a1));
+    ok('shell art: the turtle steps out and walks to the Start icon, then tucks in behind it; Capture is now a visited plate', !aw.tucked && aw.off > 2
+      && a1.shown && a1.off <= 2 && a1.tucked && a1.behind && a1.plates === 'current,visited,new,new,new,new', JSON.stringify({ aw, a1 }));
+    // Left/Right mirrors the header: he goes over to the lit icon's new place by himself
+    await page.evaluate(() => document.getElementById('handLeftBtn').click()); await page.waitForTimeout(150);
+    await settled(); await page.waitForTimeout(350);
+    const ah = await shellArt();
+    await page.evaluate(() => document.getElementById('handRightBtn').click()); await page.waitForTimeout(150);
+    await settled(); await page.waitForTimeout(350);
+    const ar = await shellArt();
+    ok('shell art: when Left/Right mirrors the header, the turtle goes to the lit icon\'s new place and tucks in', ah.shown && ah.off <= 2 && ah.tucked && ar.off <= 2 && ar.tucked, JSON.stringify({ ah, ar }));
+    // The flip saved a settings entry: take it away again, so the Settings checks below start from nothing stored
+    await page.evaluate(() => localStorage.removeItem('vcge_settings'));
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.click('#navCapture'); await page.waitForTimeout(600);
+    await page.click('#navCapture'); await page.waitForTimeout(250);
     const a2 = await shellArt();
-    ok('shell art: under reduced motion the turtle does not walk, it is simply under the new icon', a2.shown && a2.off <= 2 && a2.walk === '0s'
+    ok('shell art: under reduced motion the turtle does not walk, it is simply tucked in behind the new icon', a2.shown && a2.off <= 2 && a2.tucked
       && a2.plates === 'visited,current,new,new,new,new', JSON.stringify(a2));
     await page.emulateMedia({ reducedMotion: null });
   }
@@ -1631,6 +1646,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('printed card is 3.5 in wide and at least 2 in tall, with the 1.5 in QR to its right', size.card[0] === 336 && size.card[1] >= 192 && size.qr[0] === 144 && size.qr[1] === 144 && size.qrRight, JSON.stringify(size));
     ok('printed card cuts nothing off: every line sits inside the card (raven575 2026-10-18)', size.cut.length === 0, JSON.stringify(size.cut));
     ok('themed print keeps the card\'s own colours', size.bg === size.cardBg && size.bg !== 'rgb(255, 255, 255)', JSON.stringify(size));
+    // Chrome's print preview sized the one-screen-tall body to the window, so a short card printed 4 sheets (raven575 2026-10-21)
+    const printBody = await p9.evaluate(() => ({ body: document.body.getBoundingClientRect().height, sheet: document.getElementById('printSheet').getBoundingClientRect().height, view: innerHeight }));
+    ok('in print the page is only as tall as the print sheet, not the window (no blank sheets after the card)', Math.abs(printBody.body - printBody.sheet) < 1 && printBody.body < printBody.view, JSON.stringify(printBody));
     await p9.emulateMedia({ media: null });
     if (ENGINE !== 'chromium') notRunHere('print is one 6 x 3.5 in page (no blank pages)', 'saving a page as PDF exists only in Chromium');
     else {
@@ -2090,6 +2108,23 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const img5 = await p5.locator('#reviewImage').boundingBox();
     await p5.mouse.dblclick(img5.x + img5.width / 2, img5.y + img5.height / 2); await p5.waitForTimeout(600);
     ok('a double click on the photo goes back to the whole photo, the corners stay put', (await p5.$eval('#cropView', v => v.style.transform)) === '' && (await p5.getAttribute('#cropPolygon', 'points')) === snapView.points, await p5.$eval('#cropView', v => v.style.transform));
+    // Not boxed in (raven575, 2026-10-20): the stage is the full width, and zoomed in, the photo's corner can be dragged to
+    // the middle of the stage (it used to stop at the photo's own edges)
+    const stageFit = await p5.evaluate(() => { const s = document.getElementById('cropStage').getBoundingClientRect(), b = document.getElementById('captureReview').getBoundingClientRect(), i = document.getElementById('reviewImage').getBoundingClientRect(); return { s: s.width, review: b.width, photo: i.width }; });
+    ok('crop step: the stage is the full width of the crop step, wider than the photo', Math.abs(stageFit.s - stageFit.review) < 2 && stageFit.s > stageFit.photo, JSON.stringify(stageFit));
+    await p5.evaluate(() => { const s = document.getElementById('cropStage'), r = s.getBoundingClientRect();
+      for (let i = 0; i < 4; i++) s.dispatchEvent(new WheelEvent('wheel', { deltaY: -100, ctrlKey: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2, bubbles: true, cancelable: true })); });
+    const zoomedTo = await p5.$eval('#cropView', v => Number(v.style.getPropertyValue('--crop-scale')));
+    await p5.locator('#cropStage').scrollIntoViewIfNeeded();   // every drag must start and end on screen
+    const st5 = await p5.locator('#cropStage').boundingBox();
+    for (let i = 0; i < 8; i++) {   // mouse drags inside the stage toward its far corner (the browser's own image drag must not cut them short)
+      await p5.mouse.move(st5.x + 20, st5.y + 20); await p5.mouse.down();
+      await p5.mouse.move(st5.x + st5.width - 20, st5.y + st5.height - 20, { steps: 6 }); await p5.mouse.up();
+    }
+    const tl = await p5.evaluate(() => { const s = document.getElementById('cropStage').getBoundingClientRect(), i = document.getElementById('reviewImage').getBoundingClientRect();
+      return { dx: i.left - (s.left + s.width / 2), dy: i.top - (s.top + s.height / 2), drag: document.getElementById('reviewImage').draggable }; });
+    ok('crop step: zoomed in (up to 6x), the photo\'s corner can be dragged to the middle of the stage, not boxed in; the corners stay put', zoomedTo === 6 && !tl.drag && Math.abs(tl.dx) < 2 && Math.abs(tl.dy) < 2
+      && (await p5.getAttribute('#cropPolygon', 'points')) === snapView.points, JSON.stringify({ zoomedTo, tl }));
     await ctx5.close();
   });
 
@@ -2964,11 +2999,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const back = document.getElementById('cardBack').getBoundingClientRect(), qr = document.getElementById('qrCanvas').getBoundingClientRect(), pk = peek.getBoundingClientRect();
       return { peekShown: getComputedStyle(peek).display !== 'none', tailShown: getComputedStyle(tail).display !== 'none', hidden: peek.getAttribute('aria-hidden') === 'true' && tail.getAttribute('aria-hidden') === 'true',
         label: btn.textContent.trim(), noPress: getComputedStyle(peek).pointerEvents === 'none', moving: peek.getAnimations().length + tail.getAnimations().length,
-        onEdge: Math.abs(pk.bottom - back.bottom) <= 2 && pk.right <= back.right - 16, clearOfQr: pk.top >= qr.bottom || pk.left >= qr.right };
+        whole: pk.bottom <= back.bottom - 4 && pk.bottom >= back.bottom - 16 && pk.top > back.top && pk.left > back.left && pk.right <= back.right - 16 && pk.height >= 30, clearOfQr: pk.top >= qr.bottom || pk.left >= qr.right };
     });
     if (EDITION_PLAIN) ok('plain edition: no chameleon on the card\'s back and no tail on Flip card; the button still reads "Flip card"', !cute.peekShown && !cute.tailShown && cute.label === 'Flip card', JSON.stringify(cute));
-    else ok('card: Flipside peeks up over the bottom edge of the back, clear of the QR code, still and untouchable; Flip card has its curled tail and still reads "Flip card"; both hidden from screen readers',
-      cute.peekShown && cute.tailShown && cute.hidden && cute.label === 'Flip card' && cute.noPress && cute.moving === 0 && cute.onEdge && cute.clearOfQr, JSON.stringify(cute));
+    else ok('card: Flipside sits whole on the bottom edge of the back (none of it cut off), clear of the QR code, still and untouchable; Flip card has its curled tail and still reads "Flip card"; both hidden from screen readers',
+      cute.peekShown && cute.tailShown && cute.hidden && cute.label === 'Flip card' && cute.noPress && cute.moving === 0 && cute.whole && cute.clearOfQr, JSON.stringify(cute));
     ok('card: with no logo the card has no rim', await p6.$eval('#card3DFlipper', el => !('rim' in el.dataset) && getComputedStyle(document.getElementById('cardFront'), '::after').opacity === '0'));
     ok('card: the picker lists the eight fall palettes in order', (await p6.$$eval('#paletteListContainer button', bs => bs.map(b => b.textContent.trim()).join('|'))) === 'Pumpkin|Maple|Harvest Gold|Cranberry|Spruce|Sage|Slate Blue|Twilight');
     await p6.click('#paletteDropdownBtn'); await p6.click('#paletteListContainer [data-theme="pumpkin"]');
@@ -3149,13 +3184,56 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p6.click('#removeLogoNo');
     ok('logo: No keeps the logo and brings the Remove logo button back', !!(await p6.$(LOGO6)) && await p6.isVisible('#removeAvatarBtn') && !(await p6.isVisible('#removeLogoConfirm')));
     await p6.click('#removeAvatarBtn'); await p6.click('#removeLogoYes');
-    ok('logo: Remove takes the logo off and says so; the initials are back', !(await p6.$(LOGO6)) && (await p6.textContent('#previewAvatar')).trim() === (s1First[0] + s1Last[0]).toUpperCase() && (await p6.textContent('#toastMessage')) === 'Logo removed.');
+    ok('logo: Remove takes the logo off and says so; the initials are back', !(await p6.$(LOGO6)) && (await p6.textContent('#previewAvatar')).trim() === (EDITION_PLAIN ? s1First[0] + s1Last[0] : 'GR') && (await p6.textContent('#toastMessage')) === 'Logo removed.');
     ok('card: with the logo removed the rim goes too', await p6.$eval('#card3DFlipper', el => !('rim' in el.dataset) && !el.style.getPropertyValue('--card-rim')));
     await p6.click('#toastAction').catch(() => {});
     await p6.click('#navFields'); await p6.waitForTimeout(300);
     await p6.click('#clearFormBtn'); await p6.click('#toastAction');
     await p6.waitForTimeout(300);
     ok('sample: Undo after Clear brings the sample back without its logo (removed before) and with its theme', (await p6.inputValue('#firstName')) === s1First && (await p6.textContent('#currentPaletteLabel')) === 'Twilight' && !(await p6.$(LOGO6)));
+    // The logo's look and the card's finish (raven575 test report, 2026-10-22)
+    await p6.click('#navCard'); await p6.waitForTimeout(300);
+    ok('card: the logo and finish controls start folded under "Logo & finish", so the card stays in view on a phone', !(await p6.$eval('#cardLookPanel', d => d.open)) && !(await p6.isVisible('#logoSizeSelect')) && (await p6.textContent('#cardLookPanel summary')).trim() === 'Logo & finish');
+    await p6.click('#cardLookPanel summary');
+    const presets = await p6.$$eval('#logoPresetSelect optgroup', gs => gs.map(g => g.label + ':' + g.children.length));
+    ok(EDITION_PLAIN ? 'plain edition: the ready-made logos are the eight palette pictures, with no team characters' : 'logo: the ready-made logos are every Team vCGE character (one per sample) and a picture for each of the eight palettes',
+      JSON.stringify(presets) === JSON.stringify(EDITION_PLAIN ? ['To match a palette:8'] : [`Team vCGE:${samples().length}`, 'To match a palette:8']), JSON.stringify(presets));
+    await p6.selectOption('#logoPresetSelect', 'theme:pumpkin');
+    await p6.waitForFunction(() => !!document.querySelector('#previewAvatar img'), null, { timeout: 5000 }).catch(() => {});
+    await p6.waitForTimeout(300);
+    const pick = await p6.evaluate(() => ({ toast: document.getElementById('toastMessage').textContent, img: !!document.querySelector('#previewAvatar img'), select: document.getElementById('logoPresetSelect').value, remove: !document.getElementById('removeAvatarBtn').classList.contains('hidden') }));
+    ok('logo: a ready-made pumpkin goes on the card like an upload (Remove logo shown) and the picker is ready again', pick.toast === 'Logo: Pumpkin' && pick.img && pick.select === '' && pick.remove, JSON.stringify(pick));
+    // offsetWidth: the logo's own size, before the card's 3D view and the deck scale it on screen (WebKit draws it 94%).
+    const badge = () => p6.$eval('#previewAvatar', el => ({ w: el.offsetWidth, bg: el.style.background, ink: el.style.color }));
+    const sizes = {};
+    for (const k of ['sm', 'md', 'lg']) { await p6.selectOption('#logoSizeSelect', k); sizes[k] = (await badge()).w; }
+    const rem = await p6.evaluate(() => parseFloat(getComputedStyle(document.documentElement).fontSize));
+    ok('logo: Small, Medium and Large make the logo 4, 5 and 6 rem on screen (64, 80 and 96 px at the usual text size); Medium is the start', sizes.sm === Math.round(4 * rem) && sizes.md === Math.round(5 * rem) && sizes.lg === Math.round(6 * rem) && (await p6.$eval('#logoSizeSelect', s => s.options[0].value + s.options[1].value + s.options[2].value)) === 'smmdlg', JSON.stringify({ ...sizes, rem }));
+    await p6.selectOption('#logoSizeSelect', 'md');
+    await p6.click('#logoBgGroup [data-back="dark"]');
+    const dark = await badge();
+    await p6.evaluate(() => { const w = document.getElementById('logoBgPicker'); w.value = '#ff8800'; w.dispatchEvent(new Event('input', { bubbles: true })); });
+    const wheel = { ...(await badge()), on: await p6.$eval('#logoBgPicker', w => w.classList.contains('is-on')), pressed: await p6.$$eval('#logoBgGroup [aria-pressed="true"]', bs => bs.length) };
+    await p6.click('#logoBgGroup [data-back="auto"]');
+    const auto = { ...(await badge()), pressed: await p6.$eval('#logoBgGroup [data-back="auto"]', b => b.getAttribute('aria-pressed')) };
+    ok('logo: Dark gray sits behind the logo, the colour wheel sets any colour (no swatch then lit), Auto takes it away again',
+      dark.bg === 'rgb(51, 65, 85)' && wheel.bg === 'rgb(255, 136, 0)' && wheel.on && wheel.pressed === 0 && auto.bg !== 'rgb(255, 136, 0)' && auto.pressed === 'true', JSON.stringify({ dark, wheel, auto }));
+    const swatches = await p6.$$eval('#logoBgGroup button', bs => bs.map(b => b.getAttribute('aria-label')).join('|'));
+    ok('logo: the quick picks are Auto, Mostly white, Light gray, Dark gray and Charcoal, each named for screen readers (no pure white or black)', swatches === 'Auto|Mostly white|Light gray|Dark gray|Charcoal', swatches);
+    const finish = () => p6.evaluate(() => { const st = getComputedStyle(document.getElementById('cardFront'), '::before'); return { image: st.backgroundImage.slice(0, 22), opacity: st.opacity, z: st.zIndex, off: document.getElementById('cardFinishStrength').disabled }; });
+    const flat = await finish();
+    await p6.selectOption('#cardFinishSelect', 'dots');
+    const dots = await finish();
+    await p6.fill('#cardFinishStrength', '30');
+    const strong = await finish();
+    // Behind the text by construction: the texture is stacked below the face's own content (z-index -1) inside the face
+    // (isolation), so it can never cover a line. (Hit-testing cannot see a pseudo-element, and on a phone the open
+    // controls push the card under other layers.)
+    const textOnTop = await p6.$eval('#cardFront', el => getComputedStyle(el).isolation === 'isolate');
+    ok('card: a finish lays a texture over the card colour (Dots at 15%, the slider takes it to 30%), behind the text; Flat has none and no slider',
+      flat.image === 'none' && flat.off && dots.image.startsWith('radial-gradient') && dots.opacity === '0.15' && !dots.off && strong.opacity === '0.3' && dots.z === '-1' && textOnTop, JSON.stringify({ flat, dots, strong, textOnTop }));
+    await p6.selectOption('#cardFinishSelect', 'flat');
+    await p6.click('#removeAvatarBtn'); await p6.click('#removeLogoYes');
     ok('card: no page errors, nothing fetched from outside, no missing files', errors6.length === 0 && external6.length === 0 && missing6.length === 0, errors6.concat(external6, missing6).join(' | '));
     await ctx6.close();
   }
@@ -3350,6 +3428,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const coloursOf = (id) => pA.evaluate((id) => { const c = document.getElementById(id), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; const seen = new Set(); for (let i = 0; i < d.length; i += 4) seen.add(`${d[i]},${d[i + 1]},${d[i + 2]}`); return [...seen]; }, id);
     const tA = (id) => pA.$eval('#' + id, el => el.textContent.trim());
     // Each style choice is a 1 px hidden radio inside a 44 px label (export.css): tap the label as a person does, then report whether it took
+    const pickFrame = async (value) => { await pA.selectOption('#qrFrameSelect', value); return (await pA.inputValue('#qrFrameSelect')) === value; };
     const tapChoice = async (name, value) => { const input = `input[name="${name}"][value="${value}"]`; await pA.click(`label:has(> ${input})`); return pA.isChecked(input); };
 
     // An empty card: the Share card says so instead of opening the pop-up or printing
@@ -3376,9 +3455,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pA.click('#navCard'); await pA.waitForTimeout(500);
     const lightsOn = await pA.evaluate(() => {
       const dots = [...document.querySelectorAll('#readyToShareBtn .ready-light')].map(d => getComputedStyle(d));
-      return { lit: document.querySelectorAll('#readyToShareBtn .ready-light.is-lit').length, words: document.getElementById('readyLightsText').textContent, fills: dots.map(d => d.backgroundColor), borders: dots.map(d => d.borderTopWidth) };
+      return { popped: document.querySelectorAll('#readyToShareBtn .ready-light.is-popping').length, lit: document.querySelectorAll('#readyToShareBtn .ready-light.is-lit').length, words: document.getElementById('readyLightsText').textContent, fills: dots.map(d => d.backgroundColor), borders: dots.map(d => d.borderTopWidth) };
     });
-    ok('Airlock E3: a name, an email and a scannable code light all three, each filled (not just a colour change)', lightsOn.lit === 3 && lightsOn.words === 'Lit: a name, a way to reach them, a scannable QR code.' && lightsOn.fills.every(f => f !== 'rgba(0, 0, 0, 0)') && lightsOn.borders.every(b => b === '2px'), JSON.stringify(lightsOn));
+    ok('Airlock E3: a name, an email and a scannable code light all three, each filled (not just a colour change) and each grew once as it came on', lightsOn.lit === 3 && lightsOn.popped === 3 && lightsOn.words === 'Lit: a name, a way to reach them, a scannable QR code.' && lightsOn.fills.every(f => f !== 'rgba(0, 0, 0, 0)') && lightsOn.borders.every(b => b === '2px'), JSON.stringify(lightsOn));
     const unlitFill = await pA.evaluate(() => { const d = document.createElement('span'); d.className = 'ready-light'; document.getElementById('readyToShareBtn').append(d); const f = getComputedStyle(d).backgroundColor; d.remove(); return f; });
     ok('Airlock E3: an unlit light is only an outline (no fill)', unlitFill === 'rgba(0, 0, 0, 0)', unlitFill);
     const qrBack = await pA.evaluate(() => { const c = document.getElementById('qrCanvas'), h = document.getElementById('qrHint'), tail = h.querySelector('.qr-tail'); return { reveal: c.classList.contains('qr-reveal'), anim: getComputedStyle(c).animationName, hint: !h.classList.contains('hidden') && h.textContent.trim(), tail: getComputedStyle(tail).display }; });
@@ -3396,8 +3475,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
 
     // Export QR pop-up: a live preview from the same code as the card back, Themed by default
     await pA.click('#exportQrBtn');
-    const hatch = await pA.evaluate(() => { const h = document.querySelector('#exportQrBtn .hatch'); return { open: h.classList.contains('is-open'), shown: getComputedStyle(h).display, all: document.querySelectorAll('#cardShare button.share-btn .hatch').length }; });
-    ok(`Airlock E1: ${EDITION_PLAIN ? 'the plain edition has no hatch doors' : 'every Share button has a hatch door, and it opens on a press'}`, hatch.all === 7 && (EDITION_PLAIN ? hatch.shown === 'none' : hatch.shown !== 'none' && hatch.open), JSON.stringify(hatch));
+    const hatch = await pA.evaluate(() => { const h = document.querySelector('#exportQrBtn .hatch'); return { open: h.classList.contains('is-open'), ring: document.getElementById('exportQrBtn').classList.contains('is-launching'), whoosh: getComputedStyle(h, '::after').animationName, shown: getComputedStyle(h).display, all: document.querySelectorAll('#cardShare button.share-btn .hatch').length }; });
+    ok(`Airlock E1: ${EDITION_PLAIN ? 'the plain edition has no hatch doors' : 'every Share button has a hatch door; a press swings it open with air lines and a green ring'}`, hatch.all === 7 && (EDITION_PLAIN ? hatch.shown === 'none' : hatch.shown !== 'none' && hatch.open && hatch.ring && hatch.whoosh === 'hatch-whoosh'), JSON.stringify(hatch));
     await pA.waitForSelector('#exportQrSheet', { state: 'visible' });
     await pA.waitForFunction(() => document.getElementById('exportQrPreview').width > 0);
     const expected = await decodeQr(pA);
@@ -3411,21 +3490,28 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const bwColours = await coloursOf('exportQrPreview');
     ok('Black & White: pure black on pure white, still the same code', bwPicked && bwColours.length === 2 && bwColours.includes('0,0,0') && bwColours.includes('255,255,255') && (await decodeCanvas('exportQrPreview')) === expected, JSON.stringify(bwColours));
     const squareW = await pA.$eval('#exportQrPreview', c => c.width);
-    const roundPicked = await tapChoice('qrDots', 'round') && await tapChoice('qrFrame', 'circle'); await pA.waitForTimeout(200);
+    const roundPicked = await tapChoice('qrDots', 'round') && await pickFrame('circle'); await pA.waitForTimeout(200);
     const circleW = await pA.$eval('#exportQrPreview', c => c.width);
     ok('round dots in a circle frame still decode, on a larger canvas that clears the corners', roundPicked && (await decodeCanvas('exportQrPreview')) === expected && circleW > squareW, `${squareW} -> ${circleW}`);
-    const stripesPicked = await tapChoice('qrFrame', 'stripes'); await pA.waitForTimeout(200);
-    ok('Checkers Q2: the zebra-stripe frame still decodes to the same vCard', stripesPicked && (await decodeCanvas('exportQrPreview')) === expected);
+    const patterns = [];
+    for (const frame of ['stripes', 'checkers', 'polka']) { const picked = await pickFrame(frame); await pA.waitForTimeout(200); patterns.push(picked && (await decodeCanvas('exportQrPreview')) === expected ? 'ok' : frame); }
+    ok('Checkers Q2 + more patterns: the Stripes, Checkers and Polka dots frames (a dropdown) all still decode to the same vCard', patterns.every(p => p === 'ok'), patterns.join());
+    const inks = [];
+    for (const colour of ['navy', 'forest', 'plum', 'cocoa']) { const picked = await tapChoice('qrColour', colour); await pA.waitForTimeout(150); const cs = await coloursOf('exportQrPreview'); inks.push(picked && (await decodeCanvas('exportQrPreview')) === expected && !cs.includes('0,0,0') && (await tA('exportQrNote')) === '' ? 'ok' : colour); }
+    const diamondPicked = await tapChoice('qrDots', 'diamond'); await pA.waitForTimeout(150);
+    ok('more colours (Navy, Forest, Plum, Cocoa, tinted and contrast-checked) and Diamond dots still decode', inks.every(c => c === 'ok') && diamondPicked && (await decodeCanvas('exportQrPreview')) === expected, inks.join());
+    const bigger = await pA.evaluate(() => ({ preview: document.getElementById('exportQrPreview').getBoundingClientRect().width, label: document.querySelector('label:has(> input[name="qrColour"])').getBoundingClientRect().height, select: document.getElementById('qrFrameSelect').getBoundingClientRect().height }));
+    ok('the style options are larger: a bigger preview, 48 px buttons and dropdown', bigger.label >= 48 && bigger.select >= 48 && bigger.preview > 200, JSON.stringify(bigger));
     ok('the note is empty when there is nothing to say', (await tA('exportQrNote')) === '');
     // Esc (a Shell sheet: a sideways swipe or the X do the same) cancels; the next opening starts fresh
     await pA.keyboard.press('Escape');
     ok('Esc cancels the pop-up', !(await pA.isVisible('#exportQrSheet')));
     await pA.click('#exportQrBtn'); await pA.waitForSelector('#exportQrSheet', { state: 'visible' }); await pA.waitForTimeout(200);
-    ok('the pop-up opens fresh: Themed, square, no frame, no logo', await pA.isChecked('input[name="qrColour"][value="themed"]') && await pA.isChecked('input[name="qrDots"][value="square"]') && await pA.isChecked('input[name="qrFrame"][value="none"]') && await pA.isChecked('input[name="qrLogo"][value="none"]'));
+    ok('the pop-up opens fresh: Themed, square, no frame, no logo', await pA.isChecked('input[name="qrColour"][value="themed"]') && await pA.isChecked('input[name="qrDots"][value="square"]') && (await pA.inputValue('#qrFrameSelect')) === 'none' && await pA.isChecked('input[name="qrLogo"][value="none"]'));
 
     // Upload a logo for the centre: made ready on the device (traced into a drawing), drawn as an image; the code still decodes around it
     const logoPng = await pA.evaluate(() => { const c = document.createElement('canvas'); c.width = 320; c.height = 80; const x = c.getContext('2d'); x.fillStyle = '#1d4ed8'; x.font = 'bold 56px Arial'; x.fillText('ACME', 20, 62); return c.toDataURL('image/png'); });
-    const roundedPicked = await tapChoice('qrFrame', 'rounded');
+    const roundedPicked = await pickFrame('rounded');
     await pA.setInputFiles('#exportQrLogoFile', { name: 'acme.png', mimeType: 'image/png', buffer: Buffer.from(logoPng.split(',')[1], 'base64') });
     await pA.waitForFunction(() => document.querySelector('input[name="qrLogo"][value="upload"]').checked && !document.getElementById('exportQrUseOnCardRow').classList.contains('hidden'), null, { timeout: 5000 });
     await pA.waitForTimeout(300);
@@ -3436,9 +3522,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pA.check('#exportQrUseOnCard');
     const [dlQr] = await Promise.all([pA.waitForEvent('download'), pA.click('#exportQrSaveBtn')]);
     ok('Save PNG downloads "Jane Doe QR.png" and closes the pop-up', dlQr.suggestedFilename() === 'Jane Doe QR.png' && !(await pA.isVisible('#exportQrSheet')), dlQr.suggestedFilename());
-    const falconOf = () => pA.evaluate(() => { const f = document.getElementById('toastFalcon'), cs = getComputedStyle(f); return { hidden: f.classList.contains('hidden'), shown: cs.display, anim: cs.animationName, parcel: f.classList.contains('with-parcel') && getComputedStyle(f.querySelector('.falcon-parcel')).display !== 'none' }; });
+    const falconOf = () => pA.evaluate(() => { const f = document.getElementById('toastFalcon'), cs = getComputedStyle(f); return { hidden: f.classList.contains('hidden'), shown: cs.display, anim: cs.animationName, flap: getComputedStyle(f.querySelector('.falcon-body')).animationName, wide: f.getBoundingClientRect().width, parcel: f.classList.contains('with-parcel') && getComputedStyle(f.querySelector('.falcon-parcel')).display !== 'none' }; });
     const pngFalcon = await falconOf();
-    ok(`Airlock E2 + Checkers Q8: ${EDITION_PLAIN ? 'the plain edition shows no falcon' : 'after Save PNG the falcon glides over the toast carrying the striped parcel'}`, !pngFalcon.hidden && (EDITION_PLAIN ? pngFalcon.shown === 'none' : pngFalcon.shown !== 'none' && pngFalcon.anim === 'falcon-glide' && pngFalcon.parcel), JSON.stringify(pngFalcon));
+    ok(`Airlock E2 + Checkers Q8: ${EDITION_PLAIN ? 'the plain edition shows no falcon' : 'after Save PNG a big falcon swoops over the toast, beating its wings, carrying the striped parcel'}`, !pngFalcon.hidden && (EDITION_PLAIN ? pngFalcon.shown === 'none' : pngFalcon.shown !== 'none' && pngFalcon.anim === 'falcon-glide' && pngFalcon.flap === 'falcon-flap' && pngFalcon.wide >= 50 && pngFalcon.parcel), JSON.stringify(pngFalcon));
     const pngBytes = fs.readFileSync(await dlQr.path());
     ok('the saved file is a PNG', pngBytes.slice(1, 4).toString() === 'PNG');
     await pA.waitForFunction(() => !!document.querySelector('#previewAvatar img, #previewAvatar svg, #previewLogoStrip img, #previewLogoStrip svg'), null, { timeout: 5000 });

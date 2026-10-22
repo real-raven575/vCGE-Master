@@ -30,22 +30,24 @@ button.share-ready {
 button.share-ready:hover { background: #22c55e; }
 
 /* ---- Export QR pop-up ------------------------------------------------------------------------------------------- */
+#exportQrSheet .vcge-sheet-panel { width: min(40rem, 100%); }   /* wider than other sheets, for a bigger preview */
 .export-qr-body { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1rem; align-items: start; }
 @media (max-width: 599.98px) { .export-qr-body { grid-template-columns: minmax(0, 1fr); } }
 .export-qr-preview { display: flex; flex-direction: column; align-items: center; gap: 0.5rem; }
-.export-qr-preview canvas { width: 100%; max-width: 14rem; height: auto; border-radius: 0.5rem; background: #ffffff; box-shadow: 0 10px 20px -10px rgba(2, 6, 23, 0.5); }
+.export-qr-preview canvas { width: 100%; max-width: 18rem; height: auto; border-radius: 0.5rem; background: #ffffff; box-shadow: 0 10px 20px -10px rgba(2, 6, 23, 0.5); }
 .export-qr-preview canvas[width="0"] { display: none; }
 .export-qr-note { font-size: 0.75rem; color: #b45309; margin: 0; min-height: 1rem; text-align: center; }
 .dark .export-qr-note { color: #fbbf24; }
 .export-qr-options { display: flex; flex-direction: column; gap: 0.5rem; }
 .export-qr-group { display: flex; flex-direction: column; gap: 0.25rem; }
-.export-qr-group > span:first-child { font-size: 0.7rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #64748b; }
-.dark .export-qr-group > span:first-child { color: #94a3b8; }
+.export-qr-group > span:first-child, .export-qr-group > label:first-child { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: #64748b; }
+.dark .export-qr-group > span:first-child, .dark .export-qr-group > label:first-child { color: #94a3b8; }
+select.export-qr-select { max-width: 100%; min-height: 3rem; font-size: 0.95rem; font-weight: 600; }
 .export-qr-choices { display: flex; flex-wrap: wrap; gap: var(--vcge-gap, 0.5rem); }
 /* Each choice is a labelled radio drawn as a 44 px button; the chosen one is green (blue with a check mark in colour-blind mode) */
 .export-qr-choices label {
-    position: relative; display: inline-flex; align-items: center; justify-content: center; min-height: var(--vcge-tap, 2.75rem); min-width: var(--vcge-tap, 2.75rem);
-    padding: 0 0.8rem; border-radius: 0.75rem; border: 2px solid #cbd5e1; background: #f1f5f9; color: #0f172a; font-size: 0.85rem; font-weight: 600; cursor: pointer;
+    position: relative; display: inline-flex; align-items: center; justify-content: center; min-height: 3rem; min-width: 3rem;
+    padding: 0 1rem; border-radius: 0.75rem; border: 2px solid #cbd5e1; background: #f1f5f9; color: #0f172a; font-size: 0.95rem; font-weight: 600; cursor: pointer;
 }
 .dark .export-qr-choices label { background: #1e293b; color: #f1f5f9; border-color: #334155; }
 .export-qr-choices input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
@@ -93,25 +95,39 @@ button.print-choice-cancel { grid-column: 1 / -1; min-height: var(--vcge-tap, 2.
 button.share-btn { display: inline-flex; align-items: center; justify-content: center; gap: 0.45rem; }
 .hatch { position: relative; flex: none; box-sizing: border-box; width: 0.85rem; height: 1.05rem; border: 2px solid currentColor; border-radius: 0.45rem 0.45rem 0.15rem 0.15rem; overflow: hidden; }
 .hatch-door { position: absolute; inset: 1px; border-radius: 0.3rem 0.3rem 0.05rem 0.05rem; background: currentColor; opacity: 0.4; transform-origin: left center; transition: transform 0.25s ease; }
-.hatch.is-open .hatch-door { transform: scaleX(0.15); }
+.hatch.is-open .hatch-door { transform: scaleX(0.05); }
+/* The pressed button gets a soft green ring while its door is open, and air lines blow out of the door */
+button.share-btn { position: relative; transition: background-color 0.15s, box-shadow 0.2s; }
+button.share-btn.is-launching { box-shadow: 0 0 0 3px #16a34a; }
+.hatch::after { content: ''; position: absolute; left: 100%; top: 20%; width: 0; height: 60%; border-top: 2px solid currentColor; border-bottom: 2px solid currentColor; opacity: 0; }
+@keyframes hatch-whoosh { from { width: 0; opacity: 0.9; } to { width: 0.7rem; opacity: 0; } }
+.hatch.is-open { overflow: visible; }
+.hatch.is-open::after { animation: hatch-whoosh 0.4s ease-out 1; }
 /* E2: the falcon rides on top of the toast, the toast's own colour, so it reads against the page; Q8 adds the parcel */
-.toast-falcon { position: absolute; top: -1.15rem; left: 0.5rem; width: 1.9rem; height: 1.3rem; pointer-events: none; overflow: visible; }
+.toast-falcon { position: absolute; top: -2.2rem; left: 0.5rem; width: 3.4rem; height: 2.35rem; pointer-events: none; overflow: visible; }
 .toast-falcon.hidden { display: none; }
 .falcon-body { fill: #0f172a; }
 .dark .falcon-body { fill: #ffffff; }
 .falcon-parcel { display: none; fill: #ffffff; stroke: #0f172a; stroke-width: 0.9; }
 .toast-falcon.with-parcel .falcon-parcel { display: inline; }
-@keyframes falcon-glide { from { left: 0.5rem; } to { left: calc(100% - 2.4rem); } }
-.toast-falcon.is-gliding { left: calc(100% - 2.4rem); animation: falcon-glide 1s ease-in-out 1; }
+/* A swoop: in from the left, dipping toward the message, up and out to the right end; the wings beat three times */
+@keyframes falcon-glide { 0% { left: 0.5rem; transform: translateY(-0.6rem); } 50% { transform: translateY(0.5rem); } 100% { left: calc(100% - 3.9rem); transform: translateY(0); } }
+@keyframes falcon-flap { 50% { transform: scaleY(0.45); } }
+.toast-falcon.is-gliding { left: calc(100% - 3.9rem); animation: falcon-glide 1.2s ease-in-out 1; }
+.toast-falcon.is-gliding .falcon-body { transform-box: fill-box; transform-origin: center; animation: falcon-flap 0.4s ease-in-out 3; }
 /* E3: three runway lights on Ready to share; lit ones are filled (shape), unlit ones only outlined */
 button.share-ready { display: inline-flex; align-items: center; gap: 0.6rem; }
 .ready-lights { display: inline-flex; gap: 0.3rem; }
 .ready-light { box-sizing: border-box; width: 0.6rem; height: 0.6rem; border-radius: 50%; border: 2px solid currentColor; background: transparent; transition: background-color 0.2s; }
 .ready-light.is-lit { background: currentColor; box-shadow: 0 0 0 2px #fde047; }
+/* A light that has just come on grows and settles once, so the card filling up is seen */
+@keyframes light-pop { 0% { transform: scale(1); } 40% { transform: scale(1.8); } 100% { transform: scale(1); } }
+.ready-light.is-popping { animation: light-pop 0.5s ease-out 1; }
 .ready-lights-text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 @media (prefers-reduced-motion: reduce) {
     .hatch-door, .ready-light { transition: none; }
-    .toast-falcon.is-gliding { animation: none; }
+    .toast-falcon.is-gliding, .toast-falcon.is-gliding .falcon-body, .hatch.is-open::after, .ready-light.is-popping { animation: none; }
+    button.share-btn { transition: none; }
 }
 /* The hatch doors and the falcon are Airlock's branding: the plain edition leaves them out */
 html[data-edition="plain"] .hatch, html[data-edition="plain"] .toast-falcon { display: none; }
