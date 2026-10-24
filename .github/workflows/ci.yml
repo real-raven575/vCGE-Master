@@ -80,8 +80,10 @@ jobs:
           cache: npm
       - run: npm ci
 
+      # A stuck package mirror once held this step for the job's whole 30 minutes; a healthy install takes under 8.
       - name: Install ${{ matrix.name }} for Playwright
         run: npx playwright install --with-deps ${{ matrix.install }}
+        timeout-minutes: 10
 
 
       - name: Browser e2e (source)
