@@ -614,18 +614,21 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   const themeGroups = await page.$$eval('#themeSelect optgroup', gs => gs.map(g => g.label + ':' + g.children.length).join('|'));
   ok(EDITION_PLAIN ? 'the theme list is Basic (2) and Autumn (8), no characters in plain' : 'the theme list is Basic (2), Autumn (8) and Team vCGE (18)',
     themeGroups === (EDITION_PLAIN ? 'Basic:2|Autumn:8' : 'Basic:2|Autumn:8|Team vCGE:18'), themeGroups);
-  // 400 ms: the header buttons fade their colour over 0.15 s (deck.css), so an early read catches it halfway
-  await page.selectOption('#themeSelect', '2'); await page.waitForTimeout(400);
+  // The header buttons fade their colour over 0.15 s (deck.css): read only once no fade is running on the lit icon,
+  // the current card or the page (getAnimations() starts any pending fade first, so it can't be read too early)
+  const themeSettled = () => page.waitForFunction(() => [document.querySelector('.deck-nav button.is-on'), document.querySelector('.deck-card.is-current'), document.body]
+    .every(el => el && el.getAnimations().length === 0), null, { timeout: 5000 });
+  await page.selectOption('#themeSelect', '2'); await themeSettled();
   const pumpkin = await themeState();
   ok('Pumpkin colours the page, the cards and the lit header icon, stays light, and its code 2 is saved', pumpkin.id === 'pumpkin' && !pumpkin.dark && pumpkin.bg === 'rgb(243, 221, 206)'
     && pumpkin.card === 'rgb(250, 244, 240)' && pumpkin.on === 'rgb(225, 107, 24)' && pumpkin.entry === 'hand=0;cb=0;theme=2;font=0;size=0;wipe=0', JSON.stringify(pumpkin));
   if (!EDITION_PLAIN) {
-    await page.selectOption('#themeSelect', '12'); await page.waitForTimeout(400);
+    await page.selectOption('#themeSelect', '12'); await themeSettled();
     const shutout = await themeState();
     ok('Shutout the Box Turtle (dark) turns dark mode on with its own colours, code 12 saved', shutout.id === 'shutout-dark' && shutout.dark && shutout.bg === 'rgb(28, 32, 14)'
       && shutout.entry === 'hand=0;cb=0;theme=12;font=0;size=0;wipe=0', JSON.stringify(shutout));
   }
-  await page.selectOption('#themeSelect', '1'); await page.waitForTimeout(400);
+  await page.selectOption('#themeSelect', '1'); await themeSettled();
   ok('back to Light: the theme colours are gone', (await themeState()).id === '' && !(await htmlState()).dark && (await htmlState()).entry === 'hand=0;cb=0;theme=1;font=0;size=0;wipe=0');
   await page.click('#handLeftBtn');
   const headerOrder = () => page.evaluate(() => ['navSettings', 'navVault', 'navCapture', 'navShare'].map(id => document.getElementById(id).getBoundingClientRect().left));
