@@ -675,6 +675,31 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('tween: under reduce motion the end value applies at once', instant.length === 1 && instant[0] === 3 && timers.length === 0);
 }
 
+// The live camera's own zoom (MOD03, raven575, Chrome on Android, 2026-10-24: the fader skipped, jumped back and forth
+// and once stopped at an old zoom): at most 4x, one request at a time, and the newest zoom is always the last one sent
+{
+  const { VCGEActiveCamera, ZOOM_MAX } = await import(`${R}/modules/mod03-camera/camera.js`);
+  const el = () => ({ style: {}, textContent: '', value: '', min: '', max: '', step: '', dataset: {}, classList: { add() {}, remove() {}, contains: () => false }, addEventListener() {} });
+  const savedAdd = globalThis.addEventListener;
+  if (typeof savedAdd !== 'function') globalThis.addEventListener = () => {};
+  const cfg = Object.fromEntries(['videoEl', 'canvasEl', 'zoomSlider', 'zoomDisplay', 'viewfinderArea', 'cardFrame', 'shutter', 'reviewPanel', 'reviewImage', 'eventLog', 'cameraPanel', 'irisPeek', 'uploadInput'].map(k => [k, el()]));
+  const cam = new VCGEActiveCamera(cfg);
+  const sent = [], finish = [];
+  const track = { getCapabilities: () => ({ zoom: { min: 1, max: 8, step: 0.1 } }), applyConstraints(c) { sent.push(c.advanced[0].zoom); return new Promise(r => finish.push(r)); } };
+  cam.activeStream = { getVideoTracks: () => [track] };
+  cam.setupZoom(track);
+  const settle = async () => { finish.shift()(); await new Promise(r => setTimeout(r, 0)); };
+  ok('camera zoom: the fader stops at 4x even when the camera itself goes to 8x', ZOOM_MAX === 4 && cam.zoomMode === 'hardware' && Number(cfg.zoomSlider.max) === 4, `${cam.zoomMode} max ${cfg.zoomSlider.max}`);
+  for (const z of [1.5, 2, 2.5, 3]) cam.applyZoom(z);     // the steps of one ease, while the first request is still running
+  ok('camera zoom: while the camera is busy with a zoom, no more requests pile up', JSON.stringify(sent) === '[1]', JSON.stringify(sent));
+  await settle();
+  ok('camera zoom: when it is done, only the newest zoom is sent', JSON.stringify(sent) === '[1,3]', JSON.stringify(sent));
+  cam.applyZoom(2); cam.applyZoom(1);                       // the fader taken back down to 1x meanwhile
+  await settle(); await settle();
+  ok('camera zoom: the last zoom asked for is the last one the camera gets, so it never stops at an old zoom', JSON.stringify(sent) === '[1,3,1]' && !cam.zoomInFlight && finish.length === 0, JSON.stringify(sent));
+  globalThis.addEventListener = savedAdd;
+}
+
 // The zoom of the photo in the crop step (MOD03): pinch, pan and the zoom onto a snapped card
 {
   const { clampView, zoomAbout, viewForCorners, CROP_ZOOM_MAX, SNAP_MARGIN } = await import(`${R}/modules/mod03-camera/cropView.js`);
@@ -861,7 +886,9 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 
 // OCR worker (ESM): returns raw text, publishes on the shared bus, and fails loudly (never with made-up text)
 {
-  globalThis.document = { baseURI: 'http://localhost/', createElement: () => ({ getContext: () => ({ drawImage() {}, getImageData: () => ({ data: new Uint8ClampedArray(4) }), putImageData() {} }), toDataURL: () => 'data:image/png;base64,' }) };
+  // The fake canvas hands back `fakePixels(w, h)`: flat grey unless a check draws something (blur score checks)
+  let fakePixels = (w, h) => new Uint8ClampedArray(w * h * 4).fill(128);
+  globalThis.document = { baseURI: 'http://localhost/', createElement: () => ({ getContext: () => ({ drawImage() {}, getImageData: (x, y, w, h) => ({ data: fakePixels(w, h) }), putImageData() {} }), toDataURL: () => 'data:image/png;base64,' }) };
   globalThis.Image = class { set src(v) { this.width = 10; this.height = 10; setTimeout(() => this.onload && this.onload(), 0); } };
   const origLog = console.log, origErr = console.error; console.log = () => {}; console.error = () => {};
   const ocr = await import(`${R}/modules/mod04-ocr/ocrWorker.js`);
@@ -932,6 +959,26 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   result = { text: 'py A Year op WW es', confidence: 46, words: words(12, 70) };
   const blurry = await failure(ocr.executeOCRScan('data:image/png;base64,x'));
   ok('low-confidence photo rejected as unreadable (retake)', blurry && blurry.code === 'OCR_UNREADABLE' && blurry.confidence === 46 && evt === null, blurry && blurry.message);
+  ok('a photo with no sharp edges is called blurry, not hard lettering', blurry && blurry.sharp === false && blurry.message.includes('too blurry'), blurry && blurry.message);
+  // A sharp photo the reader still can't read (raven575, 2026-10-22: a clear card in a handwriting-style font)
+  const stripes = (w, h) => { const d = new Uint8ClampedArray(w * h * 4); for (let i = 0; i < w * h; i++) d.fill((i % w) % 4 < 2 ? 20 : 235, i * 4, i * 4 + 4); return d; };
+  fakePixels = stripes;
+  const lettering = await failure(ocr.executeOCRScan('data:image/png;base64,x'));
+  fakePixels = (w, h) => new Uint8ClampedArray(w * h * 4).fill(128);
+  ok('a sharp photo that still reads as garbage is unreadable with sharp set (hard lettering)', lettering && lettering.code === 'OCR_UNREADABLE' && lettering.sharp === true && lettering.message.includes('lettering') && evt === null, lettering && lettering.message);
+  {
+    // blurScore: sharp edges score low, the same edges blurred score high, and a flat picture counts as blurry
+    const w = 60, h = 40, sharpPic = new Uint8Array(w * h), soft = new Float32Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) sharpPic[y * w + x] = ((x >> 3) + (y >> 3)) % 2 ? 230 : 25;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      let sum = 0, n = 0;
+      for (let dy = -3; dy <= 3; dy++) for (let dx = -3; dx <= 3; dx++) { const xx = Math.min(w - 1, Math.max(0, x + dx)), yy = Math.min(h - 1, Math.max(0, y + dy)); sum += sharpPic[yy * w + xx]; n++; }
+      soft[y * w + x] = sum / n;
+    }
+    const sharpScore = ocr.blurScore(sharpPic, w, h), softScore = ocr.blurScore(soft, w, h);
+    ok('blur score: sharp edges are under the sharp limit, the same edges blurred are over it', sharpScore <= ocr.OCR_SHARP_BLUR && softScore > ocr.OCR_SHARP_BLUR, `${sharpScore.toFixed(2)} ${softScore.toFixed(2)}`);
+    ok('blur score: a flat picture has no edges and counts as blurry', ocr.blurScore(new Uint8Array(w * h).fill(90), w, h) === 1);
+  }
   result = { text: 'Kai Takahashi 206.555.9876 kai@studiocraft.design', confidence: 84, words: words(4, 90) };
   const minimal = await ocr.executeOCRScan('data:image/png;base64,x');
   ok('a sharp minimal card (4 words) is accepted, not sent back for a retake', minimal.confidence === 84, JSON.stringify(minimal));
@@ -1502,7 +1549,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('settings: the wipe after the lock is 7, 10 or 15 minutes, codes 0, 1, 2; 7 is the default and an unknown code is 7', st.WIPE_TIMES.map(t => `${t.code}:${t.minutes}`).join() === '0:7,1:10,2:15'
     && st.wipeMinutesFor(0) === 7 && st.wipeMinutesFor(1) === 10 && st.wipeMinutesFor(2) === 15 && st.wipeMinutesFor(9) === 7);
   {
-    const root = { dataset: {}, classList: { toggle() {} }, style: { setProperty() {} } };
+    const root = { dataset: {}, classList: { toggle() {} }, style: { setProperty() {}, removeProperty() {} } };
     const minutes = [0, 1, 2, 7].map(w => { st.applySettings({ wipe: w }, root); return root.dataset.wipe; }).join();
     ok('settings: applySettings puts the wipe time on html as data-wipe in minutes (7, 10, 15; out of range is 7)', minutes === '7,10,15,7', minutes);
   }
@@ -1523,11 +1570,36 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   localStorage.setItem('vcge_theme_preference', 'light');
   ok('settings: the old theme key is carried over once and removed', JSON.stringify(st.loadSettings()) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0}' && localStorage.getItem('vcge_theme_preference') === null && store.size === 0);
   const code = fs.readFileSync(`${R}/modules/mod01-shell/settings.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-  ok('settings: subscribes to SETTINGS_WIPE_REQUESTED, imports only the bus and ui.js, no network, cookies or markup', /subscribe\(Events\.SETTINGS_WIPE_REQUESTED/.test(code)
-    && (code.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ui.js'")) && !/fetch\(|document\.cookie|sessionStorage|indexedDB|innerHTML|publish\(/.test(code));
+  ok('settings: subscribes to SETTINGS_WIPE_REQUESTED, imports only the bus, ui.js and themes.js, no network, cookies or markup', /subscribe\(Events\.SETTINGS_WIPE_REQUESTED/.test(code)
+    && (code.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ui.js'") || l.includes("'./themes.js'")) && !/fetch\(|document\.cookie|sessionStorage|indexedDB|innerHTML|publish\(/.test(code));
   ok('settings: the only storage key named in the code is the settings key (plus the old theme key it removes)', [...code.matchAll(/(?:getItem|setItem|removeItem)\((\w+)/g)].every(m => m[1] === 'SETTINGS_KEY' || m[1] === 'OLD_THEME_KEY'));
   ok('settings: the Settings sheet and the Welcome card carry the one-file disclaimer', fs.readFileSync(`${R}/../index.html`, 'utf8').includes('vCGE keeps one small settings file on this device (hand, colors, theme, font, text size, wipe time). Nothing you scan, upload or type is ever saved.')
     && /remembers none of your sensitive data/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8')) && !fs.existsSync(`${R}/modules/mod01-shell/themeManager.js`));
+  // App themes (themes.js, theme step 1): fixed codes, readable colours, branded ones left out of plain
+  const th = await import(`${R}/modules/mod01-shell/themes.js`);
+  const lin = (h) => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(c => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
+  const lumOf = (h) => { const [r, g, b] = lin(h); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
+  const ratio = (a, b) => { const [x, y] = [lumOf(a), lumOf(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
+  const weak = th.COLOUR_THEMES.filter(t => { const v = t.vars;
+    return ratio(v.text, v.surface) < 4.5 || ratio(v.text, v.bg) < 4.5 || ratio(v.muted, v.surface) < 4.5 || ratio(v.onAccent, v.accent) < 4.5 || ratio(v.accent, v.surface) < 3; });
+  ok('themes: every colour theme reads at 4.5:1 (text and muted text on its surface, text on its page, the lit icon\'s text) and its accent at 3:1', weak.length === 0, weak.map(t => t.id).join());
+  const card3d = await import(`${R}/modules/mod06-gui/card3dView.js`);
+  ok('themes: Dark 0 and Light 1 as before, then the eight Autumn palettes, then a dark and a light for each of the nine characters; codes fixed and unique',
+    th.THEMES.map(t => t.code).join() === [...Array(28).keys()].join() && th.THEMES[0].id === 'dark' && th.THEMES[1].id === 'light'
+    && th.THEMES.filter(t => t.group === 'Autumn').map(t => t.id).join() === Object.keys(card3d.THEMES).join()
+    && th.THEMES.filter(t => t.group === 'Team vCGE').length === 18 && th.THEMES.filter(t => t.group === 'Team vCGE').every(t => t.branded)
+    && new Set(th.THEMES.map(t => t.id)).size === 28);
+  ok('themes: plain lists Basic and Autumn only, and reads a saved character theme as Dark or Light by its mode',
+    th.themesFor(true).length === 10 && th.themesFor(false).length === 28 && th.themeFor(13, true).id === 'light' && th.themeFor(12, true).id === 'dark'
+    && th.themeFor(12, false).id === 'shutout-dark' && th.themeFor(99).id === 'dark');
+  const props = {}, cls = {};
+  const troot = { dataset: {}, classList: { toggle: (c, on) => { cls[c] = on; } }, style: { setProperty: (k, v) => { props[k] = v; }, removeProperty: (k) => { delete props[k]; } } };
+  th.applyTheme(troot, 5);   // Cranberry, a dark theme
+  const cran = `${troot.dataset.appTheme}/${cls.dark}/${Object.keys(props).length}/${props['--vcge-accent']}`;
+  th.applyTheme(troot, 1);
+  ok('themes: a colour theme puts its seven colours and its name on html and sets dark by its mode; Light takes them all away again',
+    cran === `cranberry/true/7/${th.themeFor(5).vars.accent}` && !('appTheme' in troot.dataset) && cls.dark === false && Object.keys(props).length === 0, cran);
+  ok('settings: theme codes up to the last theme read back; past it is Dark', st.parseSettings('theme=27').theme === 27 && st.parseSettings('theme=28').theme === 0);
   localStorage.clear();
 }
 

@@ -249,6 +249,19 @@ html[data-hand="left"] .deck-nav, html[data-hand="left"] .deck-tools, html[data-
 @media (max-width: 599.98px) and (orientation: portrait) {
     html[data-hand="left"] .welcome-actions { margin-left: 0; margin-right: 33%; }
 }
+/* ---- App themes (themes.js, Settings): a colour theme puts its colours in --vcge-* and names itself on
+   html[data-app-theme]; Dark and Light set neither and keep the look above. Step 1 colours the frame: the page, the
+   header and its lit icon, the cards, the sheets and the Thank You page. Each module colours its own content later.
+   :root is there to outweigh the Tailwind dark: classes on the page and the header. Colour-blind mode (below) still
+   marks the lit icon its own way. ------------------------------------------------------------------------------- */
+:root[data-app-theme] body { background: var(--vcge-bg); color: var(--vcge-text); }
+:root[data-app-theme] .deck-header { background: var(--vcge-surface); background: color-mix(in srgb, var(--vcge-surface) 88%, transparent); border-color: var(--vcge-border); }
+html[data-app-theme] .deck-nav button.is-on { background: var(--vcge-accent); border-color: var(--vcge-accent); color: var(--vcge-on-accent); }
+html[data-app-theme] .deck-card { background: var(--vcge-surface); border-color: var(--vcge-border); }
+html[data-app-theme] .vcge-sheet-panel { background: var(--vcge-surface); color: var(--vcge-text); border-color: var(--vcge-border); }
+html[data-app-theme] .vcge-sheet-note, html[data-app-theme] .vcge-sheet-hint, html[data-app-theme] .vcge-sheet-soon { color: var(--vcge-muted); }
+html[data-app-theme] .thank-you { background: var(--vcge-bg); color: var(--vcge-text); }
+html[data-app-theme] .thank-you-note { color: var(--vcge-muted); }
 /* ---- Colour-blind mode (html[data-cb="1"]): the lit header icon is marked by a bar under it as well as its colour,
    in blue rather than green; the trash button carries a thick dark outline. Each module adds its own cues. ---------- */
 html[data-cb="1"] .deck-nav button.is-on { background: #2563eb; border-color: #1d4ed8; color: #ffffff; box-shadow: inset 0 -4px 0 #ffffff; }

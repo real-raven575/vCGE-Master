@@ -171,6 +171,7 @@
                         </span>
                         <button id="snapCardBtn" type="button" class="cap-quiet">Snap to card</button>
                         <button id="retakePhotoBtn" type="button" class="cap-quiet hidden">Retake photo</button>
+                        <button id="typeItInBtn" type="button" class="cap-quiet hidden">Type it in</button>
                         <button id="cancelReviewBtn" type="button" class="cap-quiet">Cancel</button>
                         <button id="runOcrBtn" type="button" class="cap-ok"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#circle-check"></use></svg><span>OK</span></button>
                     </div>
@@ -516,8 +517,8 @@
             </div>
             <p id="cbHint" class="vcge-sheet-hint">Words and marks next to every colour cue.</p>
             <div class="vcge-sheet-row">
-                <span>App theme</span>
-                <button id="themeToggle" type="button" class="p-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition" aria-label="Toggle light or dark theme" aria-pressed="false">🌙</button>
+                <label for="themeSelect">App theme</label>
+                <select id="themeSelect" class="vcge-select" aria-label="App theme"></select>
             </div>
             <div class="vcge-sheet-row">
                 <label for="fontSelect">UI font</label>

@@ -51,6 +51,10 @@ export const OCR_PAGE_SEG_MODE = '11';
 export const OCR_MIN_CONFIDENCE = 55;
 // Kept low on purpose: a sharp minimal card (name, phone, email) has only 3-4 words; blur shows in the confidence.
 export const OCR_MIN_READABLE_WORDS = 3;
+// A photo that fails the check above but scores at most this on blurScore is sharp: its lettering, not the focus, beat
+// the reader (raven575, 2026-10-22: a sharp card in a handwriting-style font was called "too blurry"). Prepared photos
+// score about 0.28-0.35 sharp, 0.43-0.55 with 1 px of blur and 0.75 or more with 3 px.
+export const OCR_SHARP_BLUR = 0.5;
 // A word read with confidence below this is passed on as unsure, so the review step can ask the user to check it.
 export const OCR_UNSURE_WORD_CONFIDENCE = 50;
 
@@ -73,12 +77,14 @@ export const SECOND_LOOK_BUDGET_MS = 12000;
 
 /** Thrown when the photo is too blurry or unclear to read; the caller should ask for a new photo. */
 export class OcrUnreadableError extends Error {
-    constructor(confidence, readableWords) {
-        super(`Image too blurry or unclear to read (confidence ${confidence}, ${readableWords} readable words)`);
+    /** `sharp`: the photo itself looked sharp (OCR_SHARP_BLUR), so the card's lettering is what could not be read. */
+    constructor(confidence, readableWords, sharp = false) {
+        super(`Image ${sharp ? 'sharp but its lettering could not be read' : 'too blurry or unclear to read'} (confidence ${confidence}, ${readableWords} readable words)`);
         this.name = 'OcrUnreadableError';
         this.code = 'OCR_UNREADABLE';
         this.confidence = confidence;
         this.readableWords = readableWords;
+        this.sharp = sharp;
     }
 }
 
@@ -250,6 +256,53 @@ export function preProcessImageBuffer(imageSrc) {
     });
 }
 
+/**
+ * How blurry a greyscale picture (`gray`, one value 0-255 per pixel, `w` x `h`) is, 0 (sharp) to 1, without a sharp
+ * copy to compare with (Crete et al., 2007): blurring it again by 9 pixels changes a sharp picture's neighbour steps a
+ * lot and a blurry one's hardly at all. The blurrier of the two directions counts; a direction with no steps at all
+ * (plain stripes) is left out, and a picture with no steps either way counts as blurry (1).
+ */
+export function blurScore(gray, w, h) {
+    const R = 4, N = 2 * R + 1;
+    const along = (count, len, at) => {           // `count` rows of `len` pixels; at(row, i) is a pixel
+        let steps = 0, kept = 0;
+        for (let r = 0; r < count; r++) {
+            let sum = 0;
+            for (let k = -R; k <= R; k++) sum += at(r, Math.min(len - 1, Math.max(0, k)));
+            let prevF = at(r, 0), prevB = sum / N;
+            for (let i = 1; i < len; i++) {
+                sum += at(r, Math.min(len - 1, i + R)) - at(r, Math.max(0, i - R - 1));
+                const f = at(r, i), b = sum / N, dF = Math.abs(f - prevF), dB = Math.abs(b - prevB);
+                steps += dF; kept += Math.max(0, dF - dB);
+                prevF = f; prevB = b;
+            }
+        }
+        return steps ? 1 - kept / steps : null;
+    };
+    const scores = [along(h, w, (y, x) => gray[y * w + x]), along(w, h, (x, y) => gray[y * w + x])].filter(v => v !== null);
+    return scores.length ? Math.max(...scores) : 1;
+}
+
+/** blurScore of a prepared photo (a data URL from preProcessImageBuffer, already grey). */
+export function photoBlurScore(imageSrc) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+            try {
+                const w = img.width, h = img.height, canvas = document.createElement('canvas');
+                canvas.width = w; canvas.height = h;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+                const data = ctx.getImageData(0, 0, w, h).data, gray = new Uint8Array(w * h);
+                for (let i = 0; i < gray.length; i++) gray[i] = data[i * 4];
+                resolve(blurScore(gray, w, h));
+            } catch (err) { reject(err); }
+        };
+        img.onerror = () => reject(new Error('Failed to load the prepared photo to measure its sharpness'));
+        img.src = imageSrc;
+    });
+}
+
 // How sure the engine was of a line: the mean of its words' confidence (0-100), or undefined with no words.
 const meanConfidence = (words) => {
     const read = (words || []).filter(w => w.text && w.text.trim() && typeof w.confidence === 'number');
@@ -417,7 +470,7 @@ async function linesWithIcons(processedImage, data) {
  * about 7 MB of bundled files to load), then `onStatus('reading')`.
  * Rejects with OcrUnavailableError when the engine cannot start, with OcrStartFailedError when it stopped while starting
  * twice, with OcrUnreadableError when the photo is too
- * blurry or unclear, so neither made-up nor garbage text ever reaches the form, with OcrTimeoutError when reading took
+ * blurry or unclear (`sharp` when the photo was sharp but its lettering beat the reader), so neither made-up nor garbage text ever reaches the form, with OcrTimeoutError when reading took
  * longer than `readTimeoutMs` (the engine is restarted), and with OcrCancelledError when a wipe stopped it.
  */
 export async function executeOCRScan(imageSrc, { initTimeoutMs = OCR_INIT_TIMEOUT_MS, readTimeoutMs = OCR_READ_TIMEOUT_MS, onStatus = () => {} } = {}) {
@@ -472,7 +525,11 @@ async function scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started) {
 
     console.log(`[${MODULE_ID}] OCR extraction complete. Confidence ${confidence}, ${readableWords} readable words, raw text length ${text.length}`);
     if (confidence < OCR_MIN_CONFIDENCE || readableWords < OCR_MIN_READABLE_WORDS) {
-        throw new OcrUnreadableError(confidence, readableWords);
+        // Sharp or blurry decides the advice; if it can't be measured the photo is taken as blurry (the older advice).
+        const blur = await photoBlurScore(processedImage).catch((err) => { console.warn(`[${MODULE_ID}] ${err.message}`); return 1; });
+        if (generation !== started) throw new OcrCancelledError();
+        console.log(`[${MODULE_ID}] Blur score ${blur.toFixed(2)}`);
+        throw new OcrUnreadableError(confidence, readableWords, blur <= OCR_SHARP_BLUR);
     }
     const found = await linesWithIcons(processedImage, result.data);
     if (generation !== started) throw new OcrCancelledError();

@@ -15,7 +15,8 @@
  */
 import './modules/mod01-shell/shell.js';
 import { initSettings } from './modules/mod01-shell/settings.js';
-import { go as showCard, use as useDeck, onBeforeChange as beforeCardChange, openSheet, closeSheet, current as currentCard, toast as deckToast, setFace as setCardFace } from './modules/mod01-shell/deck.js';
+import { go as showCard, use as useDeck, onBeforeChange as beforeCardChange, openSheet, closeSheet, closeTopSheet, current as currentCard, toast as deckToast, setFace as setCardFace } from './modules/mod01-shell/deck.js';
+import { tourOpen, closeTour } from './modules/mod01-shell/welcome.js';
 import { isPlain } from './modules/mod01-shell/edition.js';
 import { globalEventBus, Events } from './share/eventBus.js';
 import { CONTACT_FIELDS, CONTACT_LIST_FIELDS, createEmptyContact } from './share/cardSchema.js';
@@ -537,6 +538,22 @@ function armLeaveGuard() {
     leaveGuardArmed = true;
 }
 
+// Back first closes what is open on top, topmost first, the way its own dismiss button (or Esc) would, and stays in
+// vCGE (raven575, 2026-10-24: Back in the live camera had left the app). The lock screen is not on the list: Back
+// there asks "Leave vCGE?" as before.
+const visible = (id) => { const el = $(id); return !!el && !el.classList.contains('hidden'); };
+const clickIfShown = (modal, button) => () => { if (!visible(modal)) return false; $(button).click(); return true; };
+const BACK_CLOSES = [
+    () => { if (!wipeDialog.isOpen()) return false; wipeDialog.cancel(); return true; },
+    clickIfShown('cameraInUseModal', 'cameraInUseOkBtn'),
+    clickIfShown('ocrTimeoutModal', 'ocrTimeoutCancelBtn'),
+    clickIfShown('ocrMorePhotoModal', 'ocrFixByHandBtn'),
+    clickIfShown('quickSetupModal', 'quickSetupSkipBtn'),
+    () => { if (!tourOpen()) return false; closeTour(); return true; },
+    closeTopSheet,
+    clickIfShown('cameraPanel', 'stopCameraBtn')
+];
+
 function onPopState(event) {
     if (event.state && event.state.vcgeLeaveGuard) {   // Forward onto the guard entry again
         leaveGuardArmed = true;
@@ -544,6 +561,12 @@ function onPopState(event) {
     }
     if (leaving || !leaveGuardArmed) return;
     leaveGuardArmed = false;
+    if (!visible('leaveModal') && BACK_CLOSES.some(closeIt => closeIt())) {
+        // Back used up the guard entry; put it back now, not on the next tap, so a second Back still asks first
+        history.pushState({ vcgeLeaveGuard: true }, '');
+        leaveGuardArmed = true;
+        return;
+    }
     if (!hasWork()) return leavePage();
     $('leaveModal').classList.remove('hidden');
 }
@@ -624,11 +647,18 @@ function onActivity() {
 
 // ---- Intake: camera / upload (MOD03) -> OCR (MOD04) -> mapper (MOD05) -----------------------------------------
 
-// Retake prompt on the Capture card's crop step (shown when a photo is too blurry or unclear to read).
-function showRetakePrompt(show) {
+// Retake prompt on the Capture card's crop step (shown when a photo is too blurry or unclear to read). A sharp photo
+// whose lettering beat the reader gets its own words and Type it in (raven575, 2026-10-22: a clear card in a
+// handwriting-style font was called "too blurry"). OK stays, as Try again, so the same photo can be read once more
+// (raven575, 2026-10-22: "so you don't get stuck on that card").
+const BLURRY_NOTICE = 'This photo is too blurry or unclear to read. Retake it closer, in good light, and hold steady.';
+const LETTERING_NOTICE = 'The photo looks sharp, but the reader can\'t make out this card\'s lettering. Fancy or handwriting-style fonts are hard for it. Type the details in, or try another photo.';
+function showRetakePrompt(show, sharp = false) {
+    $('ocrRetakeNotice').textContent = sharp ? LETTERING_NOTICE : BLURRY_NOTICE;
     $('ocrRetakeNotice').classList.toggle('hidden', !show);
     $('retakePhotoBtn').classList.toggle('hidden', !show);
-    $('runOcrBtn').classList.toggle('hidden', show);
+    $('typeItInBtn').classList.toggle('hidden', !(show && sharp));
+    $('runOcrBtn').querySelector('span').textContent = show ? 'Try again' : 'OK';
 }
 
 // Labels for the "Will fill" summary of the review step.
@@ -748,7 +778,7 @@ async function runOcr() {
         console.error('[vCGE] OCR failed:', e);
         if (e && e.code === 'OCR_UNREADABLE') {
             backToPhoto();
-            showRetakePrompt(true);
+            showRetakePrompt(true, !!e.sharp);
         } else if (e && e.code === 'OCR_TIMEOUT') {
             // The reader was restarted; the photo stays for Try Again.
             readIndicator.stop(); readIndicator.set(1);
@@ -941,6 +971,14 @@ function wireIntake() {
     $('snapCardBtn').addEventListener('click', () => { if (!cropEditor.snapToCard()) deckToast('No card edges found. Drag the corners onto the card yourself.'); });
     // Cancel on the crop step drops the photo: back to Take a photo or Upload a photo.
     $('cancelReviewBtn').addEventListener('click', () => { showRetakePrompt(false); camera.discardPhoto(); if (heldReadings().length) openReviewFrom(heldReadings()); });
+    // Type it in: the unreadable photo is dropped and the Fields card opens for typing (or the review, if earlier photos
+    // of this card were read).
+    $('typeItInBtn').addEventListener('click', async () => {
+        showRetakePrompt(false); camera.discardPhoto();
+        if (heldReadings().length) return openReviewFrom(heldReadings());
+        await showCard('fields');
+        $('firstName').focus();
+    });
     $('ocrCancelBtn').addEventListener('click', backToPhoto);
     $('ocrBackBtn').addEventListener('click', backToPhoto);
     $('applyOcrBtn').addEventListener('click', applyOcrReview);

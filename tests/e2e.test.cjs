@@ -67,6 +67,20 @@ async function renderCardImage(page, blur = 0) {
   return { name: 'card.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') };
 }
 
+// Renders the card's top lines upside down and mirrored: sharp strokes the reader can't make words of (a stand-in for
+// the handwriting-style card raven575 read on 2026-10-22, which was sharp but got "too blurry").
+async function renderMirroredCard(page) {
+  const dataUrl = await page.evaluate(() => {
+    const c = document.createElement('canvas'); c.width = 1050; c.height = 600;
+    const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111';
+    x.translate(c.width, c.height); x.scale(-1, -1);
+    const lines = [['bold 56px Arial', 'Maria Gonzalez'], ['34px Arial', 'Director of Engineering'], ['30px Arial', '+1 (312) 555-0147'], ['30px Arial', 'maria.gonzalez@northwind.com']];
+    let y = 120; for (const [f, t] of lines) { x.font = f; x.fillText(t, 70, y); y += 110; }
+    return c.toDataURL('image/png');
+  });
+  return { name: 'mirrored.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') };
+}
+
 // Renders the same card rotated and sheared on a grey background (a crooked photo) and returns the card's corners.
 async function renderSkewedCard(page) {
   const { dataUrl, corners } = await page.evaluate(() => {
@@ -585,14 +599,37 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     dark: document.documentElement.classList.contains('dark'), body: getComputedStyle(document.body).fontFamily, entry: localStorage.getItem('vcge_settings') }));
   ok('before any change: nothing is stored, right hand, Inter, dark', (await settingsKeys()).length === 0 && (await htmlState()).hand === 'right' && (await htmlState()).dark && /Inter/.test((await htmlState()).body), JSON.stringify(await htmlState()));
   await page.click('#navSettings');
-  ok('the cog opens Settings: hand, colour-blind switch, theme, font, language "coming later", PIN button and the disclaimer', await page.isVisible('#settingsSheet') && await page.isVisible('#handRightBtn') && await page.isVisible('#cbToggle') && await page.isVisible('#themeToggle')
+  ok('the cog opens Settings: hand, colour-blind switch, theme, font, language "coming later", PIN button and the disclaimer', await page.isVisible('#settingsSheet') && await page.isVisible('#handRightBtn') && await page.isVisible('#cbToggle') && await page.isVisible('#themeSelect')
     && await page.isVisible('#fontSelect') && /coming later/.test(await page.textContent('#settingsSheet')) && await page.isVisible('#settingsVaultBtn')
     && (await text('settingsNote')) === 'vCGE keeps one small settings file on this device (hand, colors, theme, font, text size, wipe time). Nothing you scan, upload or type is ever saved.');
   ok('the font list is the seven fonts, alphabetical, Inter chosen', (await page.$$eval('#fontSelect option', os => os.map(o => o.textContent).join('|'))) === 'Atkinson Hyperlegible|Comic Neue|Inter|Lexend|Macondo|OpenDyslexic|Tinos'
     && (await page.$eval('#fontSelect', s => s.selectedOptions[0].textContent)) === 'Inter');
-  ok('every settings control is at least 44 px tall', (await page.$$eval('#handRightBtn, #handLeftBtn, #cbToggle, #themeToggle, #fontSelect, #sizeSelect, #wipeSelect', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44));
-  await page.click('#themeToggle');
-  ok('theme toggles to light and the entry appears, one key, name=number pairs', !(await htmlState()).dark && (await settingsKeys()).join() === 'vcge_settings' && (await htmlState()).entry === 'hand=0;cb=0;theme=1;font=0;size=0;wipe=0');
+  ok('every settings control is at least 44 px tall', (await page.$$eval('#handRightBtn, #handLeftBtn, #cbToggle, #themeSelect, #fontSelect, #sizeSelect, #wipeSelect', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44));
+  await page.selectOption('#themeSelect', '1');
+  ok('theme Light: light mode and the entry appears, one key, name=number pairs', !(await htmlState()).dark && (await settingsKeys()).join() === 'vcge_settings' && (await htmlState()).entry === 'hand=0;cb=0;theme=1;font=0;size=0;wipe=0');
+  // App themes (raven575's test report, 2026-10-22): Basic, the Autumn colours and, in the branded edition only, a dark and a light per character
+  const themeState = () => page.evaluate(() => ({ id: document.documentElement.dataset.appTheme || '', dark: document.documentElement.classList.contains('dark'),
+    bg: getComputedStyle(document.body).backgroundColor, card: getComputedStyle(document.querySelector('.deck-card.is-current')).backgroundColor,
+    on: getComputedStyle(document.querySelector('.deck-nav button.is-on')).backgroundColor, entry: localStorage.getItem('vcge_settings') }));
+  const themeGroups = await page.$$eval('#themeSelect optgroup', gs => gs.map(g => g.label + ':' + g.children.length).join('|'));
+  ok(EDITION_PLAIN ? 'the theme list is Basic (2) and Autumn (8), no characters in plain' : 'the theme list is Basic (2), Autumn (8) and Team vCGE (18)',
+    themeGroups === (EDITION_PLAIN ? 'Basic:2|Autumn:8' : 'Basic:2|Autumn:8|Team vCGE:18'), themeGroups);
+  // The header buttons fade their colour over 0.15 s (deck.css): read only once no fade is running on the lit icon,
+  // the current card or the page (getAnimations() starts any pending fade first, so it can't be read too early)
+  const themeSettled = () => page.waitForFunction(() => [document.querySelector('.deck-nav button.is-on'), document.querySelector('.deck-card.is-current'), document.body]
+    .every(el => el && el.getAnimations().length === 0), null, { timeout: 5000 });
+  await page.selectOption('#themeSelect', '2'); await themeSettled();
+  const pumpkin = await themeState();
+  ok('Pumpkin colours the page, the cards and the lit header icon, stays light, and its code 2 is saved', pumpkin.id === 'pumpkin' && !pumpkin.dark && pumpkin.bg === 'rgb(243, 221, 206)'
+    && pumpkin.card === 'rgb(250, 244, 240)' && pumpkin.on === 'rgb(225, 107, 24)' && pumpkin.entry === 'hand=0;cb=0;theme=2;font=0;size=0;wipe=0', JSON.stringify(pumpkin));
+  if (!EDITION_PLAIN) {
+    await page.selectOption('#themeSelect', '12'); await themeSettled();
+    const shutout = await themeState();
+    ok('Shutout the Box Turtle (dark) turns dark mode on with its own colours, code 12 saved', shutout.id === 'shutout-dark' && shutout.dark && shutout.bg === 'rgb(28, 32, 14)'
+      && shutout.entry === 'hand=0;cb=0;theme=12;font=0;size=0;wipe=0', JSON.stringify(shutout));
+  }
+  await page.selectOption('#themeSelect', '1'); await themeSettled();
+  ok('back to Light: the theme colours are gone', (await themeState()).id === '' && !(await htmlState()).dark && (await htmlState()).entry === 'hand=0;cb=0;theme=1;font=0;size=0;wipe=0');
   await page.click('#handLeftBtn');
   const headerOrder = () => page.evaluate(() => ['navSettings', 'navVault', 'navCapture', 'navShare'].map(id => document.getElementById(id).getBoundingClientRect().left));
   const [xSettings, xVault, xCapture, xShare] = await headerOrder();
@@ -636,15 +673,15 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   const after = await pS.evaluate(() => ({ hand: document.documentElement.dataset.hand, cb: document.documentElement.dataset.cb, dark: document.documentElement.classList.contains('dark'),
     body: getComputedStyle(document.body).fontFamily, entry: localStorage.getItem('vcge_settings'), keys: Object.keys(localStorage).join() }));
   ok('next start: light theme, colour-blind mode and Lexend come back from the one entry; still exactly one key', !after.dark && after.cb === '1' && /Lexend/.test(after.body) && after.hand === 'right' && after.keys === 'vcge_settings', JSON.stringify(after));
-  ok('the entry holds six numbers and no text', /^hand=\d;cb=\d;theme=\d;font=\d;size=\d;wipe=\d$/.test(after.entry), after.entry);
+  ok('the entry holds six numbers and no text', /^hand=\d;cb=\d;theme=\d\d?;font=\d;size=\d;wipe=\d$/.test(after.entry), after.entry);
   await pS.click('#navSettings');
-  ok('the sheet shows the saved choices', await pS.$eval('#cbToggle', c => c.checked) && (await pS.$eval('#fontSelect', s => s.selectedOptions[0].textContent)) === 'Lexend' && (await pS.$eval('#themeToggle', b => b.getAttribute('aria-pressed'))) === 'true');
-  await pS.click('#themeToggle'); await pS.uncheck('#cbToggle'); await pS.selectOption('#fontSelect', { label: 'Inter' });
+  ok('the sheet shows the saved choices', await pS.$eval('#cbToggle', c => c.checked) && (await pS.$eval('#fontSelect', s => s.selectedOptions[0].textContent)) === 'Lexend' && (await pS.$eval('#themeSelect', s => s.value)) === '1');
+  await pS.selectOption('#themeSelect', '0'); await pS.uncheck('#cbToggle'); await pS.selectOption('#fontSelect', { label: 'Inter' });
   await pS.waitForTimeout(300);
   ok('back to dark, colour-blind off, Inter', await pS.evaluate(() => document.documentElement.classList.contains('dark') && !document.documentElement.dataset.cb && /Inter/.test(getComputedStyle(document.body).fontFamily) && localStorage.getItem('vcge_settings') === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0'));
   await pS.close();
   await page.bringToFront();
-  await page.click('#navSettings'); await page.click('#themeToggle'); await page.uncheck('#cbToggle'); await page.selectOption('#fontSelect', { label: 'Inter' }); await page.click('#settingsSheet [data-sheet-close]');
+  await page.click('#navSettings'); await page.selectOption('#themeSelect', '0'); await page.uncheck('#cbToggle'); await page.selectOption('#fontSelect', { label: 'Inter' }); await page.click('#settingsSheet [data-sheet-close]');
   await page.waitForTimeout(300);
   ok('this tab follows too once its own controls are used: dark, Inter, scan still here', (await htmlState()).dark && /Inter/.test((await htmlState()).body) && await visible('reopenScanBtn'));
 
@@ -820,7 +857,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('Vault page: with a PIN the countdown reads "Auto-lock" (it locks before it clears)', /^Auto-lock (idle|in \d+ s)$/.test(await t8('purgeCountdown')), await t8('purgeCountdown'));
     await closeVault(p8);
     await p8.fill('#firstName', 'Quick'); await p8.fill('#lastName', 'Unlock');
-    await fastForward(p8, 1000);
+    await fastForward(p8, 3000);   // the strip rounds up (2:00 for the whole first second), so step well past that edge
     ok('timer strip: with a PIN it reads "Locks in", calm, no note', await p8.isVisible('#vaultTimerStrip') && (await t8('vaultTimerLabel')) === 'Locks in' && /^1:5\d$/.test(await t8('vaultTimerTime')) && !(await p8.isVisible('#vaultTimerNote')), await t8('vaultTimerTime'));
     await fastForward(p8, 102000);
     const warn8 = await p8.evaluate(() => document.getElementById('vaultTimerBand').className + ' ' + document.getElementById('vaultTimerBar').className);
@@ -1178,6 +1215,24 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p11.click('#leaveStayBtn');
     await p11.goBack(); await p11.waitForTimeout(300);
     ok('Back guard: after a reload, Back asks again after Stay', await p11.isVisible('#leaveModal'));
+    // Back first closes what is open on top (raven575, 2026-10-24): a sheet, then the tour; the next Back asks as before
+    await p11.click('#leaveStayBtn');
+    await p11.click('#navSettings'); await p11.waitForTimeout(200);
+    await p11.goBack(); await p11.waitForTimeout(300);
+    ok('Back with Settings open closes Settings and stays in vCGE, the card kept', p11.url() === ORIGIN && !(await p11.isVisible('#settingsSheet')) && !(await p11.isVisible('#leaveModal'))
+      && (await p11.inputValue('#firstName')) === 'Reloaded', p11.url());
+    await p11.goBack(); await p11.waitForTimeout(300);
+    ok('Back guard: the next Back (no tap between) asks first', p11.url() === ORIGIN && await p11.isVisible('#leaveModal'), p11.url());
+    await p11.click('#leaveStayBtn');
+    await p11.evaluate(() => document.getElementById('welcomeTourBtn').click()); await p11.waitForTimeout(300);
+    const tourShown = await p11.isVisible('#welcomeLayer');
+    await p11.goBack(); await p11.waitForTimeout(300);
+    ok('Back during the tour ends the tour and stays in vCGE', tourShown && p11.url() === ORIGIN && !(await p11.isVisible('#welcomeLayer')) && !(await p11.isVisible('#leaveModal')), `${tourShown} ${p11.url()}`);
+    await p11.click('#clearFormBtn'); await p11.click('#navSettings'); await p11.waitForTimeout(200);
+    await p11.goBack(); await p11.waitForTimeout(300);
+    ok('Back with an empty card and Settings open closes Settings first', p11.url() === ORIGIN && !(await p11.isVisible('#settingsSheet')), p11.url());
+    await p11.goBack(); await p11.waitForTimeout(500);
+    ok('then Back with nothing open and an empty card leaves, as before', p11.url() !== ORIGIN, p11.url());
     ok('Back guard: no page errors', errors11.length === 0, errors11.join(' | '));
     await ctx11.close();
   }
@@ -2010,18 +2065,41 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p4.click('#runOcrBtn');
     await p4.waitForSelector('#ocrRetakeNotice', { state: 'visible', timeout: 90000 }).catch(() => {});
     await p4.waitForFunction(() => document.documentElement.dataset.card === 'capture', null, { timeout: 5000 }).catch(() => {});
-    ok('blurry photo: retake prompt shown on the Capture card', await p4.isVisible('#ocrRetakeNotice') && await p4.isVisible('#retakePhotoBtn') && !(await p4.isVisible('#runOcrBtn')) && (await p4.evaluate(() => document.documentElement.dataset.card)) === 'capture', await readStage(p4));
+    ok('blurry photo: retake prompt shown on the Capture card, OK turned into Try again', await p4.isVisible('#ocrRetakeNotice') && await p4.isVisible('#retakePhotoBtn') && await p4.isVisible('#runOcrBtn') && (await p4.textContent('#runOcrBtn')).trim() === 'Try again' && (await p4.evaluate(() => document.documentElement.dataset.card)) === 'capture', await readStage(p4));
     ok('blurry photo: form left unchanged', (await p4.inputValue('#firstName')) === 'Typed' && (await p4.inputValue('#emailValue0')) === '');
+    ok('blurry photo: the retake advice is about blur, with no Type it in', (await p4.textContent('#ocrRetakeNotice')).includes('too blurry') && !(await p4.isVisible('#typeItInBtn')));
     const chooser = p4.waitForEvent('filechooser', { timeout: 5000 }).then(() => true, () => false);
     await p4.click('#retakePhotoBtn');
     ok('Retake photo opens the photo picker', await chooser && !(await p4.isVisible('#cropReviewModal')));
     await p4.setInputFiles('#imageUpload', await renderCardImage(p4)); await p4.waitForTimeout(300);
-    ok('new photo resets the crop step (OK back, prompt hidden)', await p4.isVisible('#runOcrBtn') && !(await p4.isVisible('#ocrRetakeNotice')));
+    ok('new photo resets the crop step (OK back, prompt hidden)', await p4.isVisible('#runOcrBtn') && (await p4.textContent('#runOcrBtn')).trim() === 'OK' && !(await p4.isVisible('#ocrRetakeNotice')));
     await p4.click('#runOcrBtn');
     await readEnds(p4);
     await proceed(p4);
     ok('sharp retake is read normally', (await rowValue(p4, 'email', 'work')) === 'maria.gonzalez@northwind.com', JSON.stringify(await rows(p4, 'email')));
     await ctx4.close();
+  });
+
+  // Sharp photo, lettering the reader can't read: say so (not "blurry") and offer Type it in (raven575, 2026-10-22)
+  await rerunIfPageCrashed('sharp photo, unreadable lettering', async () => {
+    const ctx = await newContext();
+    const p = await ctx.newPage();
+    await p.goto(ORIGIN); await p.waitForTimeout(300);
+    await p.setInputFiles('#imageUpload', await renderMirroredCard(p)); await p.waitForTimeout(300);
+    await p.click('#runOcrBtn');
+    await p.waitForSelector('#ocrRetakeNotice', { state: 'visible', timeout: 90000 }).catch(() => {});
+    const notice = await p.textContent('#ocrRetakeNotice');
+    ok('sharp unreadable photo: the advice names the lettering, not blur', await p.isVisible('#ocrRetakeNotice') && notice.includes('lettering') && !notice.includes('blurry'), `${notice} ${await readStage(p)}`);
+    ok('sharp unreadable photo: Type it in, Retake photo and Try again are offered', await p.isVisible('#typeItInBtn') && await p.isVisible('#retakePhotoBtn') && await p.isVisible('#runOcrBtn') && (await p.textContent('#runOcrBtn')).trim() === 'Try again');
+    // Try again reads the same photo once more: the notice goes while it reads, then comes back for this photo
+    await p.click('#runOcrBtn');
+    const hidWhileReading = await p.waitForSelector('#ocrRetakeNotice', { state: 'hidden', timeout: 5000 }).then(() => true, () => false);
+    await p.waitForSelector('#ocrRetakeNotice', { state: 'visible', timeout: 90000 }).catch(() => {});
+    ok('Try again reads the photo once more and lands on the same advice', hidWhileReading && await p.isVisible('#ocrRetakeNotice') && (await p.textContent('#ocrRetakeNotice')).includes('lettering') && await p.isVisible('#typeItInBtn'), await readStage(p));
+    await p.click('#typeItInBtn');
+    await p.waitForFunction(() => document.documentElement.dataset.card === 'fields', null, { timeout: 5000 }).catch(() => {});
+    ok('Type it in opens the Fields card ready for typing, the photo dropped', (await p.evaluate(() => document.documentElement.dataset.card)) === 'fields' && (await p.evaluate(() => document.activeElement && document.activeElement.id)) === 'firstName' && !(await p.isVisible('#typeItInBtn')) && !(await p.isVisible('#ocrRetakeNotice')), await p.evaluate(() => `${document.documentElement.dataset.card} ${document.activeElement && document.activeElement.id}`));
+    await ctx.close();
   });
 
   // Crooked photo: drag the corners onto the card, extract, fix a line, change a picker, fill the form
@@ -2187,14 +2265,20 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('capture: a non-image upload is rejected with a toast and nothing opens', (await pV.textContent('#toastMessage')).includes('not a photo') && !(await pV.isVisible('#captureReview')) && !(await pV.getAttribute('#reviewImage', 'src')), await pV.textContent('#toastMessage'));
 
     const noFeed = await cameraFeedMissing(pV);
-    if (noFeed) notRunHere('viewfinder, zoom, shutter, shot, Snap on a card-less shot, Retake, an early shutter press and Close camera (18 checks)', `this engine has no ${noFeed} for a test camera`);
+    if (noFeed) notRunHere('viewfinder, zoom, shutter, shot, Snap on a card-less shot, Retake, an early shutter press and Close camera (21 checks)', `this engine has no ${noFeed} for a test camera`);
     else {
     // The viewfinder: clean, four thin brackets, upright card frame in portrait, fader left (48 px in), shutter right
     await pV.click('#startCameraBtn'); await pV.waitForTimeout(400);
     const started = await pV.isVisible('#cameraPanel');
     ok('viewfinder: the camera starts and the viewfinder shows', started, (await pV.textContent('#eventLog')) + ' | test camera: ' + await pV.evaluate(() => `${window.__camFake || 'script never ran'}, called ${window.__camCalls || 0} times`));
+    // Back in the live camera closes the camera and stays in vCGE (raven575, Android Chrome, 2026-10-24: it had left)
+    if (started) {
+      await pV.goBack(); await pV.waitForTimeout(400);
+      ok('viewfinder: Back closes the camera and stays in vCGE', pV.url() === ORIGIN && !(await pV.isVisible('#cameraPanel')) && await pV.isVisible('#startCameraBtn'), pV.url());
+      await pV.click('#startCameraBtn'); await pV.waitForTimeout(400);
+    }
     // The checks below all need a running camera; without one they are failed together, and the run goes on
-    if (!started) ok('viewfinder, zoom, shutter, shot, Snap on a card-less shot, Retake, an early shutter press and Close camera (17 checks)', false, 'not tried: the camera never started (the check above says why)');
+    if (!started) ok('viewfinder, zoom, shutter, shot, Snap on a card-less shot, Retake, an early shutter press and Close camera (20 checks)', false, 'not tried: the camera never started (the check above says why)');
     else {
     const view = await box('#viewfinderArea'), frame = await box('#cardFrame'), fader = await box('.cap-fader'), shutter = await box('#captureBtn');
     const overlay = await pV.evaluate(() => Array.from(document.querySelectorAll('#viewfinderArea > *')).map(e => e.id || e.className));
@@ -2217,6 +2301,42 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const zoomState = landed ? '' : await pV.evaluate(() => { const v = document.getElementById('cameraStream');
       return `transform "${v.style.transform}", readout ${document.getElementById('zoomDisplay').textContent}, camera ${v.srcObject ? 'on' : 'off'}, viewfinder ${document.getElementById('cameraPanel').classList.contains('hidden') ? 'hidden' : 'shown'}, log: ${document.getElementById('eventLog').textContent.trim()}`; });
     ok('zoom: the fader eases into the change instead of snapping', landed && /^1\.[1-9]x$/.test(midway) && (await pV.textContent('#zoomDisplay')) === '2.0x', `midway ${midway}${zoomState ? ' | did not land on 2x within 5 s: ' + zoomState : ''}`);
+    // A pinch on the viewfinder zooms the camera, not the page (raven575, Chrome on Android, 2026-10-24), up to 4x, and
+    // turns back at once after going past 4x; the fader follows the fingers
+    const camPinch = await pV.evaluate(() => {
+      const v = document.getElementById('cameraStream'), r = v.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      const fire = (type, id, d) => v.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', isPrimary: id === 21, clientX: cx + (id === 21 ? -d : d), clientY: cy, bubbles: true, cancelable: true }));
+      const read = () => `${document.getElementById('zoomDisplay').textContent} ${document.getElementById('zoomSlider').value} ${v.style.transform}`;
+      fire('pointerdown', 21, 20); fire('pointerdown', 22, 20); fire('pointermove', 21, 30); fire('pointermove', 22, 30);
+      const half = read();
+      fire('pointermove', 21, 300); fire('pointermove', 22, 300);
+      const top = read();
+      fire('pointermove', 21, 150); fire('pointermove', 22, 150);
+      const back = read();
+      fire('pointerup', 21, 150); fire('pointerup', 22, 150);
+      return { action: getComputedStyle(document.getElementById('viewfinderArea')).touchAction, half, top, back, page: window.visualViewport ? window.visualViewport.scale : 1 };
+    });
+    ok('viewfinder: a pinch zooms the camera, not the page, and the fader follows (2x, fingers 40 -> 60 px apart: 3x)', camPinch.action === 'pan-x pan-y' && camPinch.page === 1 && camPinch.half === '3.0x 3 scale(3)', JSON.stringify(camPinch));
+    ok('viewfinder: a pinch stops at 4x and zooms back as soon as the fingers turn back (half way back from 4x: 2x)', camPinch.top === '4.0x 4 scale(4)' && camPinch.back === '2.0x 2 scale(2)', JSON.stringify(camPinch));
+    // A fast pinch whose first finger moves before the second lands (Chrome takes that finger as a scroll) still zooms
+    // the camera (real touches: Chrome-family only)
+    if (ENGINE === 'chromium') {
+      await pV.locator('#viewfinderArea').scrollIntoViewIfNeeded();
+      const cdpF = await ctxV.newCDPSession(pV);
+      const vb = await pV.locator('#viewfinderArea').boundingBox(), fx = vb.x + vb.width / 2, fy = vb.y + vb.height / 2;
+      const touch = (type, pts) => cdpF.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], i) => ({ x, y, id: i + 1 })) });
+      await touch('touchStart', [[fx - 20, fy]]);
+      for (let i = 1; i <= 3; i++) await touch('touchMove', [[fx - 20 - 10 * i, fy - 10 * i]]);
+      await touch('touchStart', [[fx - 50, fy - 30], [fx + 20, fy]]);
+      for (let i = 1; i <= 4; i++) await touch('touchMove', [[fx - 50 - 10 * i, fy - 30], [fx + 20 + 10 * i, fy]]);
+      await touch('touchEnd', []); await pV.waitForTimeout(200);
+      const fast = await pV.textContent('#zoomDisplay');
+      ok('viewfinder: a fast pinch whose first finger moves before the second lands still zooms the camera', parseFloat(fast) > 2.5, fast);
+      await cdpF.detach();
+    } else notRunHere('viewfinder: a fast pinch whose first finger moves before the second lands still zooms the camera', 'real touches are sent through Chrome\'s DevTools protocol');
+    // Back to 2x for the shot below
+    await pV.evaluate(() => { const s = document.getElementById('zoomSlider'); s.value = '2'; s.dispatchEvent(new Event('input', { bubbles: true })); });
+    await pV.waitForFunction(() => document.getElementById('cameraStream').style.transform === 'scale(2)', null, { timeout: 5000 }).catch(() => {});
 
     // The shutter sinks on the press and pops back after the release; the shot is the window the viewfinder showed
     await pV.mouse.move(shutter.l + shutter.w / 2, shutter.t + shutter.h / 2); await pV.mouse.down(); await pV.waitForTimeout(60);
