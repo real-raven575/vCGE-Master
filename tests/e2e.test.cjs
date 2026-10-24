@@ -2262,7 +2262,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('capture: a non-image upload is rejected with a toast and nothing opens', (await pV.textContent('#toastMessage')).includes('not a photo') && !(await pV.isVisible('#captureReview')) && !(await pV.getAttribute('#reviewImage', 'src')), await pV.textContent('#toastMessage'));
 
     const noFeed = await cameraFeedMissing(pV);
-    if (noFeed) notRunHere('viewfinder, zoom, shutter, shot, Snap on a card-less shot, Retake, an early shutter press and Close camera (18 checks)', `this engine has no ${noFeed} for a test camera`);
+    if (noFeed) notRunHere('viewfinder, zoom, shutter, shot, Snap on a card-less shot, Retake, an early shutter press and Close camera (21 checks)', `this engine has no ${noFeed} for a test camera`);
     else {
     // The viewfinder: clean, four thin brackets, upright card frame in portrait, fader left (48 px in), shutter right
     await pV.click('#startCameraBtn'); await pV.waitForTimeout(400);
@@ -2275,7 +2275,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       await pV.click('#startCameraBtn'); await pV.waitForTimeout(400);
     }
     // The checks below all need a running camera; without one they are failed together, and the run goes on
-    if (!started) ok('viewfinder, zoom, shutter, shot, Snap on a card-less shot, Retake, an early shutter press and Close camera (17 checks)', false, 'not tried: the camera never started (the check above says why)');
+    if (!started) ok('viewfinder, zoom, shutter, shot, Snap on a card-less shot, Retake, an early shutter press and Close camera (20 checks)', false, 'not tried: the camera never started (the check above says why)');
     else {
     const view = await box('#viewfinderArea'), frame = await box('#cardFrame'), fader = await box('.cap-fader'), shutter = await box('#captureBtn');
     const overlay = await pV.evaluate(() => Array.from(document.querySelectorAll('#viewfinderArea > *')).map(e => e.id || e.className));
@@ -2298,6 +2298,42 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const zoomState = landed ? '' : await pV.evaluate(() => { const v = document.getElementById('cameraStream');
       return `transform "${v.style.transform}", readout ${document.getElementById('zoomDisplay').textContent}, camera ${v.srcObject ? 'on' : 'off'}, viewfinder ${document.getElementById('cameraPanel').classList.contains('hidden') ? 'hidden' : 'shown'}, log: ${document.getElementById('eventLog').textContent.trim()}`; });
     ok('zoom: the fader eases into the change instead of snapping', landed && /^1\.[1-9]x$/.test(midway) && (await pV.textContent('#zoomDisplay')) === '2.0x', `midway ${midway}${zoomState ? ' | did not land on 2x within 5 s: ' + zoomState : ''}`);
+    // A pinch on the viewfinder zooms the camera, not the page (raven575, Chrome on Android, 2026-10-24), up to 4x, and
+    // turns back at once after going past 4x; the fader follows the fingers
+    const camPinch = await pV.evaluate(() => {
+      const v = document.getElementById('cameraStream'), r = v.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+      const fire = (type, id, d) => v.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', isPrimary: id === 21, clientX: cx + (id === 21 ? -d : d), clientY: cy, bubbles: true, cancelable: true }));
+      const read = () => `${document.getElementById('zoomDisplay').textContent} ${document.getElementById('zoomSlider').value} ${v.style.transform}`;
+      fire('pointerdown', 21, 20); fire('pointerdown', 22, 20); fire('pointermove', 21, 30); fire('pointermove', 22, 30);
+      const half = read();
+      fire('pointermove', 21, 300); fire('pointermove', 22, 300);
+      const top = read();
+      fire('pointermove', 21, 150); fire('pointermove', 22, 150);
+      const back = read();
+      fire('pointerup', 21, 150); fire('pointerup', 22, 150);
+      return { action: getComputedStyle(document.getElementById('viewfinderArea')).touchAction, half, top, back, page: window.visualViewport ? window.visualViewport.scale : 1 };
+    });
+    ok('viewfinder: a pinch zooms the camera, not the page, and the fader follows (2x, fingers 40 -> 60 px apart: 3x)', camPinch.action === 'pan-x pan-y' && camPinch.page === 1 && camPinch.half === '3.0x 3 scale(3)', JSON.stringify(camPinch));
+    ok('viewfinder: a pinch stops at 4x and zooms back as soon as the fingers turn back (half way back from 4x: 2x)', camPinch.top === '4.0x 4 scale(4)' && camPinch.back === '2.0x 2 scale(2)', JSON.stringify(camPinch));
+    // A fast pinch whose first finger moves before the second lands (Chrome takes that finger as a scroll) still zooms
+    // the camera (real touches: Chrome-family only)
+    if (ENGINE === 'chromium') {
+      await pV.locator('#viewfinderArea').scrollIntoViewIfNeeded();
+      const cdpF = await ctxV.newCDPSession(pV);
+      const vb = await pV.locator('#viewfinderArea').boundingBox(), fx = vb.x + vb.width / 2, fy = vb.y + vb.height / 2;
+      const touch = (type, pts) => cdpF.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], i) => ({ x, y, id: i + 1 })) });
+      await touch('touchStart', [[fx - 20, fy]]);
+      for (let i = 1; i <= 3; i++) await touch('touchMove', [[fx - 20 - 10 * i, fy - 10 * i]]);
+      await touch('touchStart', [[fx - 50, fy - 30], [fx + 20, fy]]);
+      for (let i = 1; i <= 4; i++) await touch('touchMove', [[fx - 50 - 10 * i, fy - 30], [fx + 20 + 10 * i, fy]]);
+      await touch('touchEnd', []); await pV.waitForTimeout(200);
+      const fast = await pV.textContent('#zoomDisplay');
+      ok('viewfinder: a fast pinch whose first finger moves before the second lands still zooms the camera', parseFloat(fast) > 2.5, fast);
+      await cdpF.detach();
+    } else notRunHere('viewfinder: a fast pinch whose first finger moves before the second lands still zooms the camera', 'real touches are sent through Chrome\'s DevTools protocol');
+    // Back to 2x for the shot below
+    await pV.evaluate(() => { const s = document.getElementById('zoomSlider'); s.value = '2'; s.dispatchEvent(new Event('input', { bubbles: true })); });
+    await pV.waitForFunction(() => document.getElementById('cameraStream').style.transform === 'scale(2)', null, { timeout: 5000 }).catch(() => {});
 
     // The shutter sinks on the press and pops back after the release; the shot is the window the viewfinder showed
     await pV.mouse.move(shutter.l + shutter.w / 2, shutter.t + shutter.h / 2); await pV.mouse.down(); await pV.waitForTimeout(60);

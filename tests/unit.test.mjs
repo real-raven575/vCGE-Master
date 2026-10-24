@@ -675,6 +675,31 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('tween: under reduce motion the end value applies at once', instant.length === 1 && instant[0] === 3 && timers.length === 0);
 }
 
+// The live camera's own zoom (MOD03, raven575, Chrome on Android, 2026-10-24: the fader skipped, jumped back and forth
+// and once stopped at an old zoom): at most 4x, one request at a time, and the newest zoom is always the last one sent
+{
+  const { VCGEActiveCamera, ZOOM_MAX } = await import(`${R}/modules/mod03-camera/camera.js`);
+  const el = () => ({ style: {}, textContent: '', value: '', min: '', max: '', step: '', dataset: {}, classList: { add() {}, remove() {}, contains: () => false }, addEventListener() {} });
+  const savedAdd = globalThis.addEventListener;
+  if (typeof savedAdd !== 'function') globalThis.addEventListener = () => {};
+  const cfg = Object.fromEntries(['videoEl', 'canvasEl', 'zoomSlider', 'zoomDisplay', 'viewfinderArea', 'cardFrame', 'shutter', 'reviewPanel', 'reviewImage', 'eventLog', 'cameraPanel', 'irisPeek', 'uploadInput'].map(k => [k, el()]));
+  const cam = new VCGEActiveCamera(cfg);
+  const sent = [], finish = [];
+  const track = { getCapabilities: () => ({ zoom: { min: 1, max: 8, step: 0.1 } }), applyConstraints(c) { sent.push(c.advanced[0].zoom); return new Promise(r => finish.push(r)); } };
+  cam.activeStream = { getVideoTracks: () => [track] };
+  cam.setupZoom(track);
+  const settle = async () => { finish.shift()(); await new Promise(r => setTimeout(r, 0)); };
+  ok('camera zoom: the fader stops at 4x even when the camera itself goes to 8x', ZOOM_MAX === 4 && cam.zoomMode === 'hardware' && Number(cfg.zoomSlider.max) === 4, `${cam.zoomMode} max ${cfg.zoomSlider.max}`);
+  for (const z of [1.5, 2, 2.5, 3]) cam.applyZoom(z);     // the steps of one ease, while the first request is still running
+  ok('camera zoom: while the camera is busy with a zoom, no more requests pile up', JSON.stringify(sent) === '[1]', JSON.stringify(sent));
+  await settle();
+  ok('camera zoom: when it is done, only the newest zoom is sent', JSON.stringify(sent) === '[1,3]', JSON.stringify(sent));
+  cam.applyZoom(2); cam.applyZoom(1);                       // the fader taken back down to 1x meanwhile
+  await settle(); await settle();
+  ok('camera zoom: the last zoom asked for is the last one the camera gets, so it never stops at an old zoom', JSON.stringify(sent) === '[1,3,1]' && !cam.zoomInFlight && finish.length === 0, JSON.stringify(sent));
+  globalThis.addEventListener = savedAdd;
+}
+
 // The zoom of the photo in the crop step (MOD03): pinch, pan and the zoom onto a snapped card
 {
   const { clampView, zoomAbout, viewForCorners, CROP_ZOOM_MAX, SNAP_MARGIN } = await import(`${R}/modules/mod03-camera/cropView.js`);

@@ -24,7 +24,8 @@ export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 export const ZOOM_EASE_MS = 320;      // the fader eases into each change rather than snapping
 export const SHUTTER_POP_MS = 260;    // the shutter pops back up after a press
 export const IRIS_WINK_MS = 700;     // one wink when Iris is tapped on the empty Capture card (camera.css iris-wink)
-export const CSS_ZOOM_MAX = 4;        // digital zoom range when the camera has no zoom of its own
+export const ZOOM_MAX = 4;            // the most the fader or a pinch zooms, the camera's own zoom or the digital one
+                                      // (raven575, 2026-10-24: a phone's 8x was too close to help)
 export const FIRST_FRAME_WAIT_MS = 1500;   // how long a shutter press waits for the camera's first picture
 
 export class VCGEActiveCamera {
@@ -50,6 +51,8 @@ export class VCGEActiveCamera {
         this.currentZoom = 1.0;       // the zoom in effect right now (eases towards targetZoom)
         this.targetZoom = 1.0;
         this.stopZoomTween = null;
+        this.zoomInFlight = false;    // a zoom request the camera has not finished yet
+        this.queuedZoom = null;       // the newest zoom asked for meanwhile (only the newest is sent)
         this.stopShutterTween = null;
         this.capturedImageDataUrl = null;
         this.lastSource = null;       // 'camera' or 'upload': what Retake goes back to
@@ -104,16 +107,18 @@ export class VCGEActiveCamera {
         }
     }
 
-    // The camera's own zoom when it has one (the fader takes its range), otherwise a digital zoom of the preview.
+    // The camera's own zoom when it has one (the fader takes its range, up to ZOOM_MAX), otherwise a digital zoom of the
+    // preview.
     setupZoom(track) {
         const capabilities = track && track.getCapabilities ? track.getCapabilities() : {};
         const zoom = capabilities && capabilities.zoom;
-        this.zoomMode = zoom && zoom.max > zoom.min && 'applyConstraints' in track ? 'hardware' : 'css';
+        this.zoomMode = zoom && Math.min(zoom.max, ZOOM_MAX) > zoom.min && 'applyConstraints' in track ? 'hardware' : 'css';
+        this.zoomInFlight = false; this.queuedZoom = null;
         if (this.zoomSlider) {
             if (this.zoomMode === 'hardware') {
-                this.zoomSlider.min = zoom.min; this.zoomSlider.max = zoom.max; this.zoomSlider.step = zoom.step || 0.1;
+                this.zoomSlider.min = zoom.min; this.zoomSlider.max = Math.min(zoom.max, ZOOM_MAX); this.zoomSlider.step = zoom.step || 0.1;
             } else {
-                this.zoomSlider.min = 1; this.zoomSlider.max = CSS_ZOOM_MAX; this.zoomSlider.step = 0.1;
+                this.zoomSlider.min = 1; this.zoomSlider.max = ZOOM_MAX; this.zoomSlider.step = 0.1;
             }
             this.zoomSlider.value = this.zoomSlider.min;
         }
@@ -183,6 +188,7 @@ export class VCGEActiveCamera {
         if (this.zoomSlider) {
             this.zoomSlider.addEventListener('input', (e) => this.zoomTo(parseFloat(e.target.value)));
         }
+        this.wirePinch();
         if (this.shutter) {
             // Sinks on the press, pops back (with the shared overshoot) on the release; the shot is taken on the click.
             this.shutter.addEventListener('pointerdown', () => this.pressShutter(true));
@@ -226,16 +232,99 @@ export class VCGEActiveCamera {
         this.stopZoomTween = tween(this.currentZoom, target, ZOOM_EASE_MS, (z) => this.applyZoom(z), { instant: this.reducedMotion() });
     }
 
+    // A pinch follows the fingers: the zoom changes at once, and the fader moves with it.
+    setZoomNow(value) {
+        const min = Number(this.zoomSlider ? this.zoomSlider.min : 1) || 1, max = Number(this.zoomSlider ? this.zoomSlider.max : ZOOM_MAX) || ZOOM_MAX;
+        const z = Math.min(max, Math.max(min, Number(value) || min));
+        if (this.stopZoomTween) { this.stopZoomTween(); this.stopZoomTween = null; }
+        this.targetZoom = z;
+        if (this.zoomSlider) this.zoomSlider.value = String(z);
+        this.applyZoom(z);
+    }
+
     applyZoom(z) {
         this.currentZoom = z;
         if (this.zoomDisplay) this.zoomDisplay.textContent = `${z.toFixed(1)}x`;
         const track = this.activeStream ? this.activeStream.getVideoTracks()[0] : null;
         if (this.zoomMode === 'hardware' && track) {
-            track.applyConstraints({ advanced: [{ zoom: z }] }).catch(() => { this.zoomMode = 'css'; this.applyZoom(z); });
+            this.sendHardwareZoom(track, z);
             if (this.videoEl) this.videoEl.style.transform = '';
         } else if (this.videoEl) {
             this.videoEl.style.transform = z > 1 ? `scale(${z})` : '';
         }
+    }
+
+    // The camera's own zoom takes a moment per change. A request for every step of the ease (or of a pinch) piled up,
+    // and they finished out of order: the picture jumped back and forth and could stop at an old zoom (raven575, Chrome
+    // on Android, 2026-10-24). So one request at a time, and while it runs only the newest zoom is kept, sent next: the
+    // last zoom asked for is always the last one the camera gets.
+    sendHardwareZoom(track, z) {
+        this.queuedZoom = z;
+        if (this.zoomInFlight) return;
+        // A camera stopped or restarted meanwhile has its own requests (setupZoom starts them afresh): leave them be
+        const current = () => !!this.activeStream && this.activeStream.getVideoTracks()[0] === track;
+        const next = () => {
+            if (!current()) return;
+            const want = this.queuedZoom;
+            this.queuedZoom = null;
+            this.zoomInFlight = want !== null;
+            if (want === null) return;
+            track.applyConstraints({ advanced: [{ zoom: want }] }).then(next, () => {
+                if (!current()) return;
+                this.zoomInFlight = false; this.queuedZoom = null;
+                this.zoomMode = 'css'; this.applyZoom(this.currentZoom);
+            });
+        };
+        next();
+    }
+
+    // Pinch on the viewfinder zooms the camera, not the page (raven575, 2026-10-24: the page zoomed instead). Two fingers
+    // scale the zoom they started from; past the fader's ends the pinch starts again from there, so turning back zooms
+    // back at once. A finger that moves before the second lands is taken by Chrome as a scroll (its pointer is cancelled,
+    // and the second finger gets none), so that pinch is followed from the touches. Presses on the fader or the shutter
+    // are theirs.
+    wirePinch() {
+        const area = this.viewfinderArea;
+        if (!area) return;
+        const points = new Map();
+        let start = null, touchPinch = false;
+        const span = (p) => Math.max(1, Math.hypot(p[1].x - p[0].x, p[1].y - p[0].y));
+        const begin = (p) => { start = p.length >= 2 ? { zoom: this.targetZoom, dist: span(p) } : null; };
+        const pinchTo = (p) => {
+            if (!start || !this.activeStream) return;
+            const want = start.zoom * span(p) / start.dist;
+            this.setZoomNow(want);
+            if (want !== this.targetZoom) begin(p);
+        };
+        const own = (e) => !e.target.closest || !e.target.closest('.cap-fader, button, input, label');
+        area.addEventListener('pointerdown', (e) => {
+            if (e.pointerType === 'mouse' || !own(e)) return;
+            touchPinch = false;
+            points.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            begin(Array.from(points.values()));
+        });
+        area.addEventListener('pointermove', (e) => {
+            if (!points.has(e.pointerId) || touchPinch) return;
+            points.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            const p = Array.from(points.values());
+            if (p.length >= 2) pinchTo(p);
+        });
+        ['pointerup', 'pointercancel'].forEach(t => area.addEventListener(t, (e) => { if (points.delete(e.pointerId)) begin(Array.from(points.values())); }));
+        const touchPoints = (e) => [e.touches[0], e.touches[1]].map(t => ({ x: t.clientX, y: t.clientY }));
+        area.addEventListener('touchstart', (e) => {
+            if (e.touches.length !== 2 || points.size >= 2 || !own(e)) return;
+            touchPinch = true;
+            begin(touchPoints(e));
+        }, { passive: true });
+        area.addEventListener('touchmove', (e) => { if (touchPinch && e.touches.length >= 2 && points.size < 2) pinchTo(touchPoints(e)); }, { passive: true });
+        ['touchend', 'touchcancel'].forEach(t => area.addEventListener(t, (e) => { if (touchPinch && e.touches.length < 2) { touchPinch = false; start = null; } }, { passive: true }));
+        // A trackpad pinch arrives as a wheel with Ctrl held; Safari's own pinch events must not zoom the page
+        area.addEventListener('wheel', (e) => {
+            if (!e.ctrlKey || !this.activeStream) return;
+            e.preventDefault();
+            this.setZoomNow(this.targetZoom * Math.exp(-e.deltaY / 100));
+        }, { passive: false });
+        ['gesturestart', 'gesturechange'].forEach(t => area.addEventListener(t, (e) => e.preventDefault()));
     }
 
     wink() {
@@ -261,6 +350,7 @@ export class VCGEActiveCamera {
 
     stopCamera() {
         if (this.stopZoomTween) { this.stopZoomTween(); this.stopZoomTween = null; }
+        this.queuedZoom = null;
         if (this.activeStream) {
             this.activeStream.getTracks().forEach(track => track.stop());
             this.activeStream = null;
