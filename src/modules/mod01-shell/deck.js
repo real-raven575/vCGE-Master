@@ -163,6 +163,14 @@ export function closeSheet(id) {
 
 export function sheetOpen(id) { const s = $(id); return !!s && !s.classList.contains('hidden'); }
 
+/** Closes the sheet opened last (Esc, and Back in main.js); false when none is open. */
+export function closeTopSheet() {
+    const open = Array.from(document.querySelectorAll('.vcge-sheet:not(.hidden)')).pop();
+    if (!open) return false;
+    closeSheet(open.id);
+    return true;
+}
+
 function wireSheet(sheet) {
     sheet.querySelectorAll('[data-sheet-close]').forEach(b => b.addEventListener('click', () => closeSheet(sheet.id)));
     // A sideways swipe anywhere on the sheet closes it, like Cancel. Drags on sliders and text keep working.
@@ -281,9 +289,7 @@ export function initDeck() {
         if (e.key === 'ArrowRight') next(); else prev();
     });
     document.addEventListener('keydown', (e) => {
-        if (e.key !== 'Escape') return;
-        const open = Array.from(document.querySelectorAll('.vcge-sheet:not(.hidden)')).pop();
-        if (open) { e.preventDefault(); closeSheet(open.id); }
+        if (e.key === 'Escape' && closeTopSheet()) e.preventDefault();
     });
 
     fitHeader();

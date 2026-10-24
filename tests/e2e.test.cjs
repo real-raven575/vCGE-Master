@@ -1211,6 +1211,24 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p11.click('#leaveStayBtn');
     await p11.goBack(); await p11.waitForTimeout(300);
     ok('Back guard: after a reload, Back asks again after Stay', await p11.isVisible('#leaveModal'));
+    // Back first closes what is open on top (raven575, 2026-10-24): a sheet, then the tour; the next Back asks as before
+    await p11.click('#leaveStayBtn');
+    await p11.click('#navSettings'); await p11.waitForTimeout(200);
+    await p11.goBack(); await p11.waitForTimeout(300);
+    ok('Back with Settings open closes Settings and stays in vCGE, the card kept', p11.url() === ORIGIN && !(await p11.isVisible('#settingsSheet')) && !(await p11.isVisible('#leaveModal'))
+      && (await p11.inputValue('#firstName')) === 'Reloaded', p11.url());
+    await p11.goBack(); await p11.waitForTimeout(300);
+    ok('Back guard: the next Back (no tap between) asks first', p11.url() === ORIGIN && await p11.isVisible('#leaveModal'), p11.url());
+    await p11.click('#leaveStayBtn');
+    await p11.evaluate(() => document.getElementById('welcomeTourBtn').click()); await p11.waitForTimeout(300);
+    const tourShown = await p11.isVisible('#welcomeLayer');
+    await p11.goBack(); await p11.waitForTimeout(300);
+    ok('Back during the tour ends the tour and stays in vCGE', tourShown && p11.url() === ORIGIN && !(await p11.isVisible('#welcomeLayer')) && !(await p11.isVisible('#leaveModal')), `${tourShown} ${p11.url()}`);
+    await p11.click('#clearFormBtn'); await p11.click('#navSettings'); await p11.waitForTimeout(200);
+    await p11.goBack(); await p11.waitForTimeout(300);
+    ok('Back with an empty card and Settings open closes Settings first', p11.url() === ORIGIN && !(await p11.isVisible('#settingsSheet')), p11.url());
+    await p11.goBack(); await p11.waitForTimeout(500);
+    ok('then Back with nothing open and an empty card leaves, as before', p11.url() !== ORIGIN, p11.url());
     ok('Back guard: no page errors', errors11.length === 0, errors11.join(' | '));
     await ctx11.close();
   }
@@ -2249,6 +2267,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pV.click('#startCameraBtn'); await pV.waitForTimeout(400);
     const started = await pV.isVisible('#cameraPanel');
     ok('viewfinder: the camera starts and the viewfinder shows', started, (await pV.textContent('#eventLog')) + ' | test camera: ' + await pV.evaluate(() => `${window.__camFake || 'script never ran'}, called ${window.__camCalls || 0} times`));
+    // Back in the live camera closes the camera and stays in vCGE (raven575, Android Chrome, 2026-10-24: it had left)
+    if (started) {
+      await pV.goBack(); await pV.waitForTimeout(400);
+      ok('viewfinder: Back closes the camera and stays in vCGE', pV.url() === ORIGIN && !(await pV.isVisible('#cameraPanel')) && await pV.isVisible('#startCameraBtn'), pV.url());
+      await pV.click('#startCameraBtn'); await pV.waitForTimeout(400);
+    }
     // The checks below all need a running camera; without one they are failed together, and the run goes on
     if (!started) ok('viewfinder, zoom, shutter, shot, Snap on a card-less shot, Retake, an early shutter press and Close camera (17 checks)', false, 'not tried: the camera never started (the check above says why)');
     else {

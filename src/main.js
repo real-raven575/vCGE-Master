@@ -15,7 +15,8 @@
  */
 import './modules/mod01-shell/shell.js';
 import { initSettings } from './modules/mod01-shell/settings.js';
-import { go as showCard, use as useDeck, onBeforeChange as beforeCardChange, openSheet, closeSheet, current as currentCard, toast as deckToast, setFace as setCardFace } from './modules/mod01-shell/deck.js';
+import { go as showCard, use as useDeck, onBeforeChange as beforeCardChange, openSheet, closeSheet, closeTopSheet, current as currentCard, toast as deckToast, setFace as setCardFace } from './modules/mod01-shell/deck.js';
+import { tourOpen, closeTour } from './modules/mod01-shell/welcome.js';
 import { isPlain } from './modules/mod01-shell/edition.js';
 import { globalEventBus, Events } from './share/eventBus.js';
 import { CONTACT_FIELDS, CONTACT_LIST_FIELDS, createEmptyContact } from './share/cardSchema.js';
@@ -537,6 +538,22 @@ function armLeaveGuard() {
     leaveGuardArmed = true;
 }
 
+// Back first closes what is open on top, topmost first, the way its own dismiss button (or Esc) would, and stays in
+// vCGE (raven575, 2026-10-24: Back in the live camera had left the app). The lock screen is not on the list: Back
+// there asks "Leave vCGE?" as before.
+const visible = (id) => { const el = $(id); return !!el && !el.classList.contains('hidden'); };
+const clickIfShown = (modal, button) => () => { if (!visible(modal)) return false; $(button).click(); return true; };
+const BACK_CLOSES = [
+    () => { if (!wipeDialog.isOpen()) return false; wipeDialog.cancel(); return true; },
+    clickIfShown('cameraInUseModal', 'cameraInUseOkBtn'),
+    clickIfShown('ocrTimeoutModal', 'ocrTimeoutCancelBtn'),
+    clickIfShown('ocrMorePhotoModal', 'ocrFixByHandBtn'),
+    clickIfShown('quickSetupModal', 'quickSetupSkipBtn'),
+    () => { if (!tourOpen()) return false; closeTour(); return true; },
+    closeTopSheet,
+    clickIfShown('cameraPanel', 'stopCameraBtn')
+];
+
 function onPopState(event) {
     if (event.state && event.state.vcgeLeaveGuard) {   // Forward onto the guard entry again
         leaveGuardArmed = true;
@@ -544,6 +561,12 @@ function onPopState(event) {
     }
     if (leaving || !leaveGuardArmed) return;
     leaveGuardArmed = false;
+    if (!visible('leaveModal') && BACK_CLOSES.some(closeIt => closeIt())) {
+        // Back used up the guard entry; put it back now, not on the next tap, so a second Back still asks first
+        history.pushState({ vcgeLeaveGuard: true }, '');
+        leaveGuardArmed = true;
+        return;
+    }
     if (!hasWork()) return leavePage();
     $('leaveModal').classList.remove('hidden');
 }

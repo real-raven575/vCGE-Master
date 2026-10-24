@@ -116,6 +116,11 @@ async function closeWindow() {
 
 // ---- Tour ----------------------------------------------------------------------------------------------------------
 
+export function tourOpen() { return !!layer; }
+
+// Ends the tour (Esc, its close button, and Back in main.js) and goes to Capture.
+export function closeTour() { close(); }
+
 function close() {
     if (!layer) return;
     if (onViewportChange) {
