@@ -645,7 +645,7 @@ export class CardView {
         const select = $('logoPresetSelect');
         const group = (label, items) => { const g = document.createElement('optgroup'); g.label = label; items.forEach(([v, text]) => g.appendChild(new Option(text, v))); return g; };
         select.replaceChildren(new Option('Ready-made logo…', ''));
-        if (!isPlain()) select.appendChild(group('Team vCGE', PRESETS.map(p => [`pilot:${p.firstName}`, `${p.firstName} the ${p.lastName}`])));
+        if (!isPlain()) select.appendChild(group('Team vCGE', PRESETS.map(p => [`pilot:${p.firstName}`, `${p.firstName} ${p.lastName}`])));
         select.appendChild(group('To match a palette', Object.keys(THEME_LOGO_ART).map(k => [`theme:${k}`, THEMES[k].label])));
     }
 
@@ -671,14 +671,17 @@ export class CardView {
         const pilot = kind === 'pilot' && !isPlain() ? PRESETS.find(p => p.firstName === key) : null;
         const url = pilot ? pilot.logo : (kind === 'theme' && THEME_LOGO_ART[key] ? themeLogoUrl(key) : null);
         if (!url) return Promise.resolve();
-        const name = pilot ? `${pilot.firstName} the ${pilot.lastName}` : THEMES[key].label;
+        const name = pilot ? `${pilot.firstName} ${pilot.lastName}` : THEMES[key].label;
         const token = ++this.sampleLogoToken;
         return prepareLogo(url, { trace: false }).then(({ photo, display }) => {
             if (token !== this.sampleLogoToken) return;
             this.setAvatar(photo, display);
             this.changed();
             this.showToast(`Logo: ${name}`);
-        }).catch(err => { console.warn('[vCGE] Ready-made logo not readable:', err); this.showToast('That logo could not be drawn.'); });
+        }).catch(err => {
+            console.warn('[vCGE] Ready-made logo not readable:', err);
+            this.showToast(err instanceof LogoFileError ? 'That logo could not be drawn: its file did not load.' : 'That logo could not be drawn: the picture could not be read.');
+        });
     }
 
     applyFont(fontClass) {
@@ -1325,10 +1328,23 @@ async function loadLogo(source) {
     const dataUrl = /^data:/i.test(source);
     const vector = dataUrl ? /^data:image\/svg\+xml/i.test(source) : /\.svg$/i.test(source);
     const img = new Image();
-    img.src = dataUrl && vector ? sizedSvg(source) : source;
+    // A bundled drawing (a pilot's animal) is read as text and drawn from memory, as the palette logos are: drawn
+    // straight from its file it failed on Chrome for Android (raven575, 2026-10-22), while the palette logos worked.
+    img.src = vector ? sizedSvg(dataUrl ? source : await bundledSvg(source)) : source;
     await img.decode();
     // Should a browser still report no size for an SVG, it is drawn as a square.
     return { img, w: img.naturalWidth || LOGO_SIZE, h: img.naturalHeight || LOGO_SIZE, vector };
+}
+
+/** A bundled SVG file (same origin) as a data URL; a file that does not load says so (LogoFileError). */
+async function bundledSvg(path) {
+    let res;
+    try { res = await fetch(path); } catch (err) { throw new LogoFileError(path); }
+    if (!res.ok) throw new LogoFileError(path);
+    return svgDataUrl(await res.text());
+}
+export class LogoFileError extends Error {
+    constructor(path) { super(`Logo file did not load: ${path}`); this.name = 'LogoFileError'; }
 }
 
 function decodeDataUrl(dataUrl) {

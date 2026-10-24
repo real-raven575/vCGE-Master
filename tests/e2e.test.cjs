@@ -2295,6 +2295,40 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       return { before, after: v.style.transform };
     });
     ok('one finger pans the zoomed photo', panned.before !== panned.after && /scale\(2\)/.test(panned.after), JSON.stringify(panned));
+    // A fast pinch past 6x turns back at once (raven575, Chrome on Android, 2026-10-22: a fast pinch "won't let you zoom
+    // all the way back out"): 20 px apart -> 240 px asks for 12x and stops at 6x; back to 120 px is half of that, 3x
+    const overshoot = await pV.evaluate(() => {
+      const img = document.getElementById('reviewImage'), r = img.getBoundingClientRect(), cx = r.left + r.width / 2, cy = r.top + r.height / 2, v = document.getElementById('cropView');
+      const fire = (type, id, d) => img.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', isPrimary: id === 11, clientX: cx + (id === 11 ? -d : d), clientY: cy, bubbles: true, cancelable: true }));
+      const scale = () => Number(v.style.getPropertyValue('--crop-scale'));
+      fire('pointerdown', 11, 10); fire('pointerdown', 12, 10);
+      fire('pointermove', 11, 120); fire('pointermove', 12, 120);
+      const top = scale();
+      fire('pointermove', 11, 60); fire('pointermove', 12, 60);
+      const back = scale();
+      fire('pointerup', 11, 60); fire('pointerup', 12, 60);
+      return { top, back };
+    });
+    ok('a pinch past 6x zooms back as soon as the fingers turn back (12x asked, held at 6x, half way back is 3x)', overshoot.top === 6 && Math.abs(overshoot.back - 3) < 0.01, JSON.stringify(overshoot));
+    // At the whole photo, a pinch whose first finger moves before the second lands still zooms: Chrome takes that finger
+    // as a scroll and cancels its pointer, so the pinch is followed from the touches (real touches: Chrome-family only)
+    await pV.evaluate(() => document.getElementById('cropStage').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })));
+    await pV.waitForFunction(() => document.getElementById('cropView').style.transform === '');
+    if (ENGINE === 'chromium') {
+      await pV.locator('#cropStage').scrollIntoViewIfNeeded();
+      const cdpP = await ctxV.newCDPSession(pV);
+      const ib = await pV.locator('#reviewImage').boundingBox(), px = ib.x + ib.width / 2, py = ib.y + ib.height / 2;
+      const touch = (type, pts) => cdpP.send('Input.dispatchTouchEvent', { type, touchPoints: pts.map(([x, y], i) => ({ x, y, id: i + 1 })) });
+      await touch('touchStart', [[px - 20, py]]);
+      for (let i = 1; i <= 3; i++) await touch('touchMove', [[px - 20 - 10 * i, py - 10 * i]]);
+      await touch('touchStart', [[px - 50, py - 30], [px + 20, py]]);
+      for (let i = 1; i <= 4; i++) await touch('touchMove', [[px - 50 - 20 * i, py - 30], [px + 20 + 20 * i, py]]);
+      await touch('touchEnd', []); await pV.waitForTimeout(200);
+      const late = await pV.$eval('#cropView', v => Number(v.style.getPropertyValue('--crop-scale')));
+      ok('at the whole photo, a fast pinch whose first finger moves before the second lands still zooms the photo; the corners stay put', late > 1.5
+        && (await pV.getAttribute('#cropPolygon', 'points')) === '0,0 1050,0 1050,600 0,600', String(late));
+      await cdpP.detach();
+    } else notRunHere('at the whole photo, a fast pinch whose first finger moves before the second lands still zooms the photo; the corners stay put', 'real touches are sent through Chrome\'s DevTools protocol');
     await pV.click('#cancelReviewBtn');
     ok('Cancel on the crop step drops the photo and goes back to Take or Upload', !(await pV.isVisible('#captureReview')) && !(await pV.getAttribute('#reviewImage', 'src')) && await pV.isVisible('#startCameraBtn'));
 
@@ -3198,6 +3232,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const presets = await p6.$$eval('#logoPresetSelect optgroup', gs => gs.map(g => g.label + ':' + g.children.length));
     ok(EDITION_PLAIN ? 'plain edition: the ready-made logos are the eight palette pictures, with no team characters' : 'logo: the ready-made logos are every Team vCGE character (one per sample) and a picture for each of the eight palettes',
       JSON.stringify(presets) === JSON.stringify(EDITION_PLAIN ? ['To match a palette:8'] : [`Team vCGE:${samples().length}`, 'To match a palette:8']), JSON.stringify(presets));
+    if (!EDITION_PLAIN) {
+      const names = await p6.$$eval('#logoPresetSelect optgroup:first-of-type option', os => os.map(o => o.textContent));
+      ok('logo: each Team vCGE logo is named as the sample is ("Ghost the Raccoon", never "the the")', names.includes(`${samples()[1][0]} ${samples()[1][1]}`) && !names.some(n => /\bthe the\b/i.test(n)), JSON.stringify(names));
+    }
     await p6.selectOption('#logoPresetSelect', 'theme:pumpkin');
     await p6.waitForFunction(() => !!document.querySelector('#previewAvatar img'), null, { timeout: 5000 }).catch(() => {});
     await p6.waitForTimeout(300);

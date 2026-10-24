@@ -22,7 +22,7 @@
 import { quadOutputSize, warpPerspective } from './perspective.js';
 import { findCardQuad } from './cardFinder.js';
 import { tween } from './viewfinder.js';
-import { FIT_VIEW, clampView, zoomAbout, viewForCorners } from './cropView.js';
+import { CROP_ZOOM_MAX, FIT_VIEW, clampView, zoomAbout, viewForCorners } from './cropView.js';
 
 const INSET = 0;             // where the handles start, as a fraction of the photo: the full edge
 const FINDER_MAX_SIDE = 1200; // the edge finder reads a copy no larger than this along its longer side
@@ -149,36 +149,64 @@ export class CropEditor {
     wireZoom() {
         if (!this.viewEl) return;
         const points = new Map();
-        let start = null;
+        let start = null, touchPinch = false;
         const local = (e) => { const r = this.viewEl.getBoundingClientRect(); return { x: e.clientX - (r.left - this.view.x), y: e.clientY - (r.top - this.view.y) }; };
-        const begin = () => {
-            const p = Array.from(points.values());
+        const begin = (p = Array.from(points.values())) => {
             start = { view: { ...this.view }, p };
             if (p.length >= 2) start.dist = Math.max(1, Math.hypot(p[1].x - p[0].x, p[1].y - p[0].y));
+        };
+        // Two fingers zoom about where they started and move the photo with their middle. A pinch past 6x or past the
+        // whole photo starts again from where it stopped, so turning back zooms back at once (raven575, 2026-10-22: a
+        // fast pinch "won't let you zoom all the way back out").
+        const pinchTo = (p) => {
+            const { w, h } = this.viewSize();
+            const mid0 = { x: (start.p[0].x + start.p[1].x) / 2, y: (start.p[0].y + start.p[1].y) / 2 };
+            const mid = { x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 };
+            const factor = Math.hypot(p[1].x - p[0].x, p[1].y - p[0].y) / start.dist, want = start.view.scale * factor;
+            const z = zoomAbout(start.view, factor, mid0.x, mid0.y, w, h);
+            this.applyView(clampView({ scale: z.scale, x: z.x + mid.x - mid0.x, y: z.y + mid.y - mid0.y }, w, h));
+            if (want > CROP_ZOOM_MAX || want < 1) begin(p);
         };
         this.stage.addEventListener('pointerdown', (e) => {
             if (e.target.closest('[data-corner]')) return;
             if (e.pointerType === 'mouse' && this.view.scale === 1) return;     // nothing to pan at the whole photo
             if (this.stopViewTween) { this.stopViewTween(); this.stopViewTween = null; }
+            touchPinch = false;
             points.set(e.pointerId, local(e));
             if (this.stage.setPointerCapture) { try { this.stage.setPointerCapture(e.pointerId); } catch (_) { /* a synthetic pointer */ } }
             begin();
         });
         this.stage.addEventListener('pointermove', (e) => {
-            if (!points.has(e.pointerId) || !start) return;
+            if (!points.has(e.pointerId) || !start || touchPinch) return;
             points.set(e.pointerId, local(e));
             const p = Array.from(points.values()), { w, h } = this.viewSize();
             if (p.length >= 2 && start.p.length >= 2) {
-                const mid0 = { x: (start.p[0].x + start.p[1].x) / 2, y: (start.p[0].y + start.p[1].y) / 2 };
-                const mid = { x: (p[0].x + p[1].x) / 2, y: (p[0].y + p[1].y) / 2 };
-                const z = zoomAbout(start.view, Math.hypot(p[1].x - p[0].x, p[1].y - p[0].y) / start.dist, mid0.x, mid0.y, w, h);
-                this.applyView(clampView({ scale: z.scale, x: z.x + mid.x - mid0.x, y: z.y + mid.y - mid0.y }, w, h));
+                pinchTo(p);
             } else if (p.length === 1 && start.view.scale > 1) {
                 this.applyView(clampView({ ...start.view, x: start.view.x + p[0].x - start.p[0].x, y: start.view.y + p[0].y - start.p[0].y }, w, h));
             }
         });
         const end = (e) => { if (points.delete(e.pointerId)) begin(); };
         ['pointerup', 'pointercancel'].forEach(t => this.stage.addEventListener(t, end));
+        // At the whole photo a finger that moves before the second one lands is taken by Chrome as a scroll: its pointer
+        // is cancelled and the second finger gets no pointer at all (raven575, Chrome on Android, 2026-10-22: a fast
+        // pinch "breaks the zoom"). Their touches still come, so that pinch is followed from the touches instead.
+        const touchPoints = (e) => [e.touches[0], e.touches[1]].map(t => local(t));
+        this.stage.addEventListener('touchstart', (e) => {
+            if (e.touches.length !== 2 || points.size >= 2) return;
+            if (this.stopViewTween) { this.stopViewTween(); this.stopViewTween = null; }
+            touchPinch = true;
+            begin(touchPoints(e));
+        }, { passive: true });
+        this.stage.addEventListener('touchmove', (e) => {
+            if (!touchPinch || e.touches.length < 2 || points.size >= 2 || !start) return;
+            pinchTo(touchPoints(e));
+        }, { passive: true });
+        ['touchend', 'touchcancel'].forEach(t => this.stage.addEventListener(t, (e) => {
+            if (!touchPinch || e.touches.length >= 2) return;
+            touchPinch = false;
+            begin();
+        }, { passive: true }));
         // A trackpad pinch arrives as a wheel with Ctrl held; a plain wheel still scrolls the page
         this.stage.addEventListener('wheel', (e) => {
             if (!e.ctrlKey) return;
