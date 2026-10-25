@@ -5,12 +5,13 @@
  *
  * The Capture card (redesign step 5): Take a photo or Upload a photo; a clean viewfinder with thin corner brackets
  * marking a business-card frame that turns with the phone; a vertical zoom fader that eases into each change; a
- * round green shutter that sinks when pressed. The shot is exactly what the viewfinder showed (the visible window of
+ * round red shutter that sinks and turns green when pressed, with a quiet click for each shot (the one sound in vCGE). The shot is exactly what the viewfinder showed (the visible window of
  * the sensor frame, zoom included), never the whole frame. The photo is handed to the crop editor on this card; the
  * bus only ever gets a signal. Messages to the person go through the `toast` hook main.js hands in (Shell's toast).
  */
 import { globalEventBus, Events } from '../../share/eventBus.js';
 import { visibleSourceRect, cardFrameRect, tween } from './viewfinder.js';
+import { readyClick, playShutterClick } from './shutterClick.js';
 
 // A web page cannot claim the camera for itself, so the camera is turned off and the user told whenever another app
 // shows up: it holds the camera (start fails), takes it away mid-scan (the feed ends or stays muted), or sits in front of
@@ -338,6 +339,7 @@ export class VCGEActiveCamera {
         if (down) {
             if (this.stopShutterTween) this.stopShutterTween();
             this.shutter.dataset.pressed = '1';
+            readyClick();   // the press is what lets the click's sound start
             this.shutter.style.transform = 'scale(0.9)';
             return;
         }
@@ -426,6 +428,7 @@ export class VCGEActiveCamera {
         this.capturedImageDataUrl = this.canvasEl.toDataURL('image/png');
         this.canvasEl.width = this.canvasEl.height = 0;     // no second copy of the photo left in the canvas
         this.lastSource = 'camera';
+        playShutterClick();
         this.closeCamera();                                 // the shot is taken; Retake opens the camera again
         this.publishCapture(this.capturedImageDataUrl, 'HARDWARE_STREAM_SNAP');
     }

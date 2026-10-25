@@ -700,6 +700,27 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   globalThis.addEventListener = savedAdd;
 }
 
+// The shutter click (MOD03, raven575, 2026-10-24: the one sound in vCGE): short, quiet, played once, never looping
+{
+  const { playShutterClick, readyClick, CLICK_MS, CLICK_PEAK } = await import(`${R}/modules/mod03-camera/shutterClick.js`);
+  const log = { sources: [], peaks: [], ends: [], wired: [] };
+  const param = () => ({ value: 0, setValueAtTime() {}, linearRampToValueAtTime(v) { log.peaks.push(v); }, exponentialRampToValueAtTime(v, t) { log.ends.push(t); } });
+  const node = (kind) => ({ kind, connect(to) { log.wired.push(`${kind}>${to.kind}`); } });
+  const ac = {
+    currentTime: 10, sampleRate: 48000, destination: { kind: 'speaker' },
+    createBuffer: (ch, len) => { const d = new Float32Array(len); return { length: len, getChannelData: () => d }; },
+    createBufferSource: () => { const s = Object.assign(node('source'), { loop: false, start(t) { s.at = t; }, stop(t) { s.until = t; } }); log.sources.push(s); return s; },
+    createBiquadFilter: () => Object.assign(node('band'), { type: '', frequency: param(), Q: param() }),
+    createGain: () => Object.assign(node('level'), { gain: param() }),
+  };
+  const played = playShutterClick(ac);
+  const first = Math.min(...log.sources.map(s => s.at)), last = Math.max(...log.sources.map(s => s.until), ...log.ends);
+  ok('shutter click: two taps, both over within 0.08 s of the first', played && log.sources.length === 2 && first === 10 && last - first <= CLICK_MS / 1000 && CLICK_MS === 80, JSON.stringify({ first, last }));
+  ok('shutter click: quiet (a fifth of full volume at most) and never looping', CLICK_PEAK <= 0.2 && Math.max(...log.peaks) <= CLICK_PEAK && log.sources.every(s => !s.loop), JSON.stringify(log.peaks));
+  ok('shutter click: each tap goes through its filter and level to the speaker', log.wired.filter(w => w === 'level>speaker').length === 2 && log.wired.filter(w => w === 'source>band').length === 2);
+  ok('shutter click: with no sound in the browser it stays silent and nothing breaks', readyClick({}) === null && playShutterClick(null) === false);
+}
+
 // The zoom of the photo in the crop step (MOD03): pinch, pan and the zoom onto a snapped card
 {
   const { clampView, zoomAbout, viewForCorners, CROP_ZOOM_MAX, SNAP_MARGIN } = await import(`${R}/modules/mod03-camera/cropView.js`);
