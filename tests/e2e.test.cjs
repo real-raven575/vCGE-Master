@@ -2525,6 +2525,13 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     if (EDITION_PLAIN) {
       ok('plain: no Iris on the Capture card', !(await pI.isVisible('#capIris')));
       ok('plain: the shutter has no lynx ear on its rim', (await pseudo('#captureBtn', '::after', 'content')) === 'none');
+      await pI.evaluate(() => document.getElementById('cameraPanel').classList.remove('hidden'));
+      await pI.$eval('#captureBtn', b => { b.dataset.pressed = '1'; });
+      const plainCheck = await pI.$eval('#captureBtn .cap-shutter-check', el => getComputedStyle(el).display);
+      await pI.$eval('#captureBtn', b => { delete b.dataset.pressed; });
+      await pI.evaluate(() => document.getElementById('cameraPanel').classList.add('hidden'));
+      ok('plain: no flair (no lynx peek in the viewfinder, no capture rim, no check mark on the pressed shutter)', (await pseudo('#viewfinderArea', '::after', 'content')) === 'none'
+        && (await pseudo('#cropStage', '::after', 'content')) === 'none' && plainCheck === 'none', plainCheck);
       await pI.evaluate(() => { const n = document.getElementById('photoCountNote'); n.dataset.photo = '2'; n.dataset.of = '3'; });
       ok('plain: no paw dots by the photo count', (await pseudo('#photoCountNote', '::before', 'content')) === 'none');
     } else {
@@ -2542,6 +2549,33 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       // C2 now: Iris's cameo on the red shutter, a still lynx ear with a dark tuft on the rim (raven575 chose the ear, 2026-10-24)
       const ear = await pI.$eval('#captureBtn', b => { const s = getComputedStyle(b, '::after'); return { content: s.content, clip: s.clipPath, top: parseFloat(s.top), bg: s.backgroundImage, anim: s.animationName }; });
       ok('the shutter has a still lynx ear with a dark tuft on its rim (Iris\'s cameo)', ear.content !== 'none' && /polygon/.test(ear.clip) && ear.top < 0 && /63, 42, 23/.test(ear.bg) && ear.anim === 'none', JSON.stringify(ear));
+
+      // Capture card flair (raven575 approved 2026-10-24, from 🦎 Flipside): a still lynx peek, a rim that fades in once
+      // over 0.6 s when a photo lands, and a check mark on the held shutter. Still pictures and one fade, nothing loops.
+      const peek = await pI.$eval('#viewfinderArea', v => { const s = getComputedStyle(v, '::after'); return { content: s.content, img: s.backgroundImage.slice(0, 30), anim: s.animationName, touch: s.pointerEvents, bottom: s.bottom }; });
+      ok('flair: Iris peeks still from the viewfinder\'s lower corner and lets touches through', peek.content !== 'none' && /svg/.test(peek.img) && peek.anim === 'none' && peek.touch === 'none' && peek.bottom === '0px', JSON.stringify(peek));
+      const rim = () => pI.$eval('#cropStage', st => { const s = getComputedStyle(st, '::after'); return { name: s.animationName, ms: s.animationDuration, count: s.animationIterationCount, colour: s.borderTopColor, width: s.borderTopWidth }; });
+      const rimHidden = await rim();
+      await pI.evaluate(() => document.getElementById('captureReview').classList.remove('hidden'));
+      const rimShown = await rim();
+      await pI.emulateMedia({ reducedMotion: 'reduce' });
+      const rimStill = await rim();
+      await pI.emulateMedia({ reducedMotion: 'no-preference' });
+      await pI.evaluate(() => { document.documentElement.dataset.cb = '1'; });
+      const rimCb = await rim();
+      await pI.evaluate(() => { delete document.documentElement.dataset.cb; document.getElementById('captureReview').classList.add('hidden'); });
+      ok('flair: when the photo lands, an amber rim fades in once round it over 0.6 s (at once under reduce motion)', rimHidden.name === 'none' && rimShown.name === 'cap-rim-in' && rimShown.ms === '0.6s' && rimShown.count === '1'
+        && rimShown.colour === 'rgb(245, 158, 11)' && rimStill.name === 'none', JSON.stringify({ rimHidden, rimShown, rimStill }));
+      ok('flair: colour-blind mode makes the rim grey and thicker', rimCb.colour === 'rgb(148, 163, 184)' && rimCb.width === '4px', JSON.stringify(rimCb));
+      // Read with the viewfinder shown, as when it is pressed: WebKit kept the hidden button's old style for its icons
+      const checkShown = () => pI.$eval('#captureBtn .cap-shutter-check', el => getComputedStyle(el).display);
+      await pI.evaluate(() => document.getElementById('cameraPanel').classList.remove('hidden'));
+      const checkUp = await checkShown();
+      await pI.$eval('#captureBtn', b => { b.dataset.pressed = '1'; });
+      const checkHeld = await checkShown();
+      await pI.$eval('#captureBtn', b => { delete b.dataset.pressed; });
+      await pI.evaluate(() => document.getElementById('cameraPanel').classList.add('hidden'));
+      ok('flair: a check mark sits on the shutter only while it is held green', checkUp === 'none' && checkHeld === 'block' && (await pI.$eval('#captureBtn .cap-shutter-check use', u => u.getAttribute('href'))).endsWith('#circle-check'), JSON.stringify({ checkUp, checkHeld }));
 
       // C9: the dots wait for MOD04's attributes, then fill one per photo already taken
       ok('paw dots stay off until the photo count carries its numbers', (await pseudo('#photoCountNote', '::before', 'content')) === 'none');

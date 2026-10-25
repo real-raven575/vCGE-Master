@@ -23,7 +23,7 @@ const PICKER_GRACE_MS = 5000; // after Upload opens the photo picker, a mute is 
 const IN_USE_MESSAGE = 'Another app is using or watching your camera, so vCGE turned it off. Close the other app and try again, or upload a photo instead.';
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 export const ZOOM_EASE_MS = 320;      // the fader eases into each change rather than snapping
-export const SHUTTER_POP_MS = 260;    // the shutter pops back up after a press
+export const SHUTTER_POP_MS = 420;    // the shutter pops back up after a press, at the 3D Card's pace (mod06 SPIN_MS)
 export const IRIS_WINK_MS = 700;     // one wink when Iris is tapped on the empty Capture card (camera.css iris-wink)
 export const ZOOM_MAX = 4;            // the most the fader or a pinch zooms, the camera's own zoom or the digital one
                                       // (raven575, 2026-10-24: a phone's 8x was too close to help)
