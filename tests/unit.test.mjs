@@ -700,6 +700,13 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   globalThis.addEventListener = savedAdd;
 }
 
+// The shutter pops back at the 3D Card's pace (MOD03 flair from 🦎 Flipside, raven575 approved 2026-10-24)
+{
+  const { SHUTTER_POP_MS } = await import(`${R}/modules/mod03-camera/camera.js`);
+  const { SPIN_MS } = await import(`${R}/modules/mod06-gui/card3dView.js`);
+  ok('shutter: pops back in 0.42 s, the same pace as the 3D Card\'s turn', SHUTTER_POP_MS === 420 && SHUTTER_POP_MS === SPIN_MS, `${SHUTTER_POP_MS} vs ${SPIN_MS}`);
+}
+
 // The shutter click (MOD03, raven575, 2026-10-24: the one sound in vCGE): short, quiet, played once, never looping
 {
   const { playShutterClick, readyClick, CLICK_MS, CLICK_PEAK } = await import(`${R}/modules/mod03-camera/shutterClick.js`);

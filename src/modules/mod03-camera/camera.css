@@ -205,3 +205,35 @@ html:not([data-edition="plain"]) #photoCountNote[data-photo="3"]::before { --d2:
 @media (prefers-reduced-motion: reduce) {
     .cap-iris.wink .iris-eye-r { animation: none; }
 }
+
+/* ---- Capture card flair (raven575 approved 2026-10-24, ideas from 🦎 Flipside so it matches the 3D Card): still
+   pictures and one fade, never a loop, a sweep or a sparkle. Branded edition only. ---------------------------------- */
+
+/* Lynx peek: Iris peeks up from the viewfinder's lower left corner, a still picture over the edge of the view. It is
+   drawn on the page, so it is never in the photo, and it lets every touch through. */
+html:not([data-edition="plain"]) .cap-view::after {
+    content: ""; position: absolute; left: 0.4rem; bottom: 0; width: 3.25rem; aspect-ratio: 80 / 56; pointer-events: none;
+    background: url('data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" viewBox="20 0 80 56"%3E%3Cpath d="M33 34 L29 7 L48 25 Z" fill="%23c08a4a"/%3E%3Cpath d="M87 34 L91 7 L72 25 Z" fill="%23c08a4a"/%3E%3Cpath d="M35 28 L33 14 L43 25 Z" fill="%23f4c7b8"/%3E%3Cpath d="M85 28 L87 14 L77 25 Z" fill="%23f4c7b8"/%3E%3Cpath d="M29 7 L28 0 M91 7 L92 0" stroke="%233f2a17" stroke-width="2" stroke-linecap="round"/%3E%3Cpath d="M29 56 A31 30 0 0 1 91 56 Z" fill="%23d9ab6c"/%3E%3Cellipse cx="48" cy="41" rx="5" ry="5.5" fill="%23f59e0b"/%3E%3Cellipse cx="48" cy="41" rx="1.5" ry="4.3" fill="%230f172a"/%3E%3Cellipse cx="72" cy="41" rx="5" ry="5.5" fill="%23f59e0b"/%3E%3Cellipse cx="72" cy="41" rx="1.5" ry="4.3" fill="%230f172a"/%3E%3Cellipse cx="40" cy="54" rx="7" ry="4.5" fill="%23d9ab6c"/%3E%3Cellipse cx="80" cy="54" rx="7" ry="4.5" fill="%23d9ab6c"/%3E%3Cpath d="M37 52 V56 M40 51.5 V56 M43 52 V56 M77 52 V56 M80 51.5 V56 M83 52 V56" stroke="%23a87436" stroke-width="1" stroke-linecap="round"/%3E%3C/svg%3E') center bottom / contain no-repeat;
+    filter: drop-shadow(0 -1px 2px rgba(0, 0, 0, 0.45));
+}
+
+/* Capture rim: when a photo lands on the crop step, a thin amber rim (Iris's eye colour) fades in once round it over
+   0.6 s, the 3D Card's rim fade, then holds still. At once under reduce motion; grey and thicker in colour-blind mode. */
+html:not([data-edition="plain"]) .crop-stage { position: relative; }
+html:not([data-edition="plain"]) .crop-stage::after {
+    content: ""; position: absolute; inset: 0; border-radius: inherit; border: 3px solid #f59e0b; pointer-events: none;
+}
+@media (prefers-reduced-motion: no-preference) {
+    html:not([data-edition="plain"]) #captureReview:not(.hidden) .crop-stage::after { animation: cap-rim-in 0.6s ease-out both; }
+}
+@keyframes cap-rim-in { from { opacity: 0; } to { opacity: 1; } }
+html[data-cb="1"]:not([data-edition="plain"]) .crop-stage::after { border-color: #94a3b8; border-width: 4px; }
+
+/* Press check mark: while the shutter is held green, a small white check sits on its lower edge, so a press shows by
+   shape as well as colour. */
+.cap-shutter .cap-shutter-check { display: none; }
+html:not([data-edition="plain"]) .cap-shutter[data-pressed] .cap-shutter-check {
+    display: block; position: absolute; left: 50%; bottom: -0.55rem; width: 1.35rem; height: 1.35rem; margin-left: -0.675rem;
+    border-radius: 999px; background: #fff; color: var(--cap-green-deep); --vcge-icon-stroke: 2.5;
+}
+html[data-cb="1"]:not([data-edition="plain"]) .cap-shutter[data-pressed] .cap-shutter-check { color: #0f172a; }
