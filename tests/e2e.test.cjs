@@ -2248,6 +2248,14 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       };
       try { Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: fake } });
         window.__camFake = navigator.mediaDevices.getUserMedia === fake ? 'in place' : 'not taken'; } catch (e) { window.__camFake = 'refused: ' + e.message; }
+      // Every sound the page starts, with when it starts and stops (the shutter click is the only one there should be)
+      window.__clicks = [];
+      const Node = window.AudioBufferSourceNode;
+      if (Node) {
+        const start = Node.prototype.start, stop = Node.prototype.stop;
+        Node.prototype.start = function (when = 0, ...rest) { const ctx = this.context; this.__entry = { start: when || (ctx ? ctx.currentTime : 0), stop: null, loop: this.loop }; window.__clicks.push(this.__entry); return start.call(this, when, ...rest); };
+        Node.prototype.stop = function (when = 0, ...rest) { if (this.__entry) this.__entry.stop = when; return stop.call(this, when, ...rest); };
+      }
     });
     const pV = await ctxV.newPage();
     const errorsV = [];
@@ -2265,7 +2273,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('capture: a non-image upload is rejected with a toast and nothing opens', (await pV.textContent('#toastMessage')).includes('not a photo') && !(await pV.isVisible('#captureReview')) && !(await pV.getAttribute('#reviewImage', 'src')), await pV.textContent('#toastMessage'));
 
     const noFeed = await cameraFeedMissing(pV);
-    if (noFeed) notRunHere('viewfinder, zoom, shutter, shot, Snap on a card-less shot, Retake, an early shutter press and Close camera (21 checks)', `this engine has no ${noFeed} for a test camera`);
+    if (noFeed) notRunHere('viewfinder, zoom, shutter, shot, Snap on a card-less shot, Retake, an early shutter press and Close camera (22 checks)', `this engine has no ${noFeed} for a test camera`);
     else {
     // The viewfinder: clean, four thin brackets, upright card frame in portrait, fader left (48 px in), shutter right
     await pV.click('#startCameraBtn'); await pV.waitForTimeout(400);
@@ -2278,7 +2286,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       await pV.click('#startCameraBtn'); await pV.waitForTimeout(400);
     }
     // The checks below all need a running camera; without one they are failed together, and the run goes on
-    if (!started) ok('viewfinder, zoom, shutter, shot, Snap on a card-less shot, Retake, an early shutter press and Close camera (20 checks)', false, 'not tried: the camera never started (the check above says why)');
+    if (!started) ok('viewfinder, zoom, shutter, shot, Snap on a card-less shot, Retake, an early shutter press and Close camera (21 checks)', false, 'not tried: the camera never started (the check above says why)');
     else {
     const view = await box('#viewfinderArea'), frame = await box('#cardFrame'), fader = await box('.cap-fader'), shutter = await box('#captureBtn');
     const overlay = await pV.evaluate(() => Array.from(document.querySelectorAll('#viewfinderArea > *')).map(e => e.id || e.className));
@@ -2287,8 +2295,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       && frame.h > view.h * 0.8 && Math.abs((frame.l + frame.r) / 2 - (view.l + view.r) / 2) < 2, JSON.stringify({ view, frame }));
     ok('viewfinder: the brackets are thin lines (2 px) with nothing filled in', await pV.$eval('#cardFrame .cap-corner.tl', c => { const s = getComputedStyle(c); return s.borderTopWidth === '2px' && s.borderLeftWidth === '2px' && s.borderRightWidth === '0px' && s.backgroundColor === 'rgba(0, 0, 0, 0)'; }));
     ok('viewfinder: the zoom fader is vertical, on the left, at least 48 px from the screen edge', fader.l >= 48 && fader.h > fader.w && fader.l < view.l + view.w / 3 && (await pV.getAttribute('#zoomSlider', 'aria-orientation')) === 'vertical' && (await pV.textContent('#zoomDisplay')) === '1.0x', JSON.stringify(fader));
-    ok('viewfinder: the shutter is a round green button on the right, in the middle of the height', shutter.l > view.l + view.w / 2 && Math.abs((shutter.t + shutter.b) / 2 - (view.t + view.b) / 2) < 4 && shutter.w === shutter.h && shutter.w >= 64
-      && await pV.$eval('#captureBtn', b => getComputedStyle(b).borderRadius.startsWith('999') && /22, 163, 74|74, 222, 128|21, 128, 61/.test(getComputedStyle(b).backgroundImage)), JSON.stringify(shutter));
+    ok('viewfinder: the shutter is a round red button on the right, in the middle of the height', shutter.l > view.l + view.w / 2 && Math.abs((shutter.t + shutter.b) / 2 - (view.t + view.b) / 2) < 4 && shutter.w === shutter.h && shutter.w >= 64
+      && await pV.$eval('#captureBtn', b => getComputedStyle(b).borderRadius.startsWith('999') && /220, 38, 38/.test(getComputedStyle(b).backgroundImage) && !/22, 163, 74/.test(getComputedStyle(b).backgroundImage)), JSON.stringify(shutter));
     ok('viewfinder: the shutter sits in the middle 60 percent of the screen height', (shutter.t + shutter.b) / 2 > 844 * 0.2 && (shutter.t + shutter.b) / 2 < 844 * 0.8, String((shutter.t + shutter.b) / 2));
 
     // The fader eases into a change: the readout passes through a value between 1 and 2 before landing on 2.0x
@@ -2341,9 +2349,14 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // The shutter sinks on the press and pops back after the release; the shot is the window the viewfinder showed
     await pV.mouse.move(shutter.l + shutter.w / 2, shutter.t + shutter.h / 2); await pV.mouse.down(); await pV.waitForTimeout(60);
     const sunk = await pV.$eval('#captureBtn', b => b.style.transform);
+    const clicksBefore = await pV.evaluate(() => window.__clicks.length);
     await pV.mouse.up(); await pV.waitForTimeout(500);
     const popped = await pV.$eval('#captureBtn', b => b.style.transform);
     ok('shutter: sinks while pressed and pops back on release', sunk === 'scale(0.9)' && popped === '', `${sunk} -> ${popped}`);
+    // The click (raven575, 2026-10-24): one quiet tk-chk per shot, its two taps over within 0.08 s, nothing before it
+    const clicks = await pV.evaluate(() => window.__clicks);
+    const clickSpan = clicks.length ? Math.max(...clicks.map(c => c.stop)) - Math.min(...clicks.map(c => c.start)) : -1;
+    ok('shutter: the shot plays one short click (two taps, over in 0.08 s), and opening, zoom and the press made no sound', clicksBefore === 0 && clicks.length === 2 && clicks.every(c => !c.loop) && clickSpan > 0 && clickSpan <= 0.0801, JSON.stringify({ clicksBefore, clicks }));
     ok('shutter: the shot opens the crop step and the camera closes', await pV.isVisible('#captureReview') && (await pV.evaluate(() => document.getElementById('cameraPanel').classList.contains('hidden') && document.getElementById('cameraStream').srcObject === null)) && (await card()) === 'capture');
     // The 390 x 464-ish portrait view covers the 640 x 360 feed (scale by height), zoomed 2x: the window is the middle of it
     const shot = await pV.evaluate(() => new Promise(resolve => {
@@ -2471,6 +2484,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pV.click('#stopCameraBtn');
     }
     }
+    // An upload is not a photo being taken, so it makes no sound
+    await pV.evaluate(() => { window.__clicks.length = 0; });
+    await pV.setInputFiles('#imageUpload', await renderCardImage(pV)); await pV.waitForTimeout(400);
+    ok('upload: a photo from the picker opens the crop step without a sound', await pV.isVisible('#captureReview') && (await pV.evaluate(() => window.__clicks.length)) === 0, await pV.evaluate(() => JSON.stringify(window.__clicks)));
     ok('capture card: no page errors', errorsV.length === 0, errorsV.join(' | '));
     await ctxV.close();
   }
@@ -2485,10 +2502,29 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pI.goto(ORIGIN); await pI.waitForTimeout(400);
     const pseudo = (sel, which, prop) => pI.$eval(sel, (el, [w, p]) => getComputedStyle(el, w)[p], [which, prop]);
     const winking = () => pI.$eval('#capIris', el => el.classList.contains('wink'));
+    // The shutter (raven575, 2026-10-24), both editions: red at rest, filled green while pressed, a faint camera pressed
+    // into it; in colour-blind mode a press also grows a ring and lights the camera. The viewfinder is shown without a
+    // camera, under reduce motion, so the 0.15 s fill lands at once and these are its end states.
+    const shutterLook = () => pI.evaluate(() => { const b = document.getElementById('captureBtn'), i = b.querySelector('.cap-shutter-icon');
+      return { fill: getComputedStyle(b, '::before').transform, ease: getComputedStyle(b, '::before').transitionDuration, icon: getComputedStyle(i).color, href: i.querySelector('use').getAttribute('href'), ring: getComputedStyle(b).boxShadow }; });
+    const fillEase = (await shutterLook()).ease;
+    await pI.emulateMedia({ reducedMotion: 'reduce' });
+    await pI.evaluate(() => document.getElementById('cameraPanel').classList.remove('hidden'));
+    const atRest = await shutterLook();
+    await pI.$eval('#captureBtn', b => { b.dataset.pressed = '1'; });
+    const held = await shutterLook();
+    await pI.evaluate(() => { document.documentElement.dataset.cb = '1'; });
+    const heldCb = await shutterLook();
+    await pI.evaluate(() => { delete document.documentElement.dataset.cb; });
+    await pI.$eval('#captureBtn', b => { delete b.dataset.pressed; });
+    await pI.evaluate(() => document.getElementById('cameraPanel').classList.add('hidden'));
+    await pI.emulateMedia({ reducedMotion: 'no-preference' });
+    ok('the shutter is red with a faint camera pressed into it, and fills green from the middle in 0.15 s while pressed', fillEase === '0.15s' && atRest.fill === 'matrix(0, 0, 0, 0, 0, 0)' && held.fill === 'matrix(1, 0, 0, 1, 0, 0)'
+      && atRest.href.endsWith('#camera') && atRest.icon === 'rgb(187, 32, 32)' && held.icon === 'rgb(19, 137, 63)', JSON.stringify({ fillEase, atRest, held }));
+    ok('colour-blind mode: a press also grows a ring round the shutter and lights the camera white', heldCb.icon === 'rgb(255, 255, 255)' && heldCb.ring !== held.ring && /255, 255, 255/.test(heldCb.ring), JSON.stringify(heldCb));
     if (EDITION_PLAIN) {
       ok('plain: no Iris on the Capture card', !(await pI.isVisible('#capIris')));
-      ok('plain: the shutter keeps its plain white dot (no lynx eye)', (await pseudo('#captureBtn .cap-shutter-dot', '::after', 'content')) === 'none'
-        && /255, 255, 255/.test(await pseudo('#captureBtn .cap-shutter-dot', null, 'backgroundColor')));
+      ok('plain: the shutter has no lynx ear on its rim', (await pseudo('#captureBtn', '::after', 'content')) === 'none');
       await pI.evaluate(() => { const n = document.getElementById('photoCountNote'); n.dataset.photo = '2'; n.dataset.of = '3'; });
       ok('plain: no paw dots by the photo count', (await pseudo('#photoCountNote', '::before', 'content')) === 'none');
     } else {
@@ -2503,13 +2539,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       ok('reduce motion: no wink', !(await winking()));
       await pI.emulateMedia({ reducedMotion: 'no-preference' });
 
-      // C2: the shutter's eye; pressing narrows the pupil to a slit (a shape change, set while camera.js holds data-pressed)
-      const pupil = () => pseudo('#captureBtn .cap-shutter-dot', '::after', 'width').then(parseFloat);
-      const open = await pupil();
-      await pI.$eval('#captureBtn', b => { b.dataset.pressed = '1'; });
-      const slit = await pupil();
-      await pI.$eval('#captureBtn', b => { delete b.dataset.pressed; });
-      ok('the shutter is an amber lynx eye whose pupil narrows to a slit while pressed', /245, 158, 11/.test(await pseudo('#captureBtn .cap-shutter-dot', null, 'backgroundImage')) && open > 6 && slit < open / 2, JSON.stringify({ open, slit }));
+      // C2 now: Iris's cameo on the red shutter, a still lynx ear with a dark tuft on the rim (raven575 chose the ear, 2026-10-24)
+      const ear = await pI.$eval('#captureBtn', b => { const s = getComputedStyle(b, '::after'); return { content: s.content, clip: s.clipPath, top: parseFloat(s.top), bg: s.backgroundImage, anim: s.animationName }; });
+      ok('the shutter has a still lynx ear with a dark tuft on its rim (Iris\'s cameo)', ear.content !== 'none' && /polygon/.test(ear.clip) && ear.top < 0 && /63, 42, 23/.test(ear.bg) && ear.anim === 'none', JSON.stringify(ear));
 
       // C9: the dots wait for MOD04's attributes, then fill one per photo already taken
       ok('paw dots stay off until the photo count carries its numbers', (await pseudo('#photoCountNote', '::before', 'content')) === 'none');

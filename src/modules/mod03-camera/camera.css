@@ -1,11 +1,14 @@
 /* vCGE-MOD03 Capture card (redesign step 5): Take a photo / Upload a photo, the clean viewfinder with thin corner
    brackets, the vertical zoom fader (kept 48 px from the screen edge, so a drag never triggers the browser's back
-   gesture), the round green shutter, and the crop step with its green OK. Right-handed by default: shutter on the
-   right, fader on the left; html[data-hand="left"] (Settings) mirrors them. No flashing, no sound. */
+   gesture), the round red shutter that turns green when pressed, and the crop step with its green OK. Right-handed by
+   default: shutter on the right, fader on the left; html[data-hand="left"] (Settings) mirrors them. No flashing. The
+   shutter's quiet click (shutterClick.js) is the one sound in vCGE (raven575, 2026-10-24). */
 
 :root {
     --cap-green: #16a34a;
     --cap-green-deep: #15803d;
+    --cap-red: #dc2626;
+    --cap-red-deep: #b91c1c;
     --cap-edge-inset: 2rem;          /* 32 px from the viewfinder's edge; the card adds 20 px, so 52 px from the screen edge */
 }
 
@@ -61,19 +64,32 @@ label.cap-btn { min-height: 3.5rem; }
 }
 .cap-fader .cap-zoom { font-size: 0.75rem; font-weight: 700; color: #fff; font-variant-numeric: tabular-nums; min-width: 2.5rem; text-align: center; }
 
-/* The shutter: a round green button on the right, in the middle of the viewfinder, that sinks when pressed (camera.js
-   pops it back with the shared overshoot). A little ring and a brighter top make it feel like a real button. */
+/* The shutter (raven575, 2026-10-24): a round red button on the right, in the middle of the viewfinder, glossy on top
+   like a sweet, with a camera pressed faintly into its face. Pressed, it sinks (camera.js pops it back with the shared
+   overshoot) and fills green from the middle out in 0.15 s, a steady fill, never a blink; let go, it fades back to red. */
 .cap-shutter {
-    position: static; transform: none;
+    position: relative; transform: none;
     width: 4.5rem; height: 4.5rem; min-width: 4.5rem; min-height: 4.5rem; border-radius: 999px; padding: 0; cursor: pointer;
-    background: radial-gradient(circle at 50% 35%, #4ade80 0, var(--cap-green) 55%, var(--cap-green-deep) 100%);
+    background: radial-gradient(circle at 50% 30%, #fca5a5 0, #ef4444 34%, var(--cap-red) 62%, var(--cap-red-deep) 100%);
     border: 3px solid rgba(255, 255, 255, 0.9); box-shadow: 0 0 0 4px rgba(2, 6, 23, 0.35), 0 10px 20px -8px rgba(0, 0, 0, 0.7);
+    background-clip: padding-box;    /* no red under the see-through rim, so a pressed button is green to its edge */
     transform-origin: 50% 50%;
 }
+.cap-shutter::before {
+    content: ""; position: absolute; inset: -1px; border-radius: 999px; pointer-events: none;
+    background: radial-gradient(circle at 50% 30%, #86efac 0, #4ade80 34%, var(--cap-green) 62%, var(--cap-green-deep) 100%);
+    transform: scale(0); transition: transform 0.15s ease-out;
+}
+.cap-shutter[data-pressed]::before { transform: scale(1); }
+/* The engraving: the camera outline about 15% darker than the face under it, with a light lower lip like a pressed line */
+.cap-shutter .cap-shutter-icon {
+    position: relative; display: block; width: 2rem; height: 2rem; margin: 0 auto; color: #bb2020; --vcge-icon-stroke: 1.75;
+    filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.35));
+}
+.cap-shutter[data-pressed] .cap-shutter-icon { color: #13893f; }
 /* camera.js scales the shutter; the vertical centring sits on the slot around it, so the two transforms never fight */
 .cap-shutter-slot { position: absolute; top: 50%; right: var(--cap-edge-inset); transform: translateY(-50%); width: 4.5rem; height: 4.5rem; }
 .cap-shutter:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
-.cap-shutter .cap-shutter-dot { display: block; width: 1.75rem; height: 1.75rem; margin: 0 auto; border-radius: 999px; background: rgba(255, 255, 255, 0.92); }
 .cap-finder-tools { display: flex; justify-content: space-between; gap: var(--vcge-gap, 0.5rem); margin-top: 0.5rem; }
 .cap-finder-tools button { flex: 1 1 0; border-radius: 0.75rem; font-size: 0.85rem; font-weight: 600; background: #f1f5f9; color: #0f172a; border-color: #cbd5e1; cursor: pointer; }
 .dark .cap-finder-tools button { background: #1e293b; color: #f1f5f9; border-color: #334155; }
@@ -82,8 +98,11 @@ label.cap-btn { min-height: 3.5rem; }
 html[data-hand="left"] .cap-fader { left: auto; right: var(--cap-edge-inset); }
 html[data-hand="left"] .cap-shutter-slot { right: auto; left: var(--cap-edge-inset); }
 
-/* Colour-blind mode: the shutter also carries a thick dark ring and a label */
+/* Colour-blind mode: the shutter also carries a thick dark ring and a label. Red and green are the pair most often
+   mixed up, so a press also grows a white ring outside the rim and lights the camera white: colour is never the only sign. */
 html[data-cb="1"] .cap-shutter { border-color: #0f172a; }
+html[data-cb="1"] .cap-shutter[data-pressed] { box-shadow: 0 0 0 4px #fff, 0 0 0 7px #0f172a, 0 10px 20px -8px rgba(0, 0, 0, 0.7); }
+html[data-cb="1"] .cap-shutter[data-pressed] .cap-shutter-icon { color: #fff; filter: none; }
 html[data-cb="1"] .cap-shutter-label { display: block; }
 .cap-shutter-label { display: none; position: absolute; left: 50%; top: 100%; transform: translate(-50%, 0.25rem); font-size: 0.7rem; font-weight: 700; color: #fff; white-space: nowrap; }
 
@@ -119,7 +138,7 @@ html[data-cb="1"] .cap-ok, html[data-cb="1"] .cap-btn-primary { background: #256
 .crop-view .crop-handle { transform: scale(calc(1 / var(--crop-scale, 1))); }
 
 @media (prefers-reduced-motion: reduce) {
-    .cap-btn, .cap-shutter { transition: none; }
+    .cap-btn, .cap-shutter, .cap-shutter::before { transition: none; }
 }
 
 /* ---- Cute touches (raven575 approved 2026-10-21). Branded edition only: the plain edition keeps the plain look. ---- */
@@ -148,17 +167,15 @@ html:not([data-edition="plain"]) .crop-handle::after {
     background: #fff; box-shadow: 0 0 0 1.5px #0f172a; pointer-events: none;
 }
 
-/* C2: the shutter's dot becomes an amber lynx eye with a tall pupil, which narrows to a slit while pressed (a plain
-   shape change, no movement, so it is the same under reduce motion). */
-html:not([data-edition="plain"]) .cap-shutter .cap-shutter-dot {
-    position: relative; width: 2.1rem; height: 2.1rem;
-    background: radial-gradient(circle at 50% 40%, #fde68a 0, #f59e0b 60%, #b45309 100%); box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.92);
+/* C2 (the lynx eye, replaced 2026-10-24 by the red shutter): Iris keeps a cameo, one of her ears (tawny, pink inside,
+   a dark tuft on the tip, as in her peek over the card) standing on the shutter's rim, right of the top. It never moves. */
+html:not([data-edition="plain"]) .cap-shutter::after {
+    content: ""; position: absolute; top: -0.8rem; left: 50%; width: 1.45rem; height: 1.15rem; margin-left: 0.25rem; pointer-events: none;
+    background: radial-gradient(ellipse 20% 30% at 50% 80%, #f4c7b8 0 94%, transparent 100%),
+        linear-gradient(to bottom, #3f2a17 0 15%, #c08a4a 15%);
+    clip-path: polygon(50% 0, 64% 26%, 100% 100%, 0 100%, 36% 26%); transform: rotate(20deg);
+    filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.4));
 }
-html:not([data-edition="plain"]) .cap-shutter .cap-shutter-dot::after {
-    content: ""; position: absolute; left: 50%; top: 50%; width: 0.6rem; height: 1.6rem; transform: translate(-50%, -50%);
-    border-radius: 50%; background: #0f172a;
-}
-html:not([data-edition="plain"]) .cap-shutter[data-pressed] .cap-shutter-dot::after { width: 0.18rem; }
 
 /* C3: Iris peeks over a card on the empty Capture card. Tapping her winks one eye once (camera.js; not under reduce
    motion). She steps away once there is a photo, the camera is open, or a second photo is being taken. */
