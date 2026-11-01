@@ -28,6 +28,9 @@
 .deck-header { height: var(--vcge-header-h); min-height: var(--vcge-header-h); padding: 0 calc(0.5 * var(--vcge-hu)); gap: calc(0.5 * var(--vcge-hu)); }
 .deck-brand { display: flex; align-items: center; gap: calc(0.5 * var(--vcge-hu)); flex: 0 0 auto; }
 .deck-brand .deck-logo { width: calc(1.75 * var(--vcge-hu)); height: calc(1.75 * var(--vcge-hu)); border-radius: calc(0.4 * var(--vcge-hu)); object-fit: cover; flex: 0 0 auto; }
+/* Header brand (CRTV-0020): the app icon and the colour wordmark; plain shows the wordmark alone, a little taller */
+.deck-brand .deck-wordmark { height: calc(1.25 * var(--vcge-hu)); flex: 0 0 auto; }
+html[data-edition="plain"] .deck-brand .deck-wordmark { height: calc(1.5 * var(--vcge-hu)); }
 .deck-brand .vcge-tag { background: #22c55e; color: #020617; font-weight: 700; font-size: calc(0.8 * var(--vcge-hu)); letter-spacing: 0.08em; padding: calc(0.2 * var(--vcge-hu)) calc(0.55 * var(--vcge-hu)); border-radius: calc(0.5 * var(--vcge-hu)); }
 /* The header's few Tailwind-sized texts (brand line, Vault badge, Lock button) keep their size too */
 .deck-header .deck-brand-text, .deck-header #vaultBadge, .deck-header #lockVaultBtn { font-size: calc(0.75 * var(--vcge-hu)); line-height: calc(1 * var(--vcge-hu)); }

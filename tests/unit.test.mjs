@@ -1479,19 +1479,51 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('ui: no font or icon comes from a host (only bundled files)', !/https?:/.test(css.replace(/\/\*[\s\S]*?\*\//g, '')));
   const html = fs.readFileSync(`${R}/../index.html`, 'utf8');
   const logos = [...html.matchAll(/(?:href|src)="(src\/assets\/brand\/[^"]+)"/g)].map(m => m[1]);
-  ok('logo: the tab and home-screen icons use the bundled brand files, every one present', logos.length === 3 && logos.every(f => fs.existsSync(`${R}/../${f}`))
-    && /rel="icon"[^>]*sizes="32x32"[^>]*href="src\/assets\/brand\/vcge-32\.png"/.test(html));
-  // The header, Welcome and Thank You logos are one CSS background, drawn only in the branded edition (edition.js)
+  ok('logo: the tab and home-screen icons use the bundled brand files, every one present (ico, svg, 32 px, iPhone 180 px)', logos.length === 4 && logos.every(f => fs.existsSync(`${R}/../${f}`))
+    && /rel="icon"[^>]*sizes="32x32"[^>]*href="src\/assets\/brand\/vcge-32\.png"/.test(html)
+    && /rel="apple-touch-icon" sizes="180x180" href="src\/assets\/brand\/apple-touch-icon-180\.png"/.test(html) && !/rel="manifest"/.test(html));
+  // Each icon file is the size its link (or Tauri) says, so a wrong export fails here (CRTV-0020 logo set, 2026-11-01)
+  const pngSize = f => { const b = fs.readFileSync(f); return b.readUInt32BE(0) === 0x89504e47 ? [b.readUInt32BE(16), b.readUInt32BE(20)].join('x') : 'not a PNG'; };
+  const sizes = { 'assets/brand/vcge-32.png': '32x32', 'assets/brand/apple-touch-icon-180.png': '180x180', 'assets/brand/vcge-app-icon-64.png': '64x64',
+    'assets/brand/vcge-logo-192.png': '192x192', 'assets/brand/vcge-logo.png': '480x480', '../src-tauri/app-icon.png': '1024x1024' };
+  const wrongSize = Object.entries(sizes).filter(([f, want]) => pngSize(`${R}/${f}`) !== want).map(([f]) => `${f} ${pngSize(`${R}/${f}`)}`);
+  ok('logo: every icon PNG is the size it is used at (32, 64, 180, 192, 480, 1024 px)', !wrongSize.length, wrongSize.join(', '));
+  const ico = fs.readFileSync(`${R}/assets/brand/favicon.ico`);
+  ok('logo: favicon.ico holds the 16 and 32 px tab icons', ico.readUInt16LE(2) === 1 && [...Array(ico.readUInt16LE(4)).keys()].map(i => ico[6 + 16 * i] || 256).filter(w => w === 16 || w === 32).length === 2);
+  const svgs = ['brand/vcge-logo.svg', 'brand/vcge-favicon.svg', 'brand/hoh-c1.svg', 'maker/vcge-wordmark.svg', 'maker/hoh-b2.svg'].map(f => [f, fs.readFileSync(`${R}/assets/${f}`, 'utf8')]);
+  ok('logo: the SVG logos are flat vector art with no fonts, scripts, links or embedded metadata', svgs.every(([, t]) => t.startsWith('<svg') && !/<script|<text|<metadata|<image|href="http|c2pa:manifest/i.test(t)),
+    svgs.filter(([, t]) => /<script|<text|<metadata|<image|href="http|c2pa:manifest/i.test(t)).map(([f]) => f).join());
+  // The header, Welcome and Thank You logos are CSS backgrounds, drawn only in the branded edition (edition.js)
   const marks = [...html.matchAll(/<span class="([^"]*vcge-logo-mark[^"]*)" role="img" aria-label="vCGE"><\/span>/g)].map(m => m[1]);
   const markRule = css.match(/html:not\(\[data-edition="plain"\]\) \.vcge-logo-mark \{ background: url\('\.\.\/\.\.\/(assets\/brand\/[^']+)'\)/);
   ok('logo: the header and the Thank You page carry the logo, named vCGE for screen readers, from the bundled file (branded edition only)',
     marks.join() === 'deck-logo vcge-logo-mark,vcge-welcome-logo vcge-logo-mark' && !!markRule && fs.existsSync(`${R}/${markRule[1]}`), marks.join());
-  ok('logo: the Welcome card draws the same mark, and leaves it and the tagline out in plain',
+  ok('logo: the header shows the colour wordmark beside the icon, and keeps "vCard Generator Engine" for screen readers',
+    /<span class="deck-wordmark vcge-wordmark" aria-hidden="true"><\/span>\s*<span class="deck-brand-text vcge-sr-only">vCard Generator Engine<\/span>/.test(html));
+  ok('logo: the Welcome card draws the main logo, and leaves it and the tagline out in plain; "Made by" and the maker mark show in both',
     /isPlain\(\) \? \[\] : \[el\('span', \{ className: 'vcge-welcome-logo vcge-logo-mark', role: 'img', 'aria-label': 'vCGE' \}\)\]/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8'))
-    && /isPlain\(\) \? \[\] : \[el\('p', \{ id: 'welcomeTagline'/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8')));
-  ok('plain edition: no rule fetches the logo there, and the tags (with their Sixtyfour font) are not shown',
+    && /isPlain\(\) \? \[\] : \[el\('p', \{ id: 'welcomeTagline'/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8'))
+    && /el\('div', \{ className: 'vcge-maker' \}, el\('small', \{\}, 'Made by'\)/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8'))
+    && /html:not\(\[data-edition="plain"\]\) \.vcge-welcome-logo\.vcge-logo-mark \{ background-image: url\('\.\.\/\.\.\/assets\/brand\/vcge-logo\.svg'\); \}/.test(css));
+  // Plain may draw only assets/maker (the wordmark and the HoH Block mark, raven575 2026-11-01): every rule that
+  // reaches assets/brand starts with html:not([data-edition="plain"])
+  const brandRules = css.replace(/\/\*[\s\S]*?\*\//g, '').split('}').filter(r => r.includes("assets/brand/"));
+  ok('plain edition: no rule fetches a brand file there (only the maker files), and the tags (with their Sixtyfour font) are not shown',
     /html\[data-edition="plain"\] \.vcge-logo-mark, html\[data-edition="plain"\] \.mod-tag \{ display: none; \}/.test(css)
-    && [...css.matchAll(/url\('\.\.\/\.\.\/assets\//g)].length === 1);
+    && brandRules.length >= 4 && brandRules.every(r => r.trim().startsWith('html:not([data-edition="plain"])'))
+    && [...css.matchAll(/url\('\.\.\/\.\.\/assets\/(?!brand\/|maker\/)/g)].length === 0, brandRules.filter(r => !r.trim().startsWith('html:not')).join(' | '));
+  ok('splash: CSS alone fades it out (it can never stay up), it never takes a tap, and reduced motion shortens it with no zoom',
+    /<div id="vcgeSplash" class="vcge-splash" aria-hidden="true">/.test(html) && /\.vcge-splash \{[^}]*pointer-events: none;[^}]*animation: vcge-splash-out 420ms ease 1\.8s both;/.test(css)
+    && /@keyframes vcge-splash-out \{ to \{ opacity: 0; visibility: hidden; \} \}/.test(css)
+    && /@media \(prefers-reduced-motion: reduce\) \{ \.vcge-splash \{ animation-delay: 0\.7s; animation-duration: 1ms; \} \.vcge-splash \.vcge-hoh \{ animation: none; \} \}/.test(css));
+  ok('pilots: the Ghost chip (Vault) and the Cornerstone credit (Settings) are there, and hidden in plain; About carries the credits line',
+    /id="vaultPageTitle"[\s\S]{0,300}<span class="vcge-pilot-chip vcge-sheet-pilot"[^>]*><i aria-hidden="true">🦝<\/i><span>Ghost<\/span><\/span>/.test(html)
+    && /<div class="vcge-pm-credit"><span class="vcge-pilot-chip"><i aria-hidden="true">🐘<\/i><span>Cornerstone<\/span><\/span><p><b>Project manager<\/b>/.test(html)
+    && /html\[data-edition="plain"\] \.vcge-pilot-chip, html\[data-edition="plain"\] \.vcge-pm-credit \{ display: none; \}/.test(css)
+    && html.includes('<p>&copy; 2026 raven575, Herd of Helpers (claude) &amp; gemini</p>'));
+  { const v = JSON.parse(fs.readFileSync(`${R}/../package.json`, 'utf8')).version, t = JSON.parse(fs.readFileSync(`${R}/../src-tauri/tauri.conf.json`, 'utf8')).version;
+    ok('version: About shows the release (0.7, raven575 2026-11-01), the same as package.json, Tauri and Cargo', v === t && html.includes(`<p>vCGE ${v.split('.').slice(0, 2).join('.')}</p>`)
+      && new RegExp(`^version = "${v}"`, 'm').test(fs.readFileSync(`${R}/../src-tauri/Cargo.toml`, 'utf8')), v + ' / ' + t); }
   const ed = await import(`${R}/modules/mod01-shell/edition.js`);
   const docOf = (edition) => ({ documentElement: { dataset: edition ? { edition } : {} } });
   ok('edition: branded unless index.html says data-edition="plain"', ed.isPlain(docOf('plain')) && !ed.isPlain(docOf()) && !ed.isPlain(docOf('branded')) && !ed.isPlain(null));

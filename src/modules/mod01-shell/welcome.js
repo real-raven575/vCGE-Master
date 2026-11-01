@@ -54,7 +54,16 @@ function targetOf(step) {
 
 // ---- Welcome card ----------------------------------------------------------------------------------------------
 
+// The opening splash (index.html, ui.css) fades out by CSS alone; the first tap, click or key ends it sooner.
+export function endSplashOnInput(doc = document) {
+    const splash = doc.getElementById('vcgeSplash');
+    if (!splash) return;
+    const end = () => { splash.classList.add('vcge-splash-off'); for (const t of ['pointerdown', 'keydown']) doc.removeEventListener(t, end, true); };
+    for (const t of ['pointerdown', 'keydown']) doc.addEventListener(t, end, true);
+}
+
 export function renderWelcomeCard() {
+    endSplashOnInput();
     const host = document.getElementById('welcomeBody');
     if (!host) return;
     const pin = el('button', { type: 'button', id: 'welcomePinBtn', className: 'welcome-pin' }, 'Set Up PIN/BIO Lock Now');
@@ -76,7 +85,9 @@ export function renderWelcomeCard() {
         list,
         el('div', { className: 'welcome-actions' }, pin, start, tour, cancel),
         sample,
-        el('p', { className: 'welcome-fine' }, 'This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data: it keeps one small settings file on this device (hand, colors, theme, font, text size, wipe time), and nothing you scan, upload or type is ever saved.'));
+        el('p', { className: 'welcome-fine' }, 'This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data: it keeps one small settings file on this device (hand, colors, theme, font, text size, wipe time), and nothing you scan, upload or type is ever saved.'),
+        // "Made by" and the Herd of Helpers maker mark, in both editions (plain: the HoH Block mark), CRTV-0020
+        el('div', { className: 'vcge-maker' }, el('small', {}, 'Made by'), el('span', { className: 'vcge-hoh', role: 'img', 'aria-label': 'Herd of Helpers' })));
     const thanks = document.getElementById('thankYouPage');
     if (thanks) {
         document.getElementById('thankYouStartOverBtn').addEventListener('click', () => requestStartOver());

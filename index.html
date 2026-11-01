@@ -5,10 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <!-- Browser-enforced egress lock: only same-origin resources and connections, plus Tauri's local IPC endpoints (keep in sync with src-tauri/tauri.conf.json) -->
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; media-src 'self' blob:; font-src 'self'; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
-    <!-- MOD01 logo (temporary mark approved by raven575, 2026-10-17), bundled: the tab icon and the home-screen icon -->
+    <!-- MOD01 logo (final vCGE logo, approved by raven575 2026-11-01 18:50 UTC, CRTV-0020), bundled: tab icons ("Tiny
+         Mark") and the iPhone home-screen icon. No manifest or service worker for the beta, so only these links. -->
+    <link rel="icon" href="src/assets/brand/favicon.ico" sizes="any">
+    <link rel="icon" type="image/svg+xml" href="src/assets/brand/vcge-favicon.svg">
     <link rel="icon" type="image/png" sizes="32x32" href="src/assets/brand/vcge-32.png">
-    <link rel="icon" type="image/png" sizes="192x192" href="src/assets/brand/vcge-logo-192.png">
-    <link rel="apple-touch-icon" sizes="192x192" href="src/assets/brand/vcge-logo-192.png">
+    <link rel="apple-touch-icon" sizes="180x180" href="src/assets/brand/apple-touch-icon-180.png">
     <!-- MOD01 network lock: a classic script, so it runs before the bundled libraries below and every module -->
     <script src="src/modules/mod01-shell/netLock.js"></script>
     <!-- MOD01 browser gate (ES5): if a protection vCGE relies on is missing, the app never starts and a bundled
@@ -43,12 +45,21 @@
     <link rel="stylesheet" href="src/modules/mod05-form/fields.css">
 </head>
 <body class="bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100 h-screen flex flex-col antialiased overflow-hidden">
+    <!-- Opening splash (MOD01, CRTV-0020): the Herd of Helpers maker mark, "presents", then the vCGE logo (plain: the
+         HoH Block mark and the wordmark). CSS alone fades it out, so it can never stay up; a tap or key ends it sooner.
+         It never takes a tap from the page under it (pointer-events: none). Reduced motion: shorter, no zoom. -->
+    <div id="vcgeSplash" class="vcge-splash" aria-hidden="true">
+        <span class="vcge-hoh"></span>
+        <small>presents</small>
+        <span class="vcge-splash-logo"></span>
+    </div>
 
     <!-- MASTER HEADER (MOD01): slim, one icon per card in order of use, then Vault and Settings -->
     <header class="deck-header border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur sticky top-0 z-40 flex items-center justify-between relative">
         <div class="deck-brand">
             <span class="deck-logo vcge-logo-mark" role="img" aria-label="vCGE"></span>
-            <span class="deck-brand-text text-xs text-slate-500 dark:text-slate-400">vCard Generator Engine</span>
+            <span class="deck-wordmark vcge-wordmark" aria-hidden="true"></span>
+            <span class="deck-brand-text vcge-sr-only">vCard Generator Engine</span>
         </div>
         <nav class="deck-nav" aria-label="Cards">
             <button id="navWelcome" type="button" data-card="welcome" aria-label="Start page: welcome and the tour (Shutout)" title="Start page: welcome and the tour (Shutout)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#home-shield"></use></svg><span>Shutout</span></button>
@@ -454,6 +465,7 @@
         <div class="vcge-sheet-panel mod-tag-host space-y-3">
             <div class="vcge-sheet-head">
                 <h2 id="vaultPageTitle" class="vault-title"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#lock"></use></svg>Vault</h2>
+                <span class="vcge-pilot-chip vcge-sheet-pilot" title="Ghost the Raccoon keeps the Vault"><i aria-hidden="true">🦝</i><span>Ghost</span></span>
                 <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close">&#x2715;</button>
             </div>
             <p class="vault-lead">Your card is held in memory only and is never saved. Set a PIN, and a fingerprint or face if your device has one, so the card locks instead of being wiped when you step away. Both are set up fresh every visit and forgotten when you leave.</p>
@@ -541,6 +553,14 @@
             <div class="vcge-sheet-row">
                 <span>PIN and fingerprint</span>
                 <button id="settingsVaultBtn" type="button" class="px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition" data-open-sheet="vaultPage">Open the Vault</button>
+            </div>
+            <!-- Project manager credit (branded only) and About (CRTV-0020): the maker mark, the wordmark and the credits -->
+            <div class="vcge-pm-credit"><span class="vcge-pilot-chip"><i aria-hidden="true">🐘</i><span>Cornerstone</span></span><p><b>Project manager</b>Keeps the Herd on task and on the right path.</p></div>
+            <div id="settingsAbout" class="vcge-about">
+                <span class="vcge-hoh" role="img" aria-label="Herd of Helpers"></span>
+                <span class="vcge-about-word vcge-wordmark" role="img" aria-label="vCGE"></span>
+                <p>vCGE 0.7</p>
+                <p>&copy; 2026 raven575, Herd of Helpers (claude) &amp; gemini</p>
             </div>
             <p id="settingsNote" class="vcge-sheet-note">vCGE keeps one small settings file on this device (hand, colors, theme, font, text size, wipe time). Nothing you scan, upload or type is ever saved.</p>
         </div>
