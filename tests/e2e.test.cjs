@@ -3066,15 +3066,16 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await setPin(pV, '1357');
     await pV.setViewportSize({ width: 1024, height: 1366 });
     const port = await header();
-    ok('header (iPad portrait, Lock button showing): icons only, nothing overlapping (video #16)', await pV.isVisible('#lockVaultBtn') && port.compact && !port.names && port.overlaps.length === 0 && port.spills.length === 0 && !port.wide, JSON.stringify(port));
+    // Plain's brand is narrower, so its names may fit (raven575, 2026-11-01: show names when they fit); main stays icons only.
+    ok('header (iPad portrait, Lock button showing): icons only (plain: names when they fit), nothing overlapping (video #16)', await pV.isVisible('#lockVaultBtn') && (EDITION_PLAIN ? port.compact !== port.names : port.compact && !port.names) && port.overlaps.length === 0 && port.spills.length === 0 && !port.wide, JSON.stringify(port));
     // Left hand mirrors the header (row-reverse), so the nav spills to its left; it must drop to icons only exactly like
     // right hand (raven575, 2026-10-18: on the iPad the names came back, squeezed). Every button stays inside the nav.
     const inNav = () => pV.evaluate(() => { const box = document.querySelector('.deck-nav').getBoundingClientRect();
       return Array.from(document.querySelectorAll('.deck-nav button')).filter(b => { const r = b.getBoundingClientRect(); return r.left < box.left - 0.5 || r.right > box.right + 0.5; }).map(b => b.id); });
     await pV.evaluate(() => document.getElementById('handLeftBtn').click());
     const portLeft = await header(), outLeft = await inNav();
-    ok('header (iPad portrait, left hand): icons only like right hand, every button inside the header', await pV.evaluate(() => document.documentElement.dataset.hand) === 'left'
-      && portLeft.compact && !portLeft.names && portLeft.overlaps.length === 0 && outLeft.length === 0 && !portLeft.wide, JSON.stringify({ portLeft, outLeft }));
+    ok('header (iPad portrait, left hand): same as right hand, every button inside the header', await pV.evaluate(() => document.documentElement.dataset.hand) === 'left'
+      && (EDITION_PLAIN ? portLeft.compact !== portLeft.names && portLeft.names === port.names : portLeft.compact && !portLeft.names) && portLeft.overlaps.length === 0 && outLeft.length === 0 && !portLeft.wide, JSON.stringify({ portLeft, outLeft }));
     await pV.evaluate(() => document.getElementById('handRightBtn').click());
     for (const w of [900, 390, 360]) {
       await pV.setViewportSize({ width: w, height: 800 });
