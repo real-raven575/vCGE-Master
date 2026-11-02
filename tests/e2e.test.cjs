@@ -2560,6 +2560,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
 
     // The shutter sinks on the press and pops back after the release; the shot is the window the viewfinder showed
     await pV.locator('#captureBtn').scrollIntoViewIfNeeded();
+    // A toast over the shutter takes a tap for its 3 s (a tap on it dismisses it); the press waits for it to go, as a
+    // Playwright click would (CI WebKit, 11-02)
+    await pV.waitForFunction(() => { const t = document.getElementById('toast'); return !t || t.classList.contains('opacity-0'); }, null, { timeout: 9000 }).catch(() => {});
+    await pV.waitForTimeout(300);
     const shutterNow = await box('#captureBtn');   // measured again: the pinch above may have scrolled the screen (0.8: the head and the dock take room)
     // The zoomed picture stays inside the viewfinder: the shutter under it takes the press (CI WebKit, 11-02: with
     // overflow: clip the 2x picture took it)
