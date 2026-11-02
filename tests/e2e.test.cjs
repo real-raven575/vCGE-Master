@@ -3139,7 +3139,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       await pU.evaluate(() => getComputedStyle(document.querySelector('#cardCard > .deck-card-body')).paddingTop === getComputedStyle(document.querySelector('#cardFields > .deck-card-body')).paddingTop));
     ok('0.8 shell: the Sixtyfour font is never fetched', !sixtyfourU.length && await pU.evaluate(() => !Array.from(document.fonts).some(f => f.family.includes('Sixtyfour') && f.status !== 'unloaded')), sixtyfourU.join(' '));
     const small = await pU.evaluate(() => Array.from(document.querySelectorAll('button:not(.crop-handle), label'))
-      .filter(b => (b.tagName === 'BUTTON' || b.querySelector(':scope > input[type=file]')) && b.offsetParent && !b.classList.contains('vcge-sr-only'))   // (the QR shortcut is for screen readers and keys only)
+      .filter(b => (b.tagName === 'BUTTON' || b.querySelector(':scope > input[type=file]')) && b.offsetParent && getComputedStyle(b).visibility !== 'hidden' && !b.classList.contains('vcge-sr-only'))   // (the QR shortcut is for screen readers and keys only; a sheet still sliding away is hidden, not shown)
       .map(b => { const cs = getComputedStyle(b); return { id: b.id || b.textContent.trim().slice(0, 20), h: b.offsetHeight, w: b.offsetWidth, border: cs.borderTopWidth,
         ring: b.matches('.vcge-mark, .vcge-iconbtn, .vcge-step, .vcge-btn, .vcge-sheet-close, .vcge-trash, .vcge-lockbtn, .r2-quiet, .r2-reopen, .r2-sidebtn, .r2-start, .r2-shutter, .r2-close, .r2-zoom button')
           // (0.8 Welcome and Capture, R2: the mock-up's filled buttons, the shutter's ring and the chips over the picture need no ring)
