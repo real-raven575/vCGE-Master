@@ -13,6 +13,7 @@
  * never reads another module's elements or code.
  */
 import { formatVCard } from '../../share/vcardFormatter.js';
+import { isShelved } from '../mod01-shell/edition.js';
 
 export const QR_DOTS = ['square', 'round', 'diamond'];
 export const QR_FRAMES = ['none', 'square', 'rounded', 'circle', 'stripes', 'checkers', 'polka'];
@@ -288,7 +289,7 @@ export class VCGEQREngine {
      * replaces the placeholder. Restarted only by that change, never by each keystroke. Reduce motion shows it at once.
      */
     reveal(canvas) {
-        if (!canvas || !canvas.classList) return;
+        if (!canvas || !canvas.classList || isShelved()) return;
         canvas.classList.remove('qr-reveal');
         void canvas.offsetWidth;
         canvas.classList.add('qr-reveal');

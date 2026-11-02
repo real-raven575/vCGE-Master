@@ -15,6 +15,8 @@
  * Nothing here reads or keeps contact data beyond the yes/no each light needs.
  */
 
+import { isShelved } from '../mod01-shell/edition.js';
+
 export const HATCH_OPEN_MS = 400;
 const $ = (id) => document.getElementById(id);
 
@@ -24,7 +26,7 @@ export function wireHatches(root = document) {
         let timer = null;
         button.addEventListener('click', () => {
             const hatch = button.querySelector('.hatch');
-            if (!hatch) return;
+            if (!hatch || isShelved()) return;
             hatch.classList.add('is-open');
             button.classList.add('is-launching');
             clearTimeout(timer);
@@ -44,7 +46,7 @@ export function wireFalcon() {
 /** E2 / Q8: the falcon glides once over the toast that is showing now; `parcel` adds Checkers' striped parcel. */
 export function flyFalcon({ parcel = false } = {}) {
     const falcon = $('toastFalcon'), message = $('toastMessage');
-    if (!falcon || !message) return;
+    if (!falcon || !message || isShelved()) return;
     flownFor = message.textContent;
     falcon.classList.toggle('with-parcel', parcel);
     falcon.classList.remove('hidden', 'is-gliding');
@@ -78,7 +80,7 @@ export function showReadyLights(contact, qrReal) {
     document.querySelectorAll('#readyToShareBtn .ready-light').forEach((dot, i) => {
         const was = dot.classList.contains('is-lit');
         dot.classList.toggle('is-lit', !!lights[i]);
-        if (lights[i] && !was) {
+        if (lights[i] && !was && !isShelved()) {
             dot.classList.remove('is-popping');
             void dot.offsetWidth;
             dot.classList.add('is-popping');

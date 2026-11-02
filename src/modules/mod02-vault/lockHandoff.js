@@ -12,6 +12,7 @@
  * the only cue.
  */
 import { globalEventBus, Events } from '../../share/eventBus.js';
+import { isShelved } from '../mod01-shell/edition.js';
 
 export const HANDOFF_MS = 1400;          // unlocked -> locked -> unlocked (raven575: 1.25 to 1.5 s)
 export const HANDOFF_FPS = 26;           // stepped at 24 to 30 frames a second
@@ -114,7 +115,7 @@ export class LockHandoff {
 
     /** Plays one cycle (restarts if one is running). */
     play() {
-        if (!this.root || (typeof document !== 'undefined' && document.hidden)) return;   // nobody is looking
+        if (!this.root || (typeof document !== 'undefined' && document.hidden) || isShelved()) return;   // nobody is looking, or the 0.8 shelf
         this.stop();
         this.root.classList.remove('hidden');
         this.live.textContent = 'Details locked in the vault, moving on.';

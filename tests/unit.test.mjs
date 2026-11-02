@@ -673,6 +673,12 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('tween: stepped frames about 38 ms apart, ending exactly on the target', seen.length >= 6 && seen.length <= 8 && seen[seen.length - 1] === 2 && seen.slice(0, -1).every(v => v > 1 && v < 2.1), JSON.stringify(seen));
   const instant = []; tween(1, 3, 260, (v) => instant.push(v), { instant: true, schedule, cancel: () => {} });
   ok('tween: under reduce motion the end value applies at once', instant.length === 1 && instant[0] === 3 && timers.length === 0);
+  // 0.8 Capture (R2): the corners turn green only after two looks in a row find a card, and back after two misses
+  const { nextSeen, chipFor, FOUND_RUN } = await import(`${R}/modules/mod03-camera/viewfinder.js`);
+  const run = (hits) => hits.reduce((st, h) => nextSeen(st, h), { found: false, run: 0 }).found;
+  ok('card watch: one look that finds a card is not enough; two in a row turn the corners green', FOUND_RUN === 2 && !run([true]) && run([true, true]) && !run([true, false, true]));
+  ok('card watch: once found, one miss keeps it green and two misses turn it back (no flicker)', run([true, true, false]) && !run([true, true, false, false]) && run([true, true, false, true, false]));
+  ok('zoom chips: the chip for the zoom asked for, none for a zoom between them', chipFor(1, [0.5, 1, 2]) === 1 && chipFor(2.02, [0.5, 1, 2]) === 2 && chipFor(0.5, [0.5, 1, 2]) === 0 && chipFor(1.5, [0.5, 1, 2]) === -1 && chipFor(NaN, [1]) === -1);
 }
 
 // The live camera's own zoom (MOD03, raven575, Chrome on Android, 2026-10-24: the fader skipped, jumped back and forth
@@ -697,6 +703,24 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   cam.applyZoom(2); cam.applyZoom(1);                       // the fader taken back down to 1x meanwhile
   await settle(); await settle();
   ok('camera zoom: the last zoom asked for is the last one the camera gets, so it never stops at an old zoom', JSON.stringify(sent) === '[1,3,1]' && !cam.zoomInFlight && finish.length === 0, JSON.stringify(sent));
+  // The zoom chips (0.8 Capture, R2) drive the same zoom: the slider's value, kept inside what the camera can do
+  const chip = (v) => Object.assign(el(), { dataset: { zoom: v }, attrs: {}, setAttribute(k, x) { this.attrs[k] = x; } });
+  const chips = ['0.5', '1', '2'].map(chip);
+  const cam2 = new VCGEActiveCamera({ ...cfg, zoomSlider: el(), zoomChips: chips, hint: el(), shutterLabel: el(), startButton: el() });
+  cam2.zoomSlider.min = '1'; cam2.zoomSlider.max = '4';
+  cam2.pickZoom('2');
+  const pressed = () => chips.map(c => c.attrs['aria-pressed']).join();
+  ok('zoom chips: 2x sets the zoom to 2 through the slider and shows 2x pressed', cam2.zoomSlider.value === '2' && cam2.targetZoom === 2 && pressed() === 'false,false,true', `${cam2.zoomSlider.value} ${pressed()}`);
+  cam2.pickZoom('0.5');
+  ok('zoom chips: .5x on a camera that cannot go wider stays at 1x, and 1x shows pressed', cam2.zoomSlider.value === '1' && cam2.targetZoom === 1 && pressed() === 'false,true,false', `${cam2.zoomSlider.value} ${pressed()}`);
+  let started = 0; cam2.startButton.click = () => { started++; };
+  cam2.activeStream = null; cam2.captureFrame();
+  cam2.starting = true; cam2.captureFrame();
+  ok('shutter with the camera off starts the camera (once, not again while it starts) and takes no photo', started === 1 && cam2.capturedImageDataUrl === null, String(started));
+  cam2.showFound(true);
+  ok('card found: the hint and the shutter label say so in words', cam2.hint.textContent === 'Hold still, then tap the shutter' && cam2.shutterLabel.textContent === 'Card found');
+  cam2.stopWatch();
+  ok('camera off: the corners and the shutter go back, and the label says the camera is off', cam2.hint.textContent === 'Fit the card inside the corners' && cam2.shutterLabel.textContent === 'Camera off' && cam2.watchTimer === null);
   globalThis.addEventListener = savedAdd;
 }
 
@@ -1189,6 +1213,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('read card: stays in its lane (imports only the bus and its own reader, stores nothing, publishes nothing, no HTML strings, no fetch)',
     (readCode.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ocrWorker.js'"))
     && !/localStorage|sessionStorage|indexedDB|document\.cookie|innerHTML|fetch\(|publish\(/.test(readCode));
+  // 0.8 redo R3 (Creative's mock-up): the type chip's words and the flag's lead
+  ok('read card (0.8): the type chip shows the role\'s label without the picker\'s note in brackets', read.chipLabel('Phone (type from label)') === 'Phone' && read.chipLabel('Work phone') === 'Work phone' && read.chipLabel('City / State / ZIP') === 'City / State / ZIP' && read.chipLabel(undefined) === '');
+  ok('read card (0.8): a flagged line leads with words that say to check it', read.CHECK_LEAD === 'Check this line.');
+  ok('read card (0.8): the thumbnail helper shows and drops the photo, and is dropped on a wipe or a purge', typeof read.readThumb.show === 'function' && typeof read.readThumb.hide === 'function'
+    && /subscribe\(Events\.VAULT_WIPED, \(\) => readThumb\.hide\(\)\)/.test(readCode) && /subscribe\(Events\.MEMORY_PURGED, \(\) => readThumb\.hide\(\)\)/.test(readCode));
   console.log = origLog; console.error = origErr; delete globalThis.Tesseract;
 }
 
@@ -1338,6 +1367,18 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     while (timers.length) { const [fn, ms] = timers.shift(); t += ms; fn(); }
     ok('a spin is stepped at 26 fps and lands exactly on the target', frames.length >= 9 && frames.length <= 12 && frames[frames.length - 1] === 180 && Math.max(...frames) > 180, JSON.stringify(frames.map(Math.round)));
     stop();
+  }
+  // 0.8 Card (gap list row 17): a flip takes the mock-up's 620 ms with its soft ease out, cubic-bezier(.2, .8, .2, 1)
+  {
+    const e = card.easeSoft, xs = Array.from({ length: 101 }, (_, i) => e(i / 100));
+    ok('0.8 card: a flip is 620 ms at 60 fps, the safe-area guide shows 2.4 s', card.TAP_SPIN_MS === 620 && card.TAP_SPIN_FPS === 60 && card.SAFE_GUIDE_MS === 2400);
+    ok('0.8 card: the soft ease out starts at 0, ends at 1, rises all the way, never passes 1, and is mostly there by half time',
+      e(0) === 0 && e(1) === 1 && xs.every((v, i) => i === 0 || v >= xs[i - 1]) && Math.max(...xs) <= 1 && e(0.5) > 0.85 && e(0.1) > 0.2, JSON.stringify([e(0.1), e(0.5), e(0.9)]));
+    ok('0.8 card: cubicBezier matches the CSS curve (linear is linear; ease-in starts slow)', Math.abs(card.cubicBezier(0, 0, 1, 1)(0.3) - 0.3) < 1e-6 && card.cubicBezier(0.42, 0, 1, 1)(0.25) < 0.1);
+    let t = 0; const frames = []; const timers = [];
+    card.tween(0, 180, card.TAP_SPIN_MS, v => frames.push(v), { now: () => t, schedule: (fn, ms) => { timers.push([fn, ms]); return timers.length; }, cancel: () => {}, ease: card.easeSoft, fps: card.TAP_SPIN_FPS });
+    const gaps = []; while (timers.length) { const [fn, ms] = timers.shift(); gaps.push(ms); t += ms; fn(); }
+    ok('0.8 card: a flip tween runs smoothly (about 37 frames of 16.7 ms), never past 180, and lands exactly on it', frames.length >= 34 && frames.length <= 40 && gaps.every(g => Math.abs(g - 1000 / 60) < 1e-9) && Math.max(...frames) === 180 && frames[frames.length - 1] === 180 && frames.every((v, i) => i === 0 || v >= frames[i - 1]), `${frames.length} frames`);
   }
   ok('spin, edge and toast numbers follow the plan: 26 fps, 5 percent, 48 px edge, 3 s toast', card.STEP_FPS === 26 && card.OVERSHOOT === 0.05 && card.EDGE_PX === 48 && card.TOAST_MS === 3000 && card.PRINT_LINES_EACH === 2);
 
@@ -1494,17 +1535,33 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('logo: the SVG logos are flat vector art with no fonts, scripts, links or embedded metadata', svgs.every(([, t]) => t.startsWith('<svg') && !/<script|<text|<metadata|<image|href="http|c2pa:manifest/i.test(t)),
     svgs.filter(([, t]) => /<script|<text|<metadata|<image|href="http|c2pa:manifest/i.test(t)).map(([f]) => f).join());
   // The header, Welcome and Thank You logos are CSS backgrounds, drawn only in the branded edition (edition.js)
+  const deckCss0 = fs.readFileSync(`${R}/modules/mod01-shell/deck.css`, 'utf8');
   const marks = [...html.matchAll(/<span class="([^"]*vcge-logo-mark[^"]*)" role="img" aria-label="vCGE"><\/span>/g)].map(m => m[1]);
   const markRule = css.match(/html:not\(\[data-edition="plain"\]\) \.vcge-logo-mark \{ background: url\('\.\.\/\.\.\/(assets\/brand\/[^']+)'\)/);
-  ok('logo: the header and the Thank You page carry the logo, named vCGE for screen readers, from the bundled file (branded edition only)',
-    marks.join() === 'deck-logo vcge-logo-mark,vcge-welcome-logo vcge-logo-mark' && !!markRule && fs.existsSync(`${R}/${markRule[1]}`), marks.join());
-  ok('logo: the header shows the colour wordmark beside the icon, and keeps "vCard Generator Engine" for screen readers',
-    /<span class="deck-wordmark vcge-wordmark" aria-hidden="true"><\/span>\s*<span class="deck-brand-text vcge-sr-only">vCard Generator Engine<\/span>/.test(html));
-  ok('logo: the Welcome card draws the main logo, and leaves it and the tagline out in plain; "Made by" and the maker mark show in both',
-    /isPlain\(\) \? \[\] : \[el\('span', \{ className: 'vcge-welcome-logo vcge-logo-mark', role: 'img', 'aria-label': 'vCGE' \}\)\]/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8'))
-    && /isPlain\(\) \? \[\] : \[el\('p', \{ id: 'welcomeTagline'/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8'))
-    && /el\('div', \{ className: 'vcge-maker' \}, el\('small', \{\}, 'Made by'\)/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8'))
+  ok('logo: the top bar\'s mark (0.8 shell) is the logo and "vCGE" in the Start button, and the Thank You page carries the logo named vCGE for screen readers, from the bundled file (branded edition only)',
+    marks.join() === 'vcge-welcome-logo vcge-logo-mark' && !!markRule && fs.existsSync(`${R}/${markRule[1]}`)
+    && /<button id="navWelcome"[^>]*class="vcge-mark"><span class="deck-logo vcge-logo-mark" aria-hidden="true"><\/span><span class="deck-wordmark vcge-wordmark" aria-hidden="true"><\/span><b class="vcge-mark-text">vCGE<\/b><\/button>/.test(html), marks.join());
+  ok('logo: the top bar keeps "vCard Generator Engine" for screen readers, and the colour wordmark shows beside the app icon in every version (plain too: plain is not unbranded)',
+    /<span class="deck-brand-text vcge-sr-only">vCard Generator Engine<\/span>/.test(html)
+    && /html\[data-edition="plain"\] \.vcge-mark \.deck-wordmark \{ display: block;/.test(deckCss0) && /\n\.vcge-mark \.deck-wordmark \{ display: block; height: 22px; \}/.test(deckCss0) && /\n\.vcge-mark \.vcge-mark-text \{ display: none; \}/.test(deckCss0) && /html\[data-edition="plain"\] \.vcge-mark \.deck-logo\.vcge-logo-mark \{ display: block; background: url\('\.\.\/\.\.\/assets\/brand\/vcge-app-icon-64\.png'\)/.test(deckCss0) && /html\[data-edition="plain"\] \.vcge-mark \.vcge-mark-text \{ display: none; \}/.test(deckCss0));
+  // 0.8 redo R2: the Welcome card is Creative's (markup in index.html): Shutout's art and the tagline, taken out in plain
+  // (welcome.js removes them, screens-r2.css hides them before it runs); "Made by" and the maker mark in both. The main
+  // logo stays on the Thank You page.
+  const welcomeHtml = html.slice(html.indexOf('<section id="cardWelcome"'), html.indexOf('</section>', html.indexOf('<section id="cardWelcome"')));
+  const r2Css = fs.readFileSync(`${R}/modules/mod01-shell/screens-r2.css`, 'utf8');
+  ok('logo: the Welcome card shows Shutout and the tagline, both left out in plain; "Made by" and the maker mark show in both; the Thank You logo is the bundled file',
+    /<svg id="welcomeArt" class="r2-art" viewBox="0 0 200 150" role="img" aria-label="Shutout the Box Turtle waving">/.test(welcomeHtml)
+    && /<p id="welcomeTagline" class="r2-tag">Operation: Never Lose Contact<\/p>/.test(welcomeHtml)
+    && /if \(isPlain\(\)\) \['welcomeArt', 'welcomeTagline'\]\.forEach\(id => \{ const n = document\.getElementById\(id\); if \(n\) n\.remove\(\); \}\);/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8'))
+    && /html\[data-edition="plain"\] #welcomeArt, html\[data-edition="plain"\] #welcomeTagline \{ display: none; \}/.test(r2Css)
+    && /<div class="vcge-maker"><small>Made by<\/small><span class="vcge-hoh" role="img" aria-label="Herd of Helpers"><\/span><\/div>/.test(welcomeHtml)
     && /html:not\(\[data-edition="plain"\]\) \.vcge-welcome-logo\.vcge-logo-mark \{ background-image: url\('\.\.\/\.\.\/assets\/brand\/vcge-logo\.svg'\); \}/.test(css));
+  ok('welcome (0.8): the promise and the privacy line, no Start button of its own: the dock\'s primary reads "Scan a card" and moves on (empty data-next)',
+    /<h3 id="welcomeTitle">Scan a card\. Keep the contact\.<\/h3>/.test(welcomeHtml) && welcomeHtml.includes('Nothing is saved. Your card stays in memory and is wiped after you lock or close the app.')
+    && !/welcomeStartBtn/.test(html) && /<section id="cardWelcome"[^>]*data-next="" data-next-label="Scan a card"/.test(html));
+  ok('splash and maker mark (0.8): the splash takes the theme\'s colours, and the C1 mark is drawn to its art (the mock-up\'s crop)',
+    /\.vcge-splash \{[^}]*background: var\(--sh-bg\); color: var\(--sh-ink\);/.test(css) && /\.vcge-splash small \{[^}]*color: var\(--sh-muted\);/.test(css)
+    && /\.vcge-hoh \{ display: block; width: 118px; aspect-ratio: 608 \/ 520;/.test(css) && fs.readFileSync(`${R}/assets/brand/hoh-c1.svg`, 'utf8').startsWith('<svg xmlns="http://www.w3.org/2000/svg" viewBox="96 40 608 520"'));
   // Plain may draw only assets/maker (the wordmark and the HoH Block mark, raven575 2026-11-01): every rule that
   // reaches assets/brand starts with html:not([data-edition="plain"])
   const brandRules = css.replace(/\/\*[\s\S]*?\*\//g, '').split('}').filter(r => r.includes("assets/brand/"));
@@ -1522,14 +1579,14 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     && /html\[data-edition="plain"\] \.vcge-pilot-chip, html\[data-edition="plain"\] \.vcge-pm-credit \{ display: none; \}/.test(css)
     && html.includes('<p>&copy; 2026 raven575, Herd of Helpers (claude) &amp; gemini</p>'));
   { const v = JSON.parse(fs.readFileSync(`${R}/../package.json`, 'utf8')).version, t = JSON.parse(fs.readFileSync(`${R}/../src-tauri/tauri.conf.json`, 'utf8')).version;
-    ok('version: About shows the release (0.7, raven575 2026-11-01), the same as package.json, Tauri and Cargo', v === t && html.includes(`<p>vCGE ${v.split('.').slice(0, 2).join('.')}</p>`)
+    ok('version: About shows the release (0.8, the redo to the Creative mock-up, 2026-11-02), the same as package.json, Tauri and Cargo', v === t && html.includes(`<p>vCGE ${v.split('.').slice(0, 2).join('.')}</p>`)
       && new RegExp(`^version = "${v}"`, 'm').test(fs.readFileSync(`${R}/../src-tauri/Cargo.toml`, 'utf8')), v + ' / ' + t); }
   const ed = await import(`${R}/modules/mod01-shell/edition.js`);
   const docOf = (edition) => ({ documentElement: { dataset: edition ? { edition } : {} } });
   ok('edition: branded unless index.html says data-edition="plain"', ed.isPlain(docOf('plain')) && !ed.isPlain(docOf()) && !ed.isPlain(docOf('branded')) && !ed.isPlain(null));
-  ok('edition: plain names every header card instead of its pilot, and the Thank You page says "Session ended."',
-    Object.values(ed.PLAIN_NAV).join() === 'Start,Capture,Read,Fields,Card,QR,Share' && ed.PLAIN_THANKS === 'Session ended.'
-    && (html.match(/id="nav(?:Welcome|Capture|Read|Fields|Card|Qr|Share)"/g) || []).map(m => m.slice(4, -1)).join() === Object.keys(ed.PLAIN_NAV).join());
+  ok('edition: plain names every dock step instead of its pilot, and the Thank You page says "Session ended."',
+    Object.values(ed.PLAIN_NAV).join() === 'Capture,Read,Details,Card,Share,QR' && ed.PLAIN_THANKS === 'Session ended.'
+    && (html.match(/id="nav(?:Capture|Read|Fields|Card|Qr|Share)"/g) || []).map(m => m.slice(4, -1)).join() === Object.keys(ed.PLAIN_NAV).join());
   ok('logo: no icon link points at a host', ![...html.matchAll(/<link[^>]+rel="(?:icon|apple-touch-icon)"[^>]*>/g)].some(m => /https?:/.test(m[0])));
   // Shutout's touches (shellArt.js, the "make it cute" round): the turtle and the plates are pictures only, branded only
   const art = await import(`${R}/modules/mod01-shell/shellArt.js`);
@@ -1543,15 +1600,33 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   art.initShellArt({ addEventListener() {} });
   ok('shell art: does nothing in the plain edition, or without a page', !artTouched);
   const deckCss = fs.readFileSync(`${R}/modules/mod01-shell/deck.css`, 'utf8');
-  const turtleTag = (html.match(/<span id="deckTurtle"[^>]*>/) || [''])[0], platesTag = html.match(/<span id="deckPlates"[^>]*>([\s\S]*?)<\/span>/);
-  ok('shell art: the turtle and the six plates (one per card, in order) are hidden from screen readers, and hidden in plain',
-    / aria-hidden="true"/.test(turtleTag) && !!platesTag && / aria-hidden="true"/.test(platesTag[0])
-    && [...platesTag[1].matchAll(/data-card="(\w+)"/g)].map(m => m[1]).join() === 'welcome,capture,read,fields,card,share'
-    && /html\[data-edition="plain"\] \.deck-turtle, html\[data-edition="plain"\] \.deck-plates \{ display: none; \}/.test(deckCss));
-  ok('shell art: the turtle walks only when motion is allowed, and the sheets\' grab bar and pebble are branded only',
-    /@media \(prefers-reduced-motion: no-preference\) \{ \.deck-turtle\.is-placed \{ transition: top 0\.3s ease-out; \} \}/.test(deckCss)
-    && !/\.deck-turtle[^{]*\{[^}]*transition: (?!none)/.test(deckCss.replace(/@media \(prefers-reduced-motion: no-preference\) \{[^\n]*\n/g, ''))
-    && /html:not\(\[data-edition="plain"\]\) \.vcge-sheet-panel::before \{/.test(deckCss) && /html:not\(\[data-edition="plain"\]\) \.vcge-sheet-close \{/.test(deckCss));
+  // 0.8 shell (raven575 2026-11-02: the mock-up exactly; the turtle and plates are shelved, their maths kept for later)
+  {
+    // The dock's five icons are Creative's own line icons (the mock-up's STEP_ICONS), drawn in the page so each platform style restyles them
+    const dockHtml = fs.readFileSync(`${R}/../index.html`, 'utf8');
+    const want = { navCapture: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>', navRead: '<path d="M5 6h14M5 11h10M5 16h12"/>',
+      navFields: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20c1-4 4-6 7-6s6 2 7 6"/>', navCard: '<rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M7 11h6M7 14h4"/>',
+      navShare: '<path d="M12 15V4M8 8l4-4 4 4M6 12v7h12v-7"/>' };
+    ok('0.8 dock: the five step icons are the mock-up\'s line icons (camera, lines, person, card, share), not the old sprite',
+      Object.entries(want).every(([id, paths]) => new RegExp(`id="${id}"[^>]*>[^<]*<svg class="vcge-icon vcge-step-icon" viewBox="0 0 24 24"[^>]*>${paths.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}</svg>`).test(dockHtml))
+      && !/class="vcge-step"[^>]*>[^<]*<svg[^>]*><use href="[^"]*sprite\.svg/.test(dockHtml));
+    const dockCss = fs.readFileSync(`${R}/modules/mod01-shell/deck.css`, 'utf8'), r5Css = fs.readFileSync(`${R}/modules/mod01-shell/screens-r5.css`, 'utf8');
+    ok('0.8 dock: the icons draw at the mock-up\'s line weight (1.6, Material 2, iOS 1.9), not the sprite\'s 2.3',
+      /\.vcge-step \.vcge-icon \{[^}]*stroke-width: 1\.6;/.test(dockCss) && /\.vcge-step \.vcge-step-icon \* \{ stroke-width: inherit; \}/.test(dockCss)
+      && /html\[data-style="material"\] \.vcge-step \.vcge-icon \{ stroke-width: 2;/.test(r5Css) && /html\[data-style="ios"\] \.vcge-step \.vcge-icon \{ stroke-width: 1\.9; \}/.test(r5Css));
+  }
+  ok('0.8 shell: no turtle, no shell plates and no MOD tags in the page; the shell art finds nothing to draw',
+    !/id="deckTurtle"|id="deckPlates"|class="mod-tag/.test(html) && !/\.deck-turtle|\.deck-plates/.test(deckCss));
+  ok('0.8 shell: sheets slide up from the bottom (380 ms, the sheet ease) over a scrim that fades in (260 ms), with a grab bar in both editions; and slide down again; none under reduced motion',
+    /\.vcge-sheet-panel \{[^}]*animation: vcgeSheetUp 380ms var\(--ease-sheet\) both;/.test(deckCss) && /@keyframes vcgeSheetUp \{ from \{ transform: translateY\(105%\); \} to \{ transform: none; \} \}/.test(deckCss)
+    && /\.vcge-sheet::before \{[^}]*background: rgba\(8, 6, 14, \.42\); animation: vcgeScrimIn 260ms/.test(deckCss)
+    && /\.vcge-sheet\.is-closing \.vcge-sheet-panel \{[^}]*transform: translateY\(105%\); transition: transform 380ms var\(--ease-sheet\);/.test(deckCss)
+    && /\n\.vcge-sheet-panel::before \{/.test(deckCss) && /--ease-sheet: cubic-bezier\(\.32, \.72, 0, 1\)/.test(deckCss)
+    && /@media \(prefers-reduced-motion: reduce\) \{ \.vcge-sheet::before, \.vcge-sheet-panel \{ animation: none; \} \}/.test(deckCss));
+  ok('0.8 shell: a screen slides in from the side it comes from (280 ms, 28 px, the mock-up ease), and only fades under reduced motion',
+    /@keyframes vcgeInF \{ from \{ opacity: 0; transform: translateX\(28px\); \}/.test(deckCss) && /@keyframes vcgeInB \{ from \{ opacity: 0; transform: translateX\(-28px\); \}/.test(deckCss)
+    && /\.enter-f \{ animation: vcgeInF 280ms var\(--ease-out\) both; \}/.test(deckCss) && /--ease-out: cubic-bezier\(\.2, \.8, \.2, 1\)/.test(deckCss)
+    && /@media \(prefers-reduced-motion: reduce\) \{ \.enter-f, \.enter-b \{ animation: vcgeFade 150ms linear both; \} \}/.test(deckCss));
   // The walk (raven575's test report 2026-10-22): a capped spring, simulated at 60 frames a second
   const walkFor = (from, to, seconds = 8) => {
     let st = { x: from, v: 0 }, t = 0, top = 0, past = 0, at01 = null, settledAt = null;
@@ -1592,11 +1667,10 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('layout: a new page size seen by the resize observer updates the tier at once (WebKit can be late with the resize event)',
     fakeRoOn === fakeRoot && fakeRoot.dataset.tier === 'laptop', fakeRoot.dataset.tier);
   const uiCssL = fs.readFileSync(`${R}/modules/mod01-shell/ui.css`, 'utf8');
-  ok('layout: cards measure their own width, sizes stay today\'s up to a 52rem card, drop-downs are 44 px, short screens free the height',
+  ok('layout: screens measure their own width, the shell is one centred column (the mock-up is a phone), drop-downs are 44 px',
     /@supports \(container-type: inline-size\) \{\s*\.deck-card \{ container: deck-card \/ inline-size; \}/.test(deckCss)
-    && /padding: clamp\(1\.25rem, 1\.25rem \+ \(100cqi - 52rem\)/.test(deckCss) && /font-size: clamp\(1\.125rem, 1\.125rem \+ \(100cqi - 52rem\)/.test(deckCss)
-    && /\nselect \{ min-height: var\(--vcge-tap\); \}/.test(uiCssL)
-    && /@media \(max-height: 499\.98px\) \{ :root \{ --vcge-header-h: calc\(2\.75 \* var\(--vcge-hu\)\); --vcge-strip-h: var\(--vcge-vault-strip, 0px\); \} \}/.test(deckCss));
+    && /--sh-col: 40rem;/.test(deckCss) && /\.deck \{[^}]*max-width: var\(--sh-col\); margin: 0 auto;/.test(deckCss)
+    && /\nselect \{ min-height: var\(--vcge-tap\); \}/.test(uiCssL));
 }
 
 // MOD01 saved settings (settings.js): the one localStorage entry, `name=number` pairs, preferences only
@@ -1605,7 +1679,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const st = await import(`${R}/modules/mod01-shell/settings.js`);
   const ui = await import(`${R}/modules/mod01-shell/ui.js`);
   localStorage.clear();
-  ok('settings: one key, defaults right hand, colour-blind off, dark theme, Inter, normal text size', st.SETTINGS_KEY === 'vcge_settings' && JSON.stringify(st.DEFAULTS) === '{"hand":0,"cb":0,"theme":0,"font":0,"size":0,"wipe":0}' && st.fontFor(0) === 'Inter' && st.scaleFor(0) === 1);
+  ok('settings: one key, defaults right hand, colour-blind off, dark theme, Inter, normal text size', st.SETTINGS_KEY === 'vcge_settings' && JSON.stringify(st.DEFAULTS) === '{"hand":0,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0}' && st.fontFor(0) === 'Inter' && st.scaleFor(0) === 1);
   ok('settings: the wipe after the lock is 7, 10 or 15 minutes, codes 0, 1, 2; 7 is the default and an unknown code is 7', st.WIPE_TIMES.map(t => `${t.code}:${t.minutes}`).join() === '0:7,1:10,2:15'
     && st.wipeMinutesFor(0) === 7 && st.wipeMinutesFor(1) === 10 && st.wipeMinutesFor(2) === 15 && st.wipeMinutesFor(9) === 7);
   {
@@ -1617,24 +1691,24 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('settings: text sizes Small, Normal, Large, Larger, smallest first, each with its own fixed code; an unknown code is Normal', st.TEXT_SIZES.map(t => t.name).join() === 'Small,Normal,Large,Larger'
     && st.TEXT_SIZES.every((t, i) => i === 0 || t.scale > st.TEXT_SIZES[i - 1].scale) && new Set(st.TEXT_SIZES.map(t => t.code)).size === 4 && st.scaleFor(2) === 1.25 && st.scaleFor(9) === 1);
   ok('settings: every Settings font has its own fixed code, Inter 0, no code shared', ui.UI_FONTS.every(n => Number.isInteger(st.FONT_CODES[n])) && new Set(Object.values(st.FONT_CODES)).size === ui.UI_FONTS.length && Object.keys(st.FONT_CODES).length === ui.UI_FONTS.length);
-  ok('settings: a line of name=number pairs reads back', JSON.stringify(st.parseSettings('hand=1;cb=1;theme=1;font=3;size=2;wipe=1')) === '{"hand":1,"cb":1,"theme":1,"font":3,"size":2,"wipe":1}');
-  ok('settings: an entry saved before the text size and wipe time existed reads as Normal and 7 minutes', JSON.stringify(st.parseSettings('hand=1;cb=0;theme=0;font=2')) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0}');
+  ok('settings: a line of name=number pairs reads back', JSON.stringify(st.parseSettings('hand=1;cb=1;theme=1;font=3;size=2;wipe=1')) === '{"hand":1,"cb":1,"theme":1,"font":3,"size":2,"wipe":1,"mode":0,"style":0,"tex":0}');
+  ok('settings: an entry saved before the text size and wipe time existed reads as Normal and 7 minutes', JSON.stringify(st.parseSettings('hand=1;cb=0;theme=0;font=2')) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0}');
   ok('settings: missing or unreadable means the defaults', JSON.stringify(st.parseSettings(null)) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('garbage')) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('')) === JSON.stringify(st.DEFAULTS));
-  ok('settings: an unknown name, an out-of-range or non-numeric value falls back to its default, the rest is kept', JSON.stringify(st.parseSettings('hand=1;name=Maria;cb=7;theme=x;font=99;size=4')) === '{"hand":1,"cb":0,"theme":0,"font":0,"size":0,"wipe":0}');
+  ok('settings: an unknown name, an out-of-range or non-numeric value falls back to its default, the rest is kept', JSON.stringify(st.parseSettings('hand=1;name=Maria;cb=7;theme=x;font=99;size=4')) === '{"hand":1,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0}');
   ok('settings: serialises every name in a fixed order and clamps', st.serializeSettings({ font: 2, hand: 1, size: 3 }) === 'hand=1;cb=0;theme=0;font=2;size=3;wipe=0' && st.serializeSettings({ cb: 5 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0');
   st.saveSettings({ hand: 1, font: 2 });
   ok('settings: save writes the one key and nothing else', localStorage.getItem('vcge_settings') === 'hand=1;cb=0;theme=0;font=2;size=0;wipe=0' && store.size === 1);
-  ok('settings: load reads it back', JSON.stringify(st.loadSettings()) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0}');
+  ok('settings: load reads it back', JSON.stringify(st.loadSettings()) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0}');
   st.clearSettings();
   ok('settings: clear removes it', store.size === 0 && JSON.stringify(st.loadSettings()) === JSON.stringify(st.DEFAULTS));
   localStorage.setItem('vcge_theme_preference', 'light');
-  ok('settings: the old theme key is carried over once and removed', JSON.stringify(st.loadSettings()) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0}' && localStorage.getItem('vcge_theme_preference') === null && store.size === 0);
+  ok('settings: the old theme key is carried over once and removed', JSON.stringify(st.loadSettings()) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0}' && localStorage.getItem('vcge_theme_preference') === null && store.size === 0);
   const code = fs.readFileSync(`${R}/modules/mod01-shell/settings.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
   ok('settings: subscribes to SETTINGS_WIPE_REQUESTED, imports only the bus, ui.js and themes.js, no network, cookies or markup', /subscribe\(Events\.SETTINGS_WIPE_REQUESTED/.test(code)
     && (code.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ui.js'") || l.includes("'./themes.js'")) && !/fetch\(|document\.cookie|sessionStorage|indexedDB|innerHTML|publish\(/.test(code));
   ok('settings: the only storage key named in the code is the settings key (plus the old theme key it removes)', [...code.matchAll(/(?:getItem|setItem|removeItem)\((\w+)/g)].every(m => m[1] === 'SETTINGS_KEY' || m[1] === 'OLD_THEME_KEY'));
-  ok('settings: the Settings sheet and the Welcome card carry the one-file disclaimer', fs.readFileSync(`${R}/../index.html`, 'utf8').includes('vCGE keeps one small settings file on this device (hand, colors, theme, font, text size, wipe time). Nothing you scan, upload or type is ever saved.')
-    && /remembers none of your sensitive data/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8')) && !fs.existsSync(`${R}/modules/mod01-shell/themeManager.js`));
+  ok('settings: the Settings sheet and the Welcome card carry the one-file disclaimer', fs.readFileSync(`${R}/../index.html`, 'utf8').includes('vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time). Nothing you scan, upload or type is ever saved.')
+    && /<section id="cardWelcome"[\s\S]*?remembers none of your sensitive data[\s\S]*?<\/section>/.test(fs.readFileSync(`${R}/../index.html`, 'utf8')) && !fs.existsSync(`${R}/modules/mod01-shell/themeManager.js`));
   // App themes (themes.js, theme step 1): fixed codes, readable colours, branded ones left out of plain
   const th = await import(`${R}/modules/mod01-shell/themes.js`);
   const lin = (h) => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(c => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
@@ -1677,6 +1751,53 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     && /@media \(forced-colors: active\) \{ \.vcge-tex, \.vcge-emblem \{ display: none; \} \}/.test(deckCss)
     && /\.vcge-emblem \{[^}]*pointer-events: none/.test(deckCss) && /\.vcge-tex \{[^}]*pointer-events: none/.test(deckCss));
   ok('settings: theme codes up to the last theme read back; past it is Dark', st.parseSettings('theme=49').theme === 49 && st.parseSettings('theme=50').theme === 0);
+  // 0.8 redo R5: Appearance, the six platform styles and the texture switch, in the same one entry
+  ok('settings 0.8: mode, style and tex are written only once they differ from their defaults, after the six older names',
+    st.serializeSettings({ hand: 1 }) === 'hand=1;cb=0;theme=0;font=0;size=0;wipe=0'
+    && st.serializeSettings({ mode: 1, style: 3, tex: 1 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0;mode=1;style=3;tex=1'
+    && st.serializeSettings({ style: 9, tex: 2, mode: 5 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0');
+  ok('settings 0.8: the six styles keep fixed codes (Herd 0, Material 1, iOS 2, Windows 3, GNOME 4, KDE 5); an unknown code is Herd',
+    st.STYLES.map(t => `${t.code}:${t.id}`).join() === '0:herd,1:material,2:ios,3:windows,4:gnome,5:kde' && st.styleFor(9).id === 'herd' && st.parseSettings('style=6').style === 0);
+  ok('settings 0.8: an entry from 0.7 (no mode, style or tex) reads as the fixed theme, Herd style and the texture on',
+    JSON.stringify(st.parseSettings('hand=0;cb=0;theme=1;font=0;size=0;wipe=0')) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0}'
+    && st.effectiveTheme(st.parseSettings('theme=1'), true) === 1 && st.effectiveTheme(st.parseSettings('theme=0'), false) === 0);
+  ok('settings 0.8: Appearance System shows the family\'s light or dark code by the device; a one-version theme stays itself',
+    st.effectiveTheme({ theme: 1, mode: 1 }, true) === 0 && st.effectiveTheme({ theme: 0, mode: 1 }, false) === 1
+    && st.effectiveTheme({ theme: 46, mode: 1 }, true) === 47 && st.effectiveTheme({ theme: 12, mode: 1 }, false) === 13 && st.effectiveTheme({ theme: 5, mode: 1 }, false) === 5);
+  {
+    const fam = th.THEME_FAMILIES, codes = fam.flatMap(f => [f.light, f.dark]).filter(c => c !== null).sort((a, b) => a - b);
+    ok('themes 0.8: the families use every fixed code exactly once (Herd = Light 1 + Dark 0), the mock-up\'s 5 everyday and 7 seasonal first',
+      codes.join() === th.THEMES.map(t => t.code).sort((a, b) => a - b).join() && fam[0].id === 'herd' && fam[0].light === 1 && fam[0].dark === 0
+      && fam.filter(f => f.group === 'Everyday').map(f => f.label).join() === 'Herd,Signal,Autumn,Evergreen,Graphite'
+      && fam.filter(f => f.group === 'Seasonal').map(f => f.label).join() === 'Snowfall,Lantern,Heartfelt,Bloom,Tidepool,Pumpkin,Holly'
+      && th.familyOf(47).id === 'pumpkin' && th.familyOf(2).id === 'card-pumpkin' && th.familyCode(th.familyOf(3), 'light') === 3, fam.map(f => f.id).join());
+    const r0 = { dataset: {}, classList: { toggle: () => {} }, style: { setProperty: () => {}, removeProperty: () => {} } };
+    st.applySettings({ style: 1, tex: 1, theme: 1, mode: 1 }, r0, true);
+    const a = `${r0.dataset.style}/${r0.dataset.tex}/${r0.dataset.appTheme}`;
+    st.applySettings({}, r0, true);
+    ok('settings 0.8: applySettings puts the style and the texture on html (data-style, data-tex) and System picks Herd dark on a dark device',
+      a === 'material/off/dark' && `${r0.dataset.style}/${r0.dataset.tex}/${r0.dataset.appTheme}` === 'herd/on/dark', a);
+    const html5 = fs.readFileSync(`${R}/../index.html`, 'utf8'), css5 = fs.readFileSync(`${R}/modules/mod01-shell/screens-r5.css`, 'utf8');
+    const vault5 = html5.slice(html5.indexOf('<div id="vaultPage"'), html5.indexOf('<div id="settingsSheet"'));
+    const set5 = html5.slice(html5.indexOf('<div id="settingsSheet"'), html5.indexOf('<div id="exportQrSheet"'));
+    ok('R5 Vault sheet: the lock ring, the two switches, the lock chips (2 min only offered), the wipe chips 7/10/15, Activity, Lock now and the wipe with the trash',
+      /id="vaultRingArc"/.test(vault5) && /id="pinSwitch"/.test(vault5) && /id="biometricSwitch"/.test(vault5)
+      && /aria-pressed="true">2 min<\/button><button[^>]* disabled>5 min<\/button><button[^>]* disabled>15 min<\/button>/.test(vault5)
+      && [...vault5.matchAll(/data-wipe="(\d)"[^>]*>(\d+) min</g)].map(m => `${m[1]}:${m[2]}`).join() === '0:7,1:10,2:15'
+      && /id="auditLog"/.test(vault5) && /id="vaultLockNowBtn"/.test(vault5) && /id="wipeVaultBtn"[^>]*>.*sprite\.svg#trash/.test(vault5)
+      && vault5.indexOf('id="wipeVaultBtn"') > vault5.indexOf('id="auditLog"'));
+    ok('R5: the trash left the cards (it is the Vault sheet\'s wipe button now)', !/class="vcge-trash"/.test(html5));
+    ok('R5 Settings sheet: theme swatches, Appearance System / Light / Dark, the six styles, the text-size slider, the Comfort switches, a Plain look switch that is never live, the credit and About',
+      /id="appThemes"/.test(set5) && [...set5.matchAll(/data-v="(\w+)"/g)].map(m => m[1]).join() === 'system,light,dark'
+      && [...set5.matchAll(/data-style="(\w+)"/g)].map(m => m[1]).join() === st.STYLES.map(t => t.id).join()
+      && /<input id="sizeRange" type="range"/.test(set5) && ['handToggle', 'cbToggle', 'texToggle'].every(id => new RegExp(`<input id="${id}" type="checkbox" role="switch"`).test(set5))
+      && /<input id="plainToggle" type="checkbox" role="switch" class="r5-toggle" disabled/.test(set5) && /separate download/.test(set5)
+      && /class="vcge-pm-credit"/.test(set5) && /id="settingsAbout"/.test(set5));
+    ok('R5: the texture switch hides the dot texture, and each of the five other styles has its own look',
+      /html\[data-tex="off"\] \.vcge-tex \{ display: none; \}/.test(css5) && ['material', 'ios', 'windows', 'gnome', 'kde'].every(k => css5.includes(`html[data-style="${k}"]`)));
+    ok('R5: the Vault and Settings sheets carry Ghost\'s and Shutout\'s emblems', Object.entries(em.SHEET_EMBLEMS).map(([id, e]) => `${id}:${e.pilot}`).join() === 'vaultPage:ghost,settingsSheet:shutout'
+      && Object.values(em.SHEET_EMBLEMS).every(e => !/style=|<script|href=/i.test(em.emblemSvg(e))));
+  }
   localStorage.clear();
 }
 
@@ -1731,6 +1852,24 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('F2: the stamp press is 180 ms in the code and the style sheet, and reduce motion turns it off', fc.STAMP_MS === 180 && /\.fields-ok\.is-stamping \.fields-stamp \{ animation: fields-stamp 180ms/.test(fieldsCss)
     && /prefers-reduced-motion: reduce\) \{\s*\.fields-ok\.is-stamping \.fields-stamp \{ animation: none; \}/.test(fieldsCss));
   ok('F1/F2: the plain edition hides the tabs and the stamp', fieldsCss.includes('html[data-edition="plain"] .fields-slot, html[data-edition="plain"] .fields-stamp { display: none; }'));
+  ok('0.8 "+ Add a field": the rarer boxes are prefix, suffix, middle name, nickname and birthday', fc.MORE_FIELDS.join() === 'namePrefix,nameSuffix,middleName,nickname,birthday');
+  ok('0.8 "+ Add a field": the boxes show once pressed open, or while one holds something (spaces do not count)', !fc.moreFieldsShown(false, ['', '  ', undefined]) && fc.moreFieldsShown(true, []) && fc.moreFieldsShown(false, ['', 'Dr.']));
+  {
+    const html = (await import('node:fs')).readFileSync(`${R}/../index.html`, 'utf8');
+    const details = html.slice(html.indexOf('<section id="cardFields"'), html.indexOf('<section id="cardCard"'));
+    const read = html.slice(html.indexOf('<section id="cardRead"'), html.indexOf('<section id="cardFields"'));
+    const groups = [...details.matchAll(/<h4[^>]*class="fields-group"[^>]*>([^<]+)<\/h4>/g)].map(m => m[1]);
+    ok('0.8 Details: grouped Name, Work, Reach, Notes (then the "More" boxes), "+ Add a field" after the form, the sample list and Clear form last',
+      groups.join() === 'Name,Work,Reach,Notes,More' && details.indexOf('id="fieldsAddBtn"') > details.indexOf('id="fieldsUnknown"')
+      && details.indexOf('id="fakeContactSelect"') > details.indexOf('id="fieldsAddBtn"') && details.indexOf('id="clearFormBtn"') > details.indexOf('id="fieldsAddBtn"')
+      && /data-next="#fieldsDoneBtn" data-next-label="Make the card"/.test(details), groups.join());
+    ok('0.8 Read: the thumbnail, then the lines, then the tip that more fields come next; Fill details is the dock\'s',
+      read.indexOf('id="ocrThumb"') > 0 && read.indexOf('id="ocrThumb"') < read.indexOf('id="ocrLines"') && read.indexOf('id="ocrLines"') < read.indexOf('id="ocrMoreFields"')
+      && /more fields, like a birthday or a second email, on the next step/.test(read) && /data-next="#applyOcrBtn" data-next-label="Fill details"/.test(read));
+    const r3css = (await import('node:fs')).readFileSync(`${R}/modules/mod01-shell/screens-r3.css`, 'utf8');
+    ok('0.8 Read and Details: colours come from the shell\'s tokens (no hard-coded colour outside the fallbacks and the chevron)',
+      !/#[0-9a-f]{3,8}\b/i.test(r3css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/var\(--vcge-[a-z]+, #[0-9a-f]+\)/gi, '').replace(/url\("data:[^"]*"\)/g, '')));
+  }
   ok('the tray titles read as approved', fc.UNKNOWN_TITLE === 'Unknown: tap to file' && /Tap one, then tap the box it belongs in\./.test(fc.UNKNOWN_HELP));
 }
 

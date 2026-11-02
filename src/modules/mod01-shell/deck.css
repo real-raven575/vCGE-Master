@@ -1,232 +1,213 @@
-/* vCGE-MOD01 postcard deck (redesign step 2): slim header with one icon per card, a horizontal track of cards that
-   settles card by card (swipe, trackpad, arrow keys or a header icon), the sheets that open over it (Vault page,
-   Settings) and the Thank You page. Phone: one card fills the screen. Tablet: one card centred with the next one
-   peeking. Desktop: the current card large, its neighbours smaller at the sides; 4K scales the rem (ui.css).
-   Motion: one short ease on the card scale and the scroll; off under reduced motion. No flashing, no sound. */
+/* vCGE-MOD01 app shell (0.8 redo R1, built to Team Creative's CRTV-0020 mock-up, vcge-0.6-preview.html): the top bar
+   (the vCGE mark, the session pill with its lock ring, Settings), the head (the step, its pilot, the big title), one
+   screen at a time that slides in from the side it comes from (280 ms), the dock (five steps, Back and the primary
+   button), bottom sheets that slide up over a scrim (380 ms) and the toast above the dock.
+   Motion: the mock-up's two eases only; under reduced motion a screen fades in over 150 ms and nothing slides.
+   No flashing, no sound. */
 
 :root {
-    /* The header keeps its size whatever the text size (Settings; video #6). Its own sizes are in --vcge-hu, a rem
-       that the text size does not grow (16 px; 4K still scales it). Not CSS zoom: WebKit (Safari, iPad) leaves
-       rem-sized boxes at full size under zoom, so the header grew there. */
-    --vcge-hu: calc(1rem / var(--vcge-size, 1));
-    --vcge-header-h: calc(3 * var(--vcge-hu));   /* 48 px, slim */
-    --deck-card-w: min(52rem, 72vw);            /* desktop */
-    --deck-gap: 1.5rem;
-    --deck-pad: 0.75rem;
-    --vcge-strip-h: calc(1.75rem + 1px);   /* the timer strip's band (its text grows with the text size) (index.html #vaultTimerBand): 0.375rem padding top and bottom, a 1rem line, its border */
+    /* The shell's colours: the theme's (themes.js) when it sets them, else Creative's Herd light / Herd dark */
+    --sh-bg: var(--vcge-bg, #f5f2fa); --sh-surface: var(--vcge-surface, #ffffff); --sh-sunk: var(--vcge-sunk, #ece7f5);
+    --sh-ink: var(--vcge-text, #2a2440); --sh-muted: var(--vcge-muted, #5e5776); --sh-line: var(--vcge-border, #dcd5ea);
+    --sh-accent: var(--vcge-accent, #17736e); --sh-on: var(--vcge-on-accent, #ffffff);
+    --sh-soft: var(--vcge-soft, #d5efec); --sh-soft-ink: var(--vcge-soft-ink, #0f4f4b); --sh-stop: var(--vcge-stop, #b3261e);
+    --sh-shadow: 0 1px 2px rgba(30, 20, 60, 0.07), 0 6px 16px -6px rgba(30, 20, 60, 0.18);
+    --sh-shadow-lift: 0 2px 4px rgba(30, 20, 60, 0.10), 0 10px 22px -8px rgba(30, 20, 60, 0.28);
+    --ease-out: cubic-bezier(.2, .8, .2, 1); --ease-sheet: cubic-bezier(.32, .72, 0, 1);
+    --sh-col: 40rem;          /* the shell's column on a tablet or a desktop: the mock-up is a phone, so wider screens centre it */
+    --vcge-hu: calc(1rem / var(--vcge-size, 1));   /* a rem the text size does not grow (the bar keeps its size) */
+    --vcge-header-h: calc(4.25 * var(--vcge-hu));
+    --vcge-strip-h: 0px;
 }
-/* In vw, like the track's side padding works out to: a percentage here would be of the track's inner width, so the
-   first card could never come to the middle (it sat against the left edge on a tablet) */
-@media (max-width: 1199.98px) { :root { --deck-card-w: 84vw; --deck-gap: 0.75rem; } }
-@media (max-width: 599.98px) { :root { --deck-card-w: 100%; --deck-gap: 0; --deck-pad: 0.5rem; } }
-/* Short screens (layout step 1: under 500 px tall, a phone held sideways): the header is only as tall as its 44 px
-   buttons, and the band for the Vault's timer strip is held only while the strip shows (main.js sets
-   --vcge-vault-strip), so the cards get the height back. */
-@media (max-height: 499.98px) { :root { --vcge-header-h: calc(2.75 * var(--vcge-hu)); --vcge-strip-h: var(--vcge-vault-strip, 0px); } }
-
-/* ---- Header -------------------------------------------------------------------------------------------------- */
-.deck-header { height: var(--vcge-header-h); min-height: var(--vcge-header-h); padding: 0 calc(0.5 * var(--vcge-hu)); gap: calc(0.5 * var(--vcge-hu)); }
-.deck-brand { display: flex; align-items: center; gap: calc(0.5 * var(--vcge-hu)); flex: 0 0 auto; }
-.deck-brand .deck-logo { width: calc(1.75 * var(--vcge-hu)); height: calc(1.75 * var(--vcge-hu)); border-radius: calc(0.4 * var(--vcge-hu)); object-fit: cover; flex: 0 0 auto; }
-/* Header brand (CRTV-0020): the app icon and the colour wordmark; plain shows the wordmark alone, a little taller */
-.deck-brand .deck-wordmark { height: calc(1.25 * var(--vcge-hu)); flex: 0 0 auto; }
-html[data-edition="plain"] .deck-brand .deck-wordmark { height: calc(1.5 * var(--vcge-hu)); }
-.deck-brand .vcge-tag { background: #22c55e; color: #020617; font-weight: 700; font-size: calc(0.8 * var(--vcge-hu)); letter-spacing: 0.08em; padding: calc(0.2 * var(--vcge-hu)) calc(0.55 * var(--vcge-hu)); border-radius: calc(0.5 * var(--vcge-hu)); }
-/* The header's few Tailwind-sized texts (brand line, Vault badge, Lock button) keep their size too */
-.deck-header .deck-brand-text, .deck-header #vaultBadge, .deck-header #lockVaultBtn { font-size: calc(0.75 * var(--vcge-hu)); line-height: calc(1 * var(--vcge-hu)); }
-.deck-nav { display: flex; flex: 1 1 auto; min-width: 0; justify-content: space-evenly; align-items: center; gap: calc(0.25 * var(--vcge-hu)); }
-/* A button never shrinks under its own icon and name, so none can run into the next; on a screen too narrow even for
-   the icons alone (320 px) the row scrolls sideways instead */
-.deck-nav > button { flex: 0 0 auto; }
-.deck-header.is-compact .deck-nav { justify-content: flex-start; overflow-x: auto; scrollbar-width: none; }
-.deck-header.is-compact .deck-nav::-webkit-scrollbar { display: none; }
-.deck-nav button, .deck-tools .deck-icon-btn {
-    display: inline-flex; align-items: center; justify-content: center; gap: calc(0.3 * var(--vcge-hu));
-    min-width: calc(2.75 * var(--vcge-hu)); min-height: calc(2.75 * var(--vcge-hu)); height: calc(2.75 * var(--vcge-hu)); padding: 0 calc(0.6 * var(--vcge-hu)); border-radius: 999px;
-    font-size: calc(0.75 * var(--vcge-hu)); font-weight: 700; letter-spacing: 0.02em; line-height: 1;
-    background: transparent; color: inherit; opacity: 0.8; transition: background-color 0.15s, opacity 0.15s;
+:root.dark {
+    --sh-bg: var(--vcge-bg, #18151f); --sh-surface: var(--vcge-surface, #231f2e); --sh-sunk: var(--vcge-sunk, #141119);
+    --sh-ink: var(--vcge-text, #eeeaf7); --sh-muted: var(--vcge-muted, #b4acc9); --sh-line: var(--vcge-border, #3a3449);
+    --sh-accent: var(--vcge-accent, #72d3ca); --sh-on: var(--vcge-on-accent, #0e2b29);
+    --sh-soft: var(--vcge-soft, #1d3b3a); --sh-soft-ink: var(--vcge-soft-ink, #9fe6de); --sh-stop: var(--vcge-stop, #ff8a80);
+    --sh-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 6px 16px -6px rgba(0, 0, 0, 0.6);
+    --sh-shadow-lift: 0 2px 4px rgba(0, 0, 0, 0.5), 0 12px 26px -8px rgba(0, 0, 0, 0.7);
 }
-.deck-nav button:hover, .deck-tools .deck-icon-btn:hover { opacity: 1; background: rgba(100, 116, 139, 0.15); }
-.deck-nav button.is-on { background: #16a34a; border-color: #16a34a; color: #020617; opacity: 1; }
-/* The pilot names show beside the icons only while every one of them fits; deck.js measures and sets .is-compact
-   (icons only) the moment one would spill into its neighbour: a narrow window, portrait, a wide font, the Lock button */
-.deck-nav button span { display: inline; white-space: nowrap; }
-.deck-header.is-compact .deck-nav button span { display: none; }
-.deck-tools { display: flex; align-items: center; gap: calc(0.4 * var(--vcge-hu)); flex: 0 0 auto; }
-.deck-tools .deck-icon-btn.is-locked { color: #f59e0b; }
-.vcge-icon { width: 1.5rem; height: 1.5rem; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
-.deck-header .vcge-icon { width: calc(1.5 * var(--vcge-hu)); height: calc(1.5 * var(--vcge-hu)); }
-@media (max-width: 599.98px) {
-    /* Phones: the six card icons and the two tools fill the header; the brand (shown on the Welcome card) and the
-       Vault badge (the padlock colour says it) step out. */
-    .deck-brand, #vaultBadge { display: none; }
-    .deck-nav { gap: 0; }
-    .deck-nav button { padding: 0 calc(0.25 * var(--vcge-hu)); min-width: calc(2.5 * var(--vcge-hu)); }
-}
-@media (max-width: 399.98px) {
-    /* The narrowest phones (360 px): seven card icons and the two tools still fit side by side without touching. The
-       icons stay 44 px tall and get a little narrower. */
-    .deck-header { padding: 0 calc(0.25 * var(--vcge-hu)); gap: calc(0.25 * var(--vcge-hu)); }
-    .deck-tools { gap: calc(0.25 * var(--vcge-hu)); }
-    .deck-nav button { padding: 0; min-width: calc(2.2 * var(--vcge-hu)); }
-}
-
-/* ---- Shutout's touches (shellArt.js): the turtle by the lit icon and the shell plates (branded edition only) ------- */
-/* The turtle (Shutout's comic medal) is tucked in behind the lit card icon, the lower half of the medal peeking out
-   under it. While he walks (shellArt.js moves --turtle-x on a spring) he stands a little lower, on the header's bottom
-   edge. The card icons sit above him. He faces the way he walks (the medal faces left). Under reduced motion he
-   never walks and never steps down: he is simply there. */
-.deck-nav button { position: relative; z-index: 2; }
-.deck-turtle {
-    position: absolute; left: 0; top: calc(100% - 0.25 * var(--vcge-hu)); z-index: 1; pointer-events: none; visibility: hidden;
-    width: calc(1.5 * var(--vcge-hu)); height: calc(1.5 * var(--vcge-hu)); transform: translateX(var(--turtle-x, 0));
-}
-.deck-turtle.is-placed { visibility: visible; }
-.deck-turtle.is-tucked { top: calc(100% - 0.875 * var(--vcge-hu)); }
-@media (prefers-reduced-motion: no-preference) { .deck-turtle.is-placed { transition: top 0.3s ease-out; } }
-.deck-turtle > svg { display: block; width: 100%; height: 100%; overflow: visible; }
-.deck-turtle[data-dir="right"] > svg { transform: scaleX(-1); }
-/* One shell plate per card, just above the cards' top left corner (the MOD tags are on the right): a card you have been to
-   is filled in, the one in view has a thick outline. Nothing moves. */
-.deck-plates {
-    position: absolute; z-index: 1; pointer-events: none; display: flex; gap: calc(0.25 * var(--vcge-hu));
-    left: calc((100% - var(--deck-card-w)) / 2 + 1rem);
-    top: calc(100% + var(--vcge-strip-h) + (0.75rem - 0.5 * var(--vcge-hu)) / 2);
-}
-.deck-plates svg { display: block; width: calc(0.5 * var(--vcge-hu)); height: calc(0.5 * var(--vcge-hu)); overflow: visible; }
-.deck-plates polygon { fill: none; stroke: #94a3b8; stroke-width: 1; stroke-linejoin: round; }
-.deck-plates [data-state="visited"] polygon, .deck-plates [data-state="current"] polygon { fill: #16a34a; stroke: #15803d; }
-.deck-plates [data-state="current"] polygon { stroke: #0f172a; stroke-width: 2.4; }
-.dark .deck-plates polygon { stroke: #64748b; }
-.dark .deck-plates [data-state="visited"] polygon { stroke: #15803d; }
-.dark .deck-plates [data-state="current"] polygon { stroke: #f1f5f9; }
-html[data-cb="1"] .deck-plates [data-state="visited"] polygon, html[data-cb="1"] .deck-plates [data-state="current"] polygon { fill: #2563eb; }
-html[data-cb="1"] .deck-plates [data-state="visited"] polygon { stroke: #1d4ed8; }
-html[data-edition="plain"] .deck-turtle, html[data-edition="plain"] .deck-plates { display: none; }
-
-/* ---- Track and cards ----------------------------------------------------------------------------------------- */
-/* The page is as tall as the screen shows it. On iPhone and iPad, 100vh is the height with the browser's bars tucked
-   away, taller than the page in view: the deck grew to fill it and every card's foot (the trash and the green
-   button) sat below the screen (video review 2026-10-17 #62). 100dvh is the height in view; 100vh stays for old engines. */
+/* The page is as tall as the screen shows it (100dvh: on iPhone and iPad 100vh is taller than the page in view) */
 body.h-screen { height: 100vh; height: 100dvh; }
-.deck {
-    flex: 1 1 auto; display: flex; align-items: stretch; gap: var(--deck-gap);
-    height: calc(100vh - var(--vcge-header-h)); height: calc(100dvh - var(--vcge-header-h));
-    padding: var(--deck-pad) calc((100% - var(--deck-card-w)) / 2);
-    overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
-    scrollbar-width: none; box-sizing: border-box;
-    /* Room above the cards for the Vault's timer strip under the header and the MOD tag on their top edge: the strip
-       never covers a card's title, and it is kept free even while the strip is hidden, so nothing on a card jumps
-       down under a finger the moment the strip appears */
-    padding-top: calc(0.75rem + var(--vcge-strip-h));
-    /* No CSS scroll snapping: deck.js settles the track on a card itself once scrolling stops. The scroll port the
-       browser brings a focused or pressed element into is the card slot in the middle, so nothing on the card in view
-       ever moves the deck, while an element on a neighbour is scrolled in and deck.js lands on that element's card. */
-    scroll-padding-inline: calc((100% - var(--deck-card-w)) / 2);
-}
-.deck::-webkit-scrollbar { display: none; }
-.deck-card {
-    position: relative; flex: 0 0 var(--deck-card-w); display: flex; flex-direction: column; min-width: 0;
-    border-radius: 1.25rem; background: #ffffff; border: 1px solid #e2e8f0; box-shadow: 0 10px 30px -12px rgba(2, 6, 23, 0.35);
-    transform-origin: center; box-sizing: border-box;
-}
-.dark .deck-card { background: rgba(15, 23, 42, 0.85); border-color: #1e293b; box-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.6); }
-.deck-card:not(.is-current) { transform: scale(0.94); opacity: 0.75; }
-@media (max-width: 599.98px) { .deck-card:not(.is-current) { transform: none; opacity: 1; } }
-@media (prefers-reduced-motion: no-preference) {
-    .deck-card { transition: transform 0.25s ease-in-out, opacity 0.25s ease-in-out; }
-}
-.deck-card-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 1.25rem; }
-.deck-card-body > h2.deck-title { font-size: 1.125rem; font-weight: 700; margin: 0 0 0.75rem; }
-.deck-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.5rem 0.75rem 0.75rem; }
-/* Layout step 1: each card measures its own width (container queries), so later steps can lay a card out by the room
-   it has. Its padding and title grow on cards wider than today's widest (52rem) and are today's sizes up to it. */
+body { background: var(--sh-bg); color: var(--sh-ink); -webkit-tap-highlight-color: transparent; }
+/* The shell's buttons draw their edge with a 1 px ring and a soft shadow (the mock-up), not ui.css's 2 px outline;
+   forced colours (Windows contrast themes) get a plain border back */
+button.vcge-mark, button.vcge-iconbtn, button.vcge-step, button.vcge-btn, button.vcge-sheet-close, button.vcge-trash { border: 0; }
+/* ...and keep the mock-up's sizes over ui.css's 44 px floor (each is at least that) */
+button.vcge-sr-only { min-width: 0; min-height: 0; border: 0; padding: 0; }   /* the hidden QR shortcut stays 1 px */
+button.vcge-mark { min-height: 44px; } button.vcge-step { min-height: 56px; } button.vcge-btn { min-height: 52px; } button.vcge-iconbtn { min-height: 48px; min-width: 48px; }
+@media (forced-colors: active) { button.vcge-iconbtn, button.vcge-btn, button.vcge-sheet-close { border: 1px solid CanvasText; } }
+.vcge-icon { width: 1.5rem; height: 1.5rem; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
+
+/* ---- Top bar ------------------------------------------------------------------------------------------------- */
+.vcge-bar { position: relative; z-index: 3;   /* over the head, so the Vault's "Still there?" note hangs over it */
+    display: flex; align-items: center; gap: 10px; flex: none;
+    padding: 14px 16px 6px; width: 100%; max-width: var(--sh-col); margin: 0 auto; box-sizing: border-box; }
+.vcge-mark { display: flex; align-items: center; gap: 10px; margin-right: auto; background: transparent; border: 0; padding: 0;
+    color: var(--sh-ink); cursor: pointer; min-height: 44px; }
+.vcge-mark .deck-logo { width: 32px; height: 32px; flex: none; border-radius: 8px; }
+/* The mock-up's mark: the app icon and the colour wordmark (blue "vC", green "GE"); the text stays for nothing but the
+   build's own tests of the words, hidden like the mock-up's <b> (plain: a larger wordmark and no icon, ui.css) */
+.vcge-mark .deck-wordmark { display: block; height: 22px; }
+.vcge-mark .vcge-mark-text { display: none; }
+html[data-edition="plain"] .vcge-mark .deck-wordmark { display: block; height: 26px; }
+/* Every version keeps the app icon beside the wordmark (raven575 11-02: plain is not unbranded); the plain branch swaps
+   this file for its own icon under the same name */
+html[data-edition="plain"] .vcge-mark .deck-logo.vcge-logo-mark { display: block; background: url('../../assets/brand/vcge-app-icon-64.png') center / contain no-repeat; }
+html[data-edition="plain"] .vcge-mark .vcge-mark-text { display: none; }
+.vcge-mark-text { font-family: ui-rounded, "SF Pro Rounded", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; font-size: 17px; letter-spacing: -.01em; }
+.deck-tools { display: flex; align-items: center; gap: 10px; flex: none; }
+.vcge-iconbtn { width: 48px; height: 48px; border-radius: 50%; border: 0; background: var(--sh-surface); color: var(--sh-ink);
+    display: grid; place-items: center; cursor: pointer; position: relative; box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow);
+    transition: transform 120ms var(--ease-out); }
+.vcge-iconbtn .vcge-icon { width: 22px; height: 22px; }
+.vcge-iconbtn:active, .vcge-btn:active { transform: scale(.96); }
+.vcge-session { width: auto; padding: 0 14px 0 6px; border-radius: 999px; gap: 6px; display: flex; align-items: center;
+    font: 600 15px system-ui, sans-serif; font-variant-numeric: tabular-nums; }
+.vcge-session:not(.has-time) { padding: 0 6px; }
+/* (the pill's ring and time take no taps: the tap is the button's. A tap refills the timer, which rewrites the time, and
+   Safari drops a click whose pressed text was replaced, so the Vault did not open) */
+.vcge-session > * { pointer-events: none; }
+.vcge-lockdot { width: 36px; height: 36px; position: relative; display: grid; place-items: center; }
+.vcge-lockdot .vcge-icon { width: 18px; height: 18px; }
+.vcge-ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
+.vcge-ring circle { fill: none; stroke-width: 3; stroke: var(--sh-line); }
+.vcge-ring circle.vcge-ring-arc { stroke: var(--sh-accent); stroke-linecap: round; }
+.vcge-session.is-locked .vcge-ring-arc { stroke: var(--sh-line); }
+.vcge-sess-txt:empty { display: none; }
+/* Lock (with a session PIN, wider screens): a quiet pill beside the session pill, never moved when the time appears */
+button.vcge-lockbtn { min-height: 48px; padding: 0 16px; border: 0; border-radius: 999px; background: var(--sh-surface); color: var(--sh-ink);
+    font: 600 14px system-ui, sans-serif; cursor: pointer; box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow); }
+/* The Vault's timer strip under the bar (MOD02) still shows its warning note; the pill carries the time itself */
+#vaultTimerStrip { top: 100%; }
+#vaultTimerBand { display: none; }
+
+/* ---- Head ---------------------------------------------------------------------------------------------------- */
+.vcge-head { position: relative; z-index: 1; flex: none; padding: 8px 20px 10px; width: 100%; max-width: var(--sh-col); margin: 0 auto; box-sizing: border-box; }
+.vcge-eyebrow { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--sh-muted); font-weight: 600; letter-spacing: .02em; }
+.vcge-chip-pilot { display: inline-flex; align-items: center; gap: 6px; background: var(--sh-sunk); border-radius: 999px; padding: 2px 10px 2px 4px; color: var(--sh-ink); font-weight: 600; }
+.vcge-chip-pilot i { font-style: normal; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; background: var(--sh-surface); font-size: 13px; }
+html[data-edition="plain"] .vcge-chip-pilot { display: none; }
+.vcge-head h2 { font-family: ui-rounded, "SF Pro Rounded", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+    font-size: 1.875rem; font-weight: 700; letter-spacing: -.02em; margin: 2px 0 0; line-height: 1.15; text-wrap: balance; }
+
+/* ---- Screens: one at a time (deck.js shows one and hides the rest) ---------------------------------------------- */
+.deck { position: relative; z-index: 1; flex: 1 1 auto; min-height: 0; width: 100%; max-width: var(--sh-col); margin: 0 auto; overflow: hidden;
+    touch-action: pan-y pinch-zoom; }   /* a sideways finger is a swipe between screens (deck.js), up and down still scrolls */
+.deck-card { position: absolute; inset: 0; display: flex; flex-direction: column; min-width: 0; isolation: isolate; box-sizing: border-box; }
+.deck-card[hidden] { display: none !important; }
+.deck-card-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 4px 20px 24px; scrollbar-width: none; }
+.deck-card-body::-webkit-scrollbar { display: none; }
+/* The head carries each screen's title now; the old small card titles step out */
+.deck-card-body > h2.text-sm:first-child, #cardFields .fields-head > h2 { display: none; }
+.deck-card-foot { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0 20px 8px; }
+.enter-f { animation: vcgeInF 280ms var(--ease-out) both; }
+.enter-b { animation: vcgeInB 280ms var(--ease-out) both; }
+@keyframes vcgeInF { from { opacity: 0; transform: translateX(28px); } to { opacity: 1; transform: none; } }
+@keyframes vcgeInB { from { opacity: 0; transform: translateX(-28px); } to { opacity: 1; transform: none; } }
+@keyframes vcgeFade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .enter-f, .enter-b { animation: vcgeFade 150ms linear both; } }
 @supports (container-type: inline-size) {
     .deck-card { container: deck-card / inline-size; }
-    .deck-card-body { padding: clamp(1.25rem, 1.25rem + (100cqi - 52rem) * 0.05, 2rem); }
-    .deck-card-body > h2.deck-title { font-size: clamp(1.125rem, 1.125rem + (100cqi - 52rem) * 0.025, 1.5rem); }
 }
-/* A card that is not in view takes no taps: a tap on it brings it into view instead. */
-.deck-cover { position: absolute; inset: 0; z-index: 5; border-radius: inherit; cursor: pointer; }
-.deck-card.is-current > .deck-cover { display: none; }
-/* The MOD-XX tag sits on a card's top edge (ui.css), above its content, so it never covers a button on the card */
 
-/* The red trash button: small, in the corner away from the dominant hand (lower left, right-handed). MOD02 owns
-   what pressing it does. */
+/* The trash button: small, in the corner away from the dominant hand (lower left, right-handed). MOD02 owns what
+   pressing it does. (R5 moves it into the Vault sheet.) */
 .vcge-trash {
-    width: 2.75rem; height: 2.75rem; min-width: 2.75rem; border-radius: 0.75rem;
-    background: #dc2626; color: #ffffff; border-color: rgba(0, 0, 0, 0.25);
-    display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: background-color 0.15s;
+    width: 2.75rem; height: 2.75rem; min-width: 2.75rem; border-radius: 999px; border: 0;
+    background: transparent; color: var(--sh-stop); box-shadow: 0 0 0 1.5px var(--sh-stop) inset;
+    display: inline-flex; align-items: center; justify-content: center; cursor: pointer;
 }
-.vcge-trash:hover { background: #b91c1c; }
 .vcge-trash .vcge-icon { width: 1.25rem; height: 1.25rem; }
 
 /* The Read card before there is a photo */
 #cropReviewModal:not(.hidden) ~ #readEmpty { display: none; }
 
-/* ---- Welcome card ---------------------------------------------------------------------------------------------- */
-.welcome-body { display: flex; flex-direction: column; align-items: center; text-align: center; }
-.welcome-body h2 { font-size: 1.5rem; font-weight: 700; margin: 0.75rem 0 0.125rem; }
-.welcome-actions { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; margin: 0.5rem 0 0; width: 100%; max-width: 22rem; }
-.welcome-pin { background: #f1f5f9; color: #0f172a; border-color: #cbd5e1; border-radius: 0.75rem; padding: 0.6rem 1rem; font-size: 0.9rem; font-weight: 600; cursor: pointer; }
-.welcome-start {
-    width: 9.5rem; height: 9.5rem; border-radius: 1.5rem; background: #16a34a; color: #020617; border-color: #15803d;
-    font-size: 1.6rem; font-weight: 800; letter-spacing: 0.06em; cursor: pointer; box-shadow: 0 12px 24px -10px rgba(22, 163, 74, 0.7);
-    transition: transform 0.15s ease-in-out, background-color 0.15s;
-}
-.welcome-start:hover { background: #22c55e; }
-.welcome-start:active { transform: scale(0.97); }
-.welcome-tour { width: 11rem; min-height: 3.25rem; border-radius: 0.75rem; background: #f1f5f9; color: #0f172a; border-color: #cbd5e1; font-size: 1rem; font-weight: 600; cursor: pointer; }
-.welcome-tour:hover { background: #e2e8f0; }
-.welcome-cancel { background: transparent; color: #64748b; border-color: transparent; font-size: 0.85rem; font-weight: 600; letter-spacing: 0.06em; cursor: pointer; padding: 0.5rem 1rem; }
-.welcome-cancel:hover { color: #dc2626; }
-.welcome-sample { background: transparent; border-color: transparent; color: #15803d; font-size: 0.85rem; font-weight: 600; text-decoration: underline; cursor: pointer; }
-.welcome-fine { font-size: 0.7rem; color: #64748b; margin: 0.75rem 0 0; max-width: 22rem; }
-.dark .welcome-pin, .dark .welcome-tour { background: #1e293b; color: #f1f5f9; border-color: #334155; }
-.dark .welcome-pin:hover, .dark .welcome-tour:hover { background: #334155; }
-.dark .welcome-sample { color: #4ade80; }
-.dark .welcome-fine, .dark .welcome-cancel { color: #94a3b8; }
-/* Phones in portrait: the buttons sit in thumb reach of the right hand, on the line a third in from the right edge */
-@media (max-width: 599.98px) and (orientation: portrait) {
-    .welcome-actions { margin-left: 33%; width: 67%; max-width: none; }
+/* ---- Dock: the five steps, Back and the primary button ------------------------------------------------------- */
+.vcge-dock { position: relative; z-index: 2; flex: none; padding: 10px 16px calc(14px + env(safe-area-inset-bottom, 0px));
+    background: color-mix(in srgb, var(--sh-bg) 82%, transparent); border-top: 1px solid var(--sh-line);
+    -webkit-backdrop-filter: blur(18px) saturate(1.4); backdrop-filter: blur(18px) saturate(1.4); }
+@media (prefers-reduced-transparency: reduce) { .vcge-dock { background: var(--sh-bg); -webkit-backdrop-filter: none; backdrop-filter: none; } }
+.vcge-steps, .vcge-actions { max-width: calc(var(--sh-col) - 32px); margin-left: auto; margin-right: auto; }
+.vcge-steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 4px; margin-bottom: 8px; }
+.vcge-step { position: relative; border: 0; background: transparent; color: var(--sh-muted); min-height: 56px; padding: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+    font: 600 12px system-ui, sans-serif; cursor: pointer; transition: color 200ms; }
+.vcge-step .vcge-icon { width: 22px; height: 22px; stroke-width: 1.6; }
+.vcge-step .vcge-step-icon * { stroke-width: inherit; }   /* the mock-up's line weight: ui.css's 2.3 for the Tabler sprite must not reach these */
+.vcge-step[data-state="done"] { color: color-mix(in srgb, var(--sh-accent) 70%, var(--sh-muted)); }
+.vcge-step[data-state="done"] > span, .vcge-step[data-state="todo"] > span { color: var(--sh-muted); }
+.vcge-step[data-state="now"] { color: var(--sh-accent); }
+.vcge-step[data-state="now"] > span { color: var(--sh-ink); }
+.vcge-step[data-state="now"]::before { content: ""; position: absolute; top: -6px; left: 32%; right: 32%; height: 3px; border-radius: 3px; background: var(--sh-accent); }
+.vcge-actions { display: flex; gap: 10px; }
+.vcge-btn { flex: 1; min-height: 52px; border-radius: 999px; border: 0; font: 650 17px system-ui, sans-serif; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 8px; transition: transform 120ms var(--ease-out), background 200ms; }
+.vcge-btn svg { width: 20px; height: 20px; }
+.vcge-btn-primary { background: var(--sh-accent); color: var(--sh-on); flex: 1.6; box-shadow: var(--sh-shadow-lift); }
+.vcge-btn-quiet { background: var(--sh-surface); color: var(--sh-ink); box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow); }
+.vcge-btn[disabled] { opacity: .45; cursor: default; }
+.vcge-btn[disabled]:active { transform: none; }
+
+/* ---- Short screens (under 500 px tall: a phone held sideways; tier.js sets data-short): the mock-up is an upright
+   phone, so here the bar and the head tighten and the dock puts its steps and its two buttons on one row, every
+   button still 44 px. The screen keeps more than half the height. -------------------------------------------------- */
+@media (max-height: 499.98px) {
+    .vcge-bar { padding: 4px 16px 0; }
+    button.vcge-iconbtn { width: 44px; height: 44px; min-height: 44px; min-width: 44px; }
+    .vcge-session { width: auto; }
+    .vcge-head { padding: 0 20px 4px; display: flex; align-items: baseline; gap: 12px; }
+    .vcge-head h2 { font-size: 1.25rem; margin: 0; order: -1; }
+    .vcge-dock { display: flex; align-items: center; gap: 10px; padding: 4px 16px calc(4px + env(safe-area-inset-bottom, 0px)); }
+    .vcge-steps { flex: 1 1 auto; margin: 0; }
+    .vcge-actions { flex: 0 0 auto; width: min(20rem, 45%); margin: 0; }
+    button.vcge-step { min-height: 44px; }
+    button.vcge-btn { min-height: 44px; }
+    .vcge-step[data-state="now"]::before { top: -4px; }
 }
 
-/* ---- Sheets over the deck (Vault page, Settings) and the Thank You page --------------------------------------- */
-/* A sheet's title with its icon beside it, on the left (the cog on Settings; video #13) */
-.vcge-sheet-title { display: flex; align-items: center; gap: 0.5rem; }
-/* A sheet's MOD-XX tag sits in its title row, just left of the close button: never on the button, and never on the
-   panel's edge, where the scrolling panel clips it */
-.vcge-sheet-panel > .mod-tag, .vcge-sheet-panel > .mod-tag.mod-tag-inset { top: 2.0625rem; right: 4.5rem; transform: none; }
-.vcge-sheet { position: fixed; inset: 0; z-index: 45; display: flex; align-items: center; justify-content: center; padding: 1rem; background: rgba(2, 6, 23, 0.55); }
+/* ---- Sheets (Vault, Settings, the export pickers): slide up from the bottom over a scrim -------------------------
+   A sheet shows when its .hidden goes (deck.js openSheet, or a module's own dialog): the scrim fades in (260 ms) and the
+   panel slides up (380 ms, the sheet ease). deck.js closeSheet slides it back down (is-closing) before hiding it. */
+.vcge-sheet { position: fixed; inset: 0; z-index: 45; display: flex; align-items: flex-end; justify-content: center; }
 .vcge-sheet.hidden { display: none; }
+.vcge-sheet::before { content: ''; position: absolute; inset: 0; background: rgba(8, 6, 14, .42); animation: vcgeScrimIn 260ms linear both; }
 .vcge-sheet-panel {
-    position: relative; width: min(28rem, 100%); max-height: calc(100% - 2rem); overflow-y: auto; box-sizing: border-box;
-    border-radius: 1.25rem; padding: 1.25rem; background: #ffffff; color: #0f172a; border: 1px solid #e2e8f0; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.45);
+    position: relative; width: 100%; max-width: var(--sh-col); max-height: 88%; overflow-y: auto; overscroll-behavior: contain; box-sizing: border-box;
+    border-radius: 28px 28px 0 0; padding: 22px 20px calc(24px + env(safe-area-inset-bottom, 0px)); background: var(--sh-bg); color: var(--sh-ink);
+    box-shadow: 0 -10px 40px -10px rgba(0, 0, 0, .35); scrollbar-width: none;
+    animation: vcgeSheetUp 380ms var(--ease-sheet) both;
 }
-.dark .vcge-sheet { background: rgba(2, 6, 23, 0.65); }
-.dark .vcge-sheet-panel { background: #0f172a; color: #f1f5f9; border-color: #334155; }
-.vcge-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; margin-bottom: 0.75rem; }
-.vcge-sheet-head h2 { font-size: 1.125rem; font-weight: 700; margin: 0; }
-.vcge-sheet-close { width: 2.75rem; height: 2.75rem; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; background: transparent; color: inherit; cursor: pointer; }
-.vcge-sheet-close:hover { background: rgba(100, 116, 139, 0.15); }
-/* Shutout's touch for the branded edition: a rounder top with a grab bar (a sideways swipe closes a sheet) and a round
-   pebble for the close button. The plain edition keeps the plain frame. */
-html:not([data-edition="plain"]) .vcge-sheet-panel { border-radius: 1.75rem 1.75rem 1.25rem 1.25rem; }
-html:not([data-edition="plain"]) .vcge-sheet-panel::before {
-    content: ''; position: absolute; top: 0.5rem; left: 50%; transform: translateX(-50%);
-    width: 2.5rem; height: 0.3rem; border-radius: 999px; background: #cbd5e1; pointer-events: none;
-}
-.dark:not([data-edition="plain"]) .vcge-sheet-panel::before { background: #475569; }
-html:not([data-edition="plain"]) .vcge-sheet-close { background: #f1f5f9; border-color: #cbd5e1; box-shadow: inset 0 -3px 0 rgba(15, 23, 42, 0.12); }
-html:not([data-edition="plain"]) .vcge-sheet-close:hover { background: #e2e8f0; }
-.dark:not([data-edition="plain"]) .vcge-sheet-close { background: #1e293b; border-color: #334155; box-shadow: inset 0 -3px 0 rgba(0, 0, 0, 0.35); }
-.dark:not([data-edition="plain"]) .vcge-sheet-close:hover { background: #334155; }
+@keyframes vcgeSheetUp { from { transform: translateY(105%); } to { transform: none; } }
+@keyframes vcgeScrimIn { from { opacity: 0; } to { opacity: 1; } }
+.vcge-sheet.is-closing { visibility: hidden; }
+/* (the fading scrim takes no taps: a tap on Vault or a step right after closing a sheet must land) */
+.vcge-sheet.is-closing::before { visibility: visible; pointer-events: none; animation: none; opacity: 0; transition: opacity 260ms linear; }
+.vcge-sheet.is-closing .vcge-sheet-panel { visibility: visible; pointer-events: none; animation: none; transform: translateY(105%); transition: transform 380ms var(--ease-sheet); }
+@media (prefers-reduced-motion: reduce) { .vcge-sheet::before, .vcge-sheet-panel { animation: none; } }
+.vcge-sheet-panel::before { content: ''; position: absolute; top: 8px; left: 50%; transform: translateX(-50%); width: 40px; height: 5px; border-radius: 5px; background: var(--sh-line); pointer-events: none; }
+.vcge-sheet-title { display: flex; align-items: center; gap: 10px; }
+.vcge-sheet-title .vcge-icon { width: 24px; height: 24px; color: var(--sh-accent); }
+.vcge-sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 0.75rem; }
+.vcge-sheet-head h2 { font-family: ui-rounded, "SF Pro Rounded", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; font-size: 22px; font-weight: 700; margin: 0; }
+.vcge-sheet-close { width: 44px; height: 44px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; border: 0;
+    background: var(--sh-surface); color: var(--sh-ink); cursor: pointer; box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow); }
 .vcge-sheet-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; padding: 0.5rem 0; font-size: 0.9rem; }
-.vcge-sheet-note { font-size: 0.75rem; color: #64748b; margin: 0.5rem 0 0; }
-.vcge-sheet-hint { font-size: 0.7rem; color: #64748b; margin: -0.25rem 0 0.25rem; }
-.vcge-sheet-soon { font-size: 0.8rem; color: #64748b; }
-.dark .vcge-sheet-note, .dark .vcge-sheet-hint, .dark .vcge-sheet-soon { color: #94a3b8; }
-/* Settings controls: a two-button group (Right / Left), a switch and a drop-down, each at least 44 px tall */
+.vcge-sheet-note { font-size: 0.75rem; color: var(--sh-muted); margin: 0.5rem 0 0; }
+.vcge-sheet-hint { font-size: 0.7rem; color: var(--sh-muted); margin: -0.25rem 0 0.25rem; }
+.vcge-sheet-soon { font-size: 0.8rem; color: var(--sh-muted); }
+
+/* ---- Toast: a pill above the dock ---------------------------------------------------------------------------- */
+.vcge-toast { position: fixed; left: 50%; bottom: calc(150px + env(safe-area-inset-bottom, 0px)); top: auto; z-index: 50;
+    transform: translate(-50%, 0); max-width: calc(100vw - 2rem); padding: 10px 16px; border-radius: 999px;
+    background: var(--sh-ink); color: var(--sh-bg); font: 600 14px system-ui, sans-serif; box-shadow: var(--sh-shadow-lift);
+    display: flex; align-items: center; gap: 12px; cursor: pointer; user-select: none; transition: opacity 200ms, transform 260ms var(--ease-out); }
+.vcge-toast.opacity-0 { transform: translate(-50%, 16px); }
+.vcge-toast #toastAction { color: var(--sh-soft); }
+
+/* ---- Welcome card: its 0.8 layout is in screens-r2.css (0.8 redo R2) ---- */
+
+/* ---- Settings controls: a two-button group (Right / Left), a switch and a drop-down, each at least 44 px tall ---- */
 .vcge-seg { display: inline-flex; gap: var(--vcge-gap); }
 .vcge-seg button { padding: 0 0.9rem; border-radius: 0.75rem; background: #f1f5f9; color: #0f172a; border-color: #cbd5e1; font-size: 0.85rem; font-weight: 600; cursor: pointer; }
 .vcge-seg button[aria-pressed="true"] { background: #16a34a; color: #020617; border-color: #15803d; }
@@ -245,32 +226,26 @@ html:not([data-edition="plain"]) .vcge-sheet-close:hover { background: #e2e8f0; 
 .dark .vcge-select { background: #1e293b; color: #f1f5f9; border-color: #334155; }
 #fontSelect { font-family: var(--vcge-ui-font, 'Inter'), sans-serif; }
 
-/* ---- Left hand (html[data-hand="left"], Settings): the header runs mirrored (Settings far left, Vault beside it), the
-   trash button moves to the lower right, and on phones the Welcome buttons sit on the left thumb line. ------------- */
-html[data-hand="left"] .deck-header { flex-direction: row-reverse; }
-html[data-hand="left"] .deck-nav, html[data-hand="left"] .deck-tools, html[data-hand="left"] .deck-card-foot { flex-direction: row-reverse; }
-@media (max-width: 599.98px) and (orientation: portrait) {
-    html[data-hand="left"] .welcome-actions { margin-left: 0; margin-right: 33%; }
-}
-/* ---- App themes (themes.js, Settings): a colour theme puts its colours in --vcge-* and names itself on
-   html[data-app-theme]; Dark and Light set neither and keep the look above. Step 1 colours the frame: the page, the
-   header and its lit icon, the cards, the sheets and the Thank You page. Each module colours its own content later.
-   :root is there to outweigh the Tailwind dark: classes on the page and the header. Colour-blind mode (below) still
-   marks the lit icon its own way. ------------------------------------------------------------------------------- */
-:root[data-app-theme] body { background: var(--vcge-bg); color: var(--vcge-text); }
-:root[data-app-theme] .deck-header { background: var(--vcge-surface); background: color-mix(in srgb, var(--vcge-surface) 88%, transparent); border-color: var(--vcge-border); }
-html[data-app-theme] .deck-nav button.is-on { background: var(--vcge-accent); border-color: var(--vcge-accent); color: var(--vcge-on-accent); }
-html[data-app-theme] .deck-card { background: var(--vcge-surface); border-color: var(--vcge-border); }
-html[data-app-theme] .vcge-sheet-panel { background: var(--vcge-surface); color: var(--vcge-text); border-color: var(--vcge-border); }
-html[data-app-theme] .vcge-sheet-note, html[data-app-theme] .vcge-sheet-hint, html[data-app-theme] .vcge-sheet-soon { color: var(--vcge-muted); }
+/* ---- Left hand (html[data-hand="left"], Settings): the top bar runs mirrored (the mark on the right, Settings far
+   left) and the trash button moves to the lower right (Capture swaps Photo and Flip: screens-r2.css). ---- */
+html[data-hand="left"] .vcge-bar { flex-direction: row-reverse; }
+html[data-hand="left"] .vcge-mark { margin-right: 0; margin-left: auto; flex-direction: row-reverse; }
+html[data-hand="left"] .deck-tools, html[data-hand="left"] .deck-card-foot { flex-direction: row-reverse; }
+/* ---- App themes (themes.js, Settings): a colour theme puts its colours in --vcge-* (the shell reads them through
+   its --sh-* tokens above) and names itself on html[data-app-theme]. :root is there to outweigh the Tailwind dark:
+   classes on the page. ------------------------------------------------------------------------------------------- */
+:root[data-app-theme] body { background: var(--sh-bg); color: var(--sh-ink); }
 html[data-app-theme] .thank-you { background: var(--vcge-bg); color: var(--vcge-text); }
 html[data-app-theme] .thank-you-note { color: var(--vcge-muted); }
-/* ---- Colour-blind mode (html[data-cb="1"]): the lit header icon is marked by a bar under it as well as its colour,
-   in blue rather than green; the trash button carries a thick dark outline. Each module adds its own cues. ---------- */
-html[data-cb="1"] .deck-nav button.is-on { background: #2563eb; border-color: #1d4ed8; color: #ffffff; box-shadow: inset 0 -4px 0 #ffffff; }
+/* ---- Colour-blind mode (html[data-cb="1"]): the step in view is marked by its bar and a bold label as well as its
+   colour, in blue rather than the accent; the trash button carries a thick outline. Each module adds its own cues. -- */
+html[data-cb="1"] .vcge-step[data-state="now"] { color: #2563eb; }
+html[data-cb="1"] .vcge-step[data-state="now"]::before { background: #2563eb; height: 4px; }
+html[data-cb="1"] .vcge-step[data-state="now"] > span { font-weight: 800; text-decoration: underline; }
 html[data-cb="1"] .vcge-trash { border-color: #0f172a; border-width: 3px; }
 html[data-cb="1"] .vcge-seg button[aria-pressed="true"], html[data-cb="1"] .vcge-switch:checked::before { background: #2563eb; border-color: #1d4ed8; }
 html[data-cb="1"] .vcge-seg button[aria-pressed="true"] { color: #ffffff; }
+html[data-cb="1"] .vcge-btn-primary:not(:disabled) { background: #2563eb; color: #ffffff; }
 
 .thank-you { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; padding: 1rem; background: #f1f5f9; color: #0f172a; }
 .thank-you.hidden { display: none; }
@@ -304,7 +279,6 @@ html[data-cb="1"] .vcge-seg button[aria-pressed="true"] { color: #ffffff; }
     pointer-events: none; color: var(--vcge-text, #0f172a); opacity: 0.085; }
 .dark .vcge-tex { opacity: 0.12; }
 .deck-card { isolation: isolate; }   /* the emblem (z-index -1) paints over the card's own fill, under its content */
-html[data-app-theme] .deck-card { box-shadow: 0 0 0 1px var(--vcge-border), var(--vcge-shadow); }
 .vcge-emblem {   /* a clip box the size of the card, so the MOD tag can still hang over the card's edge */
     position: absolute; inset: 0; z-index: -1; overflow: hidden; border-radius: inherit; pointer-events: none;
     color: var(--vcge-accent, #16a34a); opacity: 0.16;
@@ -319,3 +293,8 @@ html[data-app-theme] .deck-card textarea, html[data-app-theme] .deck-card select
     -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
 }
 @media (forced-colors: active) { .vcge-tex, .vcge-emblem { display: none; } }
+
+/* ---- Plain edition: its sheets keep the plain frame (no grab bar, a 20 px top, a flat square close button) ---- */
+html[data-edition="plain"] .vcge-sheet-panel { border-radius: 1.25rem 1.25rem 0 0; }
+html[data-edition="plain"] .vcge-sheet-panel::before { content: none; }
+html[data-edition="plain"] .vcge-sheet-close { background: transparent; border-radius: 0.75rem; box-shadow: 0 0 0 1px var(--sh-line); }

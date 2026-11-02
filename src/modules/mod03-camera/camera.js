@@ -3,14 +3,19 @@
  * Created by raven575, Team vCGE (Claude) & Gemini
  * Target: camera.js (Modular ES Implementation)
  *
- * The Capture card (redesign step 5): Take a photo or Upload a photo; a clean viewfinder with thin corner brackets
- * marking a business-card frame that turns with the phone; a vertical zoom fader that eases into each change; a
- * round red shutter that sinks and turns green when pressed, with a quiet click for each shot (the one sound in vCGE). The shot is exactly what the viewfinder showed (the visible window of
+ * The Capture card (0.8 redo R2, Creative's CRTV-0020 mock-up): the viewfinder first, with corner brackets marking a
+ * business-card frame that turns with the phone and turn green while a card sits in it (a light look at the live picture
+ * every WATCH_MS, in memory only, the card finder's own maths); a hint over the picture; zoom chips (.5x, 1x, 2x) that ease
+ * into each change, and a pinch for anything between; under it the shutter, a red ring that turns green with the corners,
+ * which sinks and fills green when pressed, with a quiet click for each shot (the one sound in vCGE); Photo (upload) and
+ * Flip camera either side. While the camera is off the shutter starts it. The shot is exactly what the viewfinder showed (the visible window of
  * the sensor frame, zoom included), never the whole frame. The photo is handed to the crop editor on this card; the
  * bus only ever gets a signal. Messages to the person go through the `toast` hook main.js hands in (Shell's toast).
  */
 import { globalEventBus, Events } from '../../share/eventBus.js';
-import { visibleSourceRect, cardFrameRect, tween } from './viewfinder.js';
+import { isShelved } from '../mod01-shell/edition.js';
+import { visibleSourceRect, cardFrameRect, tween, nextSeen, chipFor } from './viewfinder.js';
+import { findCardQuad, SMALL_SIDE } from './cardFinder.js';
 import { readyClick, playShutterClick } from './shutterClick.js';
 
 // A web page cannot claim the camera for itself, so the camera is turned off and the user told whenever another app
@@ -28,23 +33,33 @@ export const IRIS_WINK_MS = 700;     // one wink when Iris is tapped on the empt
 export const ZOOM_MAX = 4;            // the most the fader or a pinch zooms, the camera's own zoom or the digital one
                                       // (raven575, 2026-10-24: a phone's 8x was too close to help)
 export const FIRST_FRAME_WAIT_MS = 1500;   // how long a shutter press waits for the camera's first picture
+export const WATCH_MS = 600;          // how often the live picture is looked at for a card (the corners and the shutter turn green)
+export const HINT_LOOKING = 'Fit the card inside the corners';
+export const HINT_FOUND = 'Hold still, then tap the shutter';
+
+// The page's element by id, or null where there is no page (the unit tests build the camera from stand-ins)
+const byId = (id) => (typeof document !== 'undefined' ? document.getElementById(id) : null);
 
 export class VCGEActiveCamera {
     constructor(config = {}) {
-        this.videoEl = config.videoEl || document.getElementById('cameraStream');
-        this.canvasEl = config.canvasEl || document.getElementById('captureCanvas');
-        this.zoomSlider = config.zoomSlider || document.getElementById('zoomSlider');
-        this.zoomDisplay = config.zoomDisplay || document.getElementById('zoomDisplay');
-        this.viewfinderArea = config.viewfinderArea || document.getElementById('viewfinderArea');
-        this.cardFrame = config.cardFrame || document.getElementById('cardFrame');
-        this.shutter = config.shutter || document.getElementById('captureBtn');
-        this.reviewPanel = config.reviewPanel || document.getElementById('captureReview');
-        this.reviewImage = config.reviewImage || document.getElementById('reviewImage');
-        this.eventLog = config.eventLog || document.getElementById('eventLog');
-        this.cameraPanel = config.cameraPanel || document.getElementById('cameraPanel');
+        this.videoEl = config.videoEl || byId('cameraStream');
+        this.canvasEl = config.canvasEl || byId('captureCanvas');
+        this.zoomSlider = config.zoomSlider || byId('zoomSlider');
+        this.zoomDisplay = config.zoomDisplay || byId('zoomDisplay');
+        this.viewfinderArea = config.viewfinderArea || byId('viewfinderArea');
+        this.cardFrame = config.cardFrame || byId('cardFrame');
+        this.shutter = config.shutter || byId('captureBtn');
+        this.reviewPanel = config.reviewPanel || byId('captureReview');
+        this.reviewImage = config.reviewImage || byId('reviewImage');
+        this.eventLog = config.eventLog || byId('eventLog');
+        this.cameraPanel = config.cameraPanel || byId('cameraPanel');
         this.toast = typeof config.toast === 'function' ? config.toast : () => {};
-        this.irisPeek = config.irisPeek || document.getElementById('capIris');
-        this.uploadInput = config.uploadInput || document.getElementById('imageUpload');
+        this.irisPeek = config.irisPeek || byId('capIris');
+        this.uploadInput = config.uploadInput || byId('imageUpload');
+        this.zoomChips = Array.from(config.zoomChips || (byId('zoomChips') ? byId('zoomChips').querySelectorAll('[data-zoom]') : []));
+        this.hint = config.hint || byId('camHint');
+        this.shutterLabel = config.shutterLabel || byId('shutLbl');
+        this.startButton = config.startButton || byId('startCameraBtn');
 
         this.currentFacingMode = config.facingMode || 'environment';
         this.activeStream = null;
@@ -58,7 +73,11 @@ export class VCGEActiveCamera {
         this.capturedImageDataUrl = null;
         this.lastSource = null;       // 'camera' or 'upload': what Retake goes back to
         this.waitingForFrame = false; // a shutter press is waiting for the camera's first picture
+        this.starting = false;        // the camera has been asked for and has not answered yet
         this.pickerOpenUntil = 0;     // the photo picker was opened: a mute until then is the picker's, not another app's
+        this.watchTimer = null;       // the look for a card in the live picture
+        this.watchCanvas = null;
+        this.seen = { found: false, run: 0 };
 
         this.initListeners();
     }
@@ -73,6 +92,7 @@ export class VCGEActiveCamera {
         }
         if (this.cameraPanel) this.cameraPanel.classList.remove('hidden');
         this.layoutFrame();
+        this.starting = true;
 
         try {
             const constraints = {
@@ -85,6 +105,7 @@ export class VCGEActiveCamera {
             };
 
             this.activeStream = await navigator.mediaDevices.getUserMedia(constraints);
+            this.starting = false;
             if (this.videoEl) {
                 this.videoEl.srcObject = this.activeStream;
             }
@@ -97,13 +118,15 @@ export class VCGEActiveCamera {
             }
             this.watchTrack(track);
             this.setupZoom(track);
+            this.startWatch();
         } catch (err) {
+            this.starting = false;
             if (err && CAMERA_IN_USE_ERRORS.includes(err.name)) this.blockCamera('the camera is held by another app');
             else {
                 this.stopCamera();
                 if (this.cameraPanel) this.cameraPanel.classList.add('hidden');
-                this.logEvent(`Camera access unavailable: ${err.message}. Use "Upload a photo" instead.`);
-                this.toast('The camera is not available here. Upload a photo instead.');
+                this.logEvent(`Camera access unavailable: ${err.message}. Tap Photo to choose a picture instead.`);
+                this.toast('The camera is not available here. Tap Photo to choose a picture instead.');
             }
         }
     }
@@ -189,6 +212,7 @@ export class VCGEActiveCamera {
         if (this.zoomSlider) {
             this.zoomSlider.addEventListener('input', (e) => this.zoomTo(parseFloat(e.target.value)));
         }
+        this.zoomChips.forEach(chip => chip.addEventListener('click', () => this.pickZoom(chip.dataset.zoom)));
         this.wirePinch();
         if (this.shutter) {
             // Sinks on the press, pops back (with the shared overshoot) on the release; the shot is taken on the click.
@@ -229,8 +253,24 @@ export class VCGEActiveCamera {
         const target = Number(value);
         if (!Number.isFinite(target)) return;
         this.targetZoom = target;
+        this.markZoomChips();
         if (this.stopZoomTween) this.stopZoomTween();
         this.stopZoomTween = tween(this.currentZoom, target, ZOOM_EASE_MS, (z) => this.applyZoom(z), { instant: this.reducedMotion() });
+    }
+
+    // A zoom chip: the zoom it names, kept inside what this camera can do (a camera that cannot go wider than 1x stays at
+    // 1x for .5x), set on the slider that holds the zoom's value and eased into as before.
+    pickZoom(value) {
+        const min = Number(this.zoomSlider ? this.zoomSlider.min : 1) || 1, max = Number(this.zoomSlider ? this.zoomSlider.max : ZOOM_MAX) || ZOOM_MAX;
+        const z = Math.min(max, Math.max(min, Number(value) || 1));
+        if (this.zoomSlider) this.zoomSlider.value = String(z);
+        this.zoomTo(z);
+    }
+
+    // The chip for the zoom being asked for shows pressed; a pinch to a zoom between them leaves none pressed.
+    markZoomChips() {
+        const at = chipFor(this.targetZoom, this.zoomChips.map(c => Number(c.dataset.zoom)));
+        this.zoomChips.forEach((chip, i) => chip.setAttribute('aria-pressed', String(i === at)));
     }
 
     // A pinch follows the fingers: the zoom changes at once, and the fader moves with it.
@@ -246,6 +286,7 @@ export class VCGEActiveCamera {
     applyZoom(z) {
         this.currentZoom = z;
         if (this.zoomDisplay) this.zoomDisplay.textContent = `${z.toFixed(1)}x`;
+        this.markZoomChips();
         const track = this.activeStream ? this.activeStream.getVideoTracks()[0] : null;
         if (this.zoomMode === 'hardware' && track) {
             this.sendHardwareZoom(track, z);
@@ -297,7 +338,7 @@ export class VCGEActiveCamera {
             this.setZoomNow(want);
             if (want !== this.targetZoom) begin(p);
         };
-        const own = (e) => !e.target.closest || !e.target.closest('.cap-fader, button, input, label');
+        const own = (e) => !e.target.closest || !e.target.closest('.r2-zoom, button, input, label');
         area.addEventListener('pointerdown', (e) => {
             if (e.pointerType === 'mouse' || !own(e)) return;
             touchPinch = false;
@@ -329,7 +370,7 @@ export class VCGEActiveCamera {
     }
 
     wink() {
-        if (!this.irisPeek || this.reducedMotion() || this.irisPeek.classList.contains('wink')) return;
+        if (!this.irisPeek || this.reducedMotion() || isShelved() || this.irisPeek.classList.contains('wink')) return;
         this.irisPeek.classList.add('wink');
         setTimeout(() => this.irisPeek.classList.remove('wink'), IRIS_WINK_MS);
     }
@@ -350,6 +391,51 @@ export class VCGEActiveCamera {
         this.stopShutterTween = tween(0.9, 1, SHUTTER_POP_MS, (s) => { this.shutter.style.transform = s === 1 ? '' : `scale(${s})`; }, { instant: this.reducedMotion() });
     }
 
+    // Looks at the live picture every WATCH_MS for a card (cardFinder.js on a small copy of what the viewfinder shows, drawn
+    // into a canvas of its own that is emptied straight after). Two looks in a row must agree before the corners and the
+    // shutter change colour, so they never flicker.
+    startWatch() {
+        this.stopWatch();
+        this.watchTimer = setInterval(() => this.lookForCard(), WATCH_MS);
+    }
+
+    lookForCard() {
+        const v = this.videoEl;
+        if (!this.activeStream || !v || !v.videoWidth || !v.videoHeight || typeof document === 'undefined') return;
+        try {
+            const viewW = this.viewfinderArea ? this.viewfinderArea.clientWidth : v.videoWidth;
+            const viewH = this.viewfinderArea ? this.viewfinderArea.clientHeight : v.videoHeight;
+            const r = visibleSourceRect(viewW, viewH, v.videoWidth, v.videoHeight, this.zoomMode === 'css' ? this.currentZoom : 1);
+            const scale = Math.min(1, SMALL_SIDE / Math.max(r.width, r.height));
+            const w = Math.max(1, Math.round(r.width * scale)), h = Math.max(1, Math.round(r.height * scale));
+            const c = this.watchCanvas || (this.watchCanvas = document.createElement('canvas'));
+            c.width = w; c.height = h;
+            const ctx = c.getContext('2d', { willReadFrequently: true });
+            ctx.drawImage(v, r.x, r.y, r.width, r.height, 0, 0, w, h);
+            const quad = findCardQuad(ctx.getImageData(0, 0, w, h));
+            c.width = c.height = 0;                         // no copy of the picture is kept
+            this.seen = nextSeen(this.seen, !!quad);
+            this.showFound(this.seen.found);
+        } catch {
+            // A picture that cannot be read this time (a camera mid-switch) is simply looked at again next time
+        }
+    }
+
+    stopWatch() {
+        if (this.watchTimer !== null) { clearInterval(this.watchTimer); this.watchTimer = null; }
+        if (this.watchCanvas) { this.watchCanvas.width = this.watchCanvas.height = 0; }
+        this.seen = { found: false, run: 0 };
+        this.showFound(false);
+    }
+
+    // Green corners and a green shutter while a card is in view; the hint and the shutter's label say the same in words.
+    showFound(on) {
+        if (this.viewfinderArea) this.viewfinderArea.classList[on ? 'add' : 'remove']('found');
+        if (this.shutter) this.shutter.classList[on ? 'add' : 'remove']('ready');
+        if (this.hint) this.hint.textContent = on ? HINT_FOUND : HINT_LOOKING;
+        if (this.shutterLabel) this.shutterLabel.textContent = on ? 'Card found' : (this.activeStream ? 'Looking…' : 'Camera off');
+    }
+
     stopCamera() {
         if (this.stopZoomTween) { this.stopZoomTween(); this.stopZoomTween = null; }
         this.queuedZoom = null;
@@ -357,6 +443,7 @@ export class VCGEActiveCamera {
             this.activeStream.getTracks().forEach(track => track.stop());
             this.activeStream = null;
         }
+        this.stopWatch();
         if (this.videoEl) { this.videoEl.srcObject = null; this.videoEl.style.transform = ''; }
     }
 
@@ -395,6 +482,8 @@ export class VCGEActiveCamera {
     // The first picture can come a moment after the viewfinder opens: a press before it waits for it instead of taking a
     // black photo, and says so if none comes.
     captureFrame() {
+        // The camera is off: the shutter starts it (as Start the camera does), and the next press takes the shot
+        if (!this.activeStream) { if (!this.starting && this.startButton) this.startButton.click(); return; }
         if (!this.canvasEl || !this.videoEl) return;
         const video = this.videoEl;
         if (video.videoWidth && video.videoHeight) { this.takeShot(); return; }

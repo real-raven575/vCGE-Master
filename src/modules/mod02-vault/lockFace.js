@@ -15,6 +15,7 @@
  * not colour, and the plain edition shows none of it (plain dots and the plain ring, as before).
  */
 import { PIN_LENGTH } from './sessionPin.js';
+import { isShelved } from '../mod01-shell/edition.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -41,7 +42,7 @@ export function syncLockFace() {
  */
 export function farewell() {
     const modal = $('vaultModal');
-    const still = document.documentElement.dataset.edition === 'plain'
+    const still = document.documentElement.dataset.edition === 'plain' || isShelved()
         || (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches);
     if (!modal || still) return Promise.resolve();
     modal.classList.add('vault-dissolve');

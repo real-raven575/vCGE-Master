@@ -23,24 +23,35 @@ export const EMBLEMS = Object.freeze({
         art: '<path d="M22 98L178 34L128 158L106 136L90 126Z"/><path d="M90 126L155.1 57.9"/><path d="M90 126L90 162L106 136"/><path d="M22 136L46 126M30 160L58 148M56 180L80 170"/>' }
 });
 
+// The two sheets carry one each too (gap list row 8): Ghost's vault dial behind the Vault, Shutout's honeycomb behind
+// Settings, at Creative's spots for them (percent of the sheet, px).
+export const SHEET_EMBLEMS = Object.freeze({
+    vaultPage: { pilot: 'ghost', title: 'Ghost the Raccoon: vault dial', at: {x:50.3,y:8.9,s:120,r:0},
+        art: '<circle cx="100" cy="100" r="74"/><circle cx="100" cy="100" r="36"/><path d="M93 102A11 11 0 1 1 107 102L111 122H89Z"/><path d="M164 100L152 100M161.8 116.6L156 115M155.4 132L145 126M145.3 145.3L141 141M132 155.4L126 145M116.6 161.8L115 156M100 164L100 152M83.4 161.8L85 156M68 155.4L74 145M54.7 145.3L59 141M44.6 132L55 126M38.2 116.6L44 115M36 100L48 100M38.2 83.4L44 85M44.6 68L55 74M54.7 54.7L59 59M68 44.6L74 55M83.4 38.2L85 44M100 36L100 48M116.6 38.2L115 44M132 44.6L126 55M145.3 54.7L141 59M155.4 68L145 74M161.8 83.4L156 85"/>' },
+    settingsSheet: { pilot: 'shutout', title: EMBLEMS.welcome.title, at: {x:96.3,y:62.3,s:320,r:0}, art: EMBLEMS.welcome.art }
+});
+
 const NS = 'http://www.w3.org/2000/svg';
 
 /** The emblem's SVG markup (stroke in currentColor). */
 export const emblemSvg = (e) => `<svg xmlns="${NS}" viewBox="0 0 200 200" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${e.art}</svg>`;
 
-/** Put one emblem in each deck card (once) and the dot texture behind the deck. */
+// One emblem into its host, at its spot (positions go through CSSOM: the CSP allows no style attributes)
+function placeEmblem(doc, host, e) {
+    if (!host || host.querySelector(':scope > .vcge-emblem')) return;
+    const el = doc.createElement('div');
+    el.className = 'vcge-emblem'; el.setAttribute('aria-hidden', 'true'); el.dataset.pilot = e.pilot;
+    el.innerHTML = emblemSvg(e);
+    const { x, y, s, r } = e.at;
+    el.style.setProperty('--em-x', `${x}%`); el.style.setProperty('--em-y', `${y}%`);
+    el.style.setProperty('--em-s', `${s}px`); el.style.setProperty('--em-r', `${r}deg`);
+    host.prepend(el);
+}
+
+/** Put one emblem in each deck card and in the Vault and Settings sheets (once), and the dot texture behind the deck. */
 export function paintEmblems(doc = document) {
-    for (const [card, e] of Object.entries(EMBLEMS)) {
-        const host = doc.querySelector(`.deck-card[data-card="${card}"]`);
-        if (!host || host.querySelector(':scope > .vcge-emblem')) continue;
-        const el = doc.createElement('div');
-        el.className = 'vcge-emblem'; el.setAttribute('aria-hidden', 'true'); el.dataset.pilot = e.pilot;
-        el.innerHTML = emblemSvg(e);
-        const { x, y, s, r } = e.at;
-        el.style.setProperty('--em-x', `${x}%`); el.style.setProperty('--em-y', `${y}%`);
-        el.style.setProperty('--em-s', `${s}px`); el.style.setProperty('--em-r', `${r}deg`);
-        host.prepend(el);
-    }
+    for (const [card, e] of Object.entries(EMBLEMS)) placeEmblem(doc, doc.querySelector(`.deck-card[data-card="${card}"]`), e);
+    for (const [id, e] of Object.entries(SHEET_EMBLEMS)) placeEmblem(doc, doc.querySelector(`#${id} > .vcge-sheet-panel`), e);
     if (!doc.querySelector('.vcge-tex')) {
         const tex = doc.createElementNS(NS, 'svg');
         tex.setAttribute('class', 'vcge-tex'); tex.setAttribute('aria-hidden', 'true'); tex.setAttribute('focusable', 'false');
