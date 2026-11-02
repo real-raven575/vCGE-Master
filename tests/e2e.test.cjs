@@ -651,7 +651,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   ok('same-origin fetch still allowed', sameOrigin === 200, String(sameOrigin));
   await page.evaluate(() => fetch('https://example.com/secret-path?name=Maria').catch(() => {})); await page.waitForTimeout(100);
   const log = await text('auditLog');
-  ok('audit log names only the blocked host, never the path or query', log.includes('https://example.com') && !log.includes('secret-path') && !log.includes('Maria'), log.slice(0, 200));
+  ok('audit log names only the blocked host, never the path or query', /(^|[\s"'(])https:\/\/example\.com($|[\s"'),.:/])/.test(log) && !log.includes('secret-path') && !log.includes('Maria'), log.slice(0, 200));
   ok('event bus is not exposed on window', await page.evaluate(() => typeof window.vCGE === 'undefined'));
   ok('network lock is the first script and installed', await page.evaluate(() => document.scripts[0].src.endsWith('/src/modules/mod01-shell/netLock.js') && !!fetch[Symbol.for('vcge.netLock')]));
   const guardRefuses = await page.evaluate(() => new Promise(resolve => {
@@ -2048,7 +2048,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pL.click('#runOcrBtn');
     await readEnds(pL);
     const lines = await pL.$$eval('#ocrLines input[id^="ocrLineText"]', els => els.map(e => e.value));
-    const row = lines.findIndex(t => t.includes('northwind.com/'));
+    const row = lines.findIndex(t => /(^|[^\w.-])northwind\.com\//.test(t));
     ok('second look: a web line leaning backwards is read again straightened, and comes back right without a "please check" note',
       looks.length >= 1 && row >= 0 && lines[row] === 'northwind.com/Seattle' && !(await pL.$(`#ocrLineCheck${row}`)), JSON.stringify({ looks, lines }));
     ok('second look: lines read right the first time are left as they were', lines.includes('Jane Rivera') && lines.some(t => t.endsWith('jane@northwind.com')) && lines.some(t => t.endsWith('206.555.0142')), JSON.stringify(lines));
@@ -2306,7 +2306,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p5.fill(`#ocrLineText${roles2.indexOf('name')}`, 'Mariah Gonzalez');
     await p5.selectOption(`#ocrLineRole${roles2.indexOf('website')}`, 'notes');
     await proceed(p5);
-    ok('Fill form applies the edited review', (await p5.inputValue('#firstName')) === 'Mariah' && (await rows(p5, 'website')).every(r => !r.value) && (await p5.inputValue('#notes')).includes('northwind.com') && (await rowValue(p5, 'email', 'work')) === 'maria.gonzalez@northwind.com',
+    ok('Fill form applies the edited review', (await p5.inputValue('#firstName')) === 'Mariah' && (await rows(p5, 'website')).every(r => !r.value) && /(^|[^\w.-])northwind\.com\b/.test(await p5.inputValue('#notes')) && (await rowValue(p5, 'email', 'work')) === 'maria.gonzalez@northwind.com',
       [await p5.inputValue('#firstName'), JSON.stringify(await rows(p5, 'website')), await p5.inputValue('#notes')].join(' | '));
     ok('review text cleared from the page after Fill form', (await p5.$$('#ocrLines input')).length === 0 && !(await p5.isVisible('#cropReviewModal')));
     // Rotate left and Rotate right (finding 49): each turns the photo 90° its own way and the corners reset. The test
