@@ -651,7 +651,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   ok('same-origin fetch still allowed', sameOrigin === 200, String(sameOrigin));
   await page.evaluate(() => fetch('https://example.com/secret-path?name=Maria').catch(() => {})); await page.waitForTimeout(100);
   const log = await text('auditLog');
-  ok('audit log names only the blocked host, never the path or query', /(^|[\s"'(])https:\/\/example\.com($|[\s"'),.:/])/.test(log) && !log.includes('secret-path') && !log.includes('Maria'), log.slice(0, 200));
+  ok('audit log names only the blocked host, never the path or query', (await page.$$eval('#auditLog li', ls => ls.map(l => l.textContent.trim().split(' → ').pop()))).includes('https://example.com') && !log.includes('secret-path') && !log.includes('Maria'), log.slice(0, 200));
   ok('event bus is not exposed on window', await page.evaluate(() => typeof window.vCGE === 'undefined'));
   ok('network lock is the first script and installed', await page.evaluate(() => document.scripts[0].src.endsWith('/src/modules/mod01-shell/netLock.js') && !!fetch[Symbol.for('vcge.netLock')]));
   const guardRefuses = await page.evaluate(() => new Promise(resolve => {
@@ -3363,7 +3363,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const sw = [...document.querySelectorAll('#paletteListContainer button')].map(b => { const r = b.getBoundingClientRect(), cs = getComputedStyle(b); return { w: Math.round(r.width), h: Math.round(r.height), top: Math.round(r.top), round: cs.borderTopLeftRadius === '50%' || parseFloat(cs.borderTopLeftRadius) >= r.width / 2 - 1, pressed: b.getAttribute('aria-pressed') }; });
       const card = document.getElementById('card3DFlipper').getBoundingClientRect(), flip = document.getElementById('flipCardBtn').getBoundingClientRect();
       return { firstIsCard: at(document.getElementById('card3DFlipper')) === 0, order: [at(document.getElementById('card3DFlipper')), at(body.querySelector('.r4-flipnote')), at(document.getElementById('paletteListContainer')), at(body.querySelector('.r4-logo')), at(document.getElementById('flipCardBtn'))],
-        note: body.querySelector('.r4-flipnote').textContent.trim(), tip: body.querySelector('.r4-logo .r4-tip-line').textContent.trim(), sw, toolsBelow: flip.top > card.bottom, oldRow: !!document.getElementById('paletteDropdownBtn'), room: Math.round(document.querySelector('#cardCard .r4-card').clientWidth) };
+        note: body.querySelector('.r4-flipnote').textContent.trim(), tip: body.querySelector('.r4-logo .r4-tip-line').textContent.trim(), sw, toolsBelow: flip.top > card.bottom, oldRow: !!document.getElementById('paletteDropdownBtn'), room: (c => { const cs = getComputedStyle(c); return Math.round(c.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight)); })(document.querySelector('#cardCard .r4-card')) };
     });
     ok('0.8 card: the card first, then "Tap the right side to spin right, the left side to spin left.", round 44 px colour swatches in one row, or two rows of four on a narrow phone (Slate Blue pressed), the logo tip with its safe-area guide, then the style controls below the card',
       cardLayout.firstIsCard && cardLayout.order.every((v, i, a) => i === 0 || v > a[i - 1]) && cardLayout.note === 'Tap the right side to spin right, the left side to spin left.'
