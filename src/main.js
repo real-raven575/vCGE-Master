@@ -33,7 +33,7 @@ import { VCGEActiveCamera } from './modules/mod03-camera/camera.js';
 import { CropEditor } from './modules/mod03-camera/cropEditor.js';
 import { executeOCRScan, shutdownOCREngine } from './modules/mod04-ocr/ocrWorker.js';
 import { mergeReadings, missingParts, describeMissing, MAX_PHOTOS } from './modules/mod04-ocr/readingQuality.js';
-import { readIndicator, renderReviewRows, initReadCard, resetBlink, READER_UNAVAILABLE_MESSAGE, READER_STOPPED_MESSAGE } from './modules/mod04-ocr/readCard.js';
+import { readIndicator, readThumb, renderReviewRows, initReadCard, resetBlink, READER_UNAVAILABLE_MESSAGE, READER_STOPPED_MESSAGE } from './modules/mod04-ocr/readCard.js';
 import { ContactFormMapper, LINE_ROLES, PHONE_FORMATS } from './modules/mod05-form/formMapper.js';
 import { PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES } from './share/contactOptions.js';
 import { AddressAutocompleteEngine } from './modules/mod05-form/addressAutocomplete.js';
@@ -702,6 +702,7 @@ function closeReviewDialog() {
     $('ocrTimeoutModal').classList.add('hidden');
     $('ocrMorePhotoModal').classList.add('hidden');
     readIndicator.hide();
+    readThumb.hide();
     showReviewStep('photo');
     ocrReview = null;
     $('ocrLines').replaceChildren();
@@ -779,7 +780,7 @@ async function runOcr() {
             askForAnotherPhoto(missing, readings.length + 1);
             return;
         }
-        openReviewFrom(readings);
+        openReviewFrom(readings, photo);
     } catch (e) {
         if (e && e.code === 'OCR_CANCELLED') {
             // Cancel: back to the photo on the Capture card, ready for OK again or a new one. A wipe already cleared everything.
@@ -833,14 +834,19 @@ function showPhotoCount() {
     else { delete $('photoCountNote').dataset.photo; delete $('photoCountNote').dataset.of; }
 }
 
+// The photo the lines came from, for the thumbnail that stays in view above them (0.8): the cropped photo while one is
+// on the Capture card, else none (a photo already dropped is never brought back).
+const reviewPhoto = () => ($('reviewImage').getAttribute('src') ? cropEditor.getCroppedImage() : null);
+
 // The review step with every reading put together: lines no photo could read are listed as Ignore, with a note.
-function openReviewFrom(readings) {
+function openReviewFrom(readings, photo = null) {
     forgetReadings();
     const merged = mergeReadings(readings);
     const unreadable = merged.filter(l => l.unreadable).map(l => ({ text: l.text, role: 'ignore', icon: l.icon || null, check: UNREADABLE_LINE_NOTE }));
     ocrReview = { lines: [...formMapper.classifyLines(merged.filter(l => !l.unreadable)), ...unreadable], fields: null };
     renderOcrLines();
     $('ocrBackBtn').classList.toggle('hidden', !$('reviewImage').getAttribute('src'));
+    readThumb.show(photo || reviewPhoto());
     showReviewStep('text');
     $('cropReviewModal').classList.remove('hidden');
     showCard('read');
@@ -917,6 +923,7 @@ function reopenLastScan() {
     ocrReview = { lines: lastScan.map(line => ({ ...line })), fields: null };
     renderOcrLines();
     $('ocrBackBtn').classList.toggle('hidden', !$('reviewImage').getAttribute('src'));
+    readThumb.show(reviewPhoto());
     showReviewStep('text');
     $('cropReviewModal').classList.remove('hidden');
     showCard('read');
@@ -958,6 +965,7 @@ function restoreScan(scan) {
     renderOcrLines();
     showReviewStep('text');
     $('ocrBackBtn').classList.toggle('hidden', !scan.photo);
+    readThumb.show(reviewPhoto());
     $('cropReviewModal').classList.remove('hidden');
 }
 

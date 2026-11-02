@@ -1189,6 +1189,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('read card: stays in its lane (imports only the bus and its own reader, stores nothing, publishes nothing, no HTML strings, no fetch)',
     (readCode.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ocrWorker.js'"))
     && !/localStorage|sessionStorage|indexedDB|document\.cookie|innerHTML|fetch\(|publish\(/.test(readCode));
+  // 0.8 redo R3 (Creative's mock-up): the type chip's words and the flag's lead
+  ok('read card (0.8): the type chip shows the role\'s label without the picker\'s note in brackets', read.chipLabel('Phone (type from label)') === 'Phone' && read.chipLabel('Work phone') === 'Work phone' && read.chipLabel('City / State / ZIP') === 'City / State / ZIP' && read.chipLabel(undefined) === '');
+  ok('read card (0.8): a flagged line leads with words that say to check it', read.CHECK_LEAD === 'Check this line.');
+  ok('read card (0.8): the thumbnail helper shows and drops the photo, and is dropped on a wipe or a purge', typeof read.readThumb.show === 'function' && typeof read.readThumb.hide === 'function'
+    && /subscribe\(Events\.VAULT_WIPED, \(\) => readThumb\.hide\(\)\)/.test(readCode) && /subscribe\(Events\.MEMORY_PURGED, \(\) => readThumb\.hide\(\)\)/.test(readCode));
   console.log = origLog; console.error = origErr; delete globalThis.Tesseract;
 }
 
@@ -1737,6 +1742,24 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('F2: the stamp press is 180 ms in the code and the style sheet, and reduce motion turns it off', fc.STAMP_MS === 180 && /\.fields-ok\.is-stamping \.fields-stamp \{ animation: fields-stamp 180ms/.test(fieldsCss)
     && /prefers-reduced-motion: reduce\) \{\s*\.fields-ok\.is-stamping \.fields-stamp \{ animation: none; \}/.test(fieldsCss));
   ok('F1/F2: the plain edition hides the tabs and the stamp', fieldsCss.includes('html[data-edition="plain"] .fields-slot, html[data-edition="plain"] .fields-stamp { display: none; }'));
+  ok('0.8 "+ Add a field": the rarer boxes are prefix, suffix, middle name, nickname and birthday', fc.MORE_FIELDS.join() === 'namePrefix,nameSuffix,middleName,nickname,birthday');
+  ok('0.8 "+ Add a field": the boxes show once pressed open, or while one holds something (spaces do not count)', !fc.moreFieldsShown(false, ['', '  ', undefined]) && fc.moreFieldsShown(true, []) && fc.moreFieldsShown(false, ['', 'Dr.']));
+  {
+    const html = (await import('node:fs')).readFileSync(`${R}/../index.html`, 'utf8');
+    const details = html.slice(html.indexOf('<section id="cardFields"'), html.indexOf('<section id="cardCard"'));
+    const read = html.slice(html.indexOf('<section id="cardRead"'), html.indexOf('<section id="cardFields"'));
+    const groups = [...details.matchAll(/<h4[^>]*class="fields-group"[^>]*>([^<]+)<\/h4>/g)].map(m => m[1]);
+    ok('0.8 Details: grouped Name, Work, Reach, Notes (then the "More" boxes), "+ Add a field" after the form, the sample list and Clear form last',
+      groups.join() === 'Name,Work,Reach,Notes,More' && details.indexOf('id="fieldsAddBtn"') > details.indexOf('id="fieldsUnknown"')
+      && details.indexOf('id="fakeContactSelect"') > details.indexOf('id="fieldsAddBtn"') && details.indexOf('id="clearFormBtn"') > details.indexOf('id="fieldsAddBtn"')
+      && /data-next="#fieldsDoneBtn" data-next-label="Make the card"/.test(details), groups.join());
+    ok('0.8 Read: the thumbnail, then the lines, then the tip that more fields come next; Fill details is the dock\'s',
+      read.indexOf('id="ocrThumb"') > 0 && read.indexOf('id="ocrThumb"') < read.indexOf('id="ocrLines"') && read.indexOf('id="ocrLines"') < read.indexOf('id="ocrMoreFields"')
+      && /more fields, like a birthday or a second email, on the next step/.test(read) && /data-next="#applyOcrBtn" data-next-label="Fill details"/.test(read));
+    const r3css = (await import('node:fs')).readFileSync(`${R}/modules/mod01-shell/screens-r3.css`, 'utf8');
+    ok('0.8 Read and Details: colours come from the shell\'s tokens (no hard-coded colour outside the fallbacks and the chevron)',
+      !/#[0-9a-f]{3,8}\b/i.test(r3css.replace(/\/\*[\s\S]*?\*\//g, '').replace(/var\(--vcge-[a-z]+, #[0-9a-f]+\)/gi, '').replace(/url\("data:[^"]*"\)/g, '')));
+  }
   ok('the tray titles read as approved', fc.UNKNOWN_TITLE === 'Unknown: tap to file' && /Tap one, then tap the box it belongs in\./.test(fc.UNKNOWN_HELP));
 }
 
