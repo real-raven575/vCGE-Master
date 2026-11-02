@@ -157,7 +157,7 @@ html[data-style="material"] .r5-group h4, html[data-style="material"] .fields h4
 html[data-style="material"] .vcge-dock { background: var(--sh-sunk); -webkit-backdrop-filter: none; backdrop-filter: none; border-top: 0; padding-top: 0; }
 html[data-style="material"] .vcge-steps { margin: 0 -8px 8px; gap: 0; }
 html[data-style="material"] .vcge-step { min-height: 72px; justify-content: center; gap: 4px; font-weight: 500; }
-html[data-style="material"] .vcge-step .vcge-icon { width: 56px; height: 32px; padding: 5px 17px; box-sizing: border-box; border-radius: 16px; color: var(--sh-muted); }
+html[data-style="material"] .vcge-step .vcge-icon { stroke-width: 2; width: 56px; height: 32px; padding: 5px 17px; box-sizing: border-box; border-radius: 16px; color: var(--sh-muted); }
 html[data-style="material"] .vcge-step[data-state="now"] .vcge-icon { background: var(--sh-soft); color: var(--sh-soft-ink); }
 html[data-style="material"] .vcge-step[data-state="done"] .vcge-icon { color: var(--sh-accent); }
 html[data-style="material"] .vcge-step[data-state]::before { content: none; }

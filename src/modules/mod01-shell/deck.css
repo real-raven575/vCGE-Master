@@ -131,6 +131,7 @@ html[data-edition="plain"] .vcge-chip-pilot { display: none; }
     display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
     font: 600 12px system-ui, sans-serif; cursor: pointer; transition: color 200ms; }
 .vcge-step .vcge-icon { width: 22px; height: 22px; stroke-width: 1.6; }
+.vcge-step .vcge-step-icon * { stroke-width: inherit; }   /* the mock-up's line weight: ui.css's 2.3 for the Tabler sprite must not reach these */
 .vcge-step[data-state="done"] { color: color-mix(in srgb, var(--sh-accent) 70%, var(--sh-muted)); }
 .vcge-step[data-state="done"] > span, .vcge-step[data-state="todo"] > span { color: var(--sh-muted); }
 .vcge-step[data-state="now"] { color: var(--sh-accent); }

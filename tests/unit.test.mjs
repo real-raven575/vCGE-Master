@@ -1610,6 +1610,10 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     ok('0.8 dock: the five step icons are the mock-up\'s line icons (camera, lines, person, card, share), not the old sprite',
       Object.entries(want).every(([id, paths]) => new RegExp(`id="${id}"[^>]*>[^<]*<svg class="vcge-icon vcge-step-icon" viewBox="0 0 24 24"[^>]*>${paths.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}</svg>`).test(dockHtml))
       && !/class="vcge-step"[^>]*>[^<]*<svg[^>]*><use href="[^"]*sprite\.svg/.test(dockHtml));
+    const dockCss = fs.readFileSync(`${R}/modules/mod01-shell/deck.css`, 'utf8'), r5Css = fs.readFileSync(`${R}/modules/mod01-shell/screens-r5.css`, 'utf8');
+    ok('0.8 dock: the icons draw at the mock-up\'s line weight (1.6, Material 2, iOS 1.9), not the sprite\'s 2.3',
+      /\.vcge-step \.vcge-icon \{[^}]*stroke-width: 1\.6;/.test(dockCss) && /\.vcge-step \.vcge-step-icon \* \{ stroke-width: inherit; \}/.test(dockCss)
+      && /html\[data-style="material"\] \.vcge-step \.vcge-icon \{ stroke-width: 2;/.test(r5Css) && /html\[data-style="ios"\] \.vcge-step \.vcge-icon \{ stroke-width: 1\.9; \}/.test(r5Css));
   }
   ok('0.8 shell: no turtle, no shell plates and no MOD tags in the page; the shell art finds nothing to draw',
     !/id="deckTurtle"|id="deckPlates"|class="mod-tag/.test(html) && !/\.deck-turtle|\.deck-plates/.test(deckCss));
