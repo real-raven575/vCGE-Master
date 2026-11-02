@@ -87,6 +87,11 @@ async function stopDriver(driver) {
     // WebKitWebDriver scrolls only the page before a click, not the card's own scrolling body, so a button low on a
     // long card is scrolled into view first, as a person would. It must still be the element under the tap.
     await js(`document.querySelector(arguments[0]).scrollIntoView({ block: 'nearest', inline: 'nearest' });`, css);
+    // A toast over the button takes the tap (a tap on it dismisses it), so the click waits for it to go, as Playwright's
+    // own clicks do in the browser runs (a 3 s toast; 8 s with Undo)
+    await until(() => js(`const el = document.querySelector(arguments[0]), r = el.getBoundingClientRect();
+      const h = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2), t = document.getElementById('toast');
+      return !t || !h || !t.contains(h);`, css), 9000);
     try { return await wd('POST', S(`/element/${await el(css)}/click`), {}); } catch (e) {
       // Say what sat in the way (the card in view, the deck position, the element under the target's centre).
       const where = await jsAsync(`const done = arguments[arguments.length - 1], css = arguments[0];
