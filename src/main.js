@@ -245,7 +245,8 @@ function updateSessionPill(show, remaining) {
     if (!pill || !arc || !txt) return;
     pill.classList.toggle('has-time', show);
     pill.classList.toggle('is-locked', vaultMode !== 'open');
-    txt.textContent = show ? minutes(remaining) : '';
+    const time = show ? minutes(remaining) : '';
+    if (txt.textContent !== time) txt.textContent = time;
     const left = show ? Math.max(0, Math.min(1, remaining / IDLE_PURGE_SECONDS)) : (vaultMode === 'open' ? 1 : 0);
     arc.setAttribute('stroke-dashoffset', (RING_LENGTH * (1 - left)).toFixed(1));
     const base = 'Vault: PIN and fingerprint';

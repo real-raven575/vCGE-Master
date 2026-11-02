@@ -773,6 +773,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   // A tap on Vault right after closing a sheet lands (the closing sheet's fading scrim takes no taps; CI WebKit, 11-02):
   // a raw tap at the pill's centre, with no waiting for the scrim to go
   const pill = await page.evaluate(() => { const r = document.getElementById('navVault').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+  // The pill itself takes the tap, never its ring or time: a tap refills the timer and rewrites the time, and WebKit drops a
+  // click whose pressed text was replaced (CI WebKit and iPhone, 11-02)
+  ok('a tap on the Vault pill lands on the pill, not on its ring or time text', await page.evaluate(([x, y]) => { const h = document.elementFromPoint(x, y); return !!h && h.id === 'navVault'; }, pill)
+    && await page.$eval('#navVault', b => b.classList.contains('has-time')));
   await page.mouse.click(pill[0], pill[1]);
   const tapOpened = await page.waitForSelector('#vaultPage', { state: 'visible', timeout: 2000 }).then(() => true, () => false);
   // (for a miss, what the tap met: CI WebKit saw the Vault stay shut even after a later normal click)

@@ -65,6 +65,9 @@ html[data-edition="plain"] .vcge-mark .vcge-mark-text { display: none; }
 .vcge-session { width: auto; padding: 0 14px 0 6px; border-radius: 999px; gap: 6px; display: flex; align-items: center;
     font: 600 15px system-ui, sans-serif; font-variant-numeric: tabular-nums; }
 .vcge-session:not(.has-time) { padding: 0 6px; }
+/* (the pill's ring and time take no taps: the tap is the button's. A tap refills the timer, which rewrites the time, and
+   Safari drops a click whose pressed text was replaced, so the Vault did not open) */
+.vcge-session > * { pointer-events: none; }
 .vcge-lockdot { width: 36px; height: 36px; position: relative; display: grid; place-items: center; }
 .vcge-lockdot .vcge-icon { width: 18px; height: 18px; }
 .vcge-ring { position: absolute; inset: 0; width: 100%; height: 100%; transform: rotate(-90deg); }
