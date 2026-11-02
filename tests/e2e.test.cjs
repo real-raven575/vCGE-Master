@@ -770,6 +770,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   // Wipe after the lock (raven575, 2026-10-18, #68): 7 (default), 10 or 15 minutes, on html for MOD02; the 2-minute lock stays
   // 0.8 redo R5: the wipe time moved to the Vault sheet's chips (the mock-up); the lock chips show 2 min only
   await page.click('#settingsSheet [data-sheet-close]'); await page.waitForSelector('#settingsSheet', { state: 'hidden' });
+  // A tap on Vault right after closing a sheet lands (the closing sheet's fading scrim takes no taps; CI WebKit, 11-02):
+  // a raw tap at the pill's centre, with no waiting for the scrim to go
+  const pill = await page.evaluate(() => { const r = document.getElementById('navVault').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
+  await page.mouse.click(pill[0], pill[1]);
+  ok('a tap on the Vault pill while the Settings sheet is still sliding away opens the Vault (the fading scrim takes no taps)',
+    await page.waitForSelector('#vaultPage', { state: 'visible', timeout: 2000 }).then(() => true, () => false));
   await openVault(page);
   ok('the Vault\'s lock chips offer 2 min only (5 and 15 shown, not offered)', (await page.$$eval('#vaultPage [aria-labelledby="lockChipsLabel"] button', bs => bs.map(b => b.textContent + (b.disabled ? '-' : '+') + b.getAttribute('aria-pressed')).join())) === '2 min+true,5 min-false,15 min-false');
   ok('the wipe chips are 7, 10, 15 min, 7 chosen, and html says 7', (await page.$$eval('#wipeChips button', os => os.map(o => o.textContent).join('|'))) === '7 min|10 min|15 min'

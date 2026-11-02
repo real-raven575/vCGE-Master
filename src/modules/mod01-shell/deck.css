@@ -178,7 +178,8 @@ html[data-edition="plain"] .vcge-chip-pilot { display: none; }
 @keyframes vcgeSheetUp { from { transform: translateY(105%); } to { transform: none; } }
 @keyframes vcgeScrimIn { from { opacity: 0; } to { opacity: 1; } }
 .vcge-sheet.is-closing { visibility: hidden; }
-.vcge-sheet.is-closing::before { visibility: visible; animation: none; opacity: 0; transition: opacity 260ms linear; }
+/* (the fading scrim takes no taps: a tap on Vault or a step right after closing a sheet must land) */
+.vcge-sheet.is-closing::before { visibility: visible; pointer-events: none; animation: none; opacity: 0; transition: opacity 260ms linear; }
 .vcge-sheet.is-closing .vcge-sheet-panel { visibility: visible; pointer-events: none; animation: none; transform: translateY(105%); transition: transform 380ms var(--ease-sheet); }
 @media (prefers-reduced-motion: reduce) { .vcge-sheet::before, .vcge-sheet-panel { animation: none; } }
 .vcge-sheet-panel::before { content: ''; position: absolute; top: 8px; left: 50%; transform: translateX(-50%); width: 40px; height: 5px; border-radius: 5px; background: var(--sh-line); pointer-events: none; }
