@@ -368,7 +368,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   // The top bar's mark (0.8 shell, Creative's mock-up): the app icon and the colour wordmark on every screen size, in the Start button
   const wordmarkShown = () => page.$eval('#navWelcome .deck-wordmark', async (el) => {
     const m = /url\("?([^")]+)"?\)/.exec(getComputedStyle(el).backgroundImage), r = el.getBoundingClientRect();
-    if (!m || !/vcge-wordmark\.svg$/.test(m[1]) || r.height < 20 || r.width < 40) return false;
+    if (!m || !/vcge-wordmark(-[\w-]+)?\.svg$/.test(m[1]) || r.height < 20 || r.width < 40) return false;
     const img = new Image(); img.src = m[1]; return img.decode().then(() => img.naturalWidth > 0, () => false);
   });
   if (!EDITION_PLAIN) ok('the top bar shows the app icon and the blue and green vCGE wordmark beside it (both bundled and loaded), on every screen size', await page.$eval('.deck-logo', async (el) => {
