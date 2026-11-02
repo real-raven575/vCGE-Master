@@ -651,7 +651,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   ok('same-origin fetch still allowed', sameOrigin === 200, String(sameOrigin));
   await page.evaluate(() => fetch('https://example.com/secret-path?name=Maria').catch(() => {})); await page.waitForTimeout(100);
   const log = await text('auditLog');
-  ok('audit log names only the blocked host, never the path or query', (await page.$$eval('#auditLog li', ls => ls.map(l => l.textContent.trim().split(' → ').pop()))).includes('https://example.com') && !log.includes('secret-path') && !log.includes('Maria'), log.slice(0, 200));
+  ok('audit log names only the blocked host, never the path or query', (await page.$$eval('#auditLog li', ls => ls.map(l => l.textContent.trim().split(' → ').pop()))).some(u => u === 'https://example.com') && !log.includes('secret-path') && !log.includes('Maria'), log.slice(0, 200));
   ok('event bus is not exposed on window', await page.evaluate(() => typeof window.vCGE === 'undefined'));
   ok('network lock is the first script and installed', await page.evaluate(() => document.scripts[0].src.endsWith('/src/modules/mod01-shell/netLock.js') && !!fetch[Symbol.for('vcge.netLock')]));
   const guardRefuses = await page.evaluate(() => new Promise(resolve => {
