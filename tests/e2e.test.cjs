@@ -3063,9 +3063,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const h = document.querySelector('.deck-header'), nav = h.querySelector('.deck-nav').getBoundingClientRect();
       const boxes = Array.from(h.querySelectorAll('button')).filter(b => b.offsetParent).map(b => {
         const r = b.getBoundingClientRect(), inNav = !!b.closest('.deck-nav');
-        return { id: b.id, l: inNav ? Math.max(r.left, nav.left) : r.left, r: inNav ? Math.min(r.right, nav.right) : r.right, spill: b.scrollWidth > b.clientWidth + 0.5 };
+        return { id: b.id, l: inNav ? Math.max(r.left, nav.left) : r.left, r: inNav ? Math.min(r.right, nav.right) : r.right, t: r.top, btm: r.bottom, spill: b.scrollWidth > b.clientWidth + 0.5 };
       }).filter(b => b.r > b.l).sort((a, b) => a.l - b.l);   // in screen order: left hand mirrors the header
-      const overlaps = boxes.slice(1).filter((b, i) => b.l < boxes[i].r - 0.5).map(b => b.id);
+      // Any two buttons whose boxes cross, side to side and top to bottom (0.8: on a phone the card icons sit in the dock at the
+      // bottom of the screen, under the header's Vault and Settings, so only buttons in the same row can run into each other)
+      const overlaps = boxes.filter((b, i) => boxes.some((a, j) => j < i && b.l < a.r - 0.5 && a.l < b.r - 0.5 && b.t < a.btm - 0.5 && a.t < b.btm - 0.5)).map(b => b.id);
       done({ compact: h.classList.contains('is-compact'), names: getComputedStyle(h.querySelector('#navCapture span')).display !== 'none', overlaps, spills: boxes.filter(b => b.spill).map(b => b.id), wide: document.documentElement.scrollWidth > innerWidth,
         // For a failure's report only: the window and header widths, how far the nav overflows, and the screen tier
         iw: innerWidth, hw: Math.round(h.getBoundingClientRect().width), nav: [h.querySelector('.deck-nav').scrollWidth, h.querySelector('.deck-nav').clientWidth], tier: document.documentElement.dataset.tier });
@@ -3092,6 +3094,14 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const hw = await header();
       ok(`header at ${w} px: no button runs into another, nothing scrolls sideways`, hw.overlaps.length === 0 && hw.spills.length === 0 && !hw.wide, JSON.stringify(hw));
     }
+    // 0.8 push B (Creative's step dock): on a phone held upright the card icons sit in a dock on the bottom edge, every one
+    // at least 44 px tall and inside the screen, and the cards end above the dock; the header keeps Vault and Settings
+    const dock = await pV.evaluate(() => { const n = document.querySelector('.deck-nav').getBoundingClientRect(), d = document.getElementById('deck').getBoundingClientRect();
+      const bs = [...document.querySelectorAll('.deck-nav button')].map(b => b.getBoundingClientRect());
+      return { bottom: Math.round(innerHeight - n.bottom), top: Math.round(n.top), deckEnd: Math.round(d.bottom), tall: bs.every(r => r.height >= 44), inside: bs.every(r => r.left >= -0.5 && r.right <= innerWidth + 0.5),
+        tools: [...document.querySelectorAll('.deck-tools button')].filter(b => b.offsetParent).every(b => b.getBoundingClientRect().bottom <= document.querySelector('.deck-header').getBoundingClientRect().bottom + 0.5) }; });
+    ok('0.8 dock (phone, upright): the card icons sit on the bottom edge, 44 px tall, inside the screen; the cards end above them; Vault and Settings stay up top',
+      dock.bottom === 0 && dock.deckEnd <= dock.top + 1 && dock.tall && dock.inside && dock.tools, JSON.stringify(dock));
     await pV.setViewportSize({ width: 1024, height: 1366 }); await pV.waitForTimeout(300);
     await pV.click('#navWelcome'); await pV.waitForTimeout(700);
     const centred = await pV.evaluate(() => { const r = document.getElementById('cardWelcome').getBoundingClientRect(); return { l: r.left, r: innerWidth - r.right }; });
