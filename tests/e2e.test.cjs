@@ -891,7 +891,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('idle lock explains why it locked', (await t8('vaultModalHint')).startsWith('Locked after 2 minutes without activity. Enter your 4-digit PIN'));
     ok('quick lock: the held card is not in storage or the page', !(await p8.evaluate(() => JSON.stringify(localStorage) + document.body.innerText)).includes('Quick'));
     // Ghost on the lock screen (cute round V1-V3, raven575 2026-10-21; five faces 2026-10-22): drawing only, branded only
-    const face8 = () => p8.evaluate(() => {
+    // Ghost's paws and eyes fade over 0.3 to 0.4 s: read them once those fades have come to rest (a slow CI runner read a paw at 0.988)
+    const face8 = async () => { await p8.waitForFunction(() => { const g = document.getElementById('vaultGhost'); return !g || g.getAnimations({ subtree: true }).length === 0; }, null, { timeout: 3000 }).catch(() => {});
+      return face8Now(); };
+    const face8Now = () => p8.evaluate(() => {
       const shown = (id) => { const el = document.getElementById(id); return !!el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0; };
       const op = (sel) => getComputedStyle(document.querySelector('#vaultGhost ' + sel)).opacity;
       return { face: document.getElementById('vaultModal').dataset.face, filled: document.getElementById('vaultPinPaws').dataset.filled,
@@ -3287,7 +3290,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // The spin: a tap flips (26 fps steps with a small snap, settling exactly on the face); a sideways drag on the card
     // turns it and it settles on the nearest face; a drag from the screen edge is the browser's; the deck stays put.
     await p6.click('#navCard'); await p6.waitForTimeout(700);
-    const flipper = await p6.locator('#card3DFlipper').boundingBox();
+    let flipper = await p6.locator('#card3DFlipper').boundingBox();
     const angle = () => p6.$eval('#card3DFlipper', el => el.style.transform);
     const frames = [];
     await p6.evaluate(() => { window.__spin = []; new MutationObserver(() => window.__spin.push(document.getElementById('card3DFlipper').style.transform)).observe(document.getElementById('card3DFlipper'), { attributes: true, attributeFilter: ['style'] }); });
@@ -3295,6 +3298,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     frames.push(...await p6.evaluate(() => window.__spin));
     const degs = frames.map(f => parseFloat(/rotateY\(([-\d.]+)deg\)/.exec(f)[1]));
     ok('card: a flip is stepped (about 10 frames over 0.42 s), snaps a little past 180 and settles exactly on 180', (await angle()) === 'rotateY(180deg)' && degs.length >= 7 && degs.length <= 14 && Math.max(...degs) > 181 && (await p6.$eval('#card3DFlipper', el => el.dataset.spin)) === 'still', JSON.stringify(degs));
+    // Measured again once the card is in view: on a short phone the 0.8 dock covers the bottom of the deck, and the
+    // Flip click above may have scrolled the card body, so the first box can be stale or partly under the dock
+    await p6.locator('#card3DFlipper').scrollIntoViewIfNeeded(); await p6.waitForTimeout(200);
+    flipper = await p6.locator('#card3DFlipper').boundingBox();
     const cx = flipper.x + flipper.width / 2, cy = flipper.y + flipper.height / 2;
     // Which events reach the card (for the failure detail: desktop WebKit sent neither a lift nor a click after a drag).
     await p6.evaluate(() => {
