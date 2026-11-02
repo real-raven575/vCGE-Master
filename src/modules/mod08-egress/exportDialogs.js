@@ -105,7 +105,7 @@ export class ExportQrDialog {
         $('exportQrCancelBtn').addEventListener('click', () => this.close());
     }
 
-    isOpen() { return !!this.root && !this.root.classList.contains('hidden'); }
+    isOpen() { return !!this.root && !this.root.classList.contains('hidden') && !this.root.classList.contains('is-closing'); }
 
     /** Opens with fresh choices (an upload from an earlier opening is dropped). */
     async open() {
@@ -116,7 +116,7 @@ export class ExportQrDialog {
         this.setLogoOptions(option, !!scanned);
         this.paintChoices();
         this.el.fileName.textContent = egressController.fileName(' QR.png');
-        this.root.classList.remove('hidden');
+        this.root.classList.remove('hidden', 'is-closing'); // (also when Esc or a swipe is still sliding it away)
         await this.preview();
         const first = this.root.querySelector('input[name="qrColour"]:checked');
         if (first) first.focus();
@@ -256,11 +256,11 @@ export class PrintChoiceDialog {
         $('printCancelBtn').addEventListener('click', () => this.close());
     }
 
-    isOpen() { return !!this.root && !this.root.classList.contains('hidden'); }
+    isOpen() { return !!this.root && !this.root.classList.contains('hidden') && !this.root.classList.contains('is-closing'); }
 
     open() {
         if (!this.root) return;
-        this.root.classList.remove('hidden');
+        this.root.classList.remove('hidden', 'is-closing'); // (also when Esc or a swipe is still sliding it away)
         // Naming the PDF after the contact is asked for each print: the box always starts unticked (raven575, 2026-10-18)
         const box = $('printNameFile');
         if (box) box.checked = false;

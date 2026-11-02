@@ -19,6 +19,7 @@
  * in it). The tray is on-screen only: a lock, a wipe, a new photo, a sample or the scan's Undo empties it.
  */
 import { globalEventBus, Events } from '../../share/eventBus.js';
+import { isShelved } from '../mod01-shell/edition.js';
 
 export const POP_MS = 320;                      // the pop-in, start to rest
 export const POP_FPS = 26;                      // stepped, like the padlock and the shimmer (never too crisp)
@@ -29,6 +30,7 @@ export const DONE_LABEL = "Everything's correct";
 export const STAMP_MS = 180;                    // the FILED stamp's press, start to rest
 export const UNKNOWN_TITLE = 'Unknown: tap to file';
 export const UNKNOWN_HELP = 'Lines the reader could not place. Tap one, then tap the box it belongs in.';
+export const MORE_FIELDS = Object.freeze(['namePrefix', 'nameSuffix', 'middleName', 'nickname', 'birthday']);   // behind "+ Add a field"
 
 const $ = (id) => document.getElementById(id);
 const reducedMotion = () => window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -75,7 +77,7 @@ export function popIn() {
     const form = $('fieldsForm');
     if (!form) return;
     form.dataset.pops = String(Number(form.dataset.pops || 0) + 1);
-    if (reducedMotion()) return;
+    if (reducedMotion() || isShelved()) return;
     form.classList.remove('is-popping');
     void form.offsetWidth;                      // restart the animation when a pop is already running
     form.classList.add('is-popping');
@@ -121,7 +123,7 @@ export function initFieldsCard({ samples = [], prompt = SAMPLE_PROMPT, onSample 
     if (done) {
         done.textContent = '';
         done.append(okIcon(), Object.assign(document.createElement('span'), { textContent: DONE_LABEL }));
-        if (!isPlain) {
+        if (!isPlain && !isShelved()) {
             const stamp = Object.assign(document.createElement('span'), { className: 'fields-stamp', textContent: 'FILED' });
             stamp.setAttribute('aria-hidden', 'true');
             done.append(stamp);
@@ -141,10 +143,47 @@ export function initFieldsCard({ samples = [], prompt = SAMPLE_PROMPT, onSample 
         if (!isPlain) addSlotTabs(form);
         initUnknownTray(form);
     }
+    initMoreFields();
     // The tray holds contact text: it goes with everything else on a lock, a wipe or a new photo.
     [Events.VAULT_QUICK_LOCKED, Events.VAULT_WIPED, Events.MEMORY_PURGED, Events.IMAGE_CAPTURED].forEach(ev => globalEventBus.subscribe(ev, clearUnknownLines));
 }
 
+
+// ---- "+ Add a field" (0.8 redo R3, Creative's mock-up) ----------------------------------------------------------
+// The rarer boxes (MORE_FIELDS) wait behind "+ Add a field" under the Notes group. They show once it is pressed, and
+// as soon as one of them holds something (a scan's "Dr.", a sample's nickname), so nothing on the card is ever out
+// of sight. Once in view they stay until a wipe folds them away again. Visibility only: the boxes, their values and the form code are unchanged.
+
+/** Whether the "More" boxes show: pressed open, or one of them holds something. */
+export function moreFieldsShown(opened, values = []) {
+    return !!opened || values.some(v => String(v || '').trim() !== '');
+}
+
+let moreOpened = false;
+function syncMoreFields() {
+    const more = $('fieldsMore'), add = $('fieldsAddBtn');
+    if (!more) return;
+    const shown = moreFieldsShown(moreOpened, MORE_FIELDS.map(id => ($(id) || {}).value));
+    moreOpened = shown;     // once in view they stay (a box emptied while typing in it never vanishes under the finger)
+    more.classList.toggle('hidden', !shown);
+    if (add) { add.classList.toggle('hidden', shown); add.setAttribute('aria-expanded', String(shown)); }
+}
+
+function initMoreFields() {
+    const more = $('fieldsMore'), add = $('fieldsAddBtn');
+    if (!more || !add) return;
+    add.addEventListener('click', () => {
+        moreOpened = true;
+        syncMoreFields();
+        const first = $(MORE_FIELDS[0]);
+        if (first) first.focus();
+    });
+    // Anything that changes the contact (typing, a sample, a scan, Undo, Clear) ends in CONTACT_UPDATED
+    globalEventBus.subscribe(Events.CONTACT_UPDATED, syncMoreFields);
+    globalEventBus.subscribe(Events.CARD_CHANGED, syncMoreFields);
+    globalEventBus.subscribe(Events.VAULT_WIPED, () => { moreOpened = false; syncMoreFields(); });
+    syncMoreFields();
+}
 
 // ---- F2: the FILED stamp gives one soft press (not under reduce motion) ------------------------------------------
 function stampPress(button) {

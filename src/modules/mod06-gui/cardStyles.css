@@ -38,7 +38,8 @@ body { font-family: 'Inter', sans-serif; }
     .card-face .card-line-label { font-size: calc(0.625rem * var(--card-scale)); }
 }
 
-/* 3D Card spin: card3dView.js turns the card in JS (26 fps steps with a small snap, instant under reduce motion), so no
+/* 3D Card spin: card3dView.js turns the card in JS (a flip: 620 ms soft ease out; the settle after a drag: 26 fps steps
+   with a small snap; instant under reduce motion), so no
    CSS transition. A sideways drag on the card spins it; the browser keeps vertical scrolling. */
 .perspective-1000 { perspective: 1000px; }
 .transform-style-3d { transform-style: preserve-3d; touch-action: pan-y pinch-zoom; }
@@ -48,10 +49,6 @@ body { font-family: 'Inter', sans-serif; }
 .backface-hidden { backface-visibility: hidden; -webkit-backface-visibility: hidden; }
 .rotate-y-180 { transform: rotateY(180deg); }
 
-/* The MOD-06 / MOD-07 tags sit inside the 3D Card's top-right corner (mod01-shell/deck.css: 0.875rem down, about
-   1.1rem tall). The card's first row of controls starts below them, so no tag ever lies on the Flip card button. */
-#cardCard > .deck-card-body { padding-top: 2.5rem; }
-html[data-edition="plain"] #cardCard > .deck-card-body { padding-top: 1.25rem; }   /* plain: no tags, the room goes back */
 
 /* The card face takes the theme (card3dView.js sets the variables on #card3DFlipper): card colour, ink, accent. */
 .card-face { background: var(--card-bg, #3e5572); color: var(--card-ink, #eef3f9); border: 1px solid rgba(0, 0, 0, 0.12); }

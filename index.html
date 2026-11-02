@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="dark" data-edition="plain">
+<html lang="en" class="dark" data-edition="plain" data-shelf="on">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -35,6 +35,10 @@
     <link rel="stylesheet" href="src/modules/mod01-shell/ui.css">
     <!-- MOD01 postcard deck: header icons, the card track, the Vault and Settings sheets, the Thank You page -->
     <link rel="stylesheet" href="src/modules/mod01-shell/deck.css">
+    <link rel="stylesheet" href="src/modules/mod01-shell/screens-r2.css">
+    <link rel="stylesheet" href="src/modules/mod01-shell/screens-r3.css">
+    <link rel="stylesheet" href="src/modules/mod01-shell/screens-r4.css">
+    <link rel="stylesheet" href="src/modules/mod01-shell/screens-r5.css">
     <!-- MOD02 Vault: the padlock hand-off, hold-to-wipe, the lock screen and the Vault page -->
     <link rel="stylesheet" href="src/modules/mod02-vault/vault.css">
     <!-- MOD03 Camera: the Capture card (viewfinder, zoom fader, shutter, crop step) -->
@@ -54,33 +58,20 @@
         <span class="vcge-splash-logo"></span>
     </div>
 
-    <!-- MASTER HEADER (MOD01): slim, one icon per card in order of use, then Vault and Settings -->
-    <header class="deck-header border-b border-slate-200 dark:border-slate-800 bg-white/80 dark:bg-slate-900/80 backdrop-blur sticky top-0 z-40 flex items-center justify-between relative">
-        <div class="deck-brand">
-            <span class="deck-logo vcge-logo-mark" role="img" aria-label="vCGE"></span>
-            <span class="deck-wordmark vcge-wordmark" aria-hidden="true"></span>
-            <span class="deck-brand-text vcge-sr-only">vCard Generator Engine</span>
-        </div>
-        <nav class="deck-nav" aria-label="Cards">
-            <button id="navWelcome" type="button" data-card="welcome" aria-label="Start page: welcome and the tour (Shutout)" title="Start page: welcome and the tour (Shutout)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#home-shield"></use></svg><span>Shutout</span></button>
-            <button id="navCapture" type="button" data-card="capture" aria-label="Capture: take or upload a photo (Iris)" title="Capture: take or upload a photo (Iris)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#aperture"></use></svg><span>Iris</span></button>
-            <button id="navRead" type="button" data-card="read" aria-label="Read: check what was read (Glyph)" title="Read: check what was read (Glyph)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#radar-2"></use></svg><span>Glyph</span></button>
-            <button id="navFields" type="button" data-card="fields" aria-label="Fields: the contact details (Pidge)" title="Fields: the contact details (Pidge)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#forms"></use></svg><span>Pidge</span></button>
-            <button id="navCard" type="button" data-card="card" aria-label="3D card (Flipside)" title="3D card (Flipside)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#id"></use></svg><span>Flipside</span></button>
-            <button id="navQr" type="button" data-card="card" data-qr aria-label="QR code on the back of the card (Checkers)" title="QR code on the back of the card (Checkers)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#qrcode"></use></svg><span>Checkers</span></button>
-            <button id="navShare" type="button" data-card="share" aria-label="Share and export (Airlock)" title="Share and export (Airlock)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#send"></use></svg><span>Airlock</span></button>
-        </nav>
+    <!-- 0.8 SHELL (MOD01, Creative's CRTV-0020 mock-up): the top bar (the vCGE mark, which also leads back to the start
+         page; the session pill with the lock ring, which opens the Vault; Settings), then the head (the step, its pilot and
+         the screen's title). The steps live in the dock at the bottom. -->
+    <header class="deck-header vcge-bar">
+        <span class="deck-brand-text vcge-sr-only">vCard Generator Engine</span>
+        <button id="navWelcome" type="button" data-card="welcome" aria-label="Start page: welcome and the tour (Shutout)" title="Start page: welcome and the tour (Shutout)" class="vcge-mark"><span class="deck-logo vcge-logo-mark" aria-hidden="true"></span><span class="deck-wordmark vcge-wordmark" aria-hidden="true"></span><b class="vcge-mark-text">vCGE</b></button>
         <div class="deck-tools">
-            <span id="vaultBadge" class="flex text-xs px-2.5 py-1 rounded-full items-center gap-1.5 border bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700">
-                <span id="vaultBadgeDot" class="w-1.5 h-1.5 rounded-full bg-slate-400"></span><span id="vaultBadgeText">Vault: LOCKED</span>
+            <span id="vaultBadge" class="vcge-sr-only">
+                <span id="vaultBadgeText">Vault: LOCKED</span>
             </span>
-            <button id="lockVaultBtn" type="button" class="hidden px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition">🔒 Lock</button>
-            <button id="navVault" type="button" class="deck-icon-btn" data-open-sheet="vaultPage" aria-label="Vault: PIN and fingerprint (Ghost)" title="Vault: PIN and fingerprint (Ghost)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#lock"></use></svg></button>
-            <button id="navSettings" type="button" class="deck-icon-btn" data-open-sheet="settingsSheet" aria-label="Settings" title="Settings"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#settings"></use></svg></button>
+            <button id="navVault" type="button" class="vcge-iconbtn vcge-session" data-open-sheet="vaultPage" aria-label="Vault: PIN and fingerprint (Ghost)" title="Vault: PIN and fingerprint (Ghost)"><span class="vcge-lockdot"><svg class="vcge-ring" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15"></circle><circle id="sessArc" class="vcge-ring-arc" cx="18" cy="18" r="15" stroke-dasharray="94.2" stroke-dashoffset="0"></circle></svg><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#lock"></use></svg></span><span id="sessTxt" class="vcge-sess-txt"></span></button>
+            <button id="lockVaultBtn" type="button" class="hidden vcge-lockbtn">🔒 Lock</button>
+            <button id="navSettings" type="button" class="vcge-iconbtn" data-open-sheet="settingsSheet" aria-label="Settings" title="Settings"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#settings"></use></svg></button>
         </div>
-        <!-- Shutout's touches (shellArt.js; not in the plain edition): the turtle under the lit icon, and one shell plate per card -->
-        <span id="deckTurtle" class="deck-turtle" aria-hidden="true"><svg viewBox="0 0 200 200"><circle cx="104" cy="104" r="88" fill="#17130f"/><circle cx="98" cy="98" r="84" fill="#7fd17f" stroke="#17130f" stroke-width="7"/><circle cx="98" cy="98" r="72" fill="none" stroke="#fff" stroke-opacity=".55" stroke-width="3"/><path d="M44 74a60 60 0 0 1 40-36" fill="none" stroke="#fff" stroke-opacity=".8" stroke-width="7" stroke-linecap="round"/><svg x="42" y="56" width="112" height="112" viewBox="0 0 128 128"><path fill="#bdcf47" d="M112.7 59.21s3.94-2.21 4.93-2.77s4.6-2.82 5.91-.84c.77 1.16-.7 4.44-3.05 7.86c-2.14 3.13-7.12 9.56-7.4 10.83s1.11 6.36 1.53 8.33s1.74 6.71 1.17 8.54s-3.43 6.85-10.75 6.76c-5.82-.07-7.51-1.78-7.7-2.82c-.14-.75-.56-3.24-.56-3.24s-4.79 2.96-7.04 4.08s-8.31 4.22-8.31 4.22s1.17 5.35 1.36 7.51s.86 5.25-.28 7.32c-1.03 1.88-4.25 5.02-11.83 4.97c-5.92-.04-7.41-1.88-8.35-3c-.94-1.13-1.13-6.48-1.13-7.6s-.19-5.07-.19-5.07s-8.02-.4-12.86-.75c-4.38-.32-10.16-.99-10.16-.99s.21 2.33.42 4.01c.19 1.5.23 4.64-1.34 6.17c-2.11 2.06-7.56 2.21-10.56 1.92c-3-.28-7.18-1.83-8.4-4.55s.38-6.29 1.03-8.35c.58-1.81 1.6-4.41 1.22-5.16s-4.04-1.69-9.29-6.95c-5.26-5.26-12.13-23.52 3.28-36.23c15.49-12.76 43.81 1.1 45.31 2.04c1.54.96 53.04 3.76 53.04 3.76"/><path fill="#6e823a" d="M66.25 25.28c-13.93.62-24.38 7.52-29.57 15.06c-3.1 4.5-4.65 7.74-4.65 7.74s4.81.14 9.15 2.46c5 2.67 10.8 5.56 14.61 18.13c2.87 9.5 3.98 18.53 11.44 20.52c8.45 2.25 28.16 1.13 37.59-8.02s11.26-16.05 8.87-25.06s-13.17-25.05-28.16-29.28C79.06 25 72.58 25 66.25 25.28"/><path fill="#484e23" d="M111.93 51.32c-.42-.99-1.3-2.5-1.3-2.5s-.07 2.05-.25 3.13c-.28 1.76-1.25 5.42-1.81 4.88c-1-.97-5.73-6.92-7.98-10.23c-1.71-2.52-7.6-9.11-7.74-11.26c-.07-1.06 1.27-4.65 1.27-4.65s-1.22-.7-2.35-1.34c-.88-.49-2.16-1.03-2.16-1.03s-.77 4.9-1.62 5.82c-.75.81-5.32 2.6-8.87 3.94c-4.29 1.62-8.45 3.73-10 4.01c-1.36.25-9.09-1.41-12-1.97c-3.66-.7-9.18-2.26-10.45-3.17c-1.48-1.06-3.07-3.78-3.07-3.78s-.89.61-1.78 1.31c-.88.69-2.02 2.06-2.02 2.06s2.31 2.32 2.44 3.18c.18 1.2-1.27 2.83-2.46 4.38c-.72.93-2.75 4.85-2.75 4.85s.97.09 2.15.63c1.23.57 2.38 1.16 2.38 1.16s2.97-6.9 4.9-7.53c1.65-.54 6.3.99 9.68 1.69c4.79.99 9.64 1.87 10.66 3.17c1.06 1.34 2.06 6.68 3.03 11.19C70.89 64.2 73.64 77.02 73 78c-.63.99-5.7.63-8.59.28c-2.45-.3-6.41-1.76-6.41-1.76s.58 2.11.77 2.67c.28.81 1.16 3.06 1.16 3.06s5.67 2.5 22.42.95s25.03-12.96 27.38-18.02c3.14-6.78 3.54-10.39 3.54-10.39s-.92-2.48-1.34-3.47M96.65 73.21c-4.24 2.67-15.2 5.49-17.18 4.43c-1.58-.85-3.94-13.94-5.07-19.78c-.72-3.74-2.45-9.42-1.41-11.19c.7-1.2 4.79-2.99 7.81-4.4c2.87-1.33 6.97-3.13 8.17-2.99c1.7.2 5.35 6.12 9.01 11.19s7.67 10.35 7.74 12.18c.09 1.84-4.7 7.82-9.07 10.56"/><path fill="#2a2b28" d="M41.18 65.86c.5 2.83-.95 5.75-4.07 6.02c-2.56.22-4.59-1.57-5.09-4.4s1.14-5.49 3.68-5.94c2.52-.45 4.98 1.48 5.48 4.32m-18.36.25c.07 2.84-2.42 5.69-5.5 5.11c-2.53-.48-3.99-2.73-3.71-5.55c.29-2.82 2.59-4.9 5.15-4.65s3.99 2.13 4.06 5.09m7.95 10.48c1.16-.79 3.1-2.67 4.36-1.06c1.27 1.62-.92 3.1-2.18 4.01c-1.27.92-4.08 3.17-6.12 3.17c-1.9 0-4.79-2.32-6.62-3.87c-1.49-1.26-2.18-2.89-1.34-3.87s2.14-.62 3.24.35c1.27 1.13 3.72 3.38 4.72 3.38c.98.01 2.39-1.05 3.94-2.11"/></svg></svg></span>
-        <span id="deckPlates" class="deck-plates" aria-hidden="true"><svg data-card="welcome" viewBox="0 0 10 10"><polygon points="5,0.8 8.9,3 8.9,7 5,9.2 1.1,7 1.1,3"/></svg><svg data-card="capture" viewBox="0 0 10 10"><polygon points="5,0.8 8.9,3 8.9,7 5,9.2 1.1,7 1.1,3"/></svg><svg data-card="read" viewBox="0 0 10 10"><polygon points="5,0.8 8.9,3 8.9,7 5,9.2 1.1,7 1.1,3"/></svg><svg data-card="fields" viewBox="0 0 10 10"><polygon points="5,0.8 8.9,3 8.9,7 5,9.2 1.1,7 1.1,3"/></svg><svg data-card="card" viewBox="0 0 10 10"><polygon points="5,0.8 8.9,3 8.9,7 5,9.2 1.1,7 1.1,3"/></svg><svg data-card="share" viewBox="0 0 10 10"><polygon points="5,0.8 8.9,3 8.9,7 5,9.2 1.1,7 1.1,3"/></svg></span>
         <div id="vaultTimerStrip" class="hidden absolute left-0 right-0 top-full pointer-events-none">
             <div id="vaultTimerBand" class="flex items-center gap-3 px-4 py-1.5 text-xs border-b backdrop-blur bg-white/90 text-slate-600 border-slate-200 dark:bg-slate-900/90 dark:text-slate-300 dark:border-slate-800">
                 <span aria-hidden="true">🔒</span><span id="vaultTimerLabel">Locks in</span>
@@ -97,64 +88,110 @@
             </div>
         </div>
     </header>
+    <div class="vcge-head" id="vcgeHead">
+        <div class="vcge-eyebrow"><span id="hStep">Welcome</span><span class="vcge-chip-pilot" id="hPilot"><i id="hEmoji" aria-hidden="true">🐢</i><span id="hName">Shutout</span></span></div>
+        <h2 id="hTitle">Hello there</h2>
+    </div>
 
-    <!-- THE DECK (MOD01): one card per step, swiped left and right like postcards. Only the card in view takes input. -->
-    <main id="deck" class="deck" aria-label="vCGE cards">
-        <section id="cardWelcome" class="deck-card mod-tag-host" data-card="welcome" aria-label="Welcome">
-            <div class="deck-card-body space-y-4">
-                <div id="welcomeBody" class="welcome-body"></div>
-            </div>
-            <div class="mod-tag" aria-hidden="true"><span>MOD-01</span></div>
-        </section>
-        <section id="cardCapture" class="deck-card mod-tag-host" data-card="capture" aria-label="Capture">
-            <div class="deck-card-body space-y-4">
-                <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Scan a business card</h2>
-                <p id="photoCountNote" class="hidden text-sm text-slate-500 dark:text-slate-400" role="status"></p>
-                <!-- Iris peeking over a card (MOD03 cute touch; branded edition only, see camera.css). Tap: one wink. -->
-                <div id="capIris" class="cap-iris" role="img" aria-label="Iris the lynx peeking over a business card">
-                    <svg viewBox="0 0 120 80" aria-hidden="true" focusable="false">
-                        <path d="M33 34 L29 7 L48 25 Z" fill="#c08a4a"/><path d="M87 34 L91 7 L72 25 Z" fill="#c08a4a"/>
-                        <path d="M35 28 L33 14 L43 25 Z" fill="#f4c7b8"/><path d="M85 28 L87 14 L77 25 Z" fill="#f4c7b8"/>
-                        <path d="M29 7 L28 0 M91 7 L92 0" stroke="#3f2a17" stroke-width="2" stroke-linecap="round"/>
-                        <ellipse cx="60" cy="47" rx="31" ry="25" fill="#d9ab6c"/>
-                        <path d="M30 50 L22 56 L32 55 Z M90 50 L98 56 L88 55 Z" fill="#d9ab6c"/>
-                        <g class="iris-eye-l"><ellipse cx="48" cy="41" rx="5" ry="5.5" fill="#f59e0b"/><ellipse cx="48" cy="41" rx="1.5" ry="4.3" fill="#0f172a"/></g>
-                        <g class="iris-eye-r"><ellipse cx="72" cy="41" rx="5" ry="5.5" fill="#f59e0b"/><ellipse cx="72" cy="41" rx="1.5" ry="4.3" fill="#0f172a"/></g>
-                        <rect x="8" y="49" width="104" height="30" rx="4" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
-                        <path d="M18 60 H58 M18 67 H74 M18 73 H50" stroke="#cbd5e1" stroke-width="2.5" stroke-linecap="round"/>
-                        <ellipse cx="42" cy="50" rx="7" ry="4.5" fill="#d9ab6c"/><ellipse cx="78" cy="50" rx="7" ry="4.5" fill="#d9ab6c"/>
-                        <path d="M39 48 V52 M42 47.5 V52.5 M45 48 V52 M75 48 V52 M78 47.5 V52.5 M81 48 V52" stroke="#a87436" stroke-width="1" stroke-linecap="round"/>
+    <!-- THE SCREENS (MOD01): one per step, shown one at a time (deck.js). The head above names the step, its pilot and the screen. -->
+    <main id="deck" class="deck" aria-label="vCGE screens">
+        <section id="cardWelcome" class="deck-card" data-card="welcome" data-step="Welcome" data-pilot-emoji="🐢" data-pilot="Shutout" data-title="Hello there" data-next="" data-next-label="Scan a card" aria-label="Welcome">
+            <!-- Welcome (0.8 redo R2, CRTV-0020 mock-up): Shutout waving, the one-line promise, the privacy line, the tagline and
+                 "Made by". The primary button "Scan a card" is the dock's (data-next is empty, so it moves on to Capture).
+                 welcome.js wires the quiet buttons and leaves Shutout and the tagline out of the plain edition. -->
+            <div class="deck-card-body">
+                <div id="welcomeBody" class="r2-hero">
+                    <svg id="welcomeArt" class="r2-art" viewBox="0 0 200 150" role="img" aria-label="Shutout the Box Turtle waving">
+                        <ellipse class="r2-art-floor" cx="100" cy="138" rx="66" ry="8"/>
+                        <path d="M44 104c0-34 25-58 56-58s56 24 56 58c0 10-8 16-18 16H62c-10 0-18-6-18-16z" fill="#6E7F3A"/>
+                        <path d="M62 102c0-22 17-40 38-40s38 18 38 40" fill="none" stroke="#56662A" stroke-width="4" stroke-linecap="round"/>
+                        <path d="M100 62v40M76 72l10 30M124 72l-10 30" stroke="#56662A" stroke-width="4" stroke-linecap="round"/>
+                        <path d="M38 112c-6 0-10 8-6 14 4 5 14 4 18-2" fill="#B7C46E"/>
+                        <path d="M162 112c6 0 10 8 6 14-4 5-14 4-18-2" fill="#B7C46E"/>
+                        <circle cx="100" cy="44" r="27" fill="#B7C46E"/>
+                        <ellipse cx="90" cy="42" rx="4" ry="5" fill="#2A2440"/><ellipse cx="110" cy="42" rx="4" ry="5" fill="#2A2440"/>
+                        <circle cx="91.5" cy="40" r="1.4" fill="#fff"/><circle cx="111.5" cy="40" r="1.4" fill="#fff"/>
+                        <path d="M92 54q8 6 16 0" fill="none" stroke="#2A2440" stroke-width="2.6" stroke-linecap="round"/>
+                        <circle cx="82" cy="52" r="4" fill="#F6C3AE" opacity=".8"/><circle cx="118" cy="52" r="4" fill="#F6C3AE" opacity=".8"/>
+                        <path d="M150 86c8-10 14-24 12-34" stroke="#B7C46E" stroke-width="12" stroke-linecap="round" fill="none"/>
+                        <circle cx="162" cy="48" r="9" fill="#B7C46E"/>
                     </svg>
+                    <h3 id="welcomeTitle">Scan a card. Keep the contact.</h3>
+                    <p class="r2-lede">Point your camera at a business card. vCGE reads it on this device and helps you save it.</p>
+                    <div class="r2-privacy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg><span>Nothing is saved. Your card stays in memory and is wiped after you lock or close the app.</span></div>
+                    <p id="welcomeTagline" class="r2-tag">Operation: Never Lose Contact</p>
+                    <!-- "Made by" and the Herd of Helpers maker mark, in both editions (plain: the HoH Block mark), CRTV-0020 -->
+                    <div class="vcge-maker"><small>Made by</small><span class="vcge-hoh" role="img" aria-label="Herd of Helpers"></span></div>
+                    <div class="r2-more">
+                        <button id="welcomeTourBtn" type="button" class="r2-quiet">Take a Tour</button>
+                        <button id="welcomePinBtn" type="button" class="r2-quiet">Set Up PIN/BIO Lock Now</button>
+                        <button id="welcomeSampleBtn" type="button" class="r2-quiet">Play with sample fields</button>
+                        <button id="welcomeCancelBtn" type="button" class="r2-quiet r2-quiet-stop">CANCEL</button>
+                    </div>
+                    <p class="r2-fine">This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data: it keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time), and nothing you scan, upload or type is ever saved.</p>
                 </div>
-                <!-- Capture (MOD03, Iris): Take a photo first, Upload a photo second; the picker is the device's own -->
-                <div id="captureChoice" class="cap-choice">
-                    <button id="startCameraBtn" type="button" class="cap-btn cap-btn-primary"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#camera"></use></svg><span>Take a photo</span></button>
-                    <label id="uploadPhotoBtn" class="cap-btn">
-                        <svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#upload"></use></svg><span>Upload a photo</span>
-                        <input id="imageUpload" type="file" accept="image/*" class="hidden" aria-label="Upload a photo">
-                    </label>
-                </div>
-                <button id="reopenScanBtn" type="button" class="hidden w-full py-2 px-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/60 dark:hover:bg-slate-700 rounded-xl text-xs font-semibold transition">Reopen last scan (fix lines and fill again, no new OCR)</button>
-                <!-- Viewfinder: the live picture with thin corner brackets marking a card-shaped frame, the zoom fader on the
-                     left (48 px from the screen edge) and the round red shutter on the right; Settings can mirror them -->
-                <div id="cameraPanel" class="hidden cap-finder">
-                    <div id="viewfinderArea" class="cap-view">
-                        <video id="cameraStream" autoplay playsinline muted></video>
-                        <div id="cardFrame" class="cap-frame" aria-hidden="true">
+            </div>
+        </section>
+        <section id="cardCapture" class="deck-card" data-card="capture" data-step="Step 1 of 5 · Capture" data-pilot-emoji="🐈" data-pilot="Iris" data-title="Capture" data-next="#runOcrBtn" data-next-label="Use this photo" aria-label="Capture">
+            <div class="deck-card-body r2-capbody">
+                <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Scan a business card</h2>
+                <p id="photoCountNote" class="hidden r2-note" role="status"></p>
+                <button id="reopenScanBtn" type="button" class="hidden r2-reopen">Reopen last scan (fix lines and fill again, no new OCR)</button>
+                <!-- Capture (0.8 redo R2, CRTV-0020 mock-up; MOD03 Iris): the viewfinder first, nearly full width, with card-shaped
+                     corners that turn green when a card is in them, the hint and the zoom chips; under it the shutter in the middle
+                     (a red ring that turns green) with Photo (upload) and Flip camera either side. It fits one screen: the
+                     viewfinder takes the room the rest leaves. Left-handed (Settings) swaps Photo and Flip. -->
+                <div id="capCamera" class="r2-cam">
+                    <div id="viewfinderArea" class="cap-view r2-finder">
+                        <div id="cameraPanel" class="hidden r2-live"><video id="cameraStream" autoplay playsinline muted></video></div>
+                        <!-- The camera is off: Iris peeks over a card (tap: one wink) above the button that starts it -->
+                        <div class="r2-idle">
+                            <div id="capIris" class="cap-iris" role="img" aria-label="Iris the lynx peeking over a business card">
+                                <svg viewBox="0 0 120 80" aria-hidden="true" focusable="false">
+                                    <path d="M33 34 L29 7 L48 25 Z" fill="#c08a4a"/><path d="M87 34 L91 7 L72 25 Z" fill="#c08a4a"/>
+                                    <path d="M35 28 L33 14 L43 25 Z" fill="#f4c7b8"/><path d="M85 28 L87 14 L77 25 Z" fill="#f4c7b8"/>
+                                    <path d="M29 7 L28 0 M91 7 L92 0" stroke="#3f2a17" stroke-width="2" stroke-linecap="round"/>
+                                    <ellipse cx="60" cy="47" rx="31" ry="25" fill="#d9ab6c"/>
+                                    <path d="M30 50 L22 56 L32 55 Z M90 50 L98 56 L88 55 Z" fill="#d9ab6c"/>
+                                    <g class="iris-eye-l"><ellipse cx="48" cy="41" rx="5" ry="5.5" fill="#f59e0b"/><ellipse cx="48" cy="41" rx="1.5" ry="4.3" fill="#0f172a"/></g>
+                                    <g class="iris-eye-r"><ellipse cx="72" cy="41" rx="5" ry="5.5" fill="#f59e0b"/><ellipse cx="72" cy="41" rx="1.5" ry="4.3" fill="#0f172a"/></g>
+                                    <rect x="8" y="49" width="104" height="30" rx="4" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+                                    <path d="M18 60 H58 M18 67 H74 M18 73 H50" stroke="#cbd5e1" stroke-width="2.5" stroke-linecap="round"/>
+                                    <ellipse cx="42" cy="50" rx="7" ry="4.5" fill="#d9ab6c"/><ellipse cx="78" cy="50" rx="7" ry="4.5" fill="#d9ab6c"/>
+                                    <path d="M39 48 V52 M42 47.5 V52.5 M45 48 V52 M75 48 V52 M78 47.5 V52.5 M81 48 V52" stroke="#a87436" stroke-width="1" stroke-linecap="round"/>
+                                </svg>
+                            </div>
+                            <button id="startCameraBtn" type="button" class="r2-start"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#camera"></use></svg><span>Start the camera</span></button>
+                        </div>
+                        <div id="cardFrame" class="cap-frame r2-corners" aria-hidden="true">
                             <span class="cap-corner tl"></span><span class="cap-corner tr"></span><span class="cap-corner br"></span><span class="cap-corner bl"></span>
                         </div>
-                        <div class="cap-fader">
-                            <span id="zoomDisplay" class="cap-zoom" aria-live="off">1.0x</span>
-                            <div class="cap-fader-track"><input id="zoomSlider" type="range" min="1" max="4" step="0.1" value="1" aria-label="Zoom" aria-orientation="vertical" data-no-swipe></div>
-                        </div>
-                        <div class="cap-shutter-slot">
-                            <button id="captureBtn" type="button" class="cap-shutter" aria-label="Take the photo" title="Take the photo"><svg class="vcge-icon cap-shutter-icon" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#camera"></use></svg><svg class="vcge-icon cap-shutter-check" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#circle-check"></use></svg></button>
-                            <span class="cap-shutter-label" aria-hidden="true">Shutter</span>
+                        <div id="camHint" class="r2-hint" aria-live="polite">Fit the card inside the corners</div>
+                        <button id="stopCameraBtn" type="button" class="r2-close" aria-label="Close camera" title="Close camera"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+                        <!-- Zoom: three chips over the foot of the picture. They drive the same zoom as before (camera.js pickZoom: the
+                             slider below, kept as the zoom's value, eases into each change); a pinch still zooms anywhere in between. -->
+                        <div id="zoomChips" class="r2-zoom" role="group" aria-label="Zoom">
+                            <button type="button" data-zoom="0.5" aria-pressed="false" aria-label="Zoom out to half">.5×</button><button type="button" data-zoom="1" aria-pressed="true" aria-label="No zoom">1×</button><button type="button" data-zoom="2" aria-pressed="false" aria-label="Zoom in two times">2×</button>
+                            <span id="zoomDisplay" class="hidden" aria-live="off">1.0x</span>
+                            <input id="zoomSlider" class="hidden" type="range" min="1" max="4" step="0.1" value="1" aria-label="Zoom" tabindex="-1" data-no-swipe>
                         </div>
                     </div>
-                    <div class="cap-finder-tools">
-                        <button id="switchCameraBtn" type="button">Switch camera</button>
-                        <button id="stopCameraBtn" type="button">Close camera</button>
+                    <div class="r2-camrow">
+                        <div class="r2-side">
+                            <label id="uploadPhotoBtn" class="r2-sidebtn" title="Choose a photo">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-8 9"/></svg>
+                                <input id="imageUpload" type="file" accept="image/*" class="hidden" aria-label="Choose a photo">
+                            </label>
+                            <span aria-hidden="true">Photo</span>
+                        </div>
+                        <div class="r2-shut">
+                            <button id="captureBtn" type="button" class="cap-shutter r2-shutter" aria-label="Take the photo" title="Take the photo" aria-describedby="shutLbl"><svg class="vcge-icon cap-shutter-icon" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#camera"></use></svg><svg class="vcge-icon cap-shutter-check" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#circle-check"></use></svg></button>
+                            <div id="shutLbl" class="r2-shutlbl">Camera off</div>
+                        </div>
+                        <div class="r2-side">
+                            <button id="switchCameraBtn" type="button" class="r2-sidebtn" aria-label="Switch camera" title="Switch camera"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><path d="M9 13a3 3 0 0 1 5.5-1.6M15 14a3 3 0 0 1-5.5 1.6"/><path d="M14.5 9.5v2h-2M9.5 17.5v-2h2"/></svg></button>
+                            <span aria-hidden="true">Flip</span>
+                        </div>
                     </div>
                 </div>
                 <!-- Crop & straighten (MOD03): the handles start at the photo's full edge; Snap to card finds the edges on request -->
@@ -191,25 +228,23 @@
                 <canvas id="captureCanvas" class="hidden"></canvas>
             </div>
             <div class="deck-card-foot">
-                <button type="button" class="vcge-trash" aria-label="Wipe everything and start over" title="Wipe everything and start over"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg></button>
             </div>
-            <div class="mod-tag" aria-hidden="true"><span>MOD-03</span></div>
         </section>
-        <section id="cardRead" class="deck-card mod-tag-host" data-card="read" aria-label="Read">
-            <div class="deck-card-body space-y-4">
-                <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Read the card</h2>
-                <!-- Review (MOD03 -> MOD04 -> MOD05): step 1 crop & straighten the photo, step 2 check the extracted text -->
-                <div id="cropReviewModal" class="hidden space-y-3">
-            <div id="ocrStepPhoto" class="space-y-3">
-                <h2 class="text-lg font-bold">Reading the card</h2>
+        <section id="cardRead" class="deck-card" data-card="read" data-step="Step 2 of 5 · Read" data-pilot-emoji="🦉" data-pilot="Glyph" data-title="Check the text" data-next="#applyOcrBtn" data-next-label="Fill details" aria-label="Read">
+            <div class="deck-card-body">
+                <!-- Review (MOD03 -> MOD04 -> MOD05): the Capture card crops the photo, this card reads it and shows the lines to check.
+                     0.8 redo R3 (Creative's mock-up): the photo thumbnail stays in view, each line is one rounded box with a type
+                     chip, a flagged line says in words what to check, and the dock's "Fill details" goes on (#applyOcrBtn). -->
+                <div id="cropReviewModal" class="hidden">
+            <div id="ocrStepPhoto" class="read-reading">
                 <!-- Reading (MOD04): the photo under a shimmer; the wash is full at the 55 s limit, never a number. Cancel stops the reader and goes back to the photo -->
-                <div id="ocrProgress" class="hidden space-y-2">
+                <div id="ocrProgress" class="hidden">
                     <div id="ocrProgressBar" class="read-frame" role="progressbar" aria-label="Reading the card" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="Reading the card">
                         <img id="ocrReadPhoto" alt="" class="read-photo">
                         <div id="ocrProgressFill" class="read-wash" aria-hidden="true"></div>
                         <div class="read-shimmer" aria-hidden="true"></div>
                     </div>
-                    <div class="flex items-center justify-between gap-3">
+                    <div class="read-progress-row">
                         <!-- Glyph the owl reads along: its eyes follow the wash (still under reduce motion; not in the plain edition) -->
                         <svg id="ocrReadOwl" class="read-owl owl-art" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
                             <path class="owl-body" d="M6 9 L8.5 3 L12 7 Q16 5.5 20 7 L23.5 3 L26 9 Q29 17 25 25 Q16 31 7 25 Q3 17 6 9Z"></path>
@@ -219,95 +254,95 @@
                             <path class="owl-beak" d="M14.6 17 L17.4 17 L16 20Z"></path>
                             <path class="owl-belly" d="M11.5 22.5 Q16 25 20.5 22.5"></path>
                         </svg>
-                        <p id="ocrProgressLabel" class="text-xs text-slate-500 dark:text-slate-400 mr-auto" aria-live="polite">Extracting…</p>
-                        <button id="ocrStopBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Cancel</button>
+                        <p id="ocrProgressLabel" class="read-progress-label" aria-live="polite">Extracting…</p>
+                        <button id="ocrStopBtn" type="button" class="read-quiet-btn">Cancel</button>
                     </div>
                 </div>
             </div>
 
-            <div id="ocrStepText" class="hidden space-y-3">
-                <h2 class="text-lg font-bold">Check the extracted text</h2>
-                <p class="text-xs text-slate-500 dark:text-slate-400">Fix any misread text and choose what each line is. Tick the box in a flagged line when it looks right. Nothing goes into the form until you press Proceed.</p>
-                <div id="ocrLines" class="space-y-1.5"></div>
-                <div>
-                    <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Will fill</h3>
-                    <dl id="ocrSummary" class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-0.5 text-sm"></dl>
+            <div id="ocrStepText" class="hidden">
+                <!-- The photo stays in view beside the hint (readCard.js readThumb; dropped with the review, a wipe or a purge) -->
+                <div id="ocrThumbRow" class="read-thumb">
+                    <img id="ocrThumb" class="read-thumb-photo hidden" alt="The photo being checked">
+                    <p id="ocrThumbNote">Fix anything misread and pick what each line is. Nothing fills in until you go on.</p>
                 </div>
-                <p id="ocrMoreFields" class="read-more text-xs">Something missing, like a birthday, a second address or a social profile? You can add more fields on the next card.</p>
-                <div class="flex flex-wrap justify-end gap-2">
-                    <button id="ocrBackBtn" type="button" class="mr-auto px-3 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Back to photo</button>
-                    <button id="ocrCancelBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Cancel</button>
-                    <button id="applyOcrBtn" type="button" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Proceed</button>
+                <div id="ocrLines" class="read-lines"></div>
+                <p id="ocrMoreFields" class="read-tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7.5v.5"></path></svg><span>You can add more fields, like a birthday or a second email, on the next step.</span></p>
+                <!-- What the lines fill in, tucked away (the mock-up drops the summary; it stays one tap away) -->
+                <details id="ocrSummaryBox" class="read-will">
+                    <summary>What fills in</summary>
+                    <dl id="ocrSummary" class="read-will-list"></dl>
+                </details>
+                <div class="read-tools">
+                    <button id="ocrBackBtn" type="button" class="read-quiet-btn">Back to the photo</button>
+                    <button id="ocrCancelBtn" type="button" class="read-quiet-btn">Cancel</button>
+                    <!-- The dock's "Fill details" presses this one (deck.js data-next); it is not shown on its own -->
+                    <button id="applyOcrBtn" type="button" class="read-apply">Fill details</button>
                 </div>
             </div>
                 </div>
-                <p id="readEmpty" class="text-sm text-slate-500 dark:text-slate-400">No photo yet. Take or upload one on the Capture card and it is read here, on this device.</p>
+                <p id="readEmpty" class="read-tip read-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="6" width="18" height="13" rx="3"></rect><circle cx="12" cy="12.5" r="3.2"></circle><path d="M8.5 6l1.5-2h4l1.5 2"></path></svg><span>No photo yet. Take or upload one on the Capture card and it is read here, on this device.</span></p>
             </div>
             <div class="deck-card-foot">
-                <button type="button" class="vcge-trash" aria-label="Wipe everything and start over" title="Wipe everything and start over"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg></button>
             </div>
-            <div class="mod-tag" aria-hidden="true"><span>MOD-04</span></div>
         </section>
-        <section id="cardFields" class="deck-card mod-tag-host" data-card="fields" aria-label="Fields">
-            <div class="deck-card-body space-y-4">
-            <!-- Fields card (MOD05, Pidge): the details land here after the Read card's hand-off and pop in all at once -->
-            <div class="fields-head">
-                <h2>Contact details</h2>
-            </div>
-            <!-- "Sample vCGE pilot contact": the nine pilots (MOD06 supplies them as data; fieldsCard.js fills the list) -->
-            <div class="fields-tools">
-                <label class="fields-fake"><select id="fakeContactSelect" class="field-input" aria-label="Sample vCGE pilot contact"></select></label>
-                <button id="clearFormBtn" type="button" class="text-[11px] font-semibold px-3 py-1 rounded-lg hover:text-rose-500 transition">Clear form</button>
-            </div>
+        <section id="cardFields" class="deck-card" data-card="fields" data-step="Step 3 of 5 · Details" data-pilot-emoji="🐙" data-pilot="Pidge" data-title="Contact details" data-next="#fieldsDoneBtn" data-next-label="Make the card" aria-label="Fields">
+            <div class="deck-card-body">
+            <!-- Fields card (MOD05, Pidge): the details land here after the Read card's hand-off and pop in all at once.
+                 0.8 redo R3 (Creative's mock-up): rounded boxes with the label above, grouped Name / Work / Reach / Notes, and
+                 "+ Add a field" for the rarer boxes. Next is the dock's "Make the card" (#fieldsDoneBtn). The sample list and
+                 Clear form have no place in the mock-up, so they sit last, under "+ Add a field". -->
 
             <!-- Option lists (prefixes, suffixes, unit types, countries, regions) are filled from share/contactOptions.js -->
             <datalist id="namePrefixOptions"></datalist>
             <datalist id="nameSuffixOptions"></datalist>
             <datalist id="unitTypeOptions"></datalist>
 
-            <div id="fieldsForm" class="fields-form grid grid-cols-2 gap-3 text-sm">
-                <label class="block"><span class="field-label">Prefix</span><input id="namePrefix" type="text" list="namePrefixOptions" autocomplete="off" class="field-input" placeholder="Mr., Dr., ..."></label>
-                <label class="block"><span class="field-label">First name</span><input id="firstName" type="text" autocomplete="off" class="field-input"></label>
-                <label class="block"><span class="field-label">Middle name</span><input id="middleName" type="text" autocomplete="off" class="field-input"></label>
-                <label class="block"><span class="field-label">Last name</span><input id="lastName" type="text" autocomplete="off" class="field-input"></label>
-                <label class="block"><span class="field-label">Suffix</span><input id="nameSuffix" type="text" list="nameSuffixOptions" autocomplete="off" class="field-input" placeholder="Jr., PhD, ..."></label>
-                <label class="block"><span class="field-label">Nickname</span><input id="nickname" type="text" autocomplete="off" class="field-input"></label>
-                <label class="block"><span class="field-label">Organization</span><input id="organization" type="text" autocomplete="off" class="field-input"></label>
-                <label class="block"><span class="field-label">Job title</span><input id="jobTitle" type="text" autocomplete="off" class="field-input"></label>
+            <div id="fieldsForm" class="fields-form">
+                <h4 class="fields-group">Name</h4>
+                <div class="fields-pair">
+                    <label class="block"><span class="field-label">First name</span><input id="firstName" type="text" autocomplete="off" class="field-input"></label>
+                    <label class="block"><span class="field-label">Last name</span><input id="lastName" type="text" autocomplete="off" class="field-input"></label>
+                </div>
 
-                <!-- Typed lists (MOD06 builds the rows): each row is a type picker, a value and a remove button -->
-                <fieldset class="col-span-2 space-y-1.5">
+                <h4 class="fields-group">Work</h4>
+                <label class="block"><span class="field-label">Job title</span><input id="jobTitle" type="text" autocomplete="off" class="field-input"></label>
+                <label class="block"><span class="field-label">Company</span><input id="organization" type="text" autocomplete="off" class="field-input"></label>
+
+                <h4 class="fields-group">Reach</h4>
+                <!-- Typed lists (MOD06 builds the rows): each row is a value box, its type and a remove button -->
+                <fieldset class="fields-list">
                     <legend class="field-label">Phones</legend>
+                    <div id="phoneList" class="fields-rows"></div>
                     <!-- Phone style (MOD05): how US and Canadian numbers are written; memory only, never saved -->
                     <div class="fields-phone-style">
                         <label class="fields-cc"><span>Number style</span><select id="phoneFormatSelect" class="field-input" aria-label="Phone number style"></select></label>
                         <label class="fields-cc"><input id="phoneCountryCode" type="checkbox" class="vcge-switch" checked><span>Include +1</span></label>
                     </div>
-                    <div id="phoneList" class="space-y-1.5"></div>
-                    <button id="addPhoneBtn" type="button" class="text-xs font-semibold text-brand-700 dark:text-brand-400 hover:underline">+ Add phone</button>
+                    <button id="addPhoneBtn" type="button" class="fields-add-row">+ Add phone</button>
                 </fieldset>
-                <fieldset class="col-span-2 space-y-1.5">
+                <fieldset class="fields-list">
                     <legend class="field-label">Emails</legend>
-                    <div id="emailList" class="space-y-1.5"></div>
-                    <button id="addEmailBtn" type="button" class="text-xs font-semibold text-brand-700 dark:text-brand-400 hover:underline">+ Add email</button>
+                    <div id="emailList" class="fields-rows"></div>
+                    <button id="addEmailBtn" type="button" class="fields-add-row">+ Add email</button>
                 </fieldset>
-                <fieldset class="col-span-2 space-y-1.5">
+                <fieldset class="fields-list">
                     <legend class="field-label">Websites &amp; social profiles</legend>
-                    <div id="websiteList" class="space-y-1.5"></div>
-                    <button id="addWebsiteBtn" type="button" class="text-xs font-semibold text-brand-700 dark:text-brand-400 hover:underline">+ Add website</button>
+                    <div id="websiteList" class="fields-rows"></div>
+                    <button id="addWebsiteBtn" type="button" class="fields-add-row">+ Add website</button>
                 </fieldset>
 
-                <fieldset class="col-span-2 grid grid-cols-2 gap-3">
-                    <legend class="field-label col-span-2">Address</legend>
+                <fieldset class="fields-address">
+                    <legend class="field-label">Address</legend>
                     <label class="block"><span class="field-label">Type</span><select id="addressType" class="field-input"></select></label>
                     <label class="block"><span class="field-label">Country</span><select id="country" class="field-input"></select></label>
-                    <div class="relative col-span-2">
+                    <div class="fields-wide relative">
                         <label class="block"><span class="field-label">Street (local suggestions)</span><input id="street" type="text" autocomplete="off" class="field-input"></label>
                         <div id="addressAutocompleteList" class="hidden absolute z-30 left-0 right-0 mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden"></div>
                     </div>
                     <label class="block"><span class="field-label">Unit type</span><input id="unitType" type="text" list="unitTypeOptions" autocomplete="off" class="field-input" placeholder="Apt, Suite, ..."></label>
                     <label class="block"><span class="field-label">Unit number</span><input id="unitNumber" type="text" autocomplete="off" class="field-input"></label>
-                    <label class="block col-span-2"><span class="field-label">City</span><input id="city" type="text" autocomplete="off" class="field-input"></label>
+                    <label class="block fields-wide"><span class="field-label">City</span><input id="city" type="text" autocomplete="off" class="field-input"></label>
                     <!-- #state holds the value; the visible control is a picker for countries with a region list, else a text box -->
                     <input id="state" type="hidden">
                     <label class="block"><span id="stateLabel" class="field-label">State</span>
@@ -317,79 +352,50 @@
                     <label class="block"><span id="zipLabel" class="field-label">ZIP</span><input id="zip" type="text" autocomplete="off" class="field-input"></label>
                 </fieldset>
 
-                <label class="block"><span class="field-label">Birthday</span><input id="birthday" type="date" class="field-input"></label>
-                <label class="block col-span-2"><span class="field-label">Notes</span><textarea id="notes" rows="2" class="field-input"></textarea></label>
+
+                <h4 class="fields-group">Notes</h4>
+                <label class="block"><span class="field-label">Notes</span><textarea id="notes" rows="2" class="field-input"></textarea></label>
                 <!-- Categories (MOD05): tags typed by the person, comma separated; written as the vCard's CATEGORIES -->
-                <label class="block col-span-2"><span class="field-label">Categories</span><input id="categories" type="text" autocomplete="off" class="field-input" placeholder="Client, Plumber, Met at expo" aria-describedby="categoriesHint"></label>
-                <p id="categoriesHint" class="fields-hint col-span-2">Separate them with commas. Google Contacts and Outlook show them as labels; iPhone Contacts leaves them out.</p>
+                <label class="block"><span class="field-label">Categories</span><input id="categories" type="text" autocomplete="off" class="field-input" placeholder="Client, Plumber, Met at expo" aria-describedby="categoriesHint"></label>
+                <p id="categoriesHint" class="fields-hint">Separate them with commas. Google Contacts and Outlook show them as labels; iPhone Contacts leaves them out.</p>
+
+                <!-- The rarer boxes (fieldsCard.js): shown by "+ Add a field", and always while one of them holds something -->
+                <div id="fieldsMore" class="fields-more hidden" role="group" aria-labelledby="fieldsMoreTitle">
+                    <h4 id="fieldsMoreTitle" class="fields-group">More</h4>
+                    <div class="fields-pair">
+                        <label class="block"><span class="field-label">Prefix</span><input id="namePrefix" type="text" list="namePrefixOptions" autocomplete="off" class="field-input" placeholder="Mr., Dr., ..."></label>
+                        <label class="block"><span class="field-label">Suffix</span><input id="nameSuffix" type="text" list="nameSuffixOptions" autocomplete="off" class="field-input" placeholder="Jr., PhD, ..."></label>
+                    </div>
+                    <label class="block"><span class="field-label">Middle name</span><input id="middleName" type="text" autocomplete="off" class="field-input"></label>
+                    <label class="block"><span class="field-label">Nickname</span><input id="nickname" type="text" autocomplete="off" class="field-input"></label>
+                    <label class="block"><span class="field-label">Birthday</span><input id="birthday" type="date" class="field-input"></label>
+                </div>
                 <!-- The "Unknown" tray (MOD05, F4): scan lines nothing claimed wait here to be filed by hand; on-screen only -->
-                <div id="fieldsUnknown" class="fields-unknown col-span-2 hidden" role="group" aria-labelledby="fieldsUnknownTitle">
+                <div id="fieldsUnknown" class="fields-unknown hidden" role="group" aria-labelledby="fieldsUnknownTitle">
                     <p id="fieldsUnknownTitle" class="field-label">Unknown: tap to file</p>
                     <p id="fieldsUnknownHelp" class="fields-hint" aria-live="polite"></p>
                     <ul id="fieldsUnknownList" class="fields-unknown-list"></ul>
                 </div>
             </div>
+            <button id="fieldsAddBtn" type="button" class="fields-add" aria-controls="fieldsMore" aria-expanded="false">+ Add a field</button>
+            <!-- "Sample vCGE pilot contact": the nine pilots (MOD06 supplies them as data; fieldsCard.js fills the list), and Clear form -->
+            <div class="fields-tools">
+                <label class="fields-fake"><select id="fakeContactSelect" class="field-input" aria-label="Sample vCGE pilot contact"></select></label>
+                <button id="clearFormBtn" type="button" class="fields-clear">Clear form</button>
+            </div>
             </div>
             <div class="deck-card-foot">
-                <button type="button" class="vcge-trash" aria-label="Wipe everything and start over" title="Wipe everything and start over"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg></button>
-                <!-- Green "Everything's correct" (fieldsCard.js fills it): the details go on to the 3D Card -->
+                <!-- The dock's "Make the card" presses this one (deck.js data-next; fieldsCard.js labels it). It is not shown on its own -->
                 <button id="fieldsDoneBtn" type="button" class="fields-ok">Everything's correct</button>
             </div>
-            <div class="mod-tag" aria-hidden="true"><span>MOD-05</span></div>
         </section>
-        <section id="cardCard" class="deck-card mod-tag-host" data-card="card" aria-label="3D card">
-            <div class="deck-card-body space-y-4">
-                <div class="flex flex-wrap items-center gap-2">
-                    <div class="relative">
-                        <button id="paletteDropdownBtn" type="button" class="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition">
-                            <span id="paletteSwatch" class="w-3 h-3 rounded-full"></span><span id="currentPaletteLabel">Ocean Blue</span>
-                        </button>
-                        <div id="paletteMenu" class="hidden absolute z-30 mt-1 w-48 p-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl">
-                            <div id="paletteListContainer"></div>
-                        </div>
-                    </div>
-                    <!-- Typefaces and text sizes: card3dView.js CARD_FONTS and CARD_SIZES fill these -->
-                    <select id="cardFontSelect" class="px-2 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-xs font-semibold" aria-label="Card typography"></select>
-                    <select id="cardSizeSelect" class="px-2 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-xs font-semibold" aria-label="Card text size"></select>
-                    <button id="cardIconsBtn" type="button" aria-pressed="true" title="Icons in front of the card's lines" class="px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition">Icons: on</button>
-                    <button id="flipCardBtn" type="button" class="ml-auto px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition"><svg class="flip-tail" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2 13C2 6 8 2.5 12 5.2c2.6 1.8 1.4 5.6-1.4 5.3-1.8-.2-2.2-2.4-.6-2.9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Flip card</button>
-                </div>
-                <!-- Logo (MOD06): upload sits on the right with the preview; Remove on the far left, away from it -->
-                <div class="flex flex-wrap items-center gap-2">
-                    <button id="removeAvatarBtn" type="button" class="hidden px-3 py-1.5 rounded-lg text-xs font-semibold hover:text-rose-500 transition">Remove logo</button>
-                    <!-- Remove logo asks first (raven575, 2026-10-17 test): No keeps it, Yes removes it -->
-                    <div id="removeLogoConfirm" role="group" aria-label="Remove the logo?" class="hidden flex flex-wrap items-center gap-2">
-                        <span class="text-xs font-semibold">Remove the logo?</span>
-                        <button id="removeLogoYes" type="button" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white transition">Yes, remove</button>
-                        <button id="removeLogoNo" type="button" class="px-3 py-1.5 rounded-lg text-xs font-semibold bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition">No, keep it</button>
-                    </div>
-                    <div class="ml-auto flex items-center gap-2">
-                        <div id="formAvatarPreview" class="w-11 h-11"></div>
-                        <label class="cursor-pointer text-xs font-semibold px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 transition text-center">
-                            Logo<input id="avatarUpload" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" class="hidden">
-                        </label>
-                    </div>
-                </div>
-
-                <!-- Logo look and card finish (raven575 test report, 2026-10-22): a ready-made logo, the logo's size and the
-                     colour behind it, and a texture over the card colour with its strength. Memory only, like the rest of the card.
-                     Folded under one opener, closed at the start, so on a phone the card itself stays in view. -->
-                <details id="cardLookPanel" class="card-look">
-                <summary class="w-fit cursor-pointer px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition">Logo &amp; finish</summary>
-                <div id="cardLookRow" class="flex flex-wrap items-center gap-2 mt-2">
-                    <select id="logoPresetSelect" class="px-2 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-xs font-semibold" aria-label="Ready-made logo"></select>
-                    <select id="logoSizeSelect" class="px-2 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-xs font-semibold" aria-label="Logo size"></select>
-                    <div id="logoBgGroup" role="group" aria-label="Colour behind the logo" class="flex items-center gap-1">
-                        <span class="text-xs font-semibold mr-1">Behind logo</span>
-                        <input id="logoBgPicker" type="color" value="#f8fafc" class="logo-bg-wheel" aria-label="Pick any colour behind the logo" title="Pick any colour">
-                    </div>
-                    <select id="cardFinishSelect" class="px-2 py-1.5 rounded-lg bg-slate-200 dark:bg-slate-800 text-xs font-semibold" aria-label="Card finish"></select>
-                    <label id="cardFinishStrengthLabel" class="flex items-center gap-1 text-xs font-semibold">Strength
-                        <input id="cardFinishStrength" type="range" min="5" max="35" step="1" value="15" class="w-24" aria-label="Finish strength (per cent)">
-                    </label>
-                </div>
-                </details>
-                <div class="perspective-1000">
+        <section id="cardCard" class="deck-card" data-card="card" data-step="Step 4 of 5 · Card" data-pilot-emoji="🦎" data-pilot="Flipside" data-title="Your card" data-next="#readyToShareBtn" data-next-label="Share" aria-label="3D card">
+            <div class="deck-card-body r4-card">
+                <!-- 0.8 Card (Creative's mock-up, gap list row 17): one card, front and QR back, first; a tap on its left side spins
+                     it left and on its right side spins it right (620 ms, soft ease out; card3dView.js), a sideways drag
+                     still turns it. Below: round colour swatches, the logo tip with its safe-area guide, then the card's
+                     own style controls (typeface, size, icons, Flip card for keys, Logo & finish), all memory only. -->
+                <div class="perspective-1000 r4-stage">
                     <div id="card3DFlipper" class="relative transform-style-3d cursor-pointer">
                         <div id="cardFront" class="card-face w-full min-h-64 rounded-3xl p-6 shadow-xl space-y-4 relative overflow-hidden backface-hidden font-sans">
                             <div class="flex flex-wrap items-center gap-4">
@@ -407,6 +413,8 @@
                                 <div id="previewWebsites" class="break-all"></div>
                                 <p id="previewAddress" class="card-line">No address provided</p>
                             </div>
+                            <!-- The logo's safe-area guide (0.8): shown for a moment after a logo goes on, and while Logo & finish is open -->
+                            <span class="r4-safe-guide" aria-hidden="true"></span>
                         </div>
                         <div id="cardBack" class="card-face absolute inset-0 w-full rounded-3xl p-6 shadow-xl flex flex-col justify-center items-center text-center gap-2 rotate-y-180 backface-hidden font-sans">
                             <canvas id="qrCanvas" width="320" height="320" class="w-40 h-40 rounded-xl shadow-xl bg-white"></canvas>
@@ -429,147 +437,239 @@
                         </div>
                     </div>
                 </div>
+                <p class="r4-flipnote">Tap the right side to spin right, the left side to spin left.</p>
+                <div id="paletteListContainer" class="r4-swatches" role="group" aria-label="Card colours"></div>
+                <p class="vcge-sr-only" aria-live="polite">Card colour: <span id="currentPaletteLabel">Ocean Blue</span></p>
+                <div class="r4-tip r4-logo">
+                    <p class="r4-tip-line"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M9 12h6M12 9v6"/></svg><span>Add a logo. You will see a safe-area guide so the rounded corners never clip it.</span></p>
+                    <!-- Logo (MOD06): upload on the right with the preview; Remove on the far left, away from it.
+                         Remove logo asks first (raven575, 2026-10-17 test): No keeps it, Yes removes it -->
+                    <div class="r4-logo-row">
+                        <button id="removeAvatarBtn" type="button" class="hidden r4-pill r4-pill-stop">Remove logo</button>
+                        <div id="removeLogoConfirm" role="group" aria-label="Remove the logo?" class="hidden r4-confirm">
+                        <span class="r4-confirm-q">Remove the logo?</span>
+                        <button id="removeLogoYes" type="button" class="r4-pill r4-pill-danger">Yes, remove</button>
+                        <button id="removeLogoNo" type="button" class="r4-pill">No, keep it</button>
+                    </div>
+                        <div class="r4-logo-pick">
+                            <div id="formAvatarPreview" class="w-11 h-11"></div>
+                            <label class="r4-pill r4-upload">Logo<input id="avatarUpload" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" class="hidden"></label>
+                        </div>
+                    </div>
+                </div>
+                <section class="r4-group" aria-labelledby="r4StyleHead">
+                    <h4 id="r4StyleHead">Card style</h4>
+                    <!-- Typefaces and text sizes: card3dView.js CARD_FONTS and CARD_SIZES fill these. Flip card turns the card
+                         from the keyboard (the card itself is not a tab stop). -->
+                    <div class="r4-chips">
+                        <button id="flipCardBtn" type="button" class="r4-pill"><svg class="flip-tail" viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path d="M2 13C2 6 8 2.5 12 5.2c2.6 1.8 1.4 5.6-1.4 5.3-1.8-.2-2.2-2.4-.6-2.9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Flip card</button>
+                        <button id="cardIconsBtn" type="button" aria-pressed="true" title="Icons in front of the card's lines" class="r4-pill">Icons: on</button>
+                        <select id="cardFontSelect" class="r4-pill r4-select" aria-label="Card typography"></select>
+                        <select id="cardSizeSelect" class="r4-pill r4-select" aria-label="Card text size"></select>
+                    </div>
+                    <!-- Logo look and card finish (raven575 test report, 2026-10-22): a ready-made logo, the logo's size and the
+                         colour behind it, and a texture over the card colour with its strength. Memory only, like the rest of the card.
+                         Folded under one opener, closed at the start, so on a phone the card itself stays in view. -->
+                    <details id="cardLookPanel" class="card-look r4-look">
+                <summary class="r4-look-sum">Logo &amp; finish</summary>
+                <div id="cardLookRow" class="r4-chips r4-look-row">
+                    <select id="logoPresetSelect" class="r4-pill r4-select" aria-label="Ready-made logo"></select>
+                    <select id="logoSizeSelect" class="r4-pill r4-select" aria-label="Logo size"></select>
+                    <div id="logoBgGroup" role="group" aria-label="Colour behind the logo" class="r4-behind">
+                        <span>Behind logo</span>
+                        <input id="logoBgPicker" type="color" value="#f8fafc" class="logo-bg-wheel" aria-label="Pick any colour behind the logo" title="Pick any colour">
+                    </div>
+                    <select id="cardFinishSelect" class="r4-pill r4-select" aria-label="Card finish"></select>
+                    <label id="cardFinishStrengthLabel" class="r4-strength">Strength
+                        <input id="cardFinishStrength" type="range" min="5" max="35" step="1" value="15" class="w-24" aria-label="Finish strength (per cent)">
+                    </label>
+                </div>
+                </details>
+                </section>
             </div>
             <div class="deck-card-foot">
-                <button type="button" class="vcge-trash" aria-label="Wipe everything and start over" title="Wipe everything and start over"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg></button>
                 <button id="readyToShareBtn" type="button" class="share-ready" aria-describedby="readyLightsText">Ready to share<span class="ready-lights" aria-hidden="true"><span class="ready-light"></span><span class="ready-light"></span><span class="ready-light"></span></span></button>
                 <span id="readyLightsText" class="ready-lights-text">Lit: none yet.</span>
             </div>
-            <div class="mod-tag" aria-hidden="true"><span>MOD-06</span><span>MOD-07</span></div>
         </section>
-        <section id="cardShare" class="deck-card mod-tag-host" data-card="share" aria-label="Share">
-            <div class="deck-card-body space-y-4">
+        <section id="cardShare" class="deck-card" data-card="share" data-step="Step 5 of 5 · Share" data-pilot-emoji="🦅" data-pilot="Airlock" data-title="Share or save" data-next="" data-next-label="Scan another" aria-label="Share">
+            <div class="deck-card-body r4-share">
+                <!-- 0.8 Share (Creative's mock-up, gap list row 18): "Ready to go.", then two groups, Save and Send. Each row says
+                     what leaves this device and where it goes. Every button keeps its id, its share-btn hatch (Airlock) and its
+                     handler in main.js / egressController.js; the egress lock still guards every one. -->
                 <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Share &amp; export</h2>
-                <p class="share-lead">Nothing leaves vCGE until you press one of these.</p>
-                <div class="share-grid">
-                    <button id="downloadVcfBtn" type="button" class="share-btn share-primary"><span class="hatch" aria-hidden="true"><span class="hatch-door"></span></span>Save .vcf file</button>
-                    <button id="shareNativeBtn" type="button" class="share-btn"><span class="hatch" aria-hidden="true"><span class="hatch-door"></span></span>Share</button>
-                    <button id="copyVcardBtn" type="button" class="share-btn"><span class="hatch" aria-hidden="true"><span class="hatch-door"></span></span>Copy</button>
-                    <button id="exportQrBtn" type="button" class="share-btn"><span class="hatch" aria-hidden="true"><span class="hatch-door"></span></span>QR PNG</button>
-                    <button id="printCardBtn" type="button" class="share-btn"><span class="hatch" aria-hidden="true"><span class="hatch-door"></span></span>Print / PDF</button>
-                    <button id="emailBtn" type="button" class="share-btn"><span class="hatch" aria-hidden="true"><span class="hatch-door"></span></span>Email</button>
-                    <button id="smsBtn" type="button" class="share-btn"><span class="hatch" aria-hidden="true"><span class="hatch-door"></span></span>SMS</button>
+                <div class="r4-done">
+                    <span class="r4-done-em" aria-hidden="true">🦅</span>
+                    <p class="share-lead"><b>Ready to go.</b> Pick where this contact goes. Each option says exactly what leaves this device.</p>
                 </div>
-                <p class="share-note">Files are named after the contact: <span id="shareFileExample">Contact.vcf, Contact QR.png</span></p>
+                <section class="r4-group" aria-labelledby="r4SaveHead">
+                    <h4 id="r4SaveHead">Save</h4>
+                    <button id="downloadVcfBtn" type="button" class="share-btn r4-row"><span class="r4-ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg></span><span class="r4-row-text"><b>Save contact file</b><small><span id="shareVcfName">Contact.vcf</span> goes to your Downloads</small></span><span class="r4-row-end"><span class="hatch" aria-hidden="true"><span class="hatch-door"></span></span><svg class="r4-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"/></svg></span></button>
+                    <button id="exportQrBtn" type="button" class="share-btn r4-row"><span class="r4-ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h2v2h-2zM18 18h2v2h-2zM14 18h2"/></svg></span><span class="r4-row-text"><b>Save QR image</b><small><span id="shareQrName">Contact QR.png</span>, the contact inside a picture. You pick its look first.</small></span><span class="r4-row-end"><span class="hatch" aria-hidden="true"><span class="hatch-door"></span></span><svg class="r4-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"/></svg></span></button>
+                    <button id="printCardBtn" type="button" class="share-btn r4-row"><span class="r4-ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="M7 9V4h10v5"/><rect x="4" y="9" width="16" height="7" rx="2"/><path d="M7 14h10v6H7z"/></svg></span><span class="r4-row-text"><b>Print or save as PDF</b><small>The card and its QR go to your printer, or to a PDF you keep</small></span><span class="r4-row-end"><span class="hatch" aria-hidden="true"><span class="hatch-door"></span></span><svg class="r4-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"/></svg></span></button>
+                </section>
+                <section class="r4-group" aria-labelledby="r4SendHead">
+                    <h4 id="r4SendHead">Send</h4>
+                    <button id="shareNativeBtn" type="button" class="share-btn r4-row"><span class="r4-ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="M12 15V4M8 8l4-4 4 4M6 12v7h12v-7"/></svg></span><span class="r4-row-text"><b>Share…</b><small>Hands the .vcf to your device's share menu. You pick the app.</small></span><span class="r4-row-end"><span class="hatch" aria-hidden="true"><span class="hatch-door"></span></span><svg class="r4-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"/></svg></span></button>
+                    <button id="copyVcardBtn" type="button" class="share-btn r4-row"><span class="r4-ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false"><rect x="8" y="8" width="12" height="12" rx="2.5"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/></svg></span><span class="r4-row-text"><b>Copy as text</b><small>The contact card goes to your clipboard, which a wipe cannot clear</small></span><span class="r4-row-end"><span class="hatch" aria-hidden="true"><span class="hatch-door"></span></span><svg class="r4-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"/></svg></span></button>
+                    <button id="emailBtn" type="button" class="share-btn r4-row"><span class="r4-ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M4 7l8 6 8-6"/></svg></span><span class="r4-row-text"><b>Email</b><small>Opens your mail app with the contact in a new message</small></span><span class="r4-row-end"><span class="hatch" aria-hidden="true"><span class="hatch-door"></span></span><svg class="r4-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"/></svg></span></button>
+                    <button id="smsBtn" type="button" class="share-btn r4-row"><span class="r4-ic" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="M5 5h14a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2h-7l-5 4v-4H5a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z"/></svg></span><span class="r4-row-text"><b>Text message</b><small>Opens your messages app with the contact's details as text</small></span><span class="r4-row-end"><span class="hatch" aria-hidden="true"><span class="hatch-door"></span></span><svg class="r4-chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M9 6l6 6-6 6"/></svg></span></button>
+                </section>
+                <p class="r4-tip r4-tip-line"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg><span>Sharing does not clear the card. Lock or close the app to wipe it.</span></p>
             </div>
             <div class="deck-card-foot">
-                <button type="button" class="vcge-trash" aria-label="Wipe everything and start over" title="Wipe everything and start over"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg></button>
             </div>
-            <div class="mod-tag" aria-hidden="true"><span>MOD-08</span></div>
         </section>
     </main>
 
-    <!-- Vault page (MOD02 content, opened by the header lock icon or the Welcome card): PIN, fingerprint, wipe, audit log -->
-    <!-- Vault page (MOD02, Ghost): set, change or remove the PIN and the fingerprint or face unlock. Fresh every visit, never saved. -->
+    <!-- The dock (0.8): the five steps with a bar over the one in view, then Back and the screen's main button. The main
+         button presses the screen's own button (data-next on each screen) and carries its words (data-next-label). -->
+    <nav class="vcge-dock" aria-label="Steps">
+        <div class="deck-nav vcge-steps">
+            <button class="vcge-step" id="navCapture" type="button" data-card="capture" aria-label="Capture: take or upload a photo (Iris)" title="Capture: take or upload a photo (Iris)"><svg class="vcge-icon vcge-step-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg><span>Capture</span></button>
+            <button class="vcge-step" id="navRead" type="button" data-card="read" aria-label="Read: check what was read (Glyph)" title="Read: check what was read (Glyph)"><svg class="vcge-icon vcge-step-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 6h14M5 11h10M5 16h12"/></svg><span>Read</span></button>
+            <button class="vcge-step" id="navFields" type="button" data-card="fields" aria-label="Fields: the contact details (Pidge)" title="Fields: the contact details (Pidge)"><svg class="vcge-icon vcge-step-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.5"/><path d="M5 20c1-4 4-6 7-6s6 2 7 6"/></svg><span>Details</span></button>
+            <button class="vcge-step" id="navCard" type="button" data-card="card" aria-label="3D card (Flipside)" title="3D card (Flipside)"><svg class="vcge-icon vcge-step-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M7 11h6M7 14h4"/></svg><span>Card</span></button>
+            <button class="vcge-step" id="navShare" type="button" data-card="share" aria-label="Share and export (Airlock)" title="Share and export (Airlock)"><svg class="vcge-icon vcge-step-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V4M8 8l4-4 4 4M6 12v7h12v-7"/></svg><span>Share</span></button>
+            <button id="navQr" class="vcge-sr-only" tabindex="-1" type="button" data-card="card" data-qr aria-label="QR code on the back of the card (Checkers)" title="QR code on the back of the card (Checkers)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#qrcode"></use></svg><span>Checkers</span></button>
+        </div>
+        <div class="vcge-actions">
+            <button id="dockBack" type="button" class="vcge-btn vcge-btn-quiet"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"></path></svg>Back</button>
+            <button id="dockNext" type="button" class="vcge-btn vcge-btn-primary">Scan a card</button>
+        </div>
+    </nav>
+
+    <!-- Vault sheet (0.8 redo R5, Creative's CRTV-0020 mock-up; MOD02, Ghost): the ring with the time until the lock, the
+         PIN and Face or fingerprint switches (On / Off in words), the lock and wipe times, the activity log, Lock now and
+         the wipe (the trash, moved here from the cards). Set up fresh every visit, never saved. -->
     <div id="vaultPage" class="vcge-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="vaultPageTitle">
-        <div class="vcge-sheet-panel mod-tag-host space-y-3">
-            <div class="vcge-sheet-head">
-                <h2 id="vaultPageTitle" class="vault-title"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#lock"></use></svg>Vault</h2>
+        <div class="vcge-sheet-panel r5-sheet">
+            <div class="vcge-sheet-head r5-head">
+                <h2 id="vaultPageTitle" class="vault-title vcge-sheet-title"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#lock"></use></svg>Vault</h2>
                 <span class="vcge-pilot-chip vcge-sheet-pilot" title="Ghost the Raccoon keeps the Vault"><i aria-hidden="true">🦝</i><span>Ghost</span></span>
-                <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close">&#x2715;</button>
+                <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
             </div>
-            <p class="vault-lead">Your card is held in memory only and is never saved. Set a PIN, and a fingerprint or face if your device has one, so the card locks instead of being wiped when you step away. Both are set up fresh every visit and forgotten when you leave.</p>
-            <div class="vault-row">
-                <span><span class="font-medium">MOD02 Vault</span> <span id="vaultStateIndicator" class="text-xs font-mono text-emerald-500">UNLOCKED / memory only</span></span>
-                <span><button id="vaultLockNowBtn" type="button" class="vault-btn-quiet hidden"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#lock"></use></svg>Lock now</button></span>
-            </div>
-            <p id="purgeCountdown" class="text-[11px] font-mono text-slate-500 dark:text-slate-400">Auto-clear idle</p>
-            <div id="quickUnlockPanel" class="vault-section hidden">
-                <h3>PIN and fingerprint</h3>
-                <!-- Switches: green "On" when on, red "Off" when off. The PIN switch asks for a PIN; Change sits beside it once set. -->
-                <div class="vault-row">
-                    <span id="sessionPinStatus" class="vault-sr-only">Session PIN: not set</span>
-                    <span id="pinSwitchLabel">Session PIN</span>
-                    <span>
-                        <button id="setSessionPinBtn" type="button" class="vault-btn-quiet hidden">Change</button>
-                        <button id="pinSwitch" type="button" role="switch" aria-checked="false" aria-labelledby="pinSwitchLabel" class="vault-switch"><span class="vault-switch-word">Off</span><span class="vault-switch-knob" aria-hidden="true"></span></button>
-                    </span>
+            <div class="r5-body">
+                <div class="r5-bigring" id="vaultRing">
+                    <svg viewBox="0 0 72 72" aria-hidden="true"><circle cx="36" cy="36" r="31"></circle><circle id="vaultRingArc" class="r5-arc" cx="36" cy="36" r="31" stroke-dasharray="194.8" stroke-dashoffset="0"></circle></svg>
+                    <div><b id="vaultRingTime">2:00</b><span id="vaultRingNote">until auto lock.</span></div>
                 </div>
-                <p id="pinOffNote" class="vault-note">Turn on to lock the card instead of wiping it when you step away.</p>
-                <div id="biometricRow" class="vault-row hidden">
-                    <span id="biometricStatus" class="vault-sr-only">Face ID / fingerprint: off</span>
-                    <span id="biometricSwitchLabel">Face ID / fingerprint</span>
-                    <span><button id="biometricSwitch" type="button" role="switch" aria-checked="false" aria-labelledby="biometricSwitchLabel" class="vault-switch"><span class="vault-switch-word">Off</span><span class="vault-switch-knob" aria-hidden="true"></span></button></span>
+                <p class="vcge-sr-only"><span id="vaultStateIndicator">UNLOCKED / memory only</span> <span id="purgeCountdown">Auto-clear idle</span></p>
+                <div id="quickUnlockPanel" class="r5-group hidden">
+                    <h4>Unlock with</h4>
+                    <!-- Switches: "On" in green or "Off" in red beside a switch, so colour is never the only cue. The PIN
+                         switch asks for a PIN; Change sits beside it once set. -->
+                    <div class="r5-sw-row vault-row">
+                        <span id="sessionPinStatus" class="vault-sr-only">Session PIN: not set</span>
+                        <span class="r5-lbl"><b id="pinSwitchLabel">Session PIN</b><small>4 digits, forgotten when you leave. <span id="pinOffNote">Turn on to lock the card instead of wiping it when you step away.</span></small></span>
+                        <button id="setSessionPinBtn" type="button" class="r5-chip r5-change hidden">Change</button>
+                        <button id="pinSwitch" type="button" role="switch" aria-checked="false" aria-labelledby="pinSwitchLabel" class="vault-switch r5-switch"><span class="vault-switch-word">Off</span><span class="r5-track" aria-hidden="true"><span class="vault-switch-knob"></span></span></button>
+                    </div>
+                    <div id="biometricRow" class="r5-sw-row vault-row hidden">
+                        <span id="biometricStatus" class="vault-sr-only">Face ID / fingerprint: off</span>
+                        <span class="r5-lbl"><b id="biometricSwitchLabel">Face or fingerprint</b><small id="biometricOffNote">Turn on to unlock with your face or fingerprint at the lock screen.</small></span>
+                        <button id="biometricSwitch" type="button" role="switch" aria-checked="false" aria-labelledby="biometricSwitchLabel" class="vault-switch r5-switch"><span class="vault-switch-word">Off</span><span class="r5-track" aria-hidden="true"><span class="vault-switch-knob"></span></span></button>
+                    </div>
+                    <p id="biometricNotes" class="r5-note hidden">Turning it on makes your browser save a passkey for this site on your device, because the browser requires it to check your face or fingerprint. The passkey holds no contact details. vCGE forgets it when the card is wiped, so after a wipe you turn it on again. Old ones can be deleted in your password manager.</p>
                 </div>
-                <div id="biometricNotes" class="hidden">
-                    <p id="biometricOffNote" class="vault-note">Turn on to unlock with your face or fingerprint.</p>
-                    <p class="vault-note">Turning it on makes your browser save a passkey for this site on your device, because the browser requires it to check your face or fingerprint. The passkey holds no contact details. vCGE forgets it when the card is wiped, so after a wipe you turn it on again. Old ones can be deleted in your password manager.</p>
+                <div class="r5-group">
+                    <h4 id="lockChipsLabel">Auto lock after</h4>
+                    <!-- The lock time is fixed at 2 minutes (Cornerstone's rule); the mock-up's 5 and 15 are shown but not offered -->
+                    <div class="r5-minis" role="group" aria-labelledby="lockChipsLabel" aria-describedby="lockChipsNote">
+                        <button type="button" class="r5-chip" aria-pressed="true">2 min</button><button type="button" class="r5-chip" aria-pressed="false" disabled>5 min</button><button type="button" class="r5-chip" aria-pressed="false" disabled>15 min</button>
+                    </div>
+                    <p id="lockChipsNote" class="r5-note r5-note-in">With a PIN, the card locks after 2 minutes without activity. That time is fixed.</p>
+                    <h4 id="wipeChipsLabel">Wipe after lock</h4>
+                    <div id="wipeChips" class="r5-minis" role="group" aria-labelledby="wipeChipsLabel">
+                        <button type="button" class="r5-chip" data-wipe="0" aria-pressed="true">7 min</button><button type="button" class="r5-chip" data-wipe="1" aria-pressed="false">10 min</button><button type="button" class="r5-chip" data-wipe="2" aria-pressed="false">15 min</button>
+                    </div>
                 </div>
-                <p class="vault-note">vCGE saves none of your card. Leaving, closing or reloading the page wipes it. With a 4-digit PIN set, the screen turning off or 2 idle minutes lock it instead, and <span id="vaultWipeMinutes">7</span> minutes after the lock it is wiped (Settings can make that 10 or 15). Without a PIN, 30 s out of view or 2 idle minutes wipe it.</p>
+                <div class="r5-group">
+                    <h4>Activity</h4>
+                    <ul id="auditLog" class="r5-log" aria-label="Egress and vault audit log"></ul>
+                </div>
+                <div class="r5-actions">
+                    <button id="vaultLockNowBtn" type="button" class="vcge-btn vcge-btn-quiet hidden"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#lock"></use></svg>Lock now</button>
+                    <button id="wipeVaultBtn" type="button" class="vcge-btn r5-danger" aria-label="Wipe everything and start over" title="Wipe everything and start over"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg>Wipe and start over</button>
+                </div>
+                <p class="r5-foot">vCGE saves none of your card. Leaving, closing or reloading the page wipes it. With a 4-digit PIN set, the screen turning off or 2 idle minutes lock it instead, and <span id="vaultWipeMinutes">7</span> minutes after the lock it is wiped. Without a PIN, 30 s out of view or 2 idle minutes wipe it. The wipe asks first, and you hold Yes to confirm.</p>
             </div>
-            <div class="vault-row">
-                <span><button id="wipeVaultBtn" type="button" class="vault-btn-quiet vault-btn-danger">Wipe everything and start over</button></span>
-                <span><button id="vaultSettingsBtn" type="button" class="vault-btn-quiet" data-open-sheet="settingsSheet">Settings</button></span>
-            </div>
-            <div>
-                <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Egress &amp; vault audit log</h3>
-                <ul id="auditLog" class="text-[11px] font-mono text-slate-500 dark:text-slate-400 space-y-0.5"></ul>
-            </div>
-            <div class="mod-tag" aria-hidden="true"><span>MOD-02</span></div>
         </div>
     </div>
 
-    <!-- Settings (MOD01): hand, colour-blind mode, theme, UI font and text size, kept in the one settings entry -->
+    <!-- Settings sheet (0.8 redo R5, Creative's CRTV-0020 mock-up; MOD01): App theme swatches and Appearance, the
+         platform style, text size and font, the Comfort switches, the Cornerstone credit and About. Kept in the one
+         settings entry (settings.js). -->
     <div id="settingsSheet" class="vcge-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
-        <div class="vcge-sheet-panel mod-tag-host">
-            <div class="vcge-sheet-head">
+        <div class="vcge-sheet-panel r5-sheet">
+            <div class="vcge-sheet-head r5-head">
                 <h2 id="settingsTitle" class="vcge-sheet-title"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#settings"></use></svg>Settings</h2>
-                <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close">&#x2715;</button>
+                <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
             </div>
-            <div class="vcge-sheet-row">
-                <span id="handLabel">Hand</span>
-                <div class="vcge-seg" role="group" aria-labelledby="handLabel">
-                    <button id="handRightBtn" type="button" aria-pressed="true">Right</button>
-                    <button id="handLeftBtn" type="button" aria-pressed="false">Left</button>
+            <div class="r5-body">
+                <div class="r5-group">
+                    <h4 id="appThemesLabel">App theme</h4>
+                    <div id="appThemes" class="r5-themes" role="group" aria-labelledby="appThemesLabel"></div>
+                    <details id="moreThemes" class="r5-more"><summary>More themes</summary><div id="moreThemesGrid" class="r5-themes"></div></details>
+                    <h4 id="appearanceLabel">Appearance</h4>
+                    <div id="appearanceChips" class="r5-minis" role="group" aria-labelledby="appearanceLabel">
+                        <button type="button" class="r5-chip" data-v="system" aria-pressed="false">System</button><button type="button" class="r5-chip" data-v="light" aria-pressed="false">Light</button><button type="button" class="r5-chip" data-v="dark" aria-pressed="false">Dark</button>
+                    </div>
+                    <p id="appearanceOne" class="r5-note r5-note-in hidden">This theme comes in one version only.</p>
                 </div>
+                <div class="r5-group">
+                    <h4 id="styleChipsLabel">Style</h4>
+                    <div id="styleChips" class="r5-minis" role="group" aria-labelledby="styleChipsLabel" aria-describedby="styleChipsNote">
+                        <button type="button" class="r5-chip" data-style="herd" aria-pressed="true">Herd</button><button type="button" class="r5-chip" data-style="material" aria-pressed="false">Material</button><button type="button" class="r5-chip" data-style="ios" aria-pressed="false">iOS</button><button type="button" class="r5-chip" data-style="windows" aria-pressed="false">Windows</button><button type="button" class="r5-chip" data-style="gnome" aria-pressed="false">GNOME</button><button type="button" class="r5-chip" data-style="kde" aria-pressed="false">KDE</button>
+                    </div>
+                    <p id="styleChipsNote" class="r5-note r5-note-in">Herd is vCGE's own look. The others follow Android, iPhone, Windows and the GNOME and KDE desktops.</p>
+                </div>
+                <div class="r5-group">
+                    <h4 id="sizeLabel">Text size</h4>
+                    <div class="r5-range"><span class="r5-a-small" aria-hidden="true">A</span><input id="sizeRange" type="range" min="0" max="3" step="1" value="1" aria-labelledby="sizeLabel" aria-describedby="sizeHint"><span class="r5-a-big" aria-hidden="true">A</span></div>
+                    <p id="sizeHint" class="r5-note r5-note-in">The text grows; the icons at the top stay the same size.</p>
+                    <div class="r5-sw-row r5-font-row">
+                        <label class="r5-lbl" for="fontSelect"><b>Font</b></label>
+                        <select id="fontSelect" class="r5-select" aria-label="UI font"></select>
+                    </div>
+                </div>
+                <div class="r5-group">
+                    <h4>Comfort</h4>
+                    <div class="r5-sw-row">
+                        <label class="r5-lbl" for="handToggle"><b>Left-handed</b><small>Moves the top buttons and camera tools</small></label>
+                        <input id="handToggle" type="checkbox" role="switch" class="r5-toggle">
+                    </div>
+                    <div class="r5-sw-row">
+                        <label class="r5-lbl" for="cbToggle"><b>Colour-blind mode</b><small id="cbHint">Words and marks next to every colour cue</small></label>
+                        <input id="cbToggle" type="checkbox" role="switch" class="r5-toggle" aria-describedby="cbHint">
+                    </div>
+                    <div class="r5-sw-row">
+                        <label class="r5-lbl" for="texToggle"><b>Background texture</b><small>A soft dot pattern behind the screens</small></label>
+                        <input id="texToggle" type="checkbox" role="switch" class="r5-toggle" checked>
+                    </div>
+                    <!-- Plain is its own build (the plain edition): the switch shows where it would be, and is never live here -->
+                    <div class="r5-sw-row r5-plain-row">
+                        <label class="r5-lbl" for="plainToggle"><b>Plain look</b><small id="plainNote">A separate download: the Plain edition hides the Herd pilots and art</small></label>
+                        <input id="plainToggle" type="checkbox" role="switch" class="r5-toggle" disabled aria-describedby="plainNote">
+                    </div>
+                </div>
+                <!-- Project manager credit (branded only) and About (CRTV-0020): the maker mark, the wordmark and the credits -->
+                <div class="vcge-pm-credit"><span class="vcge-pilot-chip"><i aria-hidden="true">🐘</i><span>Cornerstone</span></span><p><b>Project manager</b>Keeps the Herd on task and on the right path.</p></div>
+                <div id="settingsAbout" class="r5-group vcge-about">
+                    <span class="vcge-hoh" role="img" aria-label="Herd of Helpers"></span>
+                    <span class="vcge-about-word vcge-wordmark" role="img" aria-label="vCGE"></span>
+                    <p>vCGE 0.8</p>
+                    <p>&copy; 2026 raven575, Herd of Helpers (claude) &amp; gemini</p>
+                </div>
+                <p id="settingsNote" class="r5-foot">vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time). Nothing you scan, upload or type is ever saved.</p>
             </div>
-            <div class="vcge-sheet-row">
-                <label for="cbToggle">Colour-blind mode</label>
-                <input id="cbToggle" type="checkbox" role="switch" class="vcge-switch" aria-describedby="cbHint">
-            </div>
-            <p id="cbHint" class="vcge-sheet-hint">Words and marks next to every colour cue.</p>
-            <div class="vcge-sheet-row">
-                <label for="themeSelect">App theme</label>
-                <select id="themeSelect" class="vcge-select" aria-label="App theme"></select>
-            </div>
-            <div class="vcge-sheet-row">
-                <label for="fontSelect">UI font</label>
-                <select id="fontSelect" class="vcge-select" aria-label="UI font"></select>
-            </div>
-            <div class="vcge-sheet-row">
-                <label for="sizeSelect">Text size</label>
-                <select id="sizeSelect" class="vcge-select" aria-label="Text size" aria-describedby="sizeHint"></select>
-            </div>
-            <p id="sizeHint" class="vcge-sheet-hint">The text on the cards grows; the icons at the top stay the same size.</p>
-            <div class="vcge-sheet-row">
-                <label for="wipeSelect">Wipe after the lock</label>
-                <select id="wipeSelect" class="vcge-select" aria-label="Wipe after the lock" aria-describedby="wipeHint"></select>
-            </div>
-            <p id="wipeHint" class="vcge-sheet-hint">With a PIN, vCGE locks after 2 minutes without activity, then wipes the card this long after the lock.</p>
-            <div class="vcge-sheet-row">
-                <span>Language</span>
-                <span class="vcge-sheet-soon">English (more coming later)</span>
-            </div>
-            <div class="vcge-sheet-row">
-                <span>PIN and fingerprint</span>
-                <button id="settingsVaultBtn" type="button" class="px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition" data-open-sheet="vaultPage">Open the Vault</button>
-            </div>
-            <!-- Project manager credit (branded only) and About (CRTV-0020): the maker mark, the wordmark and the credits -->
-            <div class="vcge-pm-credit"><span class="vcge-pilot-chip"><i aria-hidden="true">🐘</i><span>Cornerstone</span></span><p><b>Project manager</b>Keeps the Herd on task and on the right path.</p></div>
-            <div id="settingsAbout" class="vcge-about">
-                <span class="vcge-hoh" role="img" aria-label="Herd of Helpers"></span>
-                <span class="vcge-about-word vcge-wordmark" role="img" aria-label="vCGE"></span>
-                <p>vCGE 0.7</p>
-                <p>&copy; 2026 raven575, Herd of Helpers (claude) &amp; gemini</p>
-            </div>
-            <p id="settingsNote" class="vcge-sheet-note">vCGE keeps one small settings file on this device (hand, colors, theme, font, text size, wipe time). Nothing you scan, upload or type is ever saved.</p>
         </div>
     </div>
 
     <!-- Export QR pop-up (MOD08, Airlock): colours, dots, frame and centre logo for the saved PNG, with a live preview.
          A Shell sheet: a sideways swipe, Esc or the X is Cancel. The code is drawn by MOD07; a logo is only ever drawn as an image. -->
     <div id="exportQrSheet" class="vcge-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="exportQrTitle">
-        <div class="vcge-sheet-panel mod-tag-host">
+        <div class="vcge-sheet-panel">
             <div class="vcge-sheet-head">
                 <h2 id="exportQrTitle">Export QR</h2>
                 <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close">&#x2715;</button>
@@ -629,13 +729,12 @@
                 <button id="exportQrSaveBtn" type="button" class="export-qr-save" disabled>Save PNG</button>
             </div>
             <p class="export-qr-file">Saved exactly as previewed, as <span id="exportQrFileName">Contact QR.png</span>.</p>
-            <div class="mod-tag mod-tag-inset" aria-hidden="true"><span>MOD-08</span></div>
         </div>
     </div>
 
     <!-- Print / PDF choice (MOD08): Themed or Black &amp; White, then the browser's print dialog (Save as PDF lives there) -->
     <div id="printChoiceSheet" class="vcge-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="printChoiceTitle">
-        <div class="vcge-sheet-panel mod-tag-host">
+        <div class="vcge-sheet-panel">
             <div class="vcge-sheet-head">
                 <h2 id="printChoiceTitle">Print / PDF</h2>
                 <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close">&#x2715;</button>
@@ -649,7 +748,6 @@
             <label class="print-choice-name"><input id="printNameFile" type="checkbox"> Name the PDF after the contact</label>
             <p class="print-choice-name-note">Off by default. The PDF's name comes from the browser tab's title, so the contact's name is put there while printing and may stay in the browser's history.</p>
             <p class="print-choice-note">Themed keeps the card's colours. If the theme's QR would not scan, the code is printed in black and white and a message says so.</p>
-            <div class="mod-tag mod-tag-inset" aria-hidden="true"><span>MOD-08</span></div>
         </div>
     </div>
 
@@ -787,7 +885,7 @@
 
     <!-- Toast -->
     <!-- Toast (MOD06): at the top under the header, 3 s; a tap dismisses it, a hold keeps it -->
-    <div id="toast" class="fixed top-14 left-1/2 -translate-x-1/2 -translate-y-24 opacity-0 pointer-events-none transition-all duration-300 z-50 max-w-[calc(100vw-2rem)] px-4 py-2.5 rounded-xl bg-slate-900 text-white dark:bg-white dark:text-slate-900 text-sm shadow-xl flex items-center gap-3 cursor-pointer select-none" role="status">
+    <div id="toast" class="vcge-toast -translate-y-24 opacity-0 pointer-events-none" role="status">
         <svg id="toastFalcon" class="toast-falcon hidden" viewBox="0 0 32 22" aria-hidden="true"><path class="falcon-body" d="M0 8c5-3.5 9.5-4 13.5-1.5L16 2l2.5 4.5C22.5 4 27 4.5 32 8c-5-.5-9.5 0-12.5 1.5L17.5 14 16 12.5 14.5 14l-2-4.5C9.5 8 5 7.5 0 8z"/><g class="falcon-parcel"><rect x="12.5" y="14.5" width="7" height="6" rx="1"/><path d="M14 14.5v6M16 14.5v6M18 14.5v6"/></g></svg>
         <span id="toastMessage"></span>
         <button id="toastAction" type="button" class="hidden font-semibold text-brand-400 dark:text-brand-700 hover:underline">Undo</button>

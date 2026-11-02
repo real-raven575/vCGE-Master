@@ -4,15 +4,9 @@
    a lock that comes down mid-tour is on top and its buttons work */
 .vcge-welcome { position: fixed; inset: 0; z-index: 46; touch-action: none; }   /* a swipe on it is the tour's */
 .vcge-tour-blocker { position: fixed; inset: 0; }
-.vcge-welcome-tag { display: inline-block; background: #22c55e; color: #020617; font-weight: 700; font-size: 13px; letter-spacing: 0.08em; padding: 3px 10px; border-radius: 8px; }
-/* The logo (src/assets/brand, bundled): a rounded square on the Welcome card and the Thank You page */
-/* The main "App Flat" logo (CRTV-0020): wider than tall, so no rounded square any more */
+/* The main "App Flat" logo (src/assets/brand, bundled; CRTV-0020) on the Thank You page: wider than tall */
 .vcge-welcome-logo { display: block; width: 150px; height: 109px; margin: 0 auto 4px; }
-.vcge-welcome-tagline { font-size: 13px; font-weight: 600; color: #15803d; margin: 0 0 14px; }
-.vcge-welcome-points { margin: 0 0 16px; padding-left: 22px; list-style: decimal; font-size: 14px; line-height: 1.5; text-align: left; max-width: 26rem; }
-.vcge-welcome-points li { margin: 8px 0; padding-left: 4px; }
-.vcge-welcome-points li::marker { color: #15803d; font-weight: 700; }
-.vcge-welcome button:focus-visible, .welcome-body button:focus-visible { outline: 3px solid #4ade80; outline-offset: 2px; }
+.vcge-welcome button:focus-visible { outline: 3px solid #4ade80; outline-offset: 2px; }
 
 .vcge-tour-spot { position: fixed; border-radius: 18px; box-shadow: 0 0 0 9999px rgba(2, 6, 23, 0.55); outline: 3px solid #22c55e; outline-offset: 0; pointer-events: none; }
 /* The tour card is a quick visual guide, not a form: big, easy text, and it may sit over the card it talks about
@@ -35,7 +29,6 @@
 
 .dark .vcge-tour-spot { box-shadow: 0 0 0 9999px rgba(2, 6, 23, 0.65); outline-color: #4ade80; }
 .dark .vcge-tour-tip { background: #0f172a; color: #f1f5f9; border-color: #334155; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6); }
-.dark .vcge-welcome-tagline, .dark .vcge-welcome-points li::marker { color: #4ade80; }
 .dark .vcge-tour-back { background: #1e293b; color: #f1f5f9; border-color: #334155; }
 .dark .vcge-tour-back:hover { background: #334155; }
 .dark .vcge-tour-step { color: #94a3b8; }

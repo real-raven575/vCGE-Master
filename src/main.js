@@ -33,7 +33,7 @@ import { VCGEActiveCamera } from './modules/mod03-camera/camera.js';
 import { CropEditor } from './modules/mod03-camera/cropEditor.js';
 import { executeOCRScan, shutdownOCREngine } from './modules/mod04-ocr/ocrWorker.js';
 import { mergeReadings, missingParts, describeMissing, MAX_PHOTOS } from './modules/mod04-ocr/readingQuality.js';
-import { readIndicator, renderReviewRows, initReadCard, resetBlink, READER_UNAVAILABLE_MESSAGE, READER_STOPPED_MESSAGE } from './modules/mod04-ocr/readCard.js';
+import { readIndicator, readThumb, renderReviewRows, initReadCard, resetBlink, READER_UNAVAILABLE_MESSAGE, READER_STOPPED_MESSAGE } from './modules/mod04-ocr/readCard.js';
 import { ContactFormMapper, LINE_ROLES, PHONE_FORMATS } from './modules/mod05-form/formMapper.js';
 import { PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES } from './share/contactOptions.js';
 import { AddressAutocompleteEngine } from './modules/mod05-form/addressAutocomplete.js';
@@ -141,14 +141,12 @@ function setVaultIndicator() {
     updateTimerStrip();
 }
 
-// Header badge: UNLOCKED while the card is on the page, LOCKED while it is held behind the session PIN.
+// The Vault's state for screen readers (the session pill in the top bar shows it: the ring, the time, the padlock):
+// UNLOCKED while the card is on the page, LOCKED while it is held behind the session PIN.
 function setVaultBadge() {
     const unlocked = vaultMode === 'open';
     $('vaultBadgeText').textContent = unlocked ? 'Vault: UNLOCKED' : 'Vault: LOCKED';
-    $('vaultBadge').className = `flex text-xs px-2.5 py-1 rounded-full items-center gap-1.5 border ${unlocked
-        ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-800/50'
-        : 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'}`;
-    $('vaultBadgeDot').className = `w-1.5 h-1.5 rounded-full ${unlocked ? 'bg-emerald-500' : 'bg-slate-400'}`;
+    $('vaultBadge').dataset.state = unlocked ? 'unlocked' : 'locked';
 }
 
 // Security panel: session PIN and biometric state.
@@ -226,11 +224,9 @@ function updateTimerStrip() {
     const remaining = idleTtl.getRemainingTime();
     const show = vaultMode === 'open' && remaining > 0 && hasWork();
     $('vaultTimerStrip').classList.toggle('hidden', !show);
-    // The strip hangs under the header: its height is published (0px when hidden) so Shell can move the cards down by it
-    // instead of the strip covering their titles. A layout signal only, never any data.
-    document.documentElement.style.setProperty('--vcge-vault-strip', show ? `${$('vaultTimerBand').offsetHeight}px` : '0px');
     const warn = show && remaining <= TIMER_WARN_SECONDS;
     NOTE_HIDDEN.forEach(c => $('vaultTimerNote').classList.toggle(c, !warn));
+    updateSessionPill(show, remaining);
     if (!show) return;
     $('vaultTimerLabel').textContent = sessionPin.isSet() ? 'Locks in' : 'Clears in';
     $('vaultTimerTime').textContent = minutes(remaining);
@@ -239,6 +235,23 @@ function updateTimerStrip() {
     TIMER_WARN.forEach(c => $('vaultTimerBand').classList.toggle(c, warn));
     $('vaultTimerBar').classList.toggle('bg-brand-500', !warn);
     $('vaultTimerBar').classList.toggle('bg-amber-500', warn);
+}
+
+// The session pill in the top bar (0.8 shell, Creative's mock-up): the lock ring empties as the time runs out and the
+// time sits beside it; with nothing open it is the padlock alone. The Vault's own page keeps the full timer.
+const RING_LENGTH = 94.2;     // 2 * pi * 15, the ring's circle in index.html
+function updateSessionPill(show, remaining) {
+    const pill = $('navVault'), arc = $('sessArc'), txt = $('sessTxt');
+    if (!pill || !arc || !txt) return;
+    pill.classList.toggle('has-time', show);
+    pill.classList.toggle('is-locked', vaultMode !== 'open');
+    const time = show ? minutes(remaining) : '';
+    if (txt.textContent !== time) txt.textContent = time;
+    const left = show ? Math.max(0, Math.min(1, remaining / IDLE_PURGE_SECONDS)) : (vaultMode === 'open' ? 1 : 0);
+    arc.setAttribute('stroke-dashoffset', (RING_LENGTH * (1 - left)).toFixed(1));
+    const base = 'Vault: PIN and fingerprint';
+    const label = show ? `${base}. ${sessionPin.isSet() ? 'Locks' : 'Clears'} in ${minutes(remaining)}` : base;
+    pill.setAttribute('aria-label', isPlain() ? label : `${label} (Ghost)`);
 }
 
 let checkingPin = false;
@@ -504,7 +517,26 @@ function purgeVolatileState(reason) {
     }
 }
 
+// The Vault sheet's ring (0.8, Creative's mock-up): the time until the open card locks (or is cleared, with no PIN),
+// emptying as it runs; while the card is locked, the time until it is wiped.
+const BIG_RING_LENGTH = 194.8;   // 2 * pi * 31, #vaultRingArc in index.html
+function updateVaultRing() {
+    const arc = $('vaultRingArc'), time = $('vaultRingTime'), note = $('vaultRingNote');
+    if (!arc || !time || !note) return;
+    const locked = vaultMode === 'quick', running = !!idleTtl.timerId;
+    const left = locked ? resetRemaining() : running ? idleTtl.getRemainingTime() : IDLE_PURGE_SECONDS;
+    const span = locked ? (resetSpan || wipeSeconds()) : IDLE_PURGE_SECONDS;
+    time.textContent = minutes(left);
+    arc.setAttribute('stroke-dashoffset', (BIG_RING_LENGTH * (1 - Math.max(0, Math.min(1, left / span)))).toFixed(1));
+    const wipeMin = wipeSeconds() / 60;
+    note.textContent = locked ? 'until the locked card is wiped. Your PIN brings it back before then.'
+        : sessionPin.isSet() ? `until auto lock. After it locks, the card is wiped in ${wipeMin} minutes.`
+        : running ? 'until the card is cleared. Turn on a PIN to lock it instead.'
+        : 'without activity locks the card (with a PIN) or clears it.';
+}
+
 function updatePurgeCountdown() {
+    updateVaultRing();
     $('vaultWipeMinutes').textContent = String(wipeSeconds() / 60);   // follows Settings while the Vault page is open
     const el = $('purgeCountdown');
     // With a PIN the idle time locks the card first, so it reads "Auto-lock"; without one it clears it.
@@ -690,6 +722,7 @@ function closeReviewDialog() {
     $('ocrTimeoutModal').classList.add('hidden');
     $('ocrMorePhotoModal').classList.add('hidden');
     readIndicator.hide();
+    readThumb.hide();
     showReviewStep('photo');
     ocrReview = null;
     $('ocrLines').replaceChildren();
@@ -767,7 +800,7 @@ async function runOcr() {
             askForAnotherPhoto(missing, readings.length + 1);
             return;
         }
-        openReviewFrom(readings);
+        openReviewFrom(readings, photo);
     } catch (e) {
         if (e && e.code === 'OCR_CANCELLED') {
             // Cancel: back to the photo on the Capture card, ready for OK again or a new one. A wipe already cleared everything.
@@ -821,14 +854,19 @@ function showPhotoCount() {
     else { delete $('photoCountNote').dataset.photo; delete $('photoCountNote').dataset.of; }
 }
 
+// The photo the lines came from, for the thumbnail that stays in view above them (0.8): the cropped photo while one is
+// on the Capture card, else none (a photo already dropped is never brought back).
+const reviewPhoto = () => ($('reviewImage').getAttribute('src') ? cropEditor.getCroppedImage() : null);
+
 // The review step with every reading put together: lines no photo could read are listed as Ignore, with a note.
-function openReviewFrom(readings) {
+function openReviewFrom(readings, photo = null) {
     forgetReadings();
     const merged = mergeReadings(readings);
     const unreadable = merged.filter(l => l.unreadable).map(l => ({ text: l.text, role: 'ignore', icon: l.icon || null, check: UNREADABLE_LINE_NOTE }));
     ocrReview = { lines: [...formMapper.classifyLines(merged.filter(l => !l.unreadable)), ...unreadable], fields: null };
     renderOcrLines();
     $('ocrBackBtn').classList.toggle('hidden', !$('reviewImage').getAttribute('src'));
+    readThumb.show(photo || reviewPhoto());
     showReviewStep('text');
     $('cropReviewModal').classList.remove('hidden');
     showCard('read');
@@ -905,6 +943,7 @@ function reopenLastScan() {
     ocrReview = { lines: lastScan.map(line => ({ ...line })), fields: null };
     renderOcrLines();
     $('ocrBackBtn').classList.toggle('hidden', !$('reviewImage').getAttribute('src'));
+    readThumb.show(reviewPhoto());
     showReviewStep('text');
     $('cropReviewModal').classList.remove('hidden');
     showCard('read');
@@ -946,6 +985,7 @@ function restoreScan(scan) {
     renderOcrLines();
     showReviewStep('text');
     $('ocrBackBtn').classList.toggle('hidden', !scan.photo);
+    readThumb.show(reviewPhoto());
     $('cropReviewModal').classList.remove('hidden');
 }
 
@@ -969,7 +1009,7 @@ function wireIntake() {
     $('rotateRightBtn').addEventListener('click', () => { showRetakePrompt(false); cropEditor.rotate(1); });
     // Snap to card moves the handles only when it finds a card; otherwise it says so and leaves them alone.
     $('snapCardBtn').addEventListener('click', () => { if (!cropEditor.snapToCard()) deckToast('No card edges found. Drag the corners onto the card yourself.'); });
-    // Cancel on the crop step drops the photo: back to Take a photo or Upload a photo.
+    // Cancel on the crop step drops the photo: back to the viewfinder (Start the camera, or Photo).
     $('cancelReviewBtn').addEventListener('click', () => { showRetakePrompt(false); camera.discardPhoto(); if (heldReadings().length) openReviewFrom(heldReadings()); });
     // Type it in: the unreadable photo is dropped and the Fields card opens for typing (or the review, if earlier photos
     // of this card were read).

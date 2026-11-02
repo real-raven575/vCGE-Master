@@ -11,17 +11,24 @@
 export const isPlain = (doc = typeof document !== 'undefined' ? document : null) =>
     !!(doc && doc.documentElement && doc.documentElement.dataset.edition === 'plain');
 
-// The header's card names in plain, in place of the pilots' names (a button's span and the "(Name)" in its labels).
+// The 0.8 shelf (raven575, 2026-11-02): the app looks and moves exactly like Creative's mock-up, so the earlier
+// flourishes (the turtle walk, shell plates, padlock hand-off, Iris's wink, Pidge's pop and stamp, the QR stripe reveal,
+// Airlock's hatch, falcon and light pop, the wipe sweep, the lock-screen dissolve, the splash zoom) are switched off by
+// <html data-shelf="on"> in index.html. Nothing is deleted: removing that one attribute brings them all back.
+export const isShelved = (doc = typeof document !== 'undefined' ? document : null) =>
+    !!(doc && doc.documentElement && doc.documentElement.dataset.shelf === 'on');
+
+// The dock's step names in plain (a button's span), and the "(Name)" of the pilot taken out of every top bar and dock label.
 export const PLAIN_NAV = Object.freeze({
-    navWelcome: 'Start', navCapture: 'Capture', navRead: 'Read', navFields: 'Fields', navCard: 'Card', navQr: 'QR', navShare: 'Share'
+    navCapture: 'Capture', navRead: 'Read', navFields: 'Details', navCard: 'Card', navShare: 'Share', navQr: 'QR'
 });
 export const PLAIN_THANKS = 'Session ended.';
 
-// Plain: the header names each card instead of its pilot, the Thank You page reads plainly, and the page is marked
+// Plain: the top bar and the dock name each step instead of its pilot, the Thank You page reads plainly, and the page is marked
 // ready (ui.css keeps the header's names hidden until then, so a pilot's name never shows for a moment).
 export function applyEdition(doc = document) {
     if (!isPlain(doc)) return;
-    doc.querySelectorAll('.deck-header button[aria-label]').forEach(b => {
+    doc.querySelectorAll('.deck-header button[aria-label], .vcge-dock button[aria-label]').forEach(b => {
         for (const attr of ['aria-label', 'title']) {
             const v = b.getAttribute(attr);
             if (v) b.setAttribute(attr, v.replace(/ \([A-Z][a-z]+\)$/, ''));

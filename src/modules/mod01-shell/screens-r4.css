@@ -1,0 +1,124 @@
+/* 0.8 redo r4 screens (CRTV-0020): the Card (gap list row 17) and Share (row 18) screens, built to Creative's
+   0.6 preview mock-up. Shell tokens only (deck.css --sh-*); sizes in rem follow the mock-up's 17 px base. */
+
+#cardCard, #cardShare { --r4-ease-out: cubic-bezier(0.2, 0.8, 0.2, 1); }
+
+/* ---- Shared pieces: the tip, the grouped list and its heading (mock-up .tip, .group, .group h4) ------------------ */
+.r4-tip { display: block; color: var(--sh-soft-ink); background: var(--sh-soft); border-radius: 16px; padding: 12px 14px; font-size: 0.94rem; line-height: 1.45; margin: 0; }
+.r4-tip-line { display: flex; gap: 10px; align-items: center; margin: 0; }
+.r4-tip-line > svg { width: 20px; height: 20px; flex: none; }
+.r4-group { background: var(--sh-surface); border-radius: 22px; box-shadow: 0 0 0 1px var(--sh-line); overflow: hidden; margin: 0 0 24px; }
+.r4-group > h4 { margin: 0; padding: 14px 16px 4px; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--sh-muted); }
+
+/* ---- Card ------------------------------------------------------------------------------------------------------- */
+/* The card first, centred, at most 340 px wide, with the mock-up's soft drop shadow and 18 px corners */
+#cardCard .r4-stage { max-width: 340px; margin: 6px auto 10px; }
+#cardCard .r4-stage .card-face { border-radius: 18px; box-shadow: 0 24px 40px -22px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08) inset; }
+#cardCard .r4-stage #cardFront { min-height: 0; padding: 18px 20px; }
+#cardCard .r4-stage #cardBack { padding: 18px 20px; }
+.r4-flipnote { text-align: center; font-size: 0.8rem; color: var(--sh-muted); margin: 0 0 14px; }
+
+/* Round colour swatches (mock-up .palettes): 44 px each, the bg-coloured border is the gap between them. Eight in one
+   row where the column has room (352 px), else two rows of four. */
+#cardCard .r4-card { container-type: inline-size; }
+.r4-swatches { display: grid; grid-template-columns: repeat(4, 44px); justify-content: center; gap: 10px 16px; margin: 0 0 16px; }
+@container (min-width: 352px) { .r4-swatches { grid-template-columns: repeat(8, 44px); gap: 0; } }
+.r4-swatches button.r4-swatch {
+    width: 44px; height: 44px; min-width: 0; padding: 0; border-radius: 50%; cursor: pointer;
+    border: 2px solid var(--sh-bg); box-shadow: 0 0 0 1.5px var(--sh-line);
+    transition: box-shadow 160ms var(--r4-ease-out), transform 120ms var(--r4-ease-out);
+}
+.r4-swatches button.r4-swatch[aria-pressed="true"] { box-shadow: 0 0 0 2.5px var(--sh-ink); }
+.r4-swatches button.r4-swatch:active { transform: scale(0.96); }
+.r4-swatches button.r4-swatch:focus-visible { outline: 2px solid var(--sh-accent); outline-offset: 3px; }
+
+/* The logo tip: the mock-up's line, then Remove (far left) and the preview with its Logo upload (right) */
+.r4-logo { margin: 0 0 16px; }
+.r4-logo-row { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.r4-logo-pick { display: flex; align-items: center; gap: 8px; margin-left: auto; }
+.r4-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.r4-confirm.hidden { display: none; }
+.r4-confirm-q { font-weight: 600; font-size: 0.85rem; }
+
+/* Pills: the card's own small controls, in the mock-up's .minis look */
+#cardCard .r4-pill {
+    display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 44px; padding: 0 14px;
+    border-radius: 999px; border: 2px solid transparent; background: var(--sh-sunk); color: var(--sh-ink);
+    font-family: inherit; font-size: 0.85rem; font-weight: 600; line-height: 1.2; cursor: pointer; transition: transform 120ms var(--r4-ease-out), background 200ms;
+}
+#cardCard .r4-pill.hidden, #cardCard label.r4-pill.hidden { display: none; }
+#cardCard button.r4-pill:active { transform: scale(0.96); }
+#cardCard .r4-logo .r4-pill { background: var(--sh-surface); }
+#cardCard .r4-logo label.r4-upload { background: var(--sh-accent); color: var(--sh-on); }
+#cardCard .r4-pill-stop { color: var(--sh-stop); background: transparent; box-shadow: 0 0 0 1.5px var(--sh-stop) inset; }
+#cardCard .r4-logo .r4-pill-stop { background: transparent; }
+#cardCard .r4-pill-danger { background: var(--sh-stop); color: #fff; }
+#cardCard .r4-pill[aria-pressed="true"]:not(#cardIconsBtn) { background: var(--sh-accent); color: var(--sh-on); }
+#cardCard select.r4-select { padding: 0 12px; max-width: 100%; }
+#cardCard .r4-pill .flip-tail { width: 1rem; height: 1rem; }
+
+.r4-chips { display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 16px 14px; }
+.r4-look { border-top: 1px solid var(--sh-line); }
+.r4-look-sum { display: flex; align-items: center; gap: 8px; min-height: 52px; padding: 0 16px; cursor: pointer; font-weight: 600; list-style: none; }
+.r4-look-sum::-webkit-details-marker { display: none; }
+.r4-look-sum::after { content: ''; width: 8px; height: 8px; margin-left: auto; border-right: 2px solid var(--sh-muted); border-bottom: 2px solid var(--sh-muted); transform: rotate(45deg); transition: transform 200ms var(--r4-ease-out); }
+.r4-look[open] > .r4-look-sum::after { transform: rotate(225deg); }
+.r4-look-row { padding-top: 0; align-items: center; }
+.r4-behind, .r4-strength { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; font-weight: 600; }
+.r4-behind { flex-wrap: wrap; max-width: 100%; }
+
+/* The logo's safe-area guide: a dashed outline just inside the rounded corners, where a logo is never clipped. It shows
+   for a moment after a logo goes on (card3dView.js showSafeGuide) and while Logo & finish is open. Screen only. */
+#cardFront > .r4-safe-guide {
+    position: absolute; inset: 12px; margin: 0 !important; border-radius: 10px; pointer-events: none;
+    border: 1.5px dashed currentColor; opacity: 0; z-index: 2;
+}
+@media (prefers-reduced-motion: no-preference) { #cardFront > .r4-safe-guide { transition: opacity 260ms var(--r4-ease-out); } }
+#card3DFlipper[data-guide="on"] #cardFront > .r4-safe-guide,
+#cardCard:has(#cardLookPanel[open]) #cardFront > .r4-safe-guide,
+#cardCard[data-look="open"] #cardFront > .r4-safe-guide { opacity: 0.55; }
+@media print { .r4-safe-guide { display: none !important; } }
+
+/* ---- Share ------------------------------------------------------------------------------------------------------ */
+/* "Ready to go." (mock-up .done) */
+.r4-done { display: flex; gap: 12px; align-items: center; background: var(--sh-surface); box-shadow: 0 0 0 1px var(--sh-line); border-radius: 18px; padding: 14px 16px; margin: 0 0 14px; }
+.r4-done-em { font-size: 28px; line-height: 1; flex: none; }
+#cardShare .r4-done .share-lead { margin: 0; font-size: 0.88rem; line-height: 1.45; color: var(--sh-muted); }
+#cardShare .r4-done .share-lead b { color: var(--sh-ink); }
+html[data-edition="plain"] .r4-done-em { display: none; }
+
+/* A row that names what leaves and where (mock-up .row-btn). The 2 px border keeps the shared button outline rule;
+   the line between rows is the mock-up's 1 px rule. */
+#cardShare button.r4-row {
+    width: 100%; display: flex; align-items: center; justify-content: flex-start; gap: 14px; padding: 10px 16px; min-height: 64px;
+    border: 2px solid transparent; border-radius: 0; background: transparent; color: var(--sh-ink); text-align: left;
+    font: inherit; font-weight: 400; cursor: pointer; box-shadow: inset 0 1px 0 var(--sh-line);
+    transition: background 160ms, transform 120ms var(--r4-ease-out);
+}
+#cardShare .r4-group > h4 + button.r4-row { box-shadow: none; }
+#cardShare button.r4-row:hover { background: var(--sh-sunk); }
+#cardShare button.r4-row:active { transform: scale(0.98); }
+#cardShare button.r4-row:focus-visible { outline: 2px solid var(--sh-accent); outline-offset: -4px; }
+#cardShare button.r4-row.is-launching { box-shadow: inset 0 0 0 2px var(--sh-accent); }
+.r4-ic { width: 40px; height: 40px; border-radius: 12px; background: var(--sh-soft); color: var(--sh-soft-ink); display: grid; place-items: center; flex: none; }
+.r4-ic svg { width: 20px; height: 20px; }
+.r4-row-text { flex: 1; min-width: 0; }
+.r4-row-text b { display: block; font-weight: 650; font-size: 1rem; }
+.r4-row-text small { display: block; color: var(--sh-muted); font-size: 0.85rem; line-height: 1.35; overflow-wrap: anywhere; }
+.r4-row-end { display: inline-flex; align-items: center; margin-left: auto; color: var(--sh-muted); flex: none; }
+/* Airlock's hatch door takes the chevron's place; the plain edition has no hatch, so the chevron shows there */
+.r4-chev { width: 18px; height: 18px; display: none; }
+html[data-edition="plain"] .r4-chev { display: block; }
+#cardShare .r4-row-end .hatch { width: 0.85rem; height: 1.05rem; }
+#cardShare .r4-tip { margin-top: -8px; }
+
+/* The mock-up's Card screen has no button of its own: the dock's "Share" presses #readyToShareBtn (data-next), so the
+   green in-screen copy is not shown (raven575, 11-02: "redundant, please use buttons from Creative") */
+#cardCard > .deck-card-foot { display: none; }
+
+/* Airlock's paper plane flies up beside the head, as in the mock-up (its spot is above the screen's top edge, y -9 %),
+   so the Share screen's emblem box does not clip it */
+#cardShare > .vcge-emblem { overflow: visible; }
+/* The deck clips only sideways (the 280 ms slide), so the plane can rise behind the head; browsers without
+   overflow: clip keep the deck's full clip and the plane's lower half */
+@supports (overflow: clip) { #deck { overflow-x: clip; overflow-y: visible; } }

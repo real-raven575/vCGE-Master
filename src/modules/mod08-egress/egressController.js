@@ -125,11 +125,12 @@ export class EgressController {
         return `${safeFileName(this.baseName())}${suffix}`;
     }
 
-    // The Share card shows what the files will be called.
+    // The Share card names the files in its rows (0.8): "Jane Doe.vcf goes to your Downloads", "Jane Doe QR.png, …".
     renderFileHint() {
         if (typeof document === 'undefined' || typeof document.getElementById !== 'function') return;
-        const el = document.getElementById('shareFileExample');
-        if (el) el.textContent = `${this.fileName('.vcf')}, ${this.fileName(' QR.png')}`;
+        const vcf = document.getElementById('shareVcfName'), qr = document.getElementById('shareQrName');
+        if (vcf) vcf.textContent = this.fileName('.vcf');
+        if (qr) qr.textContent = this.fileName(' QR.png');
     }
 
     // ---- The hatch ------------------------------------------------------------------------------------------------

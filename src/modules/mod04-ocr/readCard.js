@@ -13,7 +13,9 @@
  * - While the photo is read it fills the card and a soft shimmer sweeps across it like light on water (read.css,
  *   stepped at STEP_FPS). A pale wash creeps over it on the read curve (ocrWorker.js readProgress) and is full when the
  *   read limit runs out, so the eye sees that time is passing without ever seeing a number. Cancel stops the reader.
- * - Every line the reader was unsure of carries a "please check" note and a small "Looks right" box inside its text
+ * - Each line is one rounded box with a type chip you tap to change (0.8, Creative's mock-up); the photo stays in view
+ *   as a thumbnail above them.
+ * - Every line the reader was unsure of carries a flag that says what to check and a small "Looks right" box inside its text
  *   field. Ticking it turns the box green, then it fades out; a few frames before it is gone the note fades away and
  *   the field returns to normal. Editing the line clears the note at once, as before.
  * - On Proceed the text "blinks out" (a quick fade, no slide) before the deck leaves for Fields. The deck's
@@ -122,52 +124,110 @@ export const readIndicator = {
 globalEventBus.subscribe(Events.VAULT_WIPED, () => readIndicator.hide());
 globalEventBus.subscribe(Events.MEMORY_PURGED, () => readIndicator.hide());
 
-// ---- The review lines: text, role picker, icon chip, and the "please check" note with its Looks right box ------------
+// ---- The review lines: one rounded box per line with its type chip, and the flag that says what to check -----------
+
+const SVG_NS = 'http://www.w3.org/2000/svg';
+/** A small line icon (24 x 24, currentColor) built from path data, never from an HTML string. */
+function lineIcon(className, paths, circle = null) {
+    const svg = document.createElementNS(SVG_NS, 'svg');
+    svg.setAttribute('viewBox', '0 0 24 24');
+    svg.setAttribute('class', className);
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+    if (circle) {
+        const c = document.createElementNS(SVG_NS, 'circle');
+        c.setAttribute('cx', '12'); c.setAttribute('cy', '12'); c.setAttribute('r', String(circle));
+        svg.append(c);
+    }
+    paths.forEach(d => { const path = document.createElementNS(SVG_NS, 'path'); path.setAttribute('d', d); svg.append(path); });
+    return svg;
+}
+
+/** The words on a line's type chip: the role's own label, without the picker's explanation in brackets. */
+export function chipLabel(label) {
+    return String(label || '').replace(/\s*\([^)]*\)\s*$/, '').trim();
+}
+
+/** The flag's lead: it says in words what to check, before MOD05's own note (0.8 redo R3, Creative's mock-up). */
+export const CHECK_LEAD = 'Check this line.';
 
 /**
  * Builds one row per line: [{ text, role, icon, check }]. `roles` are the [value, label] pairs of the role picker,
  * `iconNames` the label for each icon the reader can recognise. `onEdit()` and `onRole()` are called after a line's
  * text or role changed (the line object is updated first). Built with DOM nodes, never HTML strings (OCR text is
  * untrusted). Returns the row elements in order.
+ *
+ * 0.8 (Creative's mock-up): each line is one rounded box you can edit, with a type chip beside it. The chip is the
+ * role picker itself (a native list laid over the chip), so a tap opens the system's own list and the roles stay
+ * MOD05's LINE_ROLES. A flagged line says in words what to check, under its box.
  */
 export function renderReviewRows(lines, { roles, iconNames, onEdit = () => {}, onRole = () => {} }) {
     return lines.map((line, i) => {
+        const item = document.createElement('div');
+        item.className = 'read-line';
         const row = document.createElement('div');
-        row.className = 'flex gap-2 items-center';
+        row.className = 'read-line-row';
         const field = document.createElement('div');
-        field.className = 'read-field flex-1 min-w-0';
+        field.className = 'read-field';
         const text = document.createElement('input');
         text.type = 'text';
         text.id = `ocrLineText${i}`;
-        text.className = 'field-input min-w-0';
+        text.className = 'read-input';
         text.value = line.text;
+        text.autocomplete = 'off';
         text.setAttribute('aria-label', `Line ${i + 1} text`);
         field.append(text);
+
+        // The type chip: what the line is, and a tap to change it
+        const chip = document.createElement('label');
+        chip.className = 'read-type';
+        const chipText = document.createElement('span');
+        chipText.className = 'read-type-label';
+        chipText.setAttribute('aria-hidden', 'true');
         const role = document.createElement('select');
         role.id = `ocrLineRole${i}`;
-        role.className = 'field-input w-44 shrink-0';
+        role.className = 'read-type-select';
         role.setAttribute('aria-label', `Line ${i + 1} is`);
         roles.forEach(([value, label]) => role.add(new Option(label, value, false, value === line.role)));
-        role.addEventListener('change', () => { line.role = role.value; onRole(line, i); });
+        const showRole = () => {
+            const picked = roles.find(([value]) => value === role.value);
+            chipText.textContent = chipLabel(picked ? picked[1] : role.value);
+            chip.classList.toggle('is-ignored', role.value === 'ignore');
+        };
+        showRole();
+        role.addEventListener('change', () => { line.role = role.value; showRole(); onRole(line, i); });
+        chip.append(chipText, lineIcon('read-type-chev', ['M7 10l5 5 5-5']), role);
+        row.append(field, chip);
+        item.append(row);
+
         if (line.icon && iconNames[line.icon]) {
-            const chip = document.createElement('span');
-            chip.id = `ocrLineIcon${i}`;
-            chip.className = 'shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400';
-            chip.textContent = iconNames[line.icon];
-            chip.title = 'Icon seen in front of this line';
-            row.append(chip);
+            const seen = document.createElement('span');
+            seen.id = `ocrLineIcon${i}`;
+            seen.className = 'read-line-icon';
+            seen.textContent = iconNames[line.icon];
+            seen.title = 'Icon seen in front of this line';
+            item.append(seen);
         }
-        row.append(field, role);
         if (!line.check) {
             text.addEventListener('input', () => { line.text = text.value; onEdit(line, i); });
-            return row;
+            return item;
         }
 
-        // MOD05 asks for a check: a ZIP the state doesn't use, or letters the reader was unsure of.
-        const note = document.createElement('p');
+        // MOD05 asks for a check: a ZIP the state doesn't use, or letters the reader was unsure of. The flag says so
+        // in words (a lead and MOD05's note), with an icon, never by colour alone.
+        item.classList.add('is-flagged');
+        const flag = document.createElement('div');
+        flag.className = 'read-flag';
+        const words = document.createElement('p');
+        const lead = document.createElement('b');
+        lead.textContent = CHECK_LEAD;
+        const note = document.createElement('span');
         note.id = `ocrLineCheck${i}`;
-        note.className = 'read-note text-xs text-amber-600 dark:text-amber-400 pl-1';
+        note.className = 'read-note';
         note.textContent = line.check;
+        words.append(lead, ' ', note);
+        flag.append(lineIcon('read-flag-icon', ['M12 7v6', 'M12 16.5v.5'], 9), words);
+        item.append(flag);
         text.classList.add('border-amber-500', 'dark:border-amber-400', 'read-flagged');
         text.setAttribute('aria-describedby', note.id);
         const ok = document.createElement('input');
@@ -177,18 +237,16 @@ export function renderReviewRows(lines, { roles, iconNames, onEdit = () => {}, o
         ok.title = 'Looks right';
         ok.setAttribute('aria-label', `Line ${i + 1} looks right`);
         field.append(ok);
-        const wrap = document.createElement('div');
-        wrap.className = 'space-y-0.5';
-        wrap.append(row, note);
 
         let cleared = false;
         const clearCaution = () => {
             if (cleared) return;
             cleared = true;
             delete line.check;
+            item.classList.remove('is-flagged');
             text.classList.remove('border-amber-500', 'dark:border-amber-400', 'read-flagged');
             text.removeAttribute('aria-describedby');
-            note.remove();
+            flag.remove();
             ok.remove();
         };
         // Edited means checked: the note goes away at once.
@@ -206,14 +264,33 @@ export function renderReviewRows(lines, { roles, iconNames, onEdit = () => {}, o
                 await wait(CHECK_FADE_MS * CHECK_NOTE_AT);
                 if (cleared) return;
                 text.classList.remove('border-amber-500', 'dark:border-amber-400', 'read-flagged');
-                await Promise.all([fade(note, 1, 0, CHECK_FADE_MS * (1 - CHECK_NOTE_AT)), boxFade]);
+                const rest = CHECK_FADE_MS * (1 - CHECK_NOTE_AT);
+                await Promise.all([fade(note, 1, 0, rest), fade(flag, 1, 0, rest), boxFade]);
             }
             clearCaution();
             onEdit(line, i);
         });
-        return wrap;
+        return item;
     });
 }
+
+// ---- The photo thumbnail: stays in view above the lines while they are checked -------------------------------------
+
+/**
+ * `show(photo)` puts the photo being checked (a data URL) in the thumbnail beside the hint; `hide()` drops it. The
+ * photo is contact data: it is never kept anywhere else, and a wipe or an idle purge drops it too.
+ */
+export const readThumb = {
+    show(photo) {
+        const img = $('ocrThumb');
+        if (!img) return;
+        if (photo) img.setAttribute('src', photo); else img.removeAttribute('src');
+        img.classList.toggle('hidden', !photo);
+    },
+    hide() { this.show(null); }
+};
+globalEventBus.subscribe(Events.VAULT_WIPED, () => readThumb.hide());
+globalEventBus.subscribe(Events.MEMORY_PURGED, () => readThumb.hide());
 
 // ---- Hand-off: the text blinks out before the deck leaves for Fields ------------------------------------------------
 
