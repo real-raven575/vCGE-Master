@@ -774,8 +774,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   // a raw tap at the pill's centre, with no waiting for the scrim to go
   const pill = await page.evaluate(() => { const r = document.getElementById('navVault').getBoundingClientRect(); return [r.left + r.width / 2, r.top + r.height / 2]; });
   await page.mouse.click(pill[0], pill[1]);
-  ok('a tap on the Vault pill while the Settings sheet is still sliding away opens the Vault (the fading scrim takes no taps)',
-    await page.waitForSelector('#vaultPage', { state: 'visible', timeout: 2000 }).then(() => true, () => false));
+  const tapOpened = await page.waitForSelector('#vaultPage', { state: 'visible', timeout: 2000 }).then(() => true, () => false);
+  // (for a miss, what the tap met: CI WebKit saw the Vault stay shut even after a later normal click)
+  const tapState = tapOpened ? '' : await page.evaluate(([x, y]) => { const h = document.elementFromPoint(x, y), a = document.activeElement;
+    return JSON.stringify({ hit: h && (h.id || h.className || h.tagName), vault: document.getElementById('vaultPage').className, settings: document.getElementById('settingsSheet').className,
+      modals: [...document.querySelectorAll('.vcge-modal:not(.hidden), [role="alertdialog"]:not(.hidden)')].map(m => m.id), focus: a && (a.id || a.tagName), card: document.documentElement.dataset.card }); }, pill);
+  ok('a tap on the Vault pill while the Settings sheet is still sliding away opens the Vault (the fading scrim takes no taps)', tapOpened, tapState);
   await openVault(page);
   ok('the Vault\'s lock chips offer 2 min only (5 and 15 shown, not offered)', (await page.$$eval('#vaultPage [aria-labelledby="lockChipsLabel"] button', bs => bs.map(b => b.textContent + (b.disabled ? '-' : '+') + b.getAttribute('aria-pressed')).join())) === '2 min+true,5 min-false,15 min-false');
   ok('the wipe chips are 7, 10, 15 min, 7 chosen, and html says 7', (await page.$$eval('#wipeChips button', os => os.map(o => o.textContent).join('|'))) === '7 min|10 min|15 min'
