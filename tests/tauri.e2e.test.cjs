@@ -158,7 +158,7 @@ async function stopDriver(driver) {
     ok('upload opens the crop step on the Capture card', await until(() => visible('captureReview'), 5000));
     await click('#runOcrBtn');
     ok('real OCR runs in the desktop webview and opens the review step', await until(() => visible('ocrStepText'), 90000), await txt('toastMessage'));
-    await click('#applyOcrBtn');
+    await click('#dockNext');   // 0.8: the dock's "Fill details" presses the review's own (unshown) Proceed
     await until(async () => !(await visible('cropReviewModal')), 5000);
     const toast = await txt('toastMessage');
     ok('Fill form fills the form from the review', toast.includes('Form filled'), toast);

@@ -145,7 +145,7 @@ async function readEnds(page, sel = '#ocrStepText') {
   try { await page.waitForSelector(sel, { state: 'visible', timeout: 90000 }); }
   catch (e) { throw new Error(`${e.message}\n${await readStage(page)}`); }
 }
-const proceed = async (page) => { await page.click('#applyOcrBtn'); await page.waitForSelector('#cropReviewModal', { state: 'hidden', timeout: 5000 }); };
+const proceed = async (page) => { await page.click('#dockNext'); await page.waitForSelector('#cropReviewModal', { state: 'hidden', timeout: 5000 }); };
 
 async function decodeQr(page) {
   const qr = await page.evaluate(() => { const c = document.getElementById('qrCanvas'); return { w: c.width, h: c.height, data: Array.from(c.getContext('2d').getImageData(0, 0, c.width, c.height).data) }; });
@@ -481,6 +481,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   ok('prefix/suffix/unit suggestion lists filled', (await page.$$eval('#namePrefixOptions option', o => o.map(x => x.value))).includes('Dr.') && (await page.$$eval('#nameSuffixOptions option', o => o.length)) === 10 && (await page.$$eval('#unitTypeOptions option', o => o.map(x => x.value))).includes('Suite'));
   await page.click('#navFields'); await deckSettled(page);
   ok('US state picker shown with 56 states and territories', await visible('stateSelect') && !(await visible('stateText')) && (await page.$$eval('#stateSelect option', o => o.length)) === 57 && (await text('stateLabel')) === 'State');
+  // 0.8 redo R3: the rarer boxes wait behind "+ Add a field" until it is pressed (or one of them holds something)
+  ok('0.8 Details: prefix, suffix, middle name, nickname and birthday wait behind "+ Add a field"', !(await visible('namePrefix')) && !(await visible('birthday')) && await visible('fieldsAddBtn')
+    && (await page.getAttribute('#fieldsAddBtn', 'aria-expanded')) === 'false' && (await text('fieldsAddBtn')) === '+ Add a field');
+  await page.click('#fieldsAddBtn');
+  ok('0.8 Details: "+ Add a field" shows them under a "More" heading, puts the cursor in the first and steps aside', await visible('namePrefix') && await visible('middleName') && await visible('nameSuffix') && await visible('nickname') && await visible('birthday')
+    && (await page.evaluate(() => document.activeElement.id)) === 'namePrefix' && !(await visible('fieldsAddBtn')) && (await text('fieldsMoreTitle')) === 'More');
   await page.fill('#namePrefix', 'Dr.'); await page.fill('#middleName', 'Q.'); await page.fill('#nameSuffix', 'PhD');
   await page.selectOption('#phoneType0', 'mobile'); await page.fill('#phoneValue0', '4155550101'); await page.press('#phoneValue0', 'Tab');
   ok('phone number formatted on leaving the box', (await val('phoneValue0')) === '+1 (415) 555-0101', await val('phoneValue0'));
@@ -549,15 +555,38 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   ok('after the read the photo under the shimmer is dropped', !(await page.getAttribute('#ocrReadPhoto', 'src')));
   ok('first scan says the reader is being prepared, then extracting', bar.labels.indexOf('Preparing the reader…') >= 0 && bar.labels.indexOf('Extracting…', bar.labels.indexOf('Preparing the reader…')) > 0, [...new Set(bar.labels)].join(' | '));
   ok('review step lists the OCR lines with a field picker each', (await page.$$('#ocrLines select')).length >= 8 && (await page.inputValue('#ocrLineRole0')) === 'name', String((await page.$$('#ocrLines select')).length));
+  // 0.8 redo R3 (Creative's mock-up): each line is one rounded box with its type chip beside it; the chip is the picker
+  const lineLook = await page.evaluate(() => {
+    const row = document.querySelector('#ocrLines .read-line-row'), box = document.getElementById('ocrLineText0'), chip = row.querySelector('.read-type');
+    const b = box.getBoundingClientRect(), c = chip.getBoundingClientRect(), pick = document.getElementById('ocrLineRole0').getBoundingClientRect();
+    return { rows: document.querySelectorAll('#ocrLines .read-line-row').length, picks: document.querySelectorAll('#ocrLines select').length, radius: parseFloat(getComputedStyle(box).borderTopLeftRadius),
+      chipRight: c.left >= b.right - 1, sameLine: Math.abs((c.top + c.height / 2) - (b.top + b.height / 2)) < 2, pill: parseFloat(getComputedStyle(chip).borderTopLeftRadius) >= c.height / 2 - 1,
+      chipText: chip.querySelector('.read-type-label').textContent, over: pick.left <= c.left + 1 && pick.right >= c.right - 1 && pick.height >= 44, boxH: b.height };
+  });
+  ok('0.8 Read: each line is one rounded box (16 px corners, 52 px tall) with a round type chip beside it that names the type, the picker laid over it (44 px to tap)',
+    lineLook.rows === lineLook.picks && lineLook.radius === 16 && lineLook.boxH >= 52 && lineLook.chipRight && lineLook.sameLine && lineLook.pill && lineLook.chipText === 'Name' && lineLook.over, JSON.stringify(lineLook));
+  await page.selectOption('#ocrLineRole0', 'notes');
+  const chipNow = await page.$eval('#ocrLines .read-type', c => c.querySelector('.read-type-label').textContent);
+  await page.selectOption('#ocrLineRole0', 'ignore');
+  const chipIgnored = await page.$eval('#ocrLines .read-type', c => c.classList.contains('is-ignored') && getComputedStyle(c.querySelector('.read-type-label')).textDecorationLine);
+  await page.selectOption('#ocrLineRole0', 'name');
+  ok('0.8 Read: tapping the chip changes the type (same roles), and the chip says so; Ignore is struck through', chipNow === 'Notes' && chipIgnored === 'line-through'
+    && (await page.$eval('#ocrLines .read-type', c => c.querySelector('.read-type-label').textContent)) === 'Name' && (await text('ocrSummary')).includes('Maria'), JSON.stringify({ chipNow, chipIgnored }));
+  const thumb = await page.evaluate(() => { const t = document.getElementById('ocrThumb'), r = t.getBoundingClientRect(), l = document.getElementById('ocrLines').getBoundingClientRect();
+    return { src: (t.getAttribute('src') || '').slice(0, 11), w: Math.round(r.width), above: r.bottom <= l.top + 1, shown: !!(t.offsetWidth && t.offsetHeight) }; });
+  ok('0.8 Read: the photo stays in view as a thumbnail above the lines', thumb.shown && thumb.src === 'data:image/' && thumb.w === 96 && thumb.above, JSON.stringify(thumb));
+  ok('0.8 Read: "Fill details" is the dock\'s (the in-screen Proceed is not shown) and "What fills in" is folded away', (await page.textContent('#dockNext')).trim() === 'Fill details' && !(await visible('applyOcrBtn'))
+    && !(await page.$eval('#ocrSummaryBox', d => d.open)) && await visible('ocrBackBtn'));
   ok('nothing reaches the form before Fill form', !(await rows(page, 'email')).some(r => r.value.includes('northwind')));
   ok('"Will fill" summary shows the mapped fields', (await text('ocrSummary')).includes('maria.gonzalez@northwind.com') && (await text('ocrSummary')).includes('Northwind Systems'));
   const readGap = await page.evaluate(() => {
     const label = document.getElementById('vcgeHead').getBoundingClientRect();
-    const head = document.querySelector('#ocrStepText > h2').getBoundingClientRect();
-    return { gap: Math.round(head.top - label.bottom), title: document.getElementById('hTitle').textContent, old: getComputedStyle(document.querySelector('#cardRead > .deck-card-body > h2')).display };
+    const head = document.getElementById('ocrThumbRow').getBoundingClientRect();
+    return { gap: Math.round(head.top - label.bottom), title: document.getElementById('hTitle').textContent, old: document.querySelectorAll('#cardRead .deck-card-body h2').length };
   });
-  ok('0.8 shell: the head says "Check the text" and the review heading sits close under it (the old "Read the card" label steps out)', readGap.gap >= 0 && readGap.gap <= 24 && readGap.title === 'Check the text' && readGap.old === 'none', JSON.stringify(readGap));
-  ok('the review reminds that more fields can be added on the next card', (await visible('ocrMoreFields')) && /more fields on the next card/.test(await text('ocrMoreFields')), await text('ocrMoreFields'));
+  ok('0.8 shell: the head says "Check the text" and the photo thumbnail with its hint sits close under it (no old "Read the card" or review heading)', readGap.gap >= 0 && readGap.gap <= 24 && readGap.title === 'Check the text' && readGap.old === 0, JSON.stringify(readGap));
+  ok('the review reminds that more fields can be added on the next step (the mock-up\'s tip, under the lines)', (await visible('ocrMoreFields')) && /more fields, like a birthday or a second email, on the next step/.test(await text('ocrMoreFields'))
+    && (await page.$eval('#ocrMoreFields', el => el.getBoundingClientRect().top >= document.getElementById('ocrLines').getBoundingClientRect().bottom)), await text('ocrMoreFields'));
   await page.evaluate(() => {
     window.__blink = { opacities: [], cardAtClear: null };
     const step = document.getElementById('ocrStepText');
@@ -1507,6 +1536,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const orgLine = pU.locator('#fieldsUnknownList .fields-unknown-line', { hasText: 'Northwind Systems' });
     await orgLine.click(); await pU.keyboard.press('Escape');
     ok('F4: Escape puts a picked line back', (await orgLine.getAttribute('aria-pressed')) === 'false');
+    await pU.click('#fieldsAddBtn');   // 0.8: Nickname is one of the boxes behind "+ Add a field"
     await orgLine.click(); await pU.focus('#nickname'); await pU.keyboard.press('Enter');
     ok('F4: Enter in a box files the picked line there', (await pU.inputValue('#nickname')) === 'Northwind Systems' && !(await trayLines()).includes('Northwind Systems'));
     await pU.fill('#nickname', '');
@@ -1584,9 +1614,22 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       (await pF.inputValue('#firstName')) === samples()[2][0] && (await pF.inputValue('#organization')) === samples()[2][2] && (await pops()) === 2
       && (SHELVED ? pop.names.length === 0 : pop.names.includes('fields-pop') && pop.steps === 'steps(8)' && pop.ms === '0.32s')
       && await pF.isVisible('#toastAction') && (await pF.$eval('#fakeContactSelect', s => s.value)) === '' && (await card()) === 'fields', JSON.stringify({ pop, pops: await pops(), card: await card() }));
-    ok('fields: the list and the green button are at least 44 px tall; the button reads "Everything\'s correct" (its name for screen readers too; the FILED stamp is hidden from them) with the tick icon', (await pF.$$eval('#fakeContactSelect, #fieldsDoneBtn', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44)
+    ok('fields (0.8): the list and the dock\'s "Make the card" are at least 44 px tall; the in-screen button keeps its words and tick for the dock to press but is not shown (one Next, in the dock)', (await pF.$$eval('#fakeContactSelect, #dockNext', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44)
+      && (await pF.textContent('#dockNext')).trim() === 'Make the card' && !(await pF.isVisible('#fieldsDoneBtn'))
       && (await pF.$eval('#fieldsDoneBtn', b => b.querySelector(':scope > span:not(.fields-stamp)').textContent)) === "Everything's correct"
-      && (await pF.getByRole('button', { name: "Everything's correct", exact: true }).count()) === 1 && !!(await pF.$('#fieldsDoneBtn svg use[href$="#circle-check"]')), JSON.stringify(await pF.$$eval('#fakeContactSelect, #fieldsDoneBtn', els => els.map(e => e.getBoundingClientRect().height))));
+      && (await pF.getByRole('button', { name: "Everything's correct", exact: true }).count()) === 0 && !!(await pF.$('#fieldsDoneBtn svg use[href$="#circle-check"]')), JSON.stringify(await pF.$$eval('#fakeContactSelect, #dockNext', els => els.map(e => e.getBoundingClientRect().height))));
+    // 0.8 Details layout (Creative's mock-up): groups Name, Work, Reach, Notes; labels above rounded boxes; first and last name side by side
+    const look = await pF.evaluate(() => {
+      const r = (id) => document.getElementById(id).getBoundingClientRect(), label = document.querySelector('#fieldsForm label:has(#jobTitle) .field-label').getBoundingClientRect();
+      const box = document.getElementById('jobTitle');
+      return { groups: Array.from(document.querySelectorAll('#fieldsForm > .fields-group')).filter(h => h.offsetHeight).map(h => h.textContent).join(), radius: getComputedStyle(box).borderTopLeftRadius,
+        h: Math.round(r('jobTitle').height), labelAbove: label.bottom <= r('jobTitle').top + 1, pair: Math.abs(r('firstName').top - r('lastName').top) < 1 && r('lastName').left > r('firstName').right,
+        order: r('firstName').top < r('jobTitle').top && r('jobTitle').top < r('organization').top && r('organization').top < r('phoneList').top && r('phoneList').top < r('notes').top,
+        add: r('fieldsAddBtn').top > r('notes').bottom, tools: r('fakeContactSelect').top > r('fieldsAddBtn').bottom && r('clearFormBtn').top > r('fieldsAddBtn').bottom,
+        topBar: !document.querySelector('.vcge-bar #fakeContactSelect, .vcge-bar #clearFormBtn, .vcge-head #fakeContactSelect, .vcge-head #clearFormBtn') };
+    });
+    ok('fields (0.8): grouped Name, Work, Reach, Notes; labels above 16 px rounded boxes; first and last name side by side; "+ Add a field" under Notes; the sample list and Clear form last, off the top',
+      look.groups === 'Name,Work,Reach,Notes' && look.radius === '16px' && look.h >= 52 && look.labelAbove && look.pair && look.order && look.add && look.tools && look.topBar, JSON.stringify(look));
     // The class goes on animationend, which a slow phone engine on CI can deliver well after 0.32 s: wait for it (3 s cap)
     const popEnded = await pF.waitForFunction(() => !document.getElementById('fieldsForm').classList.contains('is-popping'), null, { timeout: 3000 }).then(() => true, () => false);
     ok('fields: the pop class is gone once the animation ends', popEnded && !(await pF.$eval('#fieldsForm', f => f.classList.contains('is-popping'))));
@@ -1595,19 +1638,21 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pF.evaluate(() => document.getElementById('cardFields').scrollIntoView({ inline: 'center', block: 'nearest' })); await pF.waitForTimeout(400);
     ok('fields: arriving by a swipe does not pop (no flash of a form that was already in view)', (await pops()) === 2 && (await card()) === 'fields', String(await pops()) + ' ' + (await card()));
     // "Everything's correct": the details go on to the 3D Card (the padlock hand-off follows the deck's signal)
-    const footSides = () => pF.evaluate(() => { const c = document.getElementById('cardFields').getBoundingClientRect(), t = document.querySelector('#cardFields .vcge-trash').getBoundingClientRect(), b = document.getElementById('fieldsDoneBtn').getBoundingClientRect();
-      const side = (r) => (r.left + r.width / 2 > c.left + c.width / 2 ? 'right' : 'left'); return { trash: side(t), ok: side(b), okBottom: b.bottom <= c.bottom + 1 && b.top > c.top + c.height / 2 }; });
+    // 0.8: Next is always the dock's "Make the card", below the screen (never scrolled away); the trash stays in the screen's foot
+    const footSides = () => pF.evaluate(() => { const c = document.getElementById('cardFields').getBoundingClientRect(), t = document.querySelector('#cardFields .vcge-trash').getBoundingClientRect(), b = document.getElementById('dockNext').getBoundingClientRect();
+      const side = (r) => (r.left + r.width / 2 > c.left + c.width / 2 ? 'right' : 'left'); return { trash: side(t), ok: side(b), okBottom: b.top >= c.bottom - 1 && b.bottom <= window.innerHeight + 1, label: document.getElementById('dockNext').textContent.trim() }; });
     const sidesRight = await footSides();
-    await pF.click('#fieldsDoneBtn'); await pF.waitForTimeout(700);
-    ok('fields: "Everything\'s correct" sits lower right (the trash lower left) and moves on to the 3D Card with the details on it',
-      sidesRight.ok === 'right' && sidesRight.trash === 'left' && sidesRight.okBottom && (await card()) === 'card' && (await pF.textContent('#previewFullName')) === `${samples()[2][0]} ${samples()[2][1]}` && (SHELVED ? !(await pF.isVisible('#vaultHandoff[data-playing]')) : await pF.isVisible('#vaultHandoff[data-playing]').catch(() => true)),
+    await pF.click('#dockNext'); await pF.waitForTimeout(700);
+    ok('fields (0.8): "Make the card" sits in the dock under the screen, lower right (the trash lower left), and moves on to the 3D Card with the details on it',
+      sidesRight.ok === 'right' && sidesRight.trash === 'left' && sidesRight.okBottom && sidesRight.label === 'Make the card' && (await card()) === 'card' && (await pF.textContent('#previewFullName')) === `${samples()[2][0]} ${samples()[2][1]}` && (SHELVED ? !(await pF.isVisible('#vaultHandoff[data-playing]')) : await pF.isVisible('#vaultHandoff[data-playing]').catch(() => true)),
       JSON.stringify({ sidesRight, card: await card() }));
     await pF.click('#navSettings'); await pF.click('#handLeftBtn'); await pF.keyboard.press('Escape'); await pF.waitForTimeout(200);
     await pF.click('#navFields'); await pF.waitForTimeout(600);
     const sidesLeft = await footSides();
-    ok('fields: left hand puts "Everything\'s correct" lower left and the trash lower right', sidesLeft.ok === 'left' && sidesLeft.trash === 'right', JSON.stringify(sidesLeft));
+    ok('fields (0.8): left hand puts the trash lower right, and Next stays the dock\'s "Make the card" under the screen', sidesLeft.trash === 'right' && sidesLeft.okBottom && sidesLeft.label === 'Make the card', JSON.stringify(sidesLeft));
     await pF.click('#navSettings'); await pF.click('#handRightBtn'); await pF.click('#cbToggle'); await pF.keyboard.press('Escape'); await pF.waitForTimeout(200);
-    ok('fields: colour-blind mode turns the green button blue', (await pF.$eval('#fieldsDoneBtn', b => getComputedStyle(b).backgroundColor)) === 'rgb(37, 99, 235)');
+    ok('fields (0.8): colour-blind mode leaves no green "Everything\'s correct" on the screen; the dock\'s "Make the card" is the one Next, ready to press', !(await pF.isVisible('#fieldsDoneBtn')) && await pF.isVisible('#dockNext') && !(await pF.$eval('#dockNext', b => b.disabled))
+      && (await pF.textContent('#dockNext')).trim() === 'Make the card');
     await pF.click('#navSettings'); await pF.click('#cbToggle'); await pF.keyboard.press('Escape');
     // Reduce motion: the arrival counts, nothing moves
     await pF.emulateMedia({ reducedMotion: 'reduce' });
@@ -1660,13 +1705,13 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pN.waitForFunction(() => !document.getElementById('vaultTimerStrip').classList.contains('hidden'), null, { timeout: 3000 });
     const inView = await pN.evaluate(() => {
       const h = window.innerHeight, r = (sel) => document.querySelector(sel).getBoundingClientRect();
-      return { h, strip: !document.getElementById('vaultTimerStrip').classList.contains('hidden'), ok: r('#fieldsDoneBtn').bottom, trash: r('#cardFields .vcge-trash').bottom, deck: r('#deck').bottom, scrolls: document.querySelector('#cardFields .deck-card-body').scrollHeight > document.querySelector('#cardFields .deck-card-body').clientHeight };
+      return { h, strip: !document.getElementById('vaultTimerStrip').classList.contains('hidden'), ok: r('#dockNext').bottom, trash: r('#cardFields .vcge-trash').bottom, deck: r('#deck').bottom, scrolls: document.querySelector('#cardFields .deck-card-body').scrollHeight > document.querySelector('#cardFields .deck-card-body').clientHeight };
     });
-    ok('#62: iPad portrait, long form: "Everything\'s correct" and the trash are on the screen', inView.strip && inView.scrolls && inView.ok <= inView.h && inView.trash <= inView.h && inView.deck <= inView.h + 0.5, JSON.stringify(inView));
+    ok('#62: iPad portrait, long form: the dock\'s "Make the card" and the trash are on the screen', inView.strip && inView.scrolls && inView.ok <= inView.h && inView.trash <= inView.h && inView.deck <= inView.h + 0.5, JSON.stringify(inView));
     const heightRule = await pN.evaluate(() => [...document.styleSheets].flatMap(sh => { try { return [...sh.cssRules]; } catch (e) { return []; } })
       .filter(r => r.selectorText === 'body.h-screen').map(r => r.style.height).join());
     ok('#62: the page height is the height in view (100dvh), not 100vh', heightRule === '100dvh' && (await pN.evaluate(() => Math.round(document.body.getBoundingClientRect().height) === window.innerHeight)), heightRule);
-    await pN.click('#fieldsDoneBtn'); await pN.waitForTimeout(700);
+    await pN.click('#dockNext'); await pN.waitForTimeout(700);
     ok('#62: the button is tappable there and moves on to the 3D Card', (await pN.evaluate(() => document.documentElement.dataset.card)) === 'card');
     await ctxN.close();
   }
@@ -1879,6 +1924,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const row = roles.indexOf('cityStateZip');
     const note = row >= 0 && await pZ.$(`#ocrLineCheck${row}`);
     ok('a ZIP code the state does not use is flagged under its line', !!note && (await note.textContent()) === '42024 is not a Michigan ZIP code. Please check it.' && (await pZ.getAttribute(`#ocrLineText${row}`, 'aria-describedby')) === `ocrLineCheck${row}`, roles.join());
+    const flagLook = await pZ.evaluate((row) => { const n = document.getElementById(`ocrLineCheck${row}`), f = n.closest('.read-flag'), t = document.getElementById(`ocrLineText${row}`);
+      return { words: f && f.innerText.replace(/\s+/g, ' ').trim(), icon: !!(f && f.querySelector('svg')), under: f && f.getBoundingClientRect().top >= t.getBoundingClientRect().bottom, radius: f && getComputedStyle(f).borderTopLeftRadius }; }, row);
+    ok('0.8 Read: the flag under a line says in words what to check, with an icon (not only an orange colour)', flagLook.words === 'Check this line. 42024 is not a Michigan ZIP code. Please check it.' && flagLook.icon && flagLook.under && flagLook.radius === '14px', JSON.stringify(flagLook));
     const okBox = await pZ.$(`#ocrLineOk${row}`);
     const okRect = okBox && await okBox.boundingBox(), fieldRect = await (await pZ.$(`#ocrLineText${row}`)).boundingBox();
     ok('a flagged line carries a "Looks right" box inside its text field, on the right, vertically centred, 44 px to tap', !!okBox && (await okBox.getAttribute('aria-label')).includes('looks right') && okRect.width >= 44 && okRect.height >= 44

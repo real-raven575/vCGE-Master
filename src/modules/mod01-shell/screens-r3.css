@@ -1,1 +1,195 @@
-/* 0.8 redo r3 screens (CRTV-0020). */
+/* 0.8 redo r3 screens (CRTV-0020): Read ("Check the text") and Details ("Contact details"), built to Creative's mock-up
+   (vcge-0.6-preview.html: .thumb, .lines/.linefix/.type/.flag, .tip, .fields/.field/.pair, .btn.quiet). The shell's
+   tokens (deck.css --sh-*) carry every colour; the one extra is the warning tone (themes.js --vcge-warn).
+   Scoped to the two screens by id, so the old Tailwind look of .field-input steps aside here only. No flashing, no sound. */
+
+:root { --r3-warn: var(--vcge-warn, #8a5800); --r3-good: var(--vcge-good, #2e7d4f); }
+:root.dark { --r3-warn: var(--vcge-warn, #f2c060); --r3-good: var(--vcge-good, #7fd39e); }
+
+/* ---- Shared pieces: the rounded box, the tip, the quiet buttons ------------------------------------------------- */
+#cardRead .read-input,
+#cardFields .field-input {
+    width: 100%; min-height: 52px; box-sizing: border-box; margin: 0;
+    border-radius: 16px; border: 1.5px solid var(--sh-line); background: var(--sh-surface); color: var(--sh-ink);
+    box-shadow: var(--sh-shadow); font: inherit; font-size: 1rem; padding: 0 16px;
+    transition: border-color 160ms, background 160ms;
+}
+#cardFields textarea.field-input { padding: 14px 16px; line-height: 1.4; resize: vertical; }
+#cardRead .read-input:focus, #cardFields .field-input:focus { outline: none; border-color: var(--sh-accent); background: var(--sh-surface); }
+#cardRead .read-input:focus-visible, #cardFields .field-input:focus-visible { outline: 2px solid var(--sh-accent); outline-offset: 1px; }
+#cardRead .read-input::placeholder, #cardFields .field-input::placeholder { color: var(--sh-muted); opacity: .7; }
+
+#cardRead .read-tip {
+    display: flex; gap: 10px; align-items: center; margin: 0;
+    color: var(--sh-soft-ink); background: var(--sh-soft); border-radius: 16px; padding: 12px 14px; font-size: .88em; box-shadow: var(--sh-shadow);
+}
+#cardRead .read-tip svg { width: 20px; height: 20px; flex: none; }
+
+#cardRead .read-quiet-btn {
+    min-height: 44px; padding: 0 16px; border: 0; border-radius: 999px; cursor: pointer;
+    background: var(--sh-surface); color: var(--sh-ink); box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow);
+    font: 600 .9rem system-ui, sans-serif; transition: transform 120ms var(--ease-out);
+}
+#cardRead .read-quiet-btn:active, #cardFields .fields-add:active { transform: scale(.96); }
+
+/* ---- Read: reading the photo ------------------------------------------------------------------------------------ */
+#cardRead > .deck-card-body > #cropReviewModal { margin-top: 0; }
+#cardRead .read-frame { border-radius: 20px; box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow); }
+#cardRead .read-progress-row { display: flex; align-items: center; gap: 12px; margin-top: 12px; }
+#cardRead .read-progress-label { margin: 0 auto 0 0; font-size: .88em; color: var(--sh-muted); font-weight: 600; }
+
+/* ---- Read: the thumbnail and the lines ---------------------------------------------------------------------------- */
+#cardRead .read-thumb { display: flex; gap: 12px; align-items: center; margin-bottom: 14px; }
+#cardRead .read-thumb-photo:not(.hidden) {
+    display: block; width: 96px; aspect-ratio: 3.5 / 2; flex: none; object-fit: cover; border-radius: 8px;
+    background: var(--sh-sunk); box-shadow: 0 6px 14px -6px rgba(0, 0, 0, .4);
+}
+#cardRead .read-thumb p { margin: 0; font-size: .85em; color: var(--sh-muted); }
+
+#cardRead .read-lines { display: grid; gap: 18px; margin-bottom: 24px; }
+#cardRead .read-lines > * { min-width: 0; }
+#cardRead .read-line { display: grid; gap: 6px; min-width: 0; }
+#cardRead .read-line-row { display: flex; gap: 8px; align-items: center; min-width: 0; }
+#cardRead .read-field { flex: 1 1 0; min-width: 0; }
+#cardRead .read-input { padding: 0 14px; text-overflow: ellipsis; }
+#cardRead .read-line.is-flagged .read-input, #cardRead .read-input.read-flagged { border-color: var(--r3-warn); }
+#cardRead .read-field .read-flagged { padding-right: 3rem; }
+
+/* The type chip: the role picker laid over it (a tap opens the system's own list) */
+#cardRead .read-type {
+    position: relative; flex: none; display: inline-flex; align-items: center; gap: 4px; max-width: 46%;
+    min-height: 36px; padding: 0 12px; border-radius: 999px; cursor: pointer;
+    background: var(--sh-surface); color: var(--sh-ink); box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow);
+    font: 600 .8rem system-ui, sans-serif; transition: transform 120ms var(--ease-out);
+}
+#cardRead .read-type:active { transform: scale(.96); }
+#cardRead .read-type:focus-within { box-shadow: 0 0 0 2px var(--sh-accent), var(--sh-shadow); }
+#cardRead .read-type-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#cardRead .read-type-chev { width: 14px; height: 14px; flex: none; fill: none; stroke: currentColor; stroke-width: 2.4; stroke-linecap: round; stroke-linejoin: round; }
+#cardRead .read-type.is-ignored { color: var(--sh-muted); }
+#cardRead .read-type.is-ignored .read-type-label { text-decoration: line-through; }
+#cardRead .read-type-select {
+    /* 4 px over and under the chip: the tap area (and the list itself) is 44 px, the app's floor, on a 36 px chip */
+    position: absolute; top: -4px; bottom: -4px; left: 0; width: 100%; min-height: 44px; margin: 0; padding: 0;
+    opacity: 0; cursor: pointer; border: 0; font-size: 16px;   /* 16 px: iOS opens the list without zooming */
+}
+
+/* An icon the reader saw in front of the line */
+#cardRead .read-line-icon {
+    justify-self: start; margin-left: 6px; padding: 1px 8px; border-radius: 999px;
+    background: var(--sh-sunk); color: var(--sh-muted); font: 600 11px system-ui, sans-serif;
+}
+
+/* The flag: says in words what to check, with an icon, never colour alone */
+#cardRead .read-flag {
+    display: flex; gap: 8px; align-items: flex-start; border-radius: 14px; padding: 10px 16px;
+    background: color-mix(in srgb, var(--r3-warn) 12%, var(--sh-surface)); color: var(--sh-ink); font-size: .85em;
+}
+#cardRead .read-flag p { margin: 0; }
+#cardRead .read-flag b { color: var(--r3-warn); }
+#cardRead .read-flag .read-note { color: var(--sh-ink); }
+#cardRead .read-flag-icon { width: 18px; height: 18px; flex: none; margin-top: 2px; fill: none; stroke: var(--r3-warn); stroke-width: 2.2; stroke-linecap: round; }
+@media (forced-colors: active) { #cardRead .read-flag { border: 1px solid CanvasText; } }
+
+/* The "Looks right" box (read.css draws it) takes the warning tone of the flag */
+#cardRead .read-ok:not(.is-ok):not(:checked)::before { border-color: var(--r3-warn); background: var(--sh-surface); }
+
+/* What the lines fill in: one tap away, quiet */
+#cardRead .read-will { margin-top: 14px; font-size: .88em; color: var(--sh-muted); }
+#cardRead .read-will summary { min-height: 44px; display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 600; padding-left: 4px; }
+#cardRead .read-will summary::-webkit-details-marker { display: none; }
+#cardRead .read-will summary::after { content: ""; width: 7px; height: 7px; border: solid currentColor; border-width: 0 2px 2px 0; transform: rotate(45deg) translateY(-2px); transition: transform 160ms var(--ease-out); }
+#cardRead .read-will[open] summary::after { transform: rotate(-135deg) translate(-2px, 0); }
+#cardRead .read-will-list { display: grid; grid-template-columns: auto 1fr; gap: 2px 12px; margin: 4px 0 0; padding: 12px 14px;
+    border-radius: 16px; background: var(--sh-surface); box-shadow: 0 0 0 1px var(--sh-line); color: var(--sh-ink); }
+#cardRead .read-will-list dt { color: var(--sh-muted); }
+
+/* Back to the photo and Cancel, last and quiet; Fill details is the dock's */
+#cardRead .read-tools { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 18px; }
+#cardRead .read-tools .read-quiet-btn { background: transparent; box-shadow: none; color: var(--sh-muted); text-decoration: underline; text-underline-offset: 3px; }
+#cardRead #applyOcrBtn { display: none; }
+
+/* No photo yet */
+#cardRead .read-empty { margin-top: 4px; }
+
+/* ---- Details: groups, labels above, rounded boxes ------------------------------------------------------------------ */
+#cardFields #fieldsForm { display: grid; gap: 18px; margin-bottom: 24px; }
+#cardFields .fields-group { margin: 10px 0 -6px; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--sh-muted); }
+#cardFields #fieldsForm > .fields-group:first-child { margin-top: 0; }
+#cardFields label.block { display: grid; gap: 6px; min-width: 0; }
+#cardFields .field-label, #cardFields fieldset > legend.field-label {
+    display: flex; align-items: center; margin: 0; padding-left: 4px;
+    font-size: .8rem; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--sh-muted);
+}
+#cardFields fieldset > legend.field-label { margin-bottom: 6px; }
+#cardFields .fields-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+#cardFields fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
+#cardFields .fields-list { display: grid; gap: 8px; }
+#cardFields .fields-rows { display: grid; gap: 8px; }
+#cardFields .fields-hint { margin: -10px 0 0; padding-left: 4px; font-size: .78rem; color: var(--sh-muted); }
+
+/* A typed list row (MOD06 builds it: type, value, remove): the value box first, then its type as a chip */
+#cardFields .fields-rows > div { display: flex; gap: 8px; align-items: center; min-width: 0; }
+#cardFields .fields-rows > div > input { order: 1; flex: 1 1 0; min-width: 0; }
+#cardFields .fields-rows > div > select,
+#cardFields .fields-phone-style select,
+#cardFields .fields-address select,
+#cardFields .fields-fake select {
+    -webkit-appearance: none; appearance: none; cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 10l5 5 5-5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat; background-position: right 12px center; background-size: 14px;
+    padding-right: 32px;
+}
+#cardFields .fields-rows > div > select {
+    order: 2; flex: none; width: auto; max-width: 42%; min-height: 44px; padding-left: 12px; border-radius: 999px;
+    font: 600 .8rem system-ui, sans-serif; box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow); border: 0;
+}
+#cardFields .fields-rows > div > button {
+    order: 3; flex: none; width: 44px; min-width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%;
+    background: transparent; color: var(--sh-muted); font-size: 1.25rem; cursor: pointer;
+}
+#cardFields .fields-rows > div > button:hover { color: var(--sh-stop); }
+
+/* Phone style: one quiet line under the numbers */
+#cardFields .fields-phone-style { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding-left: 4px; }
+#cardFields .fields-cc { font-size: .8rem; color: var(--sh-muted); gap: 8px; }
+#cardFields .fields-phone-style select { width: auto; min-height: 44px; border-radius: 999px; font-size: .85rem; padding-left: 12px; }
+
+/* "+ Add phone" and the like: small accent text links under their list */
+#cardFields .fields-add-row {
+    justify-self: start; min-height: 44px; padding: 0 4px; border: 0; background: transparent; cursor: pointer;
+    color: var(--sh-accent); font: 600 .85rem system-ui, sans-serif;
+}
+
+/* Address: two columns, the street and the city across both */
+#cardFields .fields-address { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 10px; }
+#cardFields .fields-address > legend { grid-column: 1 / -1; }
+#cardFields .fields-address .fields-wide { grid-column: 1 / -1; }
+#cardFields .fields-address #stateText.hidden { display: none; }
+
+/* The rarer boxes ("+ Add a field") */
+#cardFields .fields-more:not(.hidden) { display: grid; gap: 18px; }
+
+/* "+ Add a field": the mock-up's quiet full-width button */
+#cardFields .fields-add:not(.hidden) {
+    display: flex; align-items: center; justify-content: center; width: 100%; min-height: 52px; margin: 0;
+    border: 0; border-radius: 999px; cursor: pointer; background: var(--sh-surface); color: var(--sh-ink);
+    box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow); font: 650 17px system-ui, sans-serif;
+    transition: transform 120ms var(--ease-out);
+}
+
+/* The sample list and Clear form: last on the screen and quiet (the mock-up has no place for them) */
+#cardFields .fields-tools { display: flex; align-items: center; gap: 10px; margin-top: 22px; padding-top: 14px; border-top: 1px dashed var(--sh-line); }
+#cardFields .fields-fake { flex: 1 1 auto; min-width: 0; }
+#cardFields .fields-fake select { min-height: 44px; border-radius: 999px; font-size: .85rem; font-weight: 600; color: var(--sh-muted); box-shadow: none; background-color: transparent; }
+#cardFields .fields-clear {
+    flex: none; min-height: 44px; padding: 0 10px; border: 0; background: transparent; cursor: pointer;
+    color: var(--sh-muted); font: 600 .85rem system-ui, sans-serif; text-decoration: underline; text-underline-offset: 3px;
+}
+#cardFields .fields-clear:hover { color: var(--sh-stop); }
+
+/* The pigeonhole tab (F1, branded) sits small in front of the label */
+#cardFields .field-label .fields-slot { font-size: .85em; }
+
+/* The in-screen "Everything's correct": the dock's "Make the card" presses it, so it is not shown on its own */
+#cardFields #fieldsDoneBtn { display: none; }

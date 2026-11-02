@@ -189,20 +189,20 @@
             </div>
         </section>
         <section id="cardRead" class="deck-card" data-card="read" data-step="Step 2 of 5 · Read" data-pilot-emoji="🦉" data-pilot="Glyph" data-title="Check the text" data-next="#applyOcrBtn" data-next-label="Fill details" aria-label="Read">
-            <div class="deck-card-body space-y-4">
-                <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Read the card</h2>
-                <!-- Review (MOD03 -> MOD04 -> MOD05): step 1 crop & straighten the photo, step 2 check the extracted text -->
-                <div id="cropReviewModal" class="hidden space-y-3">
-            <div id="ocrStepPhoto" class="space-y-3">
-                <h2 class="text-lg font-bold">Reading the card</h2>
+            <div class="deck-card-body">
+                <!-- Review (MOD03 -> MOD04 -> MOD05): the Capture card crops the photo, this card reads it and shows the lines to check.
+                     0.8 redo R3 (Creative's mock-up): the photo thumbnail stays in view, each line is one rounded box with a type
+                     chip, a flagged line says in words what to check, and the dock's "Fill details" goes on (#applyOcrBtn). -->
+                <div id="cropReviewModal" class="hidden">
+            <div id="ocrStepPhoto" class="read-reading">
                 <!-- Reading (MOD04): the photo under a shimmer; the wash is full at the 55 s limit, never a number. Cancel stops the reader and goes back to the photo -->
-                <div id="ocrProgress" class="hidden space-y-2">
+                <div id="ocrProgress" class="hidden">
                     <div id="ocrProgressBar" class="read-frame" role="progressbar" aria-label="Reading the card" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-valuetext="Reading the card">
                         <img id="ocrReadPhoto" alt="" class="read-photo">
                         <div id="ocrProgressFill" class="read-wash" aria-hidden="true"></div>
                         <div class="read-shimmer" aria-hidden="true"></div>
                     </div>
-                    <div class="flex items-center justify-between gap-3">
+                    <div class="read-progress-row">
                         <!-- Glyph the owl reads along: its eyes follow the wash (still under reduce motion; not in the plain edition) -->
                         <svg id="ocrReadOwl" class="read-owl owl-art" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
                             <path class="owl-body" d="M6 9 L8.5 3 L12 7 Q16 5.5 20 7 L23.5 3 L26 9 Q29 17 25 25 Q16 31 7 25 Q3 17 6 9Z"></path>
@@ -212,94 +212,96 @@
                             <path class="owl-beak" d="M14.6 17 L17.4 17 L16 20Z"></path>
                             <path class="owl-belly" d="M11.5 22.5 Q16 25 20.5 22.5"></path>
                         </svg>
-                        <p id="ocrProgressLabel" class="text-xs text-slate-500 dark:text-slate-400 mr-auto" aria-live="polite">Extracting…</p>
-                        <button id="ocrStopBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Cancel</button>
+                        <p id="ocrProgressLabel" class="read-progress-label" aria-live="polite">Extracting…</p>
+                        <button id="ocrStopBtn" type="button" class="read-quiet-btn">Cancel</button>
                     </div>
                 </div>
             </div>
 
-            <div id="ocrStepText" class="hidden space-y-3">
-                <h2 class="text-lg font-bold">Check the extracted text</h2>
-                <p class="text-xs text-slate-500 dark:text-slate-400">Fix any misread text and choose what each line is. Tick the box in a flagged line when it looks right. Nothing goes into the form until you press Proceed.</p>
-                <div id="ocrLines" class="space-y-1.5"></div>
-                <div>
-                    <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Will fill</h3>
-                    <dl id="ocrSummary" class="grid grid-cols-[auto,1fr] gap-x-3 gap-y-0.5 text-sm"></dl>
+            <div id="ocrStepText" class="hidden">
+                <!-- The photo stays in view beside the hint (readCard.js readThumb; dropped with the review, a wipe or a purge) -->
+                <div id="ocrThumbRow" class="read-thumb">
+                    <img id="ocrThumb" class="read-thumb-photo hidden" alt="The photo being checked">
+                    <p id="ocrThumbNote">Fix anything misread and pick what each line is. Nothing fills in until you go on.</p>
                 </div>
-                <p id="ocrMoreFields" class="read-more text-xs">Something missing, like a birthday, a second address or a social profile? You can add more fields on the next card.</p>
-                <div class="flex flex-wrap justify-end gap-2">
-                    <button id="ocrBackBtn" type="button" class="mr-auto px-3 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Back to photo</button>
-                    <button id="ocrCancelBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Cancel</button>
-                    <button id="applyOcrBtn" type="button" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Proceed</button>
+                <div id="ocrLines" class="read-lines"></div>
+                <p id="ocrMoreFields" class="read-tip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v6M12 7.5v.5"></path></svg><span>You can add more fields, like a birthday or a second email, on the next step.</span></p>
+                <!-- What the lines fill in, tucked away (the mock-up drops the summary; it stays one tap away) -->
+                <details id="ocrSummaryBox" class="read-will">
+                    <summary>What fills in</summary>
+                    <dl id="ocrSummary" class="read-will-list"></dl>
+                </details>
+                <div class="read-tools">
+                    <button id="ocrBackBtn" type="button" class="read-quiet-btn">Back to the photo</button>
+                    <button id="ocrCancelBtn" type="button" class="read-quiet-btn">Cancel</button>
+                    <!-- The dock's "Fill details" presses this one (deck.js data-next); it is not shown on its own -->
+                    <button id="applyOcrBtn" type="button" class="read-apply">Fill details</button>
                 </div>
             </div>
                 </div>
-                <p id="readEmpty" class="text-sm text-slate-500 dark:text-slate-400">No photo yet. Take or upload one on the Capture card and it is read here, on this device.</p>
+                <p id="readEmpty" class="read-tip read-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="6" width="18" height="13" rx="3"></rect><circle cx="12" cy="12.5" r="3.2"></circle><path d="M8.5 6l1.5-2h4l1.5 2"></path></svg><span>No photo yet. Take or upload one on the Capture card and it is read here, on this device.</span></p>
             </div>
             <div class="deck-card-foot">
                 <button type="button" class="vcge-trash" aria-label="Wipe everything and start over" title="Wipe everything and start over"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg></button>
             </div>
         </section>
         <section id="cardFields" class="deck-card" data-card="fields" data-step="Step 3 of 5 · Details" data-pilot-emoji="🐙" data-pilot="Pidge" data-title="Contact details" data-next="#fieldsDoneBtn" data-next-label="Make the card" aria-label="Fields">
-            <div class="deck-card-body space-y-4">
-            <!-- Fields card (MOD05, Pidge): the details land here after the Read card's hand-off and pop in all at once -->
-            <div class="fields-head">
-                <h2>Contact details</h2>
-            </div>
-            <!-- "Sample vCGE pilot contact": the nine pilots (MOD06 supplies them as data; fieldsCard.js fills the list) -->
-            <div class="fields-tools">
-                <label class="fields-fake"><select id="fakeContactSelect" class="field-input" aria-label="Sample vCGE pilot contact"></select></label>
-                <button id="clearFormBtn" type="button" class="text-[11px] font-semibold px-3 py-1 rounded-lg hover:text-rose-500 transition">Clear form</button>
-            </div>
+            <div class="deck-card-body">
+            <!-- Fields card (MOD05, Pidge): the details land here after the Read card's hand-off and pop in all at once.
+                 0.8 redo R3 (Creative's mock-up): rounded boxes with the label above, grouped Name / Work / Reach / Notes, and
+                 "+ Add a field" for the rarer boxes. Next is the dock's "Make the card" (#fieldsDoneBtn). The sample list and
+                 Clear form have no place in the mock-up, so they sit last, under "+ Add a field". -->
 
             <!-- Option lists (prefixes, suffixes, unit types, countries, regions) are filled from share/contactOptions.js -->
             <datalist id="namePrefixOptions"></datalist>
             <datalist id="nameSuffixOptions"></datalist>
             <datalist id="unitTypeOptions"></datalist>
 
-            <div id="fieldsForm" class="fields-form grid grid-cols-2 gap-3 text-sm">
-                <label class="block"><span class="field-label">Prefix</span><input id="namePrefix" type="text" list="namePrefixOptions" autocomplete="off" class="field-input" placeholder="Mr., Dr., ..."></label>
-                <label class="block"><span class="field-label">First name</span><input id="firstName" type="text" autocomplete="off" class="field-input"></label>
-                <label class="block"><span class="field-label">Middle name</span><input id="middleName" type="text" autocomplete="off" class="field-input"></label>
-                <label class="block"><span class="field-label">Last name</span><input id="lastName" type="text" autocomplete="off" class="field-input"></label>
-                <label class="block"><span class="field-label">Suffix</span><input id="nameSuffix" type="text" list="nameSuffixOptions" autocomplete="off" class="field-input" placeholder="Jr., PhD, ..."></label>
-                <label class="block"><span class="field-label">Nickname</span><input id="nickname" type="text" autocomplete="off" class="field-input"></label>
-                <label class="block"><span class="field-label">Organization</span><input id="organization" type="text" autocomplete="off" class="field-input"></label>
-                <label class="block"><span class="field-label">Job title</span><input id="jobTitle" type="text" autocomplete="off" class="field-input"></label>
+            <div id="fieldsForm" class="fields-form">
+                <h4 class="fields-group">Name</h4>
+                <div class="fields-pair">
+                    <label class="block"><span class="field-label">First name</span><input id="firstName" type="text" autocomplete="off" class="field-input"></label>
+                    <label class="block"><span class="field-label">Last name</span><input id="lastName" type="text" autocomplete="off" class="field-input"></label>
+                </div>
 
-                <!-- Typed lists (MOD06 builds the rows): each row is a type picker, a value and a remove button -->
-                <fieldset class="col-span-2 space-y-1.5">
+                <h4 class="fields-group">Work</h4>
+                <label class="block"><span class="field-label">Job title</span><input id="jobTitle" type="text" autocomplete="off" class="field-input"></label>
+                <label class="block"><span class="field-label">Company</span><input id="organization" type="text" autocomplete="off" class="field-input"></label>
+
+                <h4 class="fields-group">Reach</h4>
+                <!-- Typed lists (MOD06 builds the rows): each row is a value box, its type and a remove button -->
+                <fieldset class="fields-list">
                     <legend class="field-label">Phones</legend>
+                    <div id="phoneList" class="fields-rows"></div>
                     <!-- Phone style (MOD05): how US and Canadian numbers are written; memory only, never saved -->
                     <div class="fields-phone-style">
                         <label class="fields-cc"><span>Number style</span><select id="phoneFormatSelect" class="field-input" aria-label="Phone number style"></select></label>
                         <label class="fields-cc"><input id="phoneCountryCode" type="checkbox" class="vcge-switch" checked><span>Include +1</span></label>
                     </div>
-                    <div id="phoneList" class="space-y-1.5"></div>
-                    <button id="addPhoneBtn" type="button" class="text-xs font-semibold text-brand-700 dark:text-brand-400 hover:underline">+ Add phone</button>
+                    <button id="addPhoneBtn" type="button" class="fields-add-row">+ Add phone</button>
                 </fieldset>
-                <fieldset class="col-span-2 space-y-1.5">
+                <fieldset class="fields-list">
                     <legend class="field-label">Emails</legend>
-                    <div id="emailList" class="space-y-1.5"></div>
-                    <button id="addEmailBtn" type="button" class="text-xs font-semibold text-brand-700 dark:text-brand-400 hover:underline">+ Add email</button>
+                    <div id="emailList" class="fields-rows"></div>
+                    <button id="addEmailBtn" type="button" class="fields-add-row">+ Add email</button>
                 </fieldset>
-                <fieldset class="col-span-2 space-y-1.5">
+                <fieldset class="fields-list">
                     <legend class="field-label">Websites &amp; social profiles</legend>
-                    <div id="websiteList" class="space-y-1.5"></div>
-                    <button id="addWebsiteBtn" type="button" class="text-xs font-semibold text-brand-700 dark:text-brand-400 hover:underline">+ Add website</button>
+                    <div id="websiteList" class="fields-rows"></div>
+                    <button id="addWebsiteBtn" type="button" class="fields-add-row">+ Add website</button>
                 </fieldset>
 
-                <fieldset class="col-span-2 grid grid-cols-2 gap-3">
-                    <legend class="field-label col-span-2">Address</legend>
+                <fieldset class="fields-address">
+                    <legend class="field-label">Address</legend>
                     <label class="block"><span class="field-label">Type</span><select id="addressType" class="field-input"></select></label>
                     <label class="block"><span class="field-label">Country</span><select id="country" class="field-input"></select></label>
-                    <div class="relative col-span-2">
+                    <div class="fields-wide relative">
                         <label class="block"><span class="field-label">Street (local suggestions)</span><input id="street" type="text" autocomplete="off" class="field-input"></label>
                         <div id="addressAutocompleteList" class="hidden absolute z-30 left-0 right-0 mt-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-xl overflow-hidden"></div>
                     </div>
                     <label class="block"><span class="field-label">Unit type</span><input id="unitType" type="text" list="unitTypeOptions" autocomplete="off" class="field-input" placeholder="Apt, Suite, ..."></label>
                     <label class="block"><span class="field-label">Unit number</span><input id="unitNumber" type="text" autocomplete="off" class="field-input"></label>
-                    <label class="block col-span-2"><span class="field-label">City</span><input id="city" type="text" autocomplete="off" class="field-input"></label>
+                    <label class="block fields-wide"><span class="field-label">City</span><input id="city" type="text" autocomplete="off" class="field-input"></label>
                     <!-- #state holds the value; the visible control is a picker for countries with a region list, else a text box -->
                     <input id="state" type="hidden">
                     <label class="block"><span id="stateLabel" class="field-label">State</span>
@@ -309,22 +311,41 @@
                     <label class="block"><span id="zipLabel" class="field-label">ZIP</span><input id="zip" type="text" autocomplete="off" class="field-input"></label>
                 </fieldset>
 
-                <label class="block"><span class="field-label">Birthday</span><input id="birthday" type="date" class="field-input"></label>
-                <label class="block col-span-2"><span class="field-label">Notes</span><textarea id="notes" rows="2" class="field-input"></textarea></label>
+
+                <h4 class="fields-group">Notes</h4>
+                <label class="block"><span class="field-label">Notes</span><textarea id="notes" rows="2" class="field-input"></textarea></label>
                 <!-- Categories (MOD05): tags typed by the person, comma separated; written as the vCard's CATEGORIES -->
-                <label class="block col-span-2"><span class="field-label">Categories</span><input id="categories" type="text" autocomplete="off" class="field-input" placeholder="Client, Plumber, Met at expo" aria-describedby="categoriesHint"></label>
-                <p id="categoriesHint" class="fields-hint col-span-2">Separate them with commas. Google Contacts and Outlook show them as labels; iPhone Contacts leaves them out.</p>
+                <label class="block"><span class="field-label">Categories</span><input id="categories" type="text" autocomplete="off" class="field-input" placeholder="Client, Plumber, Met at expo" aria-describedby="categoriesHint"></label>
+                <p id="categoriesHint" class="fields-hint">Separate them with commas. Google Contacts and Outlook show them as labels; iPhone Contacts leaves them out.</p>
+
+                <!-- The rarer boxes (fieldsCard.js): shown by "+ Add a field", and always while one of them holds something -->
+                <div id="fieldsMore" class="fields-more hidden" role="group" aria-labelledby="fieldsMoreTitle">
+                    <h4 id="fieldsMoreTitle" class="fields-group">More</h4>
+                    <div class="fields-pair">
+                        <label class="block"><span class="field-label">Prefix</span><input id="namePrefix" type="text" list="namePrefixOptions" autocomplete="off" class="field-input" placeholder="Mr., Dr., ..."></label>
+                        <label class="block"><span class="field-label">Suffix</span><input id="nameSuffix" type="text" list="nameSuffixOptions" autocomplete="off" class="field-input" placeholder="Jr., PhD, ..."></label>
+                    </div>
+                    <label class="block"><span class="field-label">Middle name</span><input id="middleName" type="text" autocomplete="off" class="field-input"></label>
+                    <label class="block"><span class="field-label">Nickname</span><input id="nickname" type="text" autocomplete="off" class="field-input"></label>
+                    <label class="block"><span class="field-label">Birthday</span><input id="birthday" type="date" class="field-input"></label>
+                </div>
                 <!-- The "Unknown" tray (MOD05, F4): scan lines nothing claimed wait here to be filed by hand; on-screen only -->
-                <div id="fieldsUnknown" class="fields-unknown col-span-2 hidden" role="group" aria-labelledby="fieldsUnknownTitle">
+                <div id="fieldsUnknown" class="fields-unknown hidden" role="group" aria-labelledby="fieldsUnknownTitle">
                     <p id="fieldsUnknownTitle" class="field-label">Unknown: tap to file</p>
                     <p id="fieldsUnknownHelp" class="fields-hint" aria-live="polite"></p>
                     <ul id="fieldsUnknownList" class="fields-unknown-list"></ul>
                 </div>
             </div>
+            <button id="fieldsAddBtn" type="button" class="fields-add" aria-controls="fieldsMore" aria-expanded="false">+ Add a field</button>
+            <!-- "Sample vCGE pilot contact": the nine pilots (MOD06 supplies them as data; fieldsCard.js fills the list), and Clear form -->
+            <div class="fields-tools">
+                <label class="fields-fake"><select id="fakeContactSelect" class="field-input" aria-label="Sample vCGE pilot contact"></select></label>
+                <button id="clearFormBtn" type="button" class="fields-clear">Clear form</button>
+            </div>
             </div>
             <div class="deck-card-foot">
                 <button type="button" class="vcge-trash" aria-label="Wipe everything and start over" title="Wipe everything and start over"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg></button>
-                <!-- Green "Everything's correct" (fieldsCard.js fills it): the details go on to the 3D Card -->
+                <!-- The dock's "Make the card" presses this one (deck.js data-next; fieldsCard.js labels it). It is not shown on its own -->
                 <button id="fieldsDoneBtn" type="button" class="fields-ok">Everything's correct</button>
             </div>
         </section>
