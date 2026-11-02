@@ -18,17 +18,17 @@ export const isPlain = (doc = typeof document !== 'undefined' ? document : null)
 export const isShelved = (doc = typeof document !== 'undefined' ? document : null) =>
     !!(doc && doc.documentElement && doc.documentElement.dataset.shelf === 'on');
 
-// The header's card names in plain, in place of the pilots' names (a button's span and the "(Name)" in its labels).
+// The dock's step names in plain (a button's span), and the "(Name)" of the pilot taken out of every top bar and dock label.
 export const PLAIN_NAV = Object.freeze({
-    navWelcome: 'Start', navCapture: 'Capture', navRead: 'Read', navFields: 'Fields', navCard: 'Card', navQr: 'QR', navShare: 'Share'
+    navCapture: 'Capture', navRead: 'Read', navFields: 'Details', navCard: 'Card', navShare: 'Share', navQr: 'QR'
 });
 export const PLAIN_THANKS = 'Session ended.';
 
-// Plain: the header names each card instead of its pilot, the Thank You page reads plainly, and the page is marked
+// Plain: the top bar and the dock name each step instead of its pilot, the Thank You page reads plainly, and the page is marked
 // ready (ui.css keeps the header's names hidden until then, so a pilot's name never shows for a moment).
 export function applyEdition(doc = document) {
     if (!isPlain(doc)) return;
-    doc.querySelectorAll('.deck-header button[aria-label]').forEach(b => {
+    doc.querySelectorAll('.deck-header button[aria-label], .vcge-dock button[aria-label]').forEach(b => {
         for (const attr of ['aria-label', 'title']) {
             const v = b.getAttribute(attr);
             if (v) b.setAttribute(attr, v.replace(/ \([A-Z][a-z]+\)$/, ''));

@@ -46,32 +46,30 @@ async function stopDriver(driver) {
   const js = (script, ...args) => wd('POST', S('/execute/sync'), { script, args });
   const jsAsync = (script, ...args) => wd('POST', S('/execute/async'), { script, args });
   const el = async (css) => (await wd('POST', S('/element'), { using: 'css selector', value: css }))[ELEMENT];
-  // The deck settles on a card a moment after any scroll (a smooth move, an element scrolled into view); a WebDriver
-  // click computes its point first and lands on whatever is there, so every click and keystroke waits for a still deck.
+  // 0.8 shell: one screen at a time; a new one slides in over 280 ms. A WebDriver click computes its point first and
+  // lands on whatever is there, so every click and keystroke waits for the screen to come to rest.
   const deckState = () => js(`const t = document.getElementById('deck'), c = document.querySelector('.deck-card.is-current');
-    return JSON.stringify({ card: document.documentElement.dataset.card, deck: t && t.dataset.deck, scrollLeft: t && t.scrollLeft, centre: c && c.offsetLeft + c.offsetWidth / 2 - t.clientWidth / 2 });`);
+    return JSON.stringify({ card: document.documentElement.dataset.card, deck: t && t.dataset.deck, shown: c && !c.hidden, sliding: c && c.getAnimations().length });`);
   const deckSettled = async () => {
     const still = await until(() => js(`const t = document.getElementById('deck'), c = document.querySelector('.deck-card.is-current');
-      if (!t || !c) return true; const left = c.offsetLeft + c.offsetWidth / 2 - t.clientWidth / 2;
-      if (t.dataset.deck === 'moving' || Math.abs(t.scrollLeft - left) > 1.5 || t.scrollLeft !== t.__lastSeen) { t.__lastSeen = t.scrollLeft; return false; } return true;`), 5000);
+      if (!t || !c) return true; return t.dataset.deck === 'still' && !c.hidden && c.getAnimations().length === 0;`), 5000);
     if (!still) console.log('deck did not settle:', await deckState());
     return still;
   };
-  // Brings the card that holds an element into view first: WebDriver scrolls an element in and acts at once, before
-  // the deck has settled on that card and lifted its cover.
+  // Brings the screen that holds an element into view first (0.8 shell: the other screens are hidden), with its dock
+  // step (or the vCGE mark for Welcome), as a person would.
   const onCard = async (css) => {
     const wanted = await js(`const el = document.querySelector(arguments[0]), card = el && el.closest('.deck-card');
       return card ? card.dataset.card : null;`, css);
     const current = () => js(`return document.documentElement.dataset.card;`);
-    // The header icon brings the card in, as a person would. A move that a late scroll (a focus, a closing dialog)
-    // undid is asked for once more.
+    // A move that something late (a focus, a closing dialog) undid is asked for once more.
     for (let attempt = 0; wanted && attempt < 3 && (await current()) !== wanted; attempt++) {
       await deckSettled();
       // Nothing over the header first: a sheet that is still closing, or the padlock hand-off that follows setting a PIN
       // (a header click right after closeVaultPage was "intercepted" once on Linux CI)
       await until(() => js(`const h = document.getElementById('vaultHandoff');
         return (!h || h.classList.contains('hidden')) && !document.querySelector('.vcge-sheet:not(.hidden)');`), 3000);
-      await wd('POST', S(`/element/${await el(`.deck-nav [data-card="${wanted}"]:not([data-qr])`)}/click`), {});
+      await wd('POST', S(`/element/${await el(`button[data-card="${wanted}"]:not([data-qr])`)}/click`), {});
       await deckSettled();
       await until(async () => (await current()) === wanted, 3000);
     }
@@ -90,14 +88,10 @@ async function stopDriver(driver) {
       const where = await jsAsync(`const done = arguments[arguments.length - 1], css = arguments[0];
         const el = document.querySelector(css), r = el && el.getBoundingClientRect(), t = document.getElementById('deck');
         const hit = r && document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
-        const out = { card: document.documentElement.dataset.card, scrollLeft: t && t.scrollLeft, rect: r && [r.left, r.top, r.width, r.height],
+        const out = { card: document.documentElement.dataset.card, deck: t && t.dataset.deck, rect: r && [r.left, r.top, r.width, r.height],
           hit: hit && (hit.id || hit.className || hit.tagName), hitParent: hit && hit.parentElement && (hit.parentElement.id || hit.parentElement.className),
-          hidden: document.hidden, inner: [innerWidth, innerHeight], cards: Array.from(document.querySelectorAll('.deck-card')).map(c => c.offsetLeft + '/' + c.offsetWidth).join(' ') };
-        // Does the deck settle at all? (a) after a synthetic release, (b) after a nudge of the track
-        document.dispatchEvent(new Event('pointerup', { bubbles: true }));
-        setTimeout(() => { out.afterRelease = document.documentElement.dataset.card + '@' + t.scrollLeft;
-          let n = 0; const count = () => n++; t.addEventListener('scroll', count); t.scrollLeft += 3;
-          setTimeout(() => { t.removeEventListener('scroll', count); out.afterNudge = document.documentElement.dataset.card + '@' + t.scrollLeft + ' scrollEvents=' + n; done(JSON.stringify(out)); }, 600); }, 400);`, css).catch(() => '?');
+          hidden: document.hidden, inner: [innerWidth, innerHeight], shown: Array.from(document.querySelectorAll('.deck-card')).filter(c => !c.hidden).map(c => c.id).join(' ') };
+        setTimeout(() => { out.later = document.documentElement.dataset.card + '/' + (t && t.dataset.deck); done(JSON.stringify(out)); }, 400);`, css).catch(() => '?');
       e.message += ` (${css}: ${where})`;
       throw e;
     }
@@ -196,6 +190,12 @@ async function stopDriver(driver) {
       return [[0, 0], [1050, 0], [1050, 600], [0, 600]].map(([px, py]) => { const p = m.transformPoint({ x: px, y: py }); return [p.x, p.y]; });`);
     await until(() => js(`const i = document.getElementById('reviewImage'); return i.naturalWidth === 1600 && !document.getElementById('captureReview').classList.contains('hidden');`), 5000);
     await onCard('#reviewImage');
+    // The review settles before the first drag: its rim fades in over 0.6 s and the photo can still be finding its size.
+    // (The padlock hand-off used to give it that time; with the 0.8 shelf it no longer plays, and corner 0 was grabbed early.)
+    await until(() => js(`return document.getElementById('cropStage').getAnimations({ subtree: true }).length === 0;`), 3000);
+    { let last = '';
+      await until(async () => { const r = await js(`const r = document.getElementById('reviewImage').getBoundingClientRect(); return [r.left, r.top, r.width, r.height].map(Math.round).join();`);
+        const same = r === last; last = r; if (!same) await sleep(150); return same; }, 3000); }
     for (let i = 0; i < 4; i++) {
       const g = await js(`const i = document.getElementById('reviewImage').getBoundingClientRect(), h = document.querySelector('[data-corner="${i}"]').getBoundingClientRect();
         return { hx: h.left + h.width / 2, hy: h.top + h.height / 2, ix: i.left, iy: i.top, iw: i.width, ih: i.height };`);
@@ -277,26 +277,29 @@ async function stopDriver(driver) {
     // and its icons keep their size. CSS zoom did not hold the header in WebKit.
     const sizes = () => js(`const r = e => e.getBoundingClientRect();
       return { root: parseFloat(getComputedStyle(document.documentElement).fontSize), note: parseFloat(getComputedStyle(document.getElementById('settingsNote')).fontSize),
-        header: r(document.querySelector('.deck-header')).height, icon: r(document.querySelector('#navSettings .vcge-icon')).width };`);
+        header: r(document.querySelector('.vcge-bar')).height, icon: r(document.querySelector('#navSettings .vcge-icon')).width };`);
     const pickSize = (code) => js(`const s = document.getElementById('sizeSelect'); s.value = arguments[0]; s.dispatchEvent(new Event('change', { bubbles: true }));`, code);
     const sizeNormal = await sizes();
     await pickSize('2'); await sleep(200);
     const sizeLarger = await sizes();
-    ok('desktop: Larger text grows the text by a quarter, the header and its icons keep their size', Math.abs(sizeLarger.root / sizeNormal.root - 1.25) < 0.01 && Math.abs(sizeLarger.note / sizeNormal.note - 1.25) < 0.03
+    ok('desktop: Larger text grows the text by a quarter, the top bar and its icons keep their size', Math.abs(sizeLarger.root / sizeNormal.root - 1.25) < 0.01 && Math.abs(sizeLarger.note / sizeNormal.note - 1.25) < 0.03
       && Math.abs(sizeLarger.header - sizeNormal.header) < 0.6 && Math.abs(sizeLarger.icon - sizeNormal.icon) < 0.6, JSON.stringify([sizeNormal, sizeLarger]));
     await pickSize('0'); await js(`localStorage.removeItem('vcge_settings');`);
 
-    // Left hand at tablet width in the system webview (WebKit, as on the iPad): the mirrored nav spills to its left,
-    // where WebKit's scrollWidth does not look, so the header kept the names, squeezed (raven575, 2026-10-18).
-    const navFit = () => js(`const h = document.querySelector('.deck-header'), box = h.querySelector('.deck-nav').getBoundingClientRect();
-      const out = Array.from(h.querySelectorAll('.deck-nav button')).filter(b => { const r = b.getBoundingClientRect(); return r.left < box.left - 0.5 || r.right > box.right + 0.5; }).map(b => b.id);
-      return { hand: document.documentElement.dataset.hand, compact: h.classList.contains('is-compact'), names: getComputedStyle(document.querySelector('#navCapture span')).display !== 'none', out };`);
+    // Left hand at tablet width in the system webview (WebKit, as on the iPad; raven575, 2026-10-18): the 0.8 top bar
+    // runs mirrored (Settings far left, the vCGE mark on the right), every button inside the window, none overlapping.
+    const navFit = () => js(`const bs = Array.from(document.querySelectorAll('.vcge-bar button, .vcge-dock button')).filter(b => b.offsetParent && b.offsetWidth > 1);
+      const rs = bs.map(b => [b.id, b.getBoundingClientRect()]);
+      const out = rs.filter(([, r]) => r.left < -0.5 || r.right > innerWidth + 0.5).map(([id]) => id);
+      const overlap = rs.filter(([, a], i) => rs.some(([, b], j) => j < i && a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5)).map(([id]) => id);
+      const x = (id) => document.getElementById(id).getBoundingClientRect().left;
+      return { hand: document.documentElement.dataset.hand, mirrored: x('navSettings') < x('navVault') && x('navVault') < x('navWelcome'), out, overlap };`);
     const winRect = await wd('GET', S('/window/rect'));
     await wd('POST', S('/window/rect'), { width: 820, height: winRect.height });
     await until(async () => (await js('return innerWidth;')) <= 820, 5000);
     await js(`document.getElementById('handLeftBtn').click();`);
-    const leftFits = await until(async () => { const f = await navFit(); return f.hand === 'left' && f.compact && !f.names && f.out.length === 0; }, 5000);
-    ok('desktop: left hand at tablet width shows icons only, like right hand, every button inside the header', leftFits, JSON.stringify(await navFit()));
+    const leftFits = await until(async () => { const f = await navFit(); return f.hand === 'left' && f.mirrored && f.out.length === 0 && f.overlap.length === 0; }, 5000);
+    ok('desktop: left hand at tablet width mirrors the top bar, every button inside the window, none overlapping', leftFits, JSON.stringify(await navFit()));
     await js(`document.getElementById('handRightBtn').click(); localStorage.removeItem('vcge_settings');`);
     await wd('POST', S('/window/rect'), { width: winRect.width, height: winRect.height });
   } finally {

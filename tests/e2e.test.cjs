@@ -101,11 +101,15 @@ async function renderSkewedCard(page) {
   return { file: { name: 'crooked.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') }, corners };
 }
 
+// Whether a control shows on its own screen (0.8 shell: the other screens are hidden while one is in view, so this
+// looks only at the control and its boxes up to its screen)
+const onScreen = (page, sel) => page.$eval(sel, el => { for (let e = el; e && !e.classList.contains('deck-card'); e = e.parentElement) { const c = getComputedStyle(e); if (c.display === 'none' || c.visibility === 'hidden') return false; } return true; }).catch(() => false);
+
 // Drags each crop handle onto a point given in the photo's own pixels.
-// Waits until the deck has finished scrolling and the card in view sits centred (positions measured after this hold).
+// Waits until the screen in view has finished sliding in (positions measured after this hold).
 const deckSettled = (page) => page.waitForFunction(() => {
   const t = document.getElementById('deck'), c = document.querySelector('.deck-card.is-current');
-  return !!c && Math.abs(t.scrollLeft - (c.offsetLeft + c.offsetWidth / 2 - t.clientWidth / 2)) < 1.5;
+  return !!c && !c.hidden && t.dataset.deck === 'still' && !c.getAnimations().length;
 });
 
 async function dragCorners(page, corners) {
@@ -265,6 +269,28 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   const browser = await playwright[ENGINE].launch(CHANNELS[BROWSER] ? { channel: CHANNELS[BROWSER] } : {});
   // Every context takes the chosen device (if any), and the welcome pop-up that opens on every start is pressed
   // through (START NOW) at once, except in the welcome tests below.
+  // 0.8 shell: one screen at a time. A person reaches a control on another screen through its dock step, so a press,
+  // a fill or a pick on a control of a screen not in view first goes there with the dock (as the old deck scrolled a
+  // control's card into view). Sheets and pop-ups are over every screen and need no move.
+  const DOCK = { welcome: '#navWelcome', capture: '#navCapture', read: '#navRead', fields: '#navFields', card: '#navCard', share: '#navShare' };
+  const screenOf = (p, sel) => typeof sel !== 'string' ? null : p.evaluate((sel) => {
+    let el = null; try { el = document.querySelector(sel); } catch { return null; }
+    const card = el && !el.closest('.vcge-sheet, [role="dialog"], [role="alertdialog"]') && el.closest('.deck-card');
+    return card && !card.classList.contains('is-current') ? card.dataset.card : null;
+  }, sel).catch(() => null);
+  const showsScreenFirst = (p) => {
+    for (const m of ['click', 'dblclick', 'tap', 'fill', 'type', 'press', 'check', 'uncheck', 'setChecked', 'selectOption', 'focus', 'hover']) {
+      const f = p[m].bind(p);
+      p[m] = async (sel, ...rest) => {
+        const to = await screenOf(p, sel);
+        if (to) {
+          await p.$eval(DOCK[to], b => b.click());
+          await p.waitForFunction((to) => document.documentElement.dataset.card === to && document.getElementById('deck').dataset.deck === 'still', to, { timeout: 5000 }).catch(() => {});
+        }
+        return f(sel, ...rest);
+      };
+    }
+  };
   const plainContext = browser.newContext.bind(browser);
   const pressStartNow = () => new MutationObserver((_, o) => {
     const b = document.getElementById('welcomeStartBtn');
@@ -282,7 +308,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     if (typeof a[0] === 'string' && (a[0].startsWith('[vCGE-MOD04]') || a[0].startsWith('[vCGE] OCR failed'))) (window.__readerLog = window.__readerLog || []).push(`${Math.round(performance.now())} ms ${a[0].slice(0, 160)}${a[1] ? ` ${String(a[1] && [a[1].message, a[1].stack].filter(Boolean).join(' | ') || a[1]).slice(0, 400)}` : ''}`);
     return f.apply(console, a); }; });
   browser.newContext = async (opts = {}) => { const c = await plainContext({ ...deviceOptions, ...opts }); await c.addInitScript(pressStartNow); await c.addInitScript(keepReaderLog); await editionRoute(c);
-    c.on('page', p => p.once('crash', () => { pageCrashed = true; })); opened.push(c); return c; };
+    c.on('page', p => { p.once('crash', () => { pageCrashed = true; }); showsScreenFirst(p); }); opened.push(c); return c; };
   const newContext = (options) => browser.newContext(options);
   // raven575, 2026-10-22: Playwright's WebKit sometimes loses a whole page process while it reads a card ("Target
   // crashed", the F4 block on 2026-10-21); no code in the page can catch that. A block that reads cards then runs once
@@ -327,9 +353,13 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   ok('loads with no 404s', notFound.length === 0, notFound.join(', '));
   const favicon = await page.evaluate(() => { const l = document.querySelector('link[rel="icon"][sizes="32x32"]'); return l ? l.href : null; });
   ok('the tab icon is a bundled file on the same origin', !!favicon && favicon.startsWith(base) && (await page.request.get(favicon)).status() === 200 && (await page.request.get(favicon)).headers()['content-type'].includes('image/png'), favicon);
-  // On a phone the header's brand is hidden by design (deck.css); wider, the logo shows
-  if (!EDITION_PLAIN) ok('the header shows the logo (bundled, loaded, named vCGE for screen readers; hidden on a phone)', await logoMarkShown(page, '.deck-logo')
-    && await page.$eval('.deck-logo', el => (innerWidth < 600 ? el.getBoundingClientRect().width === 0 : el.getBoundingClientRect().width > 0)));
+  // The top bar's mark (0.8 shell): the app icon and "vCGE" on every screen size, in the Start button
+  if (!EDITION_PLAIN) ok('the top bar shows the app icon (bundled, loaded) and "vCGE" beside it, on every screen size', await page.$eval('.deck-logo', async (el) => {
+      const m = /url\("?([^")]+)"?\)/.exec(getComputedStyle(el).backgroundImage), r = el.getBoundingClientRect();
+      if (!m || !m[1].startsWith(location.origin) || r.width < 30) return false;
+      const img = new Image(); img.src = m[1];
+      return img.decode().then(() => img.naturalWidth > 0, () => false);
+    }) && (await page.textContent('#navWelcome .vcge-mark-text')).trim() === 'vCGE' && await page.isVisible('#navWelcome .vcge-mark-text'));
   else ok('plain edition: the header shows no logo and never fetched one, and "vCard Generator Engine" stays as text', await logoMarkGone(page, '.deck-logo')
     && !(await brandFetches()).length && (await page.textContent('.deck-brand-text')).trim() === 'vCard Generator Engine', (await brandFetches()).join(' '));
   if (EDITION_PLAIN && FORCE_PLAIN) notRunHere('plain edition: every tab and home-screen icon is the plain icon', 'VCGE_EDITION=plain runs the working branch, whose icons are the branded ones; the plain branch swaps them');
@@ -347,53 +377,37 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('plain edition: every tab and home-screen icon is the plain icon', icons.length === 3 && plainIcon.every(Boolean), JSON.stringify(icons.map((h, i) => [h, plainIcon[i]])));
   }
   if (EDITION_PLAIN) {
-    const navNames = await page.$$eval('.deck-header button', bs => bs.map(b => [b.id, b.getAttribute('aria-label') || '', b.title || '', (b.querySelector(':scope > span') || {}).textContent || '']));
-    ok('plain edition: the header names each card, never a pilot, in its labels and beside its icon', navNames.every(n => !/Shutout|Ghost|Iris|Glyph|Pidge|Flipside|Checkers|Airlock/.test(n.join(' ')))
-      && navNames.filter(n => n[3]).map(n => n[3]).join('|') === 'Start|Capture|Read|Fields|Card|QR|Share', JSON.stringify(navNames));
+    const navNames = await page.$$eval('.deck-header button, .vcge-dock button', bs => bs.map(b => [b.id, b.getAttribute('aria-label') || '', b.title || '', (b.querySelector(':scope > span') || {}).textContent || '']));
+    ok('plain edition: the top bar and the dock name each step, never a pilot, in their labels and beside their icons', navNames.every(n => !/Shutout|Ghost|Iris|Glyph|Pidge|Flipside|Checkers|Airlock/.test(n.join(' ')))
+      && navNames.filter(n => n[3]).map(n => n[3]).join('|') === 'Capture|Read|Details|Card|Share|QR', JSON.stringify(navNames));
     ok('plain edition: nothing on screen names a pilot, a MOD tag or the tagline', !/Shutout|Ghost|Iris|Glyph|Pidge|Flipside|Checkers|Airlock|Cornerstone|MOD-0|Never Lose Contact|Team vCGE/.test(await page.evaluate(() => document.body.innerText)));
   }
-  // Shutout's touches (shellArt.js): the turtle under the lit icon, the shell plates, the sheets' grab bar and pebble
-  const shellArt = () => page.evaluate(() => {
-    const t = document.getElementById('deckTurtle'), on = document.querySelector('.deck-nav button.is-on');
-    const tr = t.getBoundingClientRect(), br = on.getBoundingClientRect(), hr = document.querySelector('.deck-header').getBoundingClientRect();
-    return { shown: getComputedStyle(t).display !== 'none' && getComputedStyle(t).visibility === 'visible', off: Math.abs((tr.left + tr.width / 2) - (br.left + br.width / 2)),
-      onEdge: tr.top < hr.bottom && tr.bottom > hr.bottom, tucked: t.classList.contains('is-tucked'), behind: tr.top < br.bottom - 8 && tr.bottom > br.bottom,
-      plates: Array.from(document.querySelectorAll('#deckPlates [data-card]')).map(p => p.dataset.state || '').join(),
-      platesShown: getComputedStyle(document.getElementById('deckPlates')).display !== 'none', hidden: t.getAttribute('aria-hidden') + document.getElementById('deckPlates').getAttribute('aria-hidden') };
-  });
-  if (EDITION_PLAIN || SHELVED) {
-    const a0 = await shellArt();
-    ok(EDITION_PLAIN ? 'plain edition: no turtle and no shell plates' : '0.8 shelf: no turtle and no shell plates', !a0.shown && !a0.platesShown, JSON.stringify(a0));
-  } else {
-    // The page opens on the Capture card: Shutout walks to Start and back (not Fields: its form pops in once, later)
-    await page.waitForFunction(() => document.getElementById('deckTurtle').classList.contains('is-placed'), null, { timeout: 5000 }).catch(() => {});
-    await page.waitForTimeout(300);
-    const settled = () => page.waitForFunction(() => document.getElementById('deckTurtle').classList.contains('is-tucked'), null, { timeout: 8000 }).catch(() => {});
-    const a0 = await shellArt();
-    ok('shell art: the turtle is tucked in behind the lit icon, on the header\'s edge, and only that card\'s plate is current', a0.shown && a0.off <= 2 && a0.onEdge && a0.tucked && a0.behind
-      && a0.platesShown && a0.plates === 'new,current,new,new,new,new' && a0.hidden === 'truetrue', JSON.stringify(a0));
-    await page.click('#navWelcome'); await page.waitForTimeout(150);
-    const aw = await shellArt();
-    await settled(); await page.waitForTimeout(350);
-    const a1 = await shellArt();
-    ok('shell art: the turtle steps out and walks to the Start icon, then tucks in behind it; Capture is now a visited plate', !aw.tucked && aw.off > 2
-      && a1.shown && a1.off <= 2 && a1.tucked && a1.behind && a1.plates === 'current,visited,new,new,new,new', JSON.stringify({ aw, a1 }));
-    // Left/Right mirrors the header: he goes over to the lit icon's new place by himself
-    await page.evaluate(() => document.getElementById('handLeftBtn').click()); await page.waitForTimeout(150);
-    await settled(); await page.waitForTimeout(350);
-    const ah = await shellArt();
-    await page.evaluate(() => document.getElementById('handRightBtn').click()); await page.waitForTimeout(150);
-    await settled(); await page.waitForTimeout(350);
-    const ar = await shellArt();
-    ok('shell art: when Left/Right mirrors the header, the turtle goes to the lit icon\'s new place and tucks in', ah.shown && ah.off <= 2 && ah.tucked && ar.off <= 2 && ar.tucked, JSON.stringify({ ah, ar }));
-    // The flip saved a settings entry: take it away again, so the Settings checks below start from nothing stored
-    await page.evaluate(() => localStorage.removeItem('vcge_settings'));
-    await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.click('#navCapture'); await page.waitForTimeout(250);
-    const a2 = await shellArt();
-    ok('shell art: under reduced motion the turtle does not walk, it is simply tucked in behind the new icon', a2.shown && a2.off <= 2 && a2.tucked
-      && a2.plates === 'visited,current,new,new,new,new', JSON.stringify(a2));
-    await page.emulateMedia({ reducedMotion: null });
+  // 0.8 shell (Creative's mock-up): no turtle and no shell plates (shelved, raven575 2026-11-02); the head names the
+  // screen, its step and its pilot; the dock lights the step in view
+  ok(EDITION_PLAIN ? 'plain edition: no turtle and no shell plates' : '0.8 shelf: no turtle and no shell plates',
+    await page.evaluate(() => !document.getElementById('deckTurtle') && !document.getElementById('deckPlates')));
+  {
+    const head = () => page.evaluate(() => ({ step: document.getElementById('hStep').textContent, pilot: document.getElementById('hName').textContent,
+      title: document.getElementById('hTitle').textContent, chip: getComputedStyle(document.getElementById('hPilot')).display !== 'none',
+      states: Array.from(document.querySelectorAll('.vcge-step')).map(b => b.dataset.state).join(), next: document.getElementById('dockNext').textContent,
+      back: document.getElementById('dockBack').disabled }));
+    const h1 = await head();
+    ok('0.8 shell: START (pressed by the test harness on load) shows Capture: "Step 1 of 5 · Capture" with Iris, the dock says "Use this photo", Back on',
+      h1.step === 'Step 1 of 5 · Capture' && h1.pilot === 'Iris' && h1.title === 'Capture' && h1.states === 'now,todo,todo,todo,todo' && !h1.back && h1.next === 'Use this photo' && h1.chip === !EDITION_PLAIN, JSON.stringify(h1));
+    await page.click('#navWelcome'); await deckSettled(page);
+    const h0 = await head();
+    ok('0.8 shell: the vCGE mark goes to Welcome: the head says "Hello there", every step is still to do, Back is off, the dock says "Scan a card"',
+      h0.step === 'Welcome' && h0.title === 'Hello there' && h0.states === 'todo,todo,todo,todo,todo' && h0.back && h0.next === 'Scan a card' && h0.chip === !EDITION_PLAIN, JSON.stringify(h0));
+    await page.click('#navFields'); await deckSettled(page);
+    const h3 = await head();
+    ok('0.8 shell: a dock step shows its screen: the head says "Step 3 of 5 · Details" with Pidge and "Contact details", two steps done, Back on',
+      h3.step === 'Step 3 of 5 · Details' && h3.pilot === 'Pidge' && h3.title === 'Contact details' && h3.states === 'done,done,now,todo,todo' && !h3.back && h3.next === 'Make the card', JSON.stringify(h3));
+    await page.click('#dockBack'); await deckSettled(page);
+    const h2 = await head();
+    ok('0.8 shell: Back goes one step back (Read: "Check the text", Glyph)', h2.title === 'Check the text' && h2.pilot === 'Glyph' && h2.states === 'done,now,todo,todo,todo', JSON.stringify(h2));
+    const only = await page.evaluate(() => Array.from(document.querySelectorAll('.deck-card')).filter(c => !c.hidden && c.getClientRects().length).map(c => c.id).join());
+    ok('0.8 shell: one screen at a time', only === 'cardRead', only);
+    await page.click('#navCapture'); await deckSettled(page);
   }
   await page.click('#navSettings'); await page.waitForSelector('#settingsSheet', { state: 'visible' });
   const sheetArt = await page.evaluate(() => {
@@ -415,16 +429,16 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
         pad: getComputedStyle(body).paddingTop, title: title ? getComputedStyle(title).fontSize : '18px', selects: selects.length,
         lowSelects: selects.filter(s => s.offsetHeight < 44).map(s => s.id || s.name || s.className) };
     });
-    ok('layout: the page names its screen tier, cards measure their own width and keep today\'s padding and title size',
-      lay.tier === want(vp.width) && !lay.short && lay.container === 'inline-size' && lay.pad === '20px' && lay.title === '18px', JSON.stringify({ vp, ...lay }));
+    ok('layout: the page names its screen tier, screens measure their own width and keep the mock-up\'s padding (4 px over the content)',
+      lay.tier === want(vp.width) && !lay.short && lay.container === 'inline-size' && lay.pad === '4px' && lay.title === '18px', JSON.stringify({ vp, ...lay }));
     ok('layout: every drop-down list on screen is at least 44 px tall', lay.lowSelects.length === 0, JSON.stringify(lay));
-    // A phone held sideways (390 px tall): the header is only as tall as its buttons and no band is held for the hidden timer strip
+    // A phone held sideways (390 px tall): the bar and the head tighten, the dock is one row, and the screen keeps over half the height
     await page.setViewportSize({ width: 844, height: 390 }); await page.waitForTimeout(400);
-    const low = await page.evaluate(() => ({ short: document.documentElement.dataset.short, header: document.querySelector('.deck-header').getBoundingClientRect().height,
-      deckTop: getComputedStyle(document.getElementById('deck')).paddingTop, strip: !document.getElementById('vaultTimerStrip').classList.contains('hidden'),
-      buttons: Array.from(document.querySelectorAll('.deck-nav button')).every(b => b.getBoundingClientRect().height >= 43.5) }));
-    ok('layout: on a short screen the header is 44 px (its buttons still 44 px) and the cards get the timer strip\'s band back while it is hidden',
-      low.short === '1' && Math.abs(low.header - 44) < 1 && low.buttons && (low.strip || low.deckTop === '12px'), JSON.stringify(low));
+    const low = await page.evaluate(() => ({ short: document.documentElement.dataset.short, bar: document.querySelector('.vcge-bar').getBoundingClientRect().height,
+      dock: document.querySelector('.vcge-dock').getBoundingClientRect().height, screen: document.getElementById('deck').getBoundingClientRect().height,
+      buttons: Array.from(document.querySelectorAll('.vcge-bar button, .vcge-dock button')).filter(b => b.getClientRects().length && b.offsetWidth > 1).every(b => b.getBoundingClientRect().height >= 43.5) }));
+    ok('layout: on a short screen the bar is 48 px, the dock one 52 px row (every button still 44 px) and the screen keeps over half the height',
+      low.short === '1' && low.bar <= 48.5 && low.dock <= 53 && low.buttons && low.screen > 390 / 2, JSON.stringify(low));
     await page.setViewportSize(vp); await page.waitForTimeout(500);
   }
   ok('opens straight to an empty card (no passphrase dialog)', !(await visible('vaultModal')) && (await val('firstName')) === '');
@@ -465,6 +479,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
 
   // Richer contact fields: name parts, typed rows, unit, country-driven region picker -> preview, vCard, QR
   ok('prefix/suffix/unit suggestion lists filled', (await page.$$eval('#namePrefixOptions option', o => o.map(x => x.value))).includes('Dr.') && (await page.$$eval('#nameSuffixOptions option', o => o.length)) === 10 && (await page.$$eval('#unitTypeOptions option', o => o.map(x => x.value))).includes('Suite'));
+  await page.click('#navFields'); await deckSettled(page);
   ok('US state picker shown with 56 states and territories', await visible('stateSelect') && !(await visible('stateText')) && (await page.$$eval('#stateSelect option', o => o.length)) === 57 && (await text('stateLabel')) === 'State');
   await page.fill('#namePrefix', 'Dr.'); await page.fill('#middleName', 'Q.'); await page.fill('#nameSuffix', 'PhD');
   await page.selectOption('#phoneType0', 'mobile'); await page.fill('#phoneValue0', '4155550101'); await page.press('#phoneValue0', 'Tab');
@@ -537,11 +552,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   ok('nothing reaches the form before Fill form', !(await rows(page, 'email')).some(r => r.value.includes('northwind')));
   ok('"Will fill" summary shows the mapped fields', (await text('ocrSummary')).includes('maria.gonzalez@northwind.com') && (await text('ocrSummary')).includes('Northwind Systems'));
   const readGap = await page.evaluate(() => {
-    const label = document.querySelector('#cardRead > .deck-card-body > h2').getBoundingClientRect();
+    const label = document.getElementById('vcgeHead').getBoundingClientRect();
     const head = document.querySelector('#ocrStepText > h2').getBoundingClientRect();
-    return Math.round(head.top - label.bottom);
+    return { gap: Math.round(head.top - label.bottom), title: document.getElementById('hTitle').textContent, old: getComputedStyle(document.querySelector('#cardRead > .deck-card-body > h2')).display };
   });
-  ok('the review heading sits close under the "Read the card" label', readGap >= 0 && readGap <= 8, String(readGap));
+  ok('0.8 shell: the head says "Check the text" and the review heading sits close under it (the old "Read the card" label steps out)', readGap.gap >= 0 && readGap.gap <= 24 && readGap.title === 'Check the text' && readGap.old === 'none', JSON.stringify(readGap));
   ok('the review reminds that more fields can be added on the next card', (await visible('ocrMoreFields')) && /more fields on the next card/.test(await text('ocrMoreFields')), await text('ocrMoreFields'));
   await page.evaluate(() => {
     window.__blink = { opacities: [], cardAtClear: null };
@@ -549,6 +564,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     new MutationObserver(() => { window.__blink.opacities.push(step.style.opacity); if (step.classList.contains('hidden') && window.__blink.cardAtClear === null) window.__blink.cardAtClear = document.documentElement.dataset.card; })
       .observe(step, { attributes: true, attributeFilter: ['style', 'class'] });
   });
+  const popsBefore = Number(await page.getAttribute('#fieldsForm', 'data-pops') || 0);   // (the dock's earlier visits to Details counted too)
   await proceed(page);
   const blink = await page.evaluate(() => window.__blink);
   ok('Proceed: the review text blinks out (opacity steps down to 0) before the deck moves to Fields, then it is cleared', blink.opacities.some(o => o !== '' && Number(o) < 1) && blink.opacities.includes('0') && blink.cardAtClear === 'fields' && (await page.evaluate(() => document.documentElement.dataset.card)) === 'fields', JSON.stringify(blink));
@@ -558,7 +574,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   ok('real OCR extracts phone, email, website', got.phoneWork === '+1 (312) 555-0147' && got.email === 'maria.gonzalez@northwind.com' && got.website === 'https://northwind.com', JSON.stringify(got));
   ok('real OCR extracts street, city, state, zip', got.street === '233 South Wacker Drive' && got.city === 'Chicago' && got.state === 'IL' && got.zip === '60606', JSON.stringify(got));
   ok('user told the form was filled', (await text('toastMessage')).includes('Form filled'));
-  ok('Fields card: the form popped in once on the hand-off (all boxes together, after the text was in them)', (await page.getAttribute('#fieldsForm', 'data-pops')) === '1', await page.getAttribute('#fieldsForm', 'data-pops'));
+  ok('Fields card: the form popped in once on the hand-off (all boxes together, after the text was in them)', Number(await page.getAttribute('#fieldsForm', 'data-pops')) === popsBefore + 1, popsBefore + ' -> ' + await page.getAttribute('#fieldsForm', 'data-pops'));
   if (!process.env.SERVE_DIR) {
     const seen = await page.evaluate(() => window.__busSeen);
     ok('bus carries no photo or OCR text, only signals', seen.length === 2 && !seen.some(d => /data:image|Gonzalez|northwind/i.test(d)), seen.join(' | ').slice(0, 300));
@@ -614,20 +630,19 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   ok('theme Light: light mode and the entry appears, one key, name=number pairs', !(await htmlState()).dark && (await settingsKeys()).join() === 'vcge_settings' && (await htmlState()).entry === 'hand=0;cb=0;theme=1;font=0;size=0;wipe=0');
   // App themes (raven575's test report, 2026-10-22): Basic, the Autumn colours and, in the branded edition only, a dark and a light per character
   const themeState = () => page.evaluate(() => ({ id: document.documentElement.dataset.appTheme || '', dark: document.documentElement.classList.contains('dark'),
-    bg: getComputedStyle(document.body).backgroundColor, card: getComputedStyle(document.querySelector('.deck-card.is-current')).backgroundColor,
-    on: getComputedStyle(document.querySelector('.deck-nav button.is-on')).backgroundColor, onInk: getComputedStyle(document.querySelector('.deck-nav button.is-on')).color,
-    dock: matchMedia('(max-width: 599.98px) and (orientation: portrait)').matches, entry: localStorage.getItem('vcge_settings') }));
+    bg: getComputedStyle(document.body).backgroundColor, primary: getComputedStyle(document.getElementById('dockNext')).backgroundColor,
+    on: getComputedStyle(document.querySelector('.vcge-step[data-state="now"]')).color, entry: localStorage.getItem('vcge_settings') }));
   const themeGroups = await page.$$eval('#themeSelect optgroup', gs => gs.map(g => g.label + ':' + g.children.length).join('|'));
   ok(EDITION_PLAIN ? 'the theme list is Basic (2), Everyday (8), Seasonal (14) and Autumn (8), no characters in plain' : 'the theme list is Basic (2), Everyday (8), Seasonal (14), Autumn (8) and Team vCGE (18)',
     themeGroups === (EDITION_PLAIN ? 'Basic:2|Everyday:8|Seasonal:14|Autumn:8' : 'Basic:2|Everyday:8|Seasonal:14|Autumn:8|Team vCGE:18'), themeGroups);
-  // The header buttons fade their colour over 0.15 s (deck.css): read only once no fade is running on the lit icon,
-  // the current card or the page (getAnimations() starts any pending fade first, so it can't be read too early)
-  const themeSettled = () => page.waitForFunction(() => [document.querySelector('.deck-nav button.is-on'), document.querySelector('.deck-card.is-current'), document.body]
+  // The dock's steps and buttons fade their colour (deck.css): read only once no fade is running on the step in view,
+  // the primary button or the page (getAnimations() starts any pending fade first, so it can't be read too early)
+  const themeSettled = () => page.waitForFunction(() => [document.querySelector('.vcge-step[data-state="now"]'), document.getElementById('dockNext'), document.body]
     .every(el => el && el.getAnimations().length === 0), null, { timeout: 5000 });
   await page.selectOption('#themeSelect', '2'); await themeSettled();
   const pumpkin = await themeState();
-  ok('Pumpkin colours the page, the cards and the lit header icon, stays light, and its code 2 is saved', pumpkin.id === 'pumpkin' && !pumpkin.dark && pumpkin.bg === 'rgb(243, 221, 206)'
-    && pumpkin.card === 'rgb(250, 244, 240)' && (pumpkin.dock ? pumpkin.onInk === 'rgb(225, 107, 24)' : pumpkin.on === 'rgb(225, 107, 24)') && pumpkin.entry === 'hand=0;cb=0;theme=2;font=0;size=0;wipe=0', JSON.stringify(pumpkin));
+  ok('Pumpkin colours the page, the primary button and the step in view, stays light, and its code 2 is saved', pumpkin.id === 'pumpkin' && !pumpkin.dark && pumpkin.bg === 'rgb(243, 221, 206)'
+    && pumpkin.primary === 'rgb(225, 107, 24)' && pumpkin.on === 'rgb(225, 107, 24)' && pumpkin.entry === 'hand=0;cb=0;theme=2;font=0;size=0;wipe=0', JSON.stringify(pumpkin));
   if (!EDITION_PLAIN) {
     await page.selectOption('#themeSelect', '12'); await themeSettled();
     const shutout = await themeState();
@@ -647,18 +662,17 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   ok('0.8: each card shows its pilot\'s line emblem behind the content and the dot texture sits behind the deck, none of them taking a tap',
     art.cards === 'welcome:shutout:none,capture:iris:none,read:glyph:none,fields:pidge:none,card:flipside:none,share:airlock:none' && art.tex === 'none/true', JSON.stringify(art));
   await page.click('#handLeftBtn');
-  const headerOrder = () => page.evaluate(() => ['navSettings', 'navVault', 'navCapture', 'navShare'].map(id => document.getElementById(id).getBoundingClientRect().left));
-  const [xSettings, xVault, xCapture, xShare] = await headerOrder();
+  const headerOrder = () => page.evaluate(() => ['navSettings', 'navVault', 'navWelcome', 'navCapture', 'navShare'].map(id => document.getElementById(id).getBoundingClientRect().left));
+  const [xSettings, xVault, xMark, xCapture, xShare] = await headerOrder();
   const trashSide = () => page.evaluate(() => { const c = document.querySelector('.deck-card.is-current'), t = c.querySelector('.vcge-trash').getBoundingClientRect(), r = c.getBoundingClientRect(); return t.left + t.width / 2 > r.left + r.width / 2 ? 'right' : 'left'; });
-  ok('Left hand mirrors the header (Settings far left, Vault beside it, Airlock before Iris) and moves the trash button to the lower right',
-    // 0.8 phone dock: Settings and Vault stay in the header and the step icons sit in the dock, so each row is mirrored on its own
-    (await htmlState()).hand === 'left' && xSettings < xVault && ((await themeState()).dock || xVault < xShare) && xShare < xCapture && (await trashSide()) === 'right' && (await htmlState()).entry === 'hand=1;cb=0;theme=1;font=0;size=0;wipe=0', JSON.stringify([xSettings, xVault, xShare, xCapture, await trashSide()]));
+  ok('Left hand mirrors the top bar (Settings far left, the session pill beside it, the vCGE mark on the right; the dock\'s steps keep their order, as in the mock-up) and moves the trash button to the lower right',
+    (await htmlState()).hand === 'left' && xSettings < xVault && xVault < xMark && xCapture < xShare && (await trashSide()) === 'right' && (await htmlState()).entry === 'hand=1;cb=0;theme=1;font=0;size=0;wipe=0', JSON.stringify([xSettings, xVault, xMark, xCapture, xShare, await trashSide()]));
   await page.click('#handRightBtn');
-  const [rSettings, rVault, rCapture] = await headerOrder();
-  ok('Right hand puts it back: Iris first, Vault then Settings at the far right, trash lower left', rCapture < rVault && rVault < rSettings && (await trashSide()) === 'left' && (await htmlState()).hand === 'right');
-  await page.check('#cbToggle');
-  ok('colour-blind mode sets html[data-cb="1"] (MOD02 reads it) and the lit icon shows a white bar under it', (await htmlState()).cb === '1' && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=0;size=0;wipe=0'
-    && /inset/.test(await page.$eval('.deck-nav button.is-on', b => getComputedStyle(b).boxShadow)));
+  const [rSettings, rVault, rMark] = await headerOrder();
+  ok('Right hand puts it back: the mark first, the session pill then Settings at the far right, trash lower left', rMark < rVault && rVault < rSettings && (await trashSide()) === 'left' && (await htmlState()).hand === 'right');
+  await page.check('#cbToggle'); await themeSettled();
+  ok('colour-blind mode sets html[data-cb="1"] (MOD02 reads it) and the step in view is marked in blue with its label underlined', (await htmlState()).cb === '1' && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=0;size=0;wipe=0'
+    && await page.$eval('.vcge-step[data-state="now"]', b => getComputedStyle(b).color === 'rgb(37, 99, 235)' && /underline/.test(getComputedStyle(b.querySelector('span')).textDecorationLine)));
   await page.selectOption('#fontSelect', { label: 'Lexend' });
   ok('the UI font follows the drop-down (Lexend) and its fixed code is saved', /Lexend/.test((await htmlState()).body) && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2;size=0;wipe=0');
   // Settings polish from raven575's iPad video: the cog by the title (#13) and a text size that leaves the header alone (#6)
@@ -668,7 +682,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     && (await page.$eval('#sizeSelect', s => s.selectedOptions[0].textContent)) === 'Normal');
   const sizes = () => page.evaluate(() => { const r = e => e.getBoundingClientRect();
     return { root: parseFloat(getComputedStyle(document.documentElement).fontSize), note: parseFloat(getComputedStyle(document.getElementById('settingsNote')).fontSize),
-      header: r(document.querySelector('.deck-header')).height, icon: r(document.querySelector('#navSettings .vcge-icon')).width }; });
+      header: r(document.querySelector('.vcge-bar')).height, icon: r(document.querySelector('#navSettings .vcge-icon')).width }; });
   const sizeNormal = await sizes();
   await page.selectOption('#sizeSelect', { label: 'Larger' }); await page.waitForTimeout(200);
   const sizeLarger = await sizes();
@@ -700,7 +714,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   await page.bringToFront();
   await page.click('#navSettings'); await page.selectOption('#themeSelect', '0'); await page.uncheck('#cbToggle'); await page.selectOption('#fontSelect', { label: 'Inter' }); await page.click('#settingsSheet [data-sheet-close]');
   await page.waitForTimeout(300);
-  ok('this tab follows too once its own controls are used: dark, Inter, scan still here', (await htmlState()).dark && /Inter/.test((await htmlState()).body) && await visible('reopenScanBtn'));
+  ok('this tab follows too once its own controls are used: dark, Inter, scan still here', (await htmlState()).dark && /Inter/.test((await htmlState()).body) && await page.$eval('#reopenScanBtn', b => !b.classList.contains('hidden') && !b.closest('.hidden')));
 
   // Hold-to-wipe (MOD02): the red trash button on the card in view, and the Vault page's wipe button, open the same question
   const nameBefore = await val('firstName');
@@ -720,7 +734,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   await page.check('#wipeSettingsBox'); await page.click('#wipeSettingsYesBtn');
   ok('"Yes, delete them" keeps the box ticked and closes the question', await page.isChecked('#wipeSettingsBox') && !(await visible('wipeSettingsConfirm')));
   await page.click('#wipeNoBtn');
-  ok('No closes the dialog and keeps everything', !(await visible('wipeDialog')) && (await val('firstName')) === nameBefore && await visible('reopenScanBtn'));
+  ok('No closes the dialog and keeps everything', !(await visible('wipeDialog')) && (await val('firstName')) === nameBefore && await page.$eval('#reopenScanBtn', b => !b.classList.contains('hidden') && !b.closest('.hidden')));
   // "Also delete my saved settings" for real: Vault publishes the signal, Shell clears its one entry (MOD01 step 4)
   await page.click('#navSettings'); await page.click('#handLeftBtn'); await page.click('#settingsSheet [data-sheet-close]');
   ok('a saved setting is in place before the wipe', (await page.evaluate(() => localStorage.getItem('vcge_settings'))) === 'hand=1;cb=0;theme=0;font=0;size=0;wipe=0');
@@ -796,8 +810,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p2.fill('#firstName', 'Idle'); await p2.fill('#lastName', 'Tester');
     await fastForward(p2, 5000);
     ok('countdown shows remaining time', /Auto-clear in 11\d s/.test(await p2.textContent('#purgeCountdown')), await p2.textContent('#purgeCountdown'));
-    const strip2 = await p2.evaluate(() => ({ v: document.documentElement.style.getPropertyValue('--vcge-vault-strip'), h: document.getElementById('vaultTimerBand').offsetHeight }));
-    ok('timer strip: while shown, its height is published as --vcge-vault-strip (so the cards can sit below it)', strip2.h > 0 && strip2.v === `${strip2.h}px`, JSON.stringify(strip2));
+    const pill2 = await p2.evaluate(() => ({ txt: document.getElementById('sessTxt').textContent, strip: document.getElementById('vaultTimerTime').textContent,
+      off: Number(document.getElementById('sessArc').getAttribute('stroke-dashoffset')), label: document.getElementById('navVault').getAttribute('aria-label') }));
+    ok('0.8 shell: while the timer runs, the session pill shows its time and the ring has started to empty (the pill\'s label says it too)', pill2.txt === pill2.strip && /^1:5\d$/.test(pill2.txt) && pill2.off > 0 && pill2.off < 94.2 / 2
+      && pill2.label.includes(`Clears in ${pill2.txt}`), JSON.stringify(pill2));
     ok('timer strip: without a PIN it reads "Clears in" with the time left', await p2.isVisible('#vaultTimerStrip') && (await p2.textContent('#vaultTimerLabel')) === 'Clears in' && /^1:5\d$/.test(await p2.textContent('#vaultTimerTime')), await p2.textContent('#vaultTimerTime'));
     await fastForward(p2, 60000);
     await p2.fill('#organization', 'Activity resets');
@@ -806,7 +822,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await fastForward(p2, 25000);
     ok('idle 120 s without a PIN wipes the card', (await p2.inputValue('#firstName')) === '' && (await p2.textContent('#previewFullName')).trim() === 'New Contact' && !(await p2.isVisible('#vaultModal')));
     ok('timer strip gone once the card is wiped', !(await p2.isVisible('#vaultTimerStrip')));
-    ok('timer strip: its height is published for Shell\'s layout, 0px once it is gone', (await p2.evaluate(() => document.documentElement.style.getPropertyValue('--vcge-vault-strip'))) === '0px');
+    ok('0.8 shell: once the card is wiped the session pill is the padlock alone, its ring full', await p2.evaluate(() => document.getElementById('sessTxt').textContent === '' && document.getElementById('sessArc').getAttribute('stroke-dashoffset') === '0.0'));
     ok('purge logged in audit log', (await p2.textContent('#auditLog')).includes('RAM purged (idle)'));
 
     // Out of view: 30 s wipes, a shorter absence keeps the card, and frozen background timers are caught on return
@@ -1289,11 +1305,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('session PIN brings the review back as edited', await p10.isVisible('#cropReviewModal') && await p10.isVisible('#ocrStepText') && (await p10.inputValue(`#ocrLineText${roles10.indexOf('name')}`)) === 'Mariah Gonzalez' && (await p10.textContent('#ocrSummary')).includes('maria.gonzalez@northwind.com'));
     ok('restored review keeps the photo (Back to photo offered)', await p10.isVisible('#ocrBackBtn') && (await p10.getAttribute('#reviewImage', 'src') || '').startsWith('data:image/'));
     await proceed(p10);
-    ok('restored review fills the form', (await p10.inputValue('#firstName')) === 'Mariah' && await p10.isVisible('#reopenScanBtn'));
+    ok('restored review fills the form', (await p10.inputValue('#firstName')) === 'Mariah' && await onScreen(p10, '#reopenScanBtn'));
 
     await idle();
     await unlockPin();
-    ok('after Fill form, the PIN brings back "Reopen last scan" (dialog stays closed)', await p10.isVisible('#reopenScanBtn') && !(await p10.isVisible('#cropReviewModal')) && (await p10.inputValue('#firstName')) === 'Mariah');
+    ok('after Fill form, the PIN brings back "Reopen last scan" (dialog stays closed)', await onScreen(p10, '#reopenScanBtn') && !(await p10.isVisible('#cropReviewModal')) && (await p10.inputValue('#firstName')) === 'Mariah');
     await p10.click('#reopenScanBtn');
     ok('reopened scan after a PIN unlock shows the edited lines', (await p10.inputValue(`#ocrLineText${roles10.indexOf('name')}`)) === 'Mariah Gonzalez');
     await p10.click('#ocrCancelBtn');
@@ -1350,6 +1366,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const [dl] = await Promise.all([p11.waitForEvent('download'), p11.click('#downloadVcfBtn')]);
       const vcf = fs.readFileSync(await dl.path(), 'utf8').replace(/\r\n[ \t]/g, '');
       const m = /\r\nPHOTO;TYPE=(\w+);ENCODING=b:([A-Za-z0-9+/=]+)/.exec(vcf);
+      await p11.click('#navCard'); await deckSettled(p11);   // the card's front is measured on its own screen
       const shown = await p11.evaluate(async ([type, b64]) => {
         const img = new Image(); img.src = `data:image/${type.toLowerCase()};base64,${b64}`; await img.decode();
         const c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
@@ -1678,7 +1695,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p9.click('#runOcrBtn');
     await readEnds(p9);
     await proceed(p9);
-    ok('Fill form offers Undo and "Reopen last scan"', (await p9.inputValue('#firstName')) === 'Maria' && await p9.isVisible('#toastAction') && await p9.isVisible('#reopenScanBtn'));
+    ok('Fill form offers Undo and "Reopen last scan"', (await p9.inputValue('#firstName')) === 'Maria' && await p9.isVisible('#toastAction') && await onScreen(p9, '#reopenScanBtn'));
     await p9.click('#toastAction'); await p9.waitForTimeout(600);
     ok('Undo after Fill form restores the card from before the scan', (await p9.inputValue('#firstName')) === 'Typed');
     // Video review #59, #60: Undo never ends on an empty form: it reopens the scan's lines on the Read card, as edited
@@ -2056,7 +2073,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await setVisibility(pK, 'visible');
     await pK.fill('#vaultPin', '2468');
     await pK.waitForSelector('#vaultModal', { state: 'hidden' });
-    ok('between photos: the PIN brings the readings back, and the Capture card says photo 2 of 3', await pK.isVisible('#photoCountNote') && (await pK.textContent('#photoCountNote')).startsWith('Photo 2 of 3'),
+    ok('between photos: the PIN brings the readings back, and the Capture card says photo 2 of 3', await onScreen(pK, '#photoCountNote') && (await pK.textContent('#photoCountNote')).startsWith('Photo 2 of 3'),
       await pK.textContent('#photoCountNote'));
     await ctxK.close();
   });
@@ -2361,6 +2378,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // A fast pinch whose first finger moves before the second lands (Chrome takes that finger as a scroll) still zooms
     // the camera (real touches: Chrome-family only)
     if (ENGINE === 'chromium') {
+      await pV.click('#navCapture'); await deckSettled(pV);
       await pV.locator('#viewfinderArea').scrollIntoViewIfNeeded();
       const cdpF = await ctxV.newCDPSession(pV);
       const vb = await pV.locator('#viewfinderArea').boundingBox(), fx = vb.x + vb.width / 2, fy = vb.y + vb.height / 2;
@@ -2379,7 +2397,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pV.waitForFunction(() => document.getElementById('cameraStream').style.transform === 'scale(2)', null, { timeout: 5000 }).catch(() => {});
 
     // The shutter sinks on the press and pops back after the release; the shot is the window the viewfinder showed
-    await pV.mouse.move(shutter.l + shutter.w / 2, shutter.t + shutter.h / 2); await pV.mouse.down(); await pV.waitForTimeout(60);
+    await pV.locator('#captureBtn').scrollIntoViewIfNeeded();
+    const shutterNow = await box('#captureBtn');   // measured again: the pinch above may have scrolled the screen (0.8: the head and the dock take room)
+    await pV.mouse.move(shutterNow.l + shutterNow.w / 2, shutterNow.t + shutterNow.h / 2); await pV.mouse.down(); await pV.waitForTimeout(60);
     const sunk = await pV.$eval('#captureBtn', b => b.style.transform);
     const clicksBefore = await pV.evaluate(() => window.__clicks.length);
     await pV.mouse.up(); await pV.waitForTimeout(500);
@@ -2814,7 +2834,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       card: document.documentElement.dataset.card, layer: !!document.getElementById('welcomeLayer'),
       welcomeCurrent: document.getElementById('cardWelcome').classList.contains('is-current'),
       thanks: !document.getElementById('thankYouPage').classList.contains('hidden'),
-      vault: !document.getElementById('vaultPage').classList.contains('hidden'),
+      vault: !document.getElementById('vaultPage').matches('.hidden, .is-closing'),
       focus: document.activeElement && document.activeElement.id,
       title: (document.getElementById('welcomeTitle') || {}).textContent, tagline: (document.getElementById('welcomeTagline') || {}).textContent
     }));
@@ -2834,12 +2854,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     }
     ok('welcome: buttons read Set Up PIN/BIO Lock Now, START, Take a Tour, CANCEL', (await pH.textContent('#welcomePinBtn')) === 'Set Up PIN/BIO Lock Now' && (await pH.textContent('#welcomeStartBtn')) === 'START'
       && (await pH.textContent('#welcomeTourBtn')) === 'Take a Tour' && (await pH.textContent('#welcomeCancelBtn')) === 'CANCEL');
-    ok('deck: the cards out of view are hidden from assistive tech and covered against taps', await pH.evaluate(() => document.querySelectorAll('.deck-card[aria-hidden="true"]').length === 5 && document.getElementById('cardWelcome').getAttribute('aria-hidden') === 'false'
-      && document.querySelectorAll('.deck-card > .deck-cover').length === 6 && getComputedStyle(document.querySelector('#cardWelcome > .deck-cover')).display === 'none'
-      && getComputedStyle(document.querySelector('#cardCapture > .deck-cover')).display !== 'none'));
+    ok('0.8 shell: the screens out of view are hidden (from sight, taps and assistive tech); only Welcome shows', await pH.evaluate(() => document.querySelectorAll('.deck-card[aria-hidden="true"]').length === 5 && document.getElementById('cardWelcome').getAttribute('aria-hidden') === 'false'
+      && Array.from(document.querySelectorAll('.deck-card')).filter(c => getComputedStyle(c).display !== 'none').map(c => c.id).join() === 'cardWelcome'));
     await pH.click('#welcomeStartBtn'); await pH.waitForTimeout(700);
-    ok('welcome: START moves to the Capture card and lights its header icon', (await state()).card === 'capture'
-      && await pH.$eval('#navCapture', b => b.classList.contains('is-on') && b.getAttribute('aria-current') === 'page') && await pH.$eval('#navRead', b => !b.classList.contains('is-on')));
+    ok('welcome: START moves to the Capture screen and lights its dock step', (await state()).card === 'capture'
+      && await pH.$eval('#navCapture', b => b.classList.contains('is-on') && b.getAttribute('aria-current') === 'step' && b.dataset.state === 'now') && await pH.$eval('#navRead', b => !b.classList.contains('is-on')));
     // A slow webview (frames 100 ms apart, under the deck's 150 ms watchdog) must not strand a two-card move on the
     // card in between: the settle waits for the deck's own move to finish (seen on the Linux desktop CI: Read).
     await pH.evaluate(() => {
@@ -2852,10 +2871,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       window.cancelAnimationFrame = (id) => { if (late.has(id)) { clearTimeout(late.get(id)); late.delete(id); } else caf(id); };
     });
     await pH.click('#navFields'); await pH.waitForTimeout(1200);
-    ok('deck: a two-card move through slow frames still lands on the card asked for, not the one in between', (await state()).card === 'fields'
-      && await pH.evaluate(() => { const t = document.getElementById('deck'), c = document.getElementById('cardFields'); return t.dataset.deck === 'still' && Math.abs(t.scrollLeft - (c.offsetLeft + c.offsetWidth / 2 - t.clientWidth / 2)) <= 1; }), JSON.stringify(await state()));
+    ok('0.8 shell: a two-step move through slow frames still lands on the screen asked for, not the one in between', (await state()).card === 'fields'
+      && await pH.evaluate(() => { const t = document.getElementById('deck'), c = document.getElementById('cardFields'); return t.dataset.deck === 'still' && !c.hidden && document.getElementById('cardRead').hidden; }), JSON.stringify(await state()));
     await pH.fill('#firstName', 'Welcomed'); await pH.waitForTimeout(400);
-    ok('deck: typing in a field brings its card into view', (await pH.inputValue('#firstName')) === 'Welcomed' && (await state()).card === 'fields', (await state()).card);
+    ok('0.8 shell: typing in a field on Details keeps Details in view', (await pH.inputValue('#firstName')) === 'Welcomed' && (await state()).card === 'fields', (await state()).card);
     // The next start is a new tab in the same browser profile, not a reload: in Playwright's WebKit (Safari's engine, desktop
     // and iPhone) any navigation after reloading a page that pushed a history entry (the Back guard) hangs or crashes,
     // even on a plain page with no vCGE code (Ghost's probe, 2026-10-19), and START OVER below navigates. The old tab's
@@ -2872,14 +2891,15 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pH.keyboard.press('ArrowLeft'); await pH.waitForTimeout(700);
     ok('deck: the arrow keys move one card at a time', (await state()).card === 'read', (await state()).card);
     await pH.click('#navCard'); await pH.waitForTimeout(700);
-    ok('deck: a header icon jumps to its card', (await state()).card === 'card', (await state()).card);
+    ok('0.8 shell: a dock step jumps to its screen', (await state()).card === 'card', (await state()).card);
     await deckSettled(pH);
     await pH.focus('#firstName'); await pH.waitForTimeout(400);
     await pH.keyboard.press('ArrowLeft'); await pH.waitForTimeout(300);
     ok('deck: the arrow keys leave the deck alone while typing', (await state()).card === 'fields', (await state()).card);
-    await pH.evaluate(() => document.getElementById('cardCapture').scrollIntoView({ inline: 'center', block: 'nearest' })); await pH.waitForTimeout(400);
-    ok('deck: a swipe (scroll) settles on the nearest card', (await state()).card === 'capture', (await state()).card);
-    await pH.evaluate(() => document.getElementById('cardWelcome').scrollIntoView({ inline: 'center', block: 'nearest' })); await pH.waitForTimeout(400);
+    await pH.click('#dockBack'); await deckSettled(pH);
+    await pH.click('#dockBack'); await deckSettled(pH);
+    ok('0.8 shell: the dock\'s Back goes one step at a time (Details, Read, Capture)', (await state()).card === 'capture', (await state()).card);
+    await pH.click('#navWelcome'); await deckSettled(pH);
     await pH.click('#welcomeCancelBtn'); await pH.waitForTimeout(300);
     const cancelled = await state();
     ok('welcome: CANCEL wipes the card and shows the Thank You page with START OVER focused', cancelled.thanks && cancelled.focus === 'thankYouStartOverBtn' && (await pH.inputValue('#firstName')) === ''
@@ -2915,7 +2935,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
         const covers = spot.left <= Math.max(area.left, 4) + 1 && spot.top <= Math.max(area.top, 4) + 1 && spot.right >= Math.min(area.right, innerWidth - 4) - 1 && spot.bottom >= Math.min(area.bottom, innerHeight - 4) - 1;
         return { covers, step: document.getElementById('tourStep').textContent, title: document.getElementById('tourTitle').textContent, next: document.getElementById('tourNextBtn').textContent,
           spot: [spot.left, spot.top, spot.right, spot.bottom], tip: [tip.left, tip.top, tip.right, tip.bottom], vw: document.documentElement.clientWidth, vh: innerHeight,
-          focus: document.activeElement && document.activeElement.id, card: document.documentElement.dataset.card, vault: !document.getElementById('vaultPage').classList.contains('hidden') };
+          focus: document.activeElement && document.activeElement.id, card: document.documentElement.dataset.card, vault: !document.getElementById('vaultPage').matches('.hidden, .is-closing') };
       }, i);
       titles.push(s);
       if (i < 5) await pH.click('#tourNextBtn');
@@ -2926,11 +2946,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       && titles.map(t => t.vault ? 1 : 0).join('') === '000010', titles.map(t => t.card + (t.vault ? '+vault' : '')).join('|'));
     ok('tour: each step spotlights its area (scan, fields, card, share, Vault page, header)', titles.every(t => t.covers), JSON.stringify(titles.map(t => t.spot)));
     ok('tour: the last step\'s button is START NOW', titles[5].next === 'START NOW' && titles.slice(0, 5).every(t => t.next === 'Next'));
-    // The tip sits beside a small area (the Vault page, the header); a whole card leaves no room beside it, so there it sits over the card
+    // The tip sits beside a small area (the top bar); a whole screen or the Vault sheet (0.8: a bottom sheet across the
+    // shell's column) leaves no room beside it, so there it sits over the area
     const beside = (t) => t.tip[0] >= t.spot[2] || t.tip[2] <= t.spot[0] || t.tip[1] >= t.spot[3] || t.tip[3] <= t.spot[1];
     const noRoom = (t) => { const w = t.tip[2] - t.tip[0] + 32, h = t.tip[3] - t.tip[1] + 32; return t.spot[0] < w && t.vw - t.spot[2] < w && t.spot[1] < h && t.vh - t.spot[3] < h; };
     ok('tour: every card fits on screen and covers its spotlight only when there is no room beside it', titles.every(t => t.tip[0] >= 0 && t.tip[1] >= 0 && t.tip[2] <= t.vw && t.tip[3] <= t.vh
-      && (beside(t) || noRoom(t))) && beside(titles[4]) && beside(titles[5]), JSON.stringify(titles.map(t => [t.spot, t.tip])));
+      && (beside(t) || noRoom(t))) && beside(titles[5]), JSON.stringify(titles.map(t => [t.spot, t.tip])));
     await pH.click('#tourBackBtn');
     ok('tour: Back goes to the previous step', (await pH.textContent('#tourTitle')) === 'Your card stays private' && (await state()).vault);
     await pH.keyboard.press('ArrowRight');
@@ -2971,71 +2992,20 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const sixtyfourU = [];
     pU.on('request', r => { if (/sixtyfour/i.test(r.url())) sixtyfourU.push(r.url()); });
     await pU.goto(ORIGIN); await pU.waitForTimeout(500);
-    if (EDITION_PLAIN) {
-      // The plain edition shows no MOD tag anywhere, names no pilot, gives the 3D Card the tags' room back, and never
-      // fetches the tags' Sixtyfour font
-      ok('plain edition: no MOD tag is shown on any card or sheet, and none names a pilot', await pU.evaluate(() => Array.from(document.querySelectorAll('.mod-tag'))
-        .every(t => getComputedStyle(t).display === 'none' && t.getBoundingClientRect().width === 0 && !t.querySelector('[data-pilot]'))));
-      await pU.click('#navVault');
-      ok('plain edition: the Vault page shows no tag', await pU.isVisible('#vaultPage') && await pU.$eval('#vaultPage .mod-tag', t => t.getBoundingClientRect().width === 0));
-      await pU.click('#vaultPage [data-sheet-close]');
-      ok('plain edition: the 3D Card\'s content starts where every other card\'s does (no room kept for tags)',
-        await pU.evaluate(() => getComputedStyle(document.querySelector('#cardCard > .deck-card-body')).paddingTop === getComputedStyle(document.querySelector('#cardFields > .deck-card-body')).paddingTop));
-      ok('plain edition: the Sixtyfour font is never fetched', !sixtyfourU.length && await pU.evaluate(() => !Array.from(document.fonts).some(f => f.family.includes('Sixtyfour') && f.status !== 'unloaded')), sixtyfourU.join(' '));
-    } else {
-      const tags = await pU.evaluate(async () => {
-        await document.fonts.ready;
-        // The cards' tags (the Vault page's MOD-02 shows only when that sheet is open; Settings has none)
-        return Array.from(document.querySelectorAll('.deck-card > .mod-tag')).map(t => {
-          const span = t.querySelector('span'), host = t.parentElement.getBoundingClientRect(), r = t.getBoundingClientRect();
-          // On the card's top edge (half above it, so over none of the card's own content), near the right corner
-          return { text: Array.from(t.children).map(c => c.textContent).join(' '), font: getComputedStyle(span).fontFamily, size: getComputedStyle(span).fontSize,
-            onEdge: Math.abs((r.top + r.bottom) / 2 - host.top) <= 2 && host.right - r.right > 8 && host.right - r.right < 24 };
-        });
-      });
-      ok('MOD-XX tags: every card shows its module tag, in step order', tags.map(t => t.text).join('|') === 'MOD-01|MOD-03|MOD-04|MOD-05|MOD-06 MOD-07|MOD-08', tags.map(t => t.text).join('|'));
-      ok('MOD-XX tags: same spot (on the top edge by the right corner), same font (Sixtyfour) and size', tags.every(t => t.onEdge && /Sixtyfour/.test(t.font) && t.size === tags[0].size), JSON.stringify(tags));
-      // One block per tag: the pilot's name, then the number, in solid pixels (#2, #3, #45, #96)
-      const drawnText = (content) => (content.match(/"(?:[^"\\]|\\.)*"/g) || []).map(q => q.slice(1, -1)).join('');
-      const look = await pU.evaluate(() => Array.from(document.querySelectorAll('.deck-card > .mod-tag span')).map(s => ({ pilot: s.dataset.pilot,
-        before: getComputedStyle(s, '::before').content, axes: getComputedStyle(s).fontVariationSettings, shadow: getComputedStyle(s).textShadow })));
-      ok('MOD-XX tags: each names its pilot before the number ("GLYPH:  MOD-04"), at the font\'s own stroke (not bold), no bleed, a crisp 27% shadow', look.map(l => l.pilot).join('|') === 'Shutout|Iris|Glyph|Pidge|Flipside|Checkers|Airlock'
-        // Firefox reports the rule itself (attr(data-pilot) then the colon), not the text it draws; WebKit reports the name and
-        // the colon as two quoted strings ("Glyph" ":  "), Chromium as one. Either way the name comes first, then the colon.
-        && look.every(l => (drawnText(l.before).startsWith(l.pilot + ':') || /^attr\(data-pilot\) ":/.test(l.before)) && /"BLED" 0/.test(l.axes) && /"SCAN" 0\b/.test(l.axes) && /rgba\(0, 0, 0, 0\.27\) 1px 1px 0px|1px 1px 0px rgba\(0, 0, 0, 0\.27\)/.test(l.shadow)), JSON.stringify(look));
-      await pU.click('#navFields'); await pU.waitForTimeout(600);
-      // The fade is a 0.2 s transition: wait up to 3 s for it to come to rest (a fixed 450 ms caught the iPhone run mid-fade, at 0.43)
-      const tagFade = async (y) => { await pU.$eval('#cardFields > .deck-card-body', (b, y) => { b.scrollTop = y; }, y); await pU.waitForTimeout(450);
-        await pU.waitForFunction(() => document.getElementById('cardFields').querySelector(':scope > .mod-tag').getAnimations().length === 0, null, { timeout: 3000 }).catch(() => {});
-        return pU.$eval('#cardFields > .mod-tag', t => ({ faded: t.classList.contains('is-faded'), opacity: parseFloat(getComputedStyle(t).opacity) })); };
-      const fadedDown = await tagFade(120), fadedTop = await tagFade(0);
-      ok('MOD-XX tags: a card\'s tag fades to 36% while its content is scrolled up under it, and comes back at the top', fadedDown.faded && Math.abs(fadedDown.opacity - 0.36) < 0.02 && !fadedTop.faded && fadedTop.opacity === 1,
-        JSON.stringify([fadedDown, fadedTop]));
-      // No tag ever sits on something that can be pressed (video review #9, #10, #87): every card, and each sheet
-      const tagOverControl = () => pU.evaluate(() => {
-        const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom && a.width > 0 && b.width > 0;
-        return Array.from(document.querySelectorAll('.mod-tag')).filter(t => t.offsetParent).flatMap(t => {
-          const r = t.getBoundingClientRect();
-          return Array.from(t.parentElement.querySelectorAll('button, input, select, textarea, label, a[href]')).filter(c => c.offsetParent && hit(r, c.getBoundingClientRect())).map(c => `${t.textContent.trim()} on ${c.id || c.textContent.trim().slice(0, 20)}`);
-        });
-      });
-      const covered = [];
-      for (const nav of ['#navWelcome', '#navCapture', '#navRead', '#navFields', '#navCard', '#navShare']) { await pU.click(nav); await pU.waitForTimeout(600); covered.push(...await tagOverControl()); }
-      ok('MOD-XX tags: none sits on a button or a field of its card (Flip card included)', covered.length === 0, covered.join(' | '));
-      await pU.click('#navVault');
-      ok('MOD-XX tags: the Vault page carries MOD-02, in its title row clear of the close button', await pU.$eval('#vaultPage .mod-tag', t => t.textContent.trim() === 'MOD-02' && t.getBoundingClientRect().width > 0)
-        && (await tagOverControl()).length === 0 && await pU.$eval('#vaultPage .mod-tag', t => { const r = t.getBoundingClientRect(), p = t.parentElement.getBoundingClientRect(); return r.top >= p.top && r.right <= p.right; }));
-      await pU.click('#vaultPage [data-sheet-close]');
-      await pU.click('#navSettings');
-      ok('MOD-XX tags: the Settings sheet carries none (raven575, video review #9)', await pU.$$eval('#settingsSheet .mod-tag', t => t.length) === 0 && await pU.isVisible('#settingsSheet'));
-      await pU.click('#settingsSheet [data-sheet-close]');
-      ok('MOD-XX tags: the bundled Sixtyfour font loads', await pU.evaluate(async () => { await document.fonts.load('10px Sixtyfour'); return document.fonts.check('10px Sixtyfour'); }));
-    }
+    // 0.8 shell (Creative's mock-up): no MOD tag on any screen or sheet, so their Sixtyfour font is never fetched
+    ok('0.8 shell: no MOD tag on any screen or sheet', await pU.evaluate(() => document.querySelectorAll('.mod-tag').length === 0));
+    await pU.click('#navVault');
+    ok('0.8 shell: the Vault sheet shows no tag either', await pU.isVisible('#vaultPage') && await pU.$$eval('#vaultPage .mod-tag', t => t.length) === 0);
+    await pU.click('#vaultPage [data-sheet-close]'); await pU.waitForSelector('#vaultPage', { state: 'hidden' });
+    ok('0.8 shell: every screen\'s content starts at the same padding (no room kept for tags on the 3D Card)',
+      await pU.evaluate(() => getComputedStyle(document.querySelector('#cardCard > .deck-card-body')).paddingTop === getComputedStyle(document.querySelector('#cardFields > .deck-card-body')).paddingTop));
+    ok('0.8 shell: the Sixtyfour font is never fetched', !sixtyfourU.length && await pU.evaluate(() => !Array.from(document.fonts).some(f => f.family.includes('Sixtyfour') && f.status !== 'unloaded')), sixtyfourU.join(' '));
     const small = await pU.evaluate(() => Array.from(document.querySelectorAll('button:not(.crop-handle), label'))
-      .filter(b => (b.tagName === 'BUTTON' || b.querySelector(':scope > input[type=file]')) && b.offsetParent)
-      .map(b => { const cs = getComputedStyle(b); return { id: b.id || b.textContent.trim().slice(0, 20), h: b.offsetHeight, w: b.offsetWidth, border: cs.borderTopWidth }; })   // layout size: cards out of view are drawn smaller
-      .filter(b => b.h < 43.5 || b.w < 43.5 || b.border !== '2px'));
-    ok('buttons: every visible button is at least 44 px with a 2 px outline', small.length === 0, JSON.stringify(small));
+      .filter(b => (b.tagName === 'BUTTON' || b.querySelector(':scope > input[type=file]')) && b.offsetParent && !b.classList.contains('vcge-sr-only'))   // (the QR shortcut is for screen readers and keys only)
+      .map(b => { const cs = getComputedStyle(b); return { id: b.id || b.textContent.trim().slice(0, 20), h: b.offsetHeight, w: b.offsetWidth, border: cs.borderTopWidth,
+        ring: b.matches('.vcge-mark, .vcge-iconbtn, .vcge-step, .vcge-btn, .vcge-sheet-close, .vcge-trash, .vcge-lockbtn') && (b.matches('.vcge-mark, .vcge-step, .vcge-btn-primary') || /0px 0px 0px 1(\.5)?px/.test(cs.boxShadow)) }; })
+      .filter(b => b.h < 43.5 || b.w < 43.5 || (b.border !== '2px' && !b.ring)));
+    ok('buttons: every visible button is at least 44 px with a 2 px outline (the shell\'s own buttons: a 1 px ring and a soft shadow, as in the mock-up)', small.length === 0, JSON.stringify(small));
     // A finger tap on the outer 4 px of a button is ignored; in the middle it works; a mouse click on the edge still works
     await pU.click('#navCard'); await pU.waitForTimeout(700);
     const flip = await pU.locator('#flipCardBtn').boundingBox();
@@ -3079,140 +3049,94 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     pV.on('pageerror', e => errorsV.push(e.message));
     pV.on('console', m => { if (m.type() === 'error') errorsV.push('console: ' + m.text()); });
     await pV.goto(ORIGIN); await pV.waitForTimeout(500);
-    const deckState = () => pV.evaluate(() => ({ left: Math.round(document.getElementById('deck').scrollLeft), deck: document.getElementById('deck').dataset.deck, card: document.documentElement.dataset.card }));
-    // Every header button is clear of its neighbours (as far as each shows), with or without the pilot names
+    const deckState = () => pV.evaluate(() => ({ deck: document.getElementById('deck').dataset.deck, card: document.documentElement.dataset.card }));
+    // 0.8 shell: the top bar's buttons and the dock's buttons each sit in one row, clear of each other, inside the screen,
+    // and nothing scrolls sideways (the old header's names and is-compact are gone with the old header)
     const header = () => pV.evaluate(() => new Promise(done => requestAnimationFrame(() => requestAnimationFrame(() => {
-      const h = document.querySelector('.deck-header'), nav = h.querySelector('.deck-nav').getBoundingClientRect();
-      const boxes = Array.from(h.querySelectorAll('button')).filter(b => b.offsetParent).map(b => {
-        const r = b.getBoundingClientRect(), inNav = !!b.closest('.deck-nav');
-        return { id: b.id, l: inNav ? Math.max(r.left, nav.left) : r.left, r: inNav ? Math.min(r.right, nav.right) : r.right, t: r.top, btm: r.bottom, spill: b.scrollWidth > b.clientWidth + 0.5 };
-      }).filter(b => b.r > b.l).sort((a, b) => a.l - b.l);   // in screen order: left hand mirrors the header
-      // Any two buttons whose boxes cross, side to side and top to bottom (0.8: on a phone the card icons sit in the dock at the
-      // bottom of the screen, under the header's Vault and Settings, so only buttons in the same row can run into each other)
-      const overlaps = boxes.filter((b, i) => boxes.some((a, j) => j < i && b.l < a.r - 0.5 && a.l < b.r - 0.5 && b.t < a.btm - 0.5 && a.t < b.btm - 0.5)).map(b => b.id);
-      done({ compact: h.classList.contains('is-compact'), names: getComputedStyle(h.querySelector('#navCapture span')).display !== 'none', overlaps, spills: boxes.filter(b => b.spill).map(b => b.id), wide: document.documentElement.scrollWidth > innerWidth,
-        // For a failure's report only: the window and header widths, how far the nav overflows, and the screen tier
-        iw: innerWidth, hw: Math.round(h.getBoundingClientRect().width), nav: [h.querySelector('.deck-nav').scrollWidth, h.querySelector('.deck-nav').clientWidth], tier: document.documentElement.dataset.tier });
+      const row = (sel) => Array.from(document.querySelectorAll(sel)).filter(b => b.offsetParent && b.offsetWidth > 1).map(b => { const r = b.getBoundingClientRect(); return { id: b.id, l: r.left, r: r.right, t: r.top, btm: r.bottom, spill: b.scrollWidth > b.clientWidth + 0.5 }; });
+      const rows = [row('.vcge-bar button'), row('.vcge-steps button'), row('.vcge-actions button')];
+      const overlaps = rows.flatMap(bs => bs.filter((b, i) => bs.some((a, j) => j < i && b.l < a.r - 0.5 && a.l < b.r - 0.5 && b.t < a.btm - 0.5 && a.t < b.btm - 0.5)).map(b => b.id));
+      const all = rows.flat();
+      done({ overlaps, spills: all.filter(b => b.spill).map(b => b.id), outside: all.filter(b => b.l < -0.5 || b.r > innerWidth + 0.5).map(b => b.id), wide: document.documentElement.scrollWidth > innerWidth,
+        oneRow: rows.every(bs => bs.every(b => Math.abs((b.t + b.btm) / 2 - (bs[0].t + bs[0].btm) / 2) < 1)), iw: innerWidth, tier: document.documentElement.dataset.tier });
     }))));
+    const clean = (h) => h.overlaps.length === 0 && h.spills.length === 0 && h.outside.length === 0 && !h.wide && h.oneRow;
     await pV.setViewportSize({ width: 1366, height: 1024 });
     const land = await header();
-    ok('header (iPad landscape): pilot names beside the icons, nothing overlapping', land.names && !land.compact && land.overlaps.length === 0 && land.spills.length === 0 && !land.wide, JSON.stringify(land));
+    ok('0.8 shell (iPad landscape): the top bar and the dock each keep their buttons in one row, nothing overlapping', clean(land), JSON.stringify(land));
     await setPin(pV, '1357');
     await pV.setViewportSize({ width: 1024, height: 1366 });
     const port = await header();
-    // Plain's brand is narrower, so its names may fit (raven575, 2026-11-01: show names when they fit); main stays icons only.
-    ok('header (iPad portrait, Lock button showing): icons only (plain: names when they fit), nothing overlapping (video #16)', await pV.isVisible('#lockVaultBtn') && (EDITION_PLAIN ? port.compact !== port.names : port.compact && !port.names) && port.overlaps.length === 0 && port.spills.length === 0 && !port.wide, JSON.stringify(port));
-    // Left hand mirrors the header (row-reverse), so the nav spills to its left; it must drop to icons only exactly like
-    // right hand (raven575, 2026-10-18: on the iPad the names came back, squeezed). Every button stays inside the nav.
-    const inNav = () => pV.evaluate(() => { const box = document.querySelector('.deck-nav').getBoundingClientRect();
-      return Array.from(document.querySelectorAll('.deck-nav button')).filter(b => { const r = b.getBoundingClientRect(); return r.left < box.left - 0.5 || r.right > box.right + 0.5; }).map(b => b.id); });
+    ok('0.8 shell (iPad portrait, Lock button showing): nothing overlapping, nothing outside the screen (video #16)', await pV.isVisible('#lockVaultBtn') && clean(port), JSON.stringify(port));
     await pV.evaluate(() => document.getElementById('handLeftBtn').click());
-    const portLeft = await header(), outLeft = await inNav();
-    ok('header (iPad portrait, left hand): same as right hand, every button inside the header', await pV.evaluate(() => document.documentElement.dataset.hand) === 'left'
-      && (EDITION_PLAIN ? portLeft.compact !== portLeft.names && portLeft.names === port.names : portLeft.compact && !portLeft.names) && portLeft.overlaps.length === 0 && outLeft.length === 0 && !portLeft.wide, JSON.stringify({ portLeft, outLeft }));
+    const portLeft = await header();
+    ok('0.8 shell (iPad portrait, left hand): the mirrored top bar is just as clear, every button inside the screen', await pV.evaluate(() => document.documentElement.dataset.hand) === 'left' && clean(portLeft), JSON.stringify(portLeft));
     await pV.evaluate(() => document.getElementById('handRightBtn').click());
     for (const w of [900, 390, 360]) {
       await pV.setViewportSize({ width: w, height: 800 });
       const hw = await header();
-      ok(`header at ${w} px: no button runs into another, nothing scrolls sideways`, hw.overlaps.length === 0 && hw.spills.length === 0 && !hw.wide, JSON.stringify(hw));
+      ok(`0.8 shell at ${w} px: no button runs into another, nothing scrolls sideways`, clean(hw), JSON.stringify(hw));
     }
-    // 0.8 push B (Creative's step dock): on a phone held upright the card icons sit in a dock on the bottom edge, every one
-    // at least 44 px tall and inside the screen, and the cards end above the dock; the header keeps Vault and Settings
-    const dock = await pV.evaluate(() => { const n = document.querySelector('.deck-nav').getBoundingClientRect(), d = document.getElementById('deck').getBoundingClientRect();
-      const bs = [...document.querySelectorAll('.deck-nav button')].map(b => b.getBoundingClientRect());
+    // The dock (Creative's mock-up): on the bottom edge, every step at least 44 px tall and inside the screen, the screen
+    // ends above it; the top bar keeps the session pill and Settings
+    const dock = await pV.evaluate(() => { const n = document.querySelector('.vcge-dock').getBoundingClientRect(), d = document.getElementById('deck').getBoundingClientRect();
+      const bs = [...document.querySelectorAll('.vcge-dock button')].filter(b => b.offsetWidth > 1).map(b => b.getBoundingClientRect());
       return { bottom: Math.round(innerHeight - n.bottom), top: Math.round(n.top), deckEnd: Math.round(d.bottom), tall: bs.every(r => r.height >= 44), inside: bs.every(r => r.left >= -0.5 && r.right <= innerWidth + 0.5),
-        tools: [...document.querySelectorAll('.deck-tools button')].filter(b => b.offsetParent).every(b => b.getBoundingClientRect().bottom <= document.querySelector('.deck-header').getBoundingClientRect().bottom + 0.5) }; });
-    ok('0.8 dock (phone, upright): the card icons sit on the bottom edge, 44 px tall, inside the screen; the cards end above them; Vault and Settings stay up top',
+        tools: [...document.querySelectorAll('.deck-tools button')].filter(b => b.offsetParent).every(b => b.getBoundingClientRect().bottom <= document.querySelector('.vcge-bar').getBoundingClientRect().bottom + 0.5) }; });
+    ok('0.8 dock (phone): the steps and the two buttons sit on the bottom edge, 44 px tall, inside the screen; the screen ends above them; Vault and Settings stay up top',
       dock.bottom === 0 && dock.deckEnd <= dock.top + 1 && dock.tall && dock.inside && dock.tools, JSON.stringify(dock));
     await pV.setViewportSize({ width: 1024, height: 1366 }); await pV.waitForTimeout(300);
-    await pV.click('#navWelcome'); await pV.waitForTimeout(700);
+    await pV.click('#navWelcome'); await deckSettled(pV);
     const centred = await pV.evaluate(() => { const r = document.getElementById('cardWelcome').getBoundingClientRect(); return { l: r.left, r: innerWidth - r.right }; });
-    ok('tablet: the Welcome card comes to the middle like every other card (it sat against the left edge)', Math.abs(centred.l - centred.r) <= 1.5 && centred.l > 20, JSON.stringify(centred));
-    ok('header: Shutout\'s own icon brings back the start page and is lit there (video #30, #91)', (await deckState()).card === 'welcome'
-      && await pV.$eval('#navWelcome', (b, plain) => b.classList.contains('is-on') && b.getAttribute('aria-current') === 'page' && (plain ? b.getAttribute('aria-label') === 'Start page: welcome and the tour' : /Shutout/.test(b.getAttribute('aria-label'))), EDITION_PLAIN));
+    ok('tablet: the screens sit in one column in the middle (the mock-up is a phone)', Math.abs(centred.l - centred.r) <= 1.5 && centred.l > 20, JSON.stringify(centred));
+    ok('0.8 shell: the vCGE mark brings back the start page, where no step is lit (video #30, #91)', (await deckState()).card === 'welcome'
+      && await pV.evaluate(() => Array.from(document.querySelectorAll('.vcge-step')).every(b => b.dataset.state === 'todo' && !b.hasAttribute('aria-current')))
+      && await pV.$eval('#navWelcome', (b, plain) => (plain ? b.getAttribute('aria-label') === 'Start page: welcome and the tour' : /Shutout/.test(b.getAttribute('aria-label'))), EDITION_PLAIN));
 
-    // A finger swipe: the deck never moves under a finger that pauses, and on release goes one card in the swipe's direction
+    // A finger swipe on a screen goes one step in the swipe's direction (the dock's Back and the primary button do too).
     // The finger is sent through the Chrome DevTools Protocol, which only Chromium has. Real Chrome and Edge on a desktop
-    // turn that sent touch into the browser's back-swipe instead of scrolling the deck (the page gets the same touch
-    // events; the deck never scrolls and the tab goes back), so the deck swipes run in Playwright's Chromium only.
+    // turn that sent touch into the browser's back-swipe, so the swipes run in Playwright's Chromium only.
     const cdp = ENGINE === 'chromium' ? await ctxV.newCDPSession(pV) : null;
     if (cdp && !CHANNELS[BROWSER]) {
-      const touch = async (from, to, holdMs = 0) => {
+      const touch = async (from, to, dy = 0) => {
         const y = 900; let x = from;
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
         const step = (to - from) / 12;
-        for (let i = 0; i < 12; i++) { x += step; await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y }] }); await pV.waitForTimeout(16); }
-        if (holdMs) await pV.waitForTimeout(holdMs);
-        const during = await deckState();
+        for (let i = 1; i <= 12; i++) { x += step; await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x, y: y + dy * i / 12 }] }); await pV.waitForTimeout(16); }
         await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-        await pV.waitForTimeout(150);
-        await deckSettled(pV); await pV.waitForTimeout(150);
-        return during;
+        await pV.waitForTimeout(100); await deckSettled(pV); await pV.waitForTimeout(100);
       };
-      await pV.click('#navCapture'); await pV.waitForTimeout(700);
-      const rest = (await deckState()).left;
-      const paused = await touch(300, 600, 400);
-      ok('swipe: a finger that pauses mid-swipe keeps the deck where it put it (it snapped back under the finger, video #11)', paused.deck === 'held' && paused.left < rest - 200 && paused.card === 'capture', JSON.stringify({ rest, paused }));
-      ok('swipe: on release the deck eases to the card it was heading for, the start page (video #30)', (await deckState()).card === 'welcome' && (await deckState()).left === 0, JSON.stringify(await deckState()));
+      await pV.click('#navCapture'); await deckSettled(pV);
+      await touch(300, 600);
+      ok('swipe: left to right goes back one step, to the start page (video #30)', (await deckState()).card === 'welcome', JSON.stringify(await deckState()));
       await touch(600, 580);
-      ok('swipe: a nudge shorter than 24 px goes back to the same card', (await deckState()).card === 'welcome', JSON.stringify(await deckState()));
+      ok('swipe: a nudge shorter than 24 px stays on the same screen', (await deckState()).card === 'welcome', JSON.stringify(await deckState()));
       await touch(700, 500);
-      ok('swipe: a short swipe goes on to the next card', (await deckState()).card === 'capture', JSON.stringify(await deckState()));
-      await touch(1000, 20);
-      ok('swipe: a long fling still stops at the next card, not two on', (await deckState()).card === 'read', JSON.stringify(await deckState()));
-      // raven575 (2026-10-18): on the iPad a fling kept the deck sliding past the card, then it turned back. The deck now
-      // settles as the finger lifts and stops the fling. The sent finger above cannot fling the way Safari does, so this
-      // one plays it out on the page: touch events, the finger's scroll, then a fling that coasts on after the lift
-      // (well past the next card) unless the track is made unscrollable, as Safari's fling is.
-      await pV.click('#navWelcome'); await pV.waitForTimeout(700);
-      const fling = await pV.evaluate(() => new Promise(done => {
-        const t = document.getElementById('deck'), at = (x) => [new Touch({ identifier: 1, target: t, clientX: x, clientY: 900 })];
-        const send = (type, touches) => t.dispatchEvent(new TouchEvent(type, { bubbles: true, cancelable: true, touches, targetTouches: touches, changedTouches: at(500) }));
-        const xs = [];
-        t.addEventListener('scroll', () => xs.push(t.scrollLeft), { passive: true });
-        send('touchstart', at(700));
-        let i = 0;
-        const drag = () => {
-          if (++i <= 12) { t.scrollLeft += 16; send('touchmove', at(700 - 16 * i)); requestAnimationFrame(drag); return; }
-          send('touchend', []);
-          const lifted = document.documentElement.dataset.card;
-          let v = 40, stopped = false, n = 0;
-          const coast = () => {
-            if (t.style.overflowX === 'hidden') stopped = true;
-            if (!stopped && n < 60) t.scrollLeft += v;
-            v *= 0.95;
-            if (++n < 90) requestAnimationFrame(coast);
-            else done({ lifted, xs });
-          };
-          requestAnimationFrame(coast);
-        };
-        requestAnimationFrame(drag);
-      }));
-      await deckSettled(pV); await pV.waitForTimeout(150);
-      const flung = await deckState(), from = fling.xs.indexOf(Math.max(...fling.xs));
-      const turnedBack = fling.xs.slice(from + 1).some(x => x < Math.max(...fling.xs) - 2);
-      ok('swipe: a fling stops as the finger lifts and the deck eases on to the next card, never sliding past it and turning back',
-        fling.lifted === 'capture' && flung.card === 'capture' && !turnedBack, JSON.stringify({ lifted: fling.lifted, flung, turnedBack, peak: Math.max(...fling.xs) }));
-    } else notRunHere('swipe: the deck under a finger (6 checks)', cdp ? 'real Chrome and Edge on a desktop turn a sent touch into the back-swipe, not a scroll' : 'touch is sent through the Chrome DevTools Protocol, which only Chromium has');
+      ok('swipe: right to left goes on to the next step', (await deckState()).card === 'capture', JSON.stringify(await deckState()));
+      await touch(950, 60);
+      ok('swipe: a long fling still goes only one step, not two', (await deckState()).card === 'read', JSON.stringify(await deckState()));
+      await touch(20, 400);
+      ok('swipe: a swipe from the screen\'s edge is left to the browser (its back gesture)', (await deckState()).card === 'read', JSON.stringify(await deckState()));
+      await touch(600, 500, -300);
+      ok('swipe: a drag mostly up or down scrolls the screen and changes no step', (await deckState()).card === 'read', JSON.stringify(await deckState()));
+    } else notRunHere('swipe: the screens under a finger (6 checks)', cdp ? 'real Chrome and Edge on a desktop turn a sent touch into the back-swipe, not a swipe' : 'touch is sent through the Chrome DevTools Protocol, which only Chromium has');
 
-    // The 3D card's two header icons: only the one for the side that is up is lit, and Flipside turns it back
-    // Each waits up to 3 s for its icon to light (a fixed 800 ms wait flaked under load), then checks the same thing
-    const lit = () => pV.$$eval('.deck-nav button.is-on', b => b.map(x => x.id).join(','));
-    const litOnly = (id) => pV.waitForFunction((id) => Array.from(document.querySelectorAll('.deck-nav button.is-on')).map(x => x.id).join(',') === id, id, { timeout: 3000 }).catch(() => {});
-    await pV.click('#navQr'); await litOnly('navQr');
-    ok('header: on the QR side only Checkers is lit (video #82)', (await lit()) === 'navQr', await lit());
+    // The 3D card's QR side: the Card step stays lit for either side, the hidden QR shortcut (screen readers, keys)
+    // is current only while the back is up, and the Card step turns the card back to its front
+    const lit = () => pV.$$eval('.vcge-steps [aria-current]', b => b.map(x => x.id).join(','));
+    const litOnly = (id) => pV.waitForFunction((id) => Array.from(document.querySelectorAll('.vcge-steps [aria-current]')).map(x => x.id).join(',') === id, id, { timeout: 3000 }).catch(() => {});
+    await pV.$eval('#navQr', b => b.click()); await litOnly('navCard,navQr');
+    ok('0.8 shell: on the QR side the Card step is lit and the QR shortcut is current (video #82)', (await lit()) === 'navCard,navQr' && await pV.$eval('#navCard', b => b.dataset.state === 'now'), await lit());
     await pV.click('#navCard'); await litOnly('navCard'); await pV.waitForTimeout(800);
-    ok('header: Flipside turns the card back to its front and only Flipside is lit', (await lit()) === 'navCard' && (await pV.$eval('#card3DFlipper', el => el.style.transform)) === 'rotateY(0deg)', await lit());
+    ok('0.8 shell: the Card step turns the card back to its front and only it is current', (await lit()) === 'navCard' && (await pV.$eval('#card3DFlipper', el => el.style.transform)) === 'rotateY(0deg)', await lit());
 
-    // The timer strip under the header never covers a card's title (video #95): the deck keeps its height free
-    await pV.click('#navFields'); await pV.waitForTimeout(700);
+    // The timer never covers a screen (video #95): the time shows in the session pill, the strip's band stays hidden
+    await pV.click('#navFields'); await deckSettled(pV);
     await pV.fill('#firstName', 'Shutout'); await pV.waitForTimeout(1300);
-    const strip = await pV.evaluate(() => {
-      const band = document.getElementById('vaultTimerBand').getBoundingClientRect();
-      const tops = Array.from(document.querySelectorAll('.deck-card')).map(c => { const t = c.querySelector('.mod-tag').getBoundingClientRect(); return t.width ? Math.min(c.getBoundingClientRect().top, t.top) : c.getBoundingClientRect().top; });   // plain: no tags shown
-      return { shown: !document.getElementById('vaultTimerStrip').classList.contains('hidden'), bottom: band.bottom, top: Math.min(...tops) };
-    });
-    ok('timer strip: shown with a card in progress, and every card and its MOD tag start below it', strip.shown && strip.top >= strip.bottom, JSON.stringify(strip));
+    const strip = await pV.evaluate(() => ({ shown: !document.getElementById('vaultTimerStrip').classList.contains('hidden'), band: getComputedStyle(document.getElementById('vaultTimerBand')).display,
+      pill: document.getElementById('sessTxt').textContent, bar: document.querySelector('.vcge-bar').getBoundingClientRect().bottom, top: document.getElementById('cardFields').getBoundingClientRect().top }));
+    ok('0.8 shell: with a card in progress the time shows in the session pill, no band hangs over the screen, and the screen starts below the bar',
+      strip.shown && strip.band === 'none' && /^\d:\d\d$/.test(strip.pill) && strip.top >= strip.bar, JSON.stringify(strip));
 
     // The tour stays under the lock screen: a lock that comes down mid-tour is on top, its PIN box takes the keys
     await pV.click('#navWelcome'); await pV.waitForTimeout(700);
@@ -3374,11 +3298,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p6.click('#flipCardBtn');
     ok('card: under reduce motion the flip is instant (one frame)', (await angle()) === 'rotateY(0deg)' && (await p6.evaluate(() => window.__spin.length)) === 1, JSON.stringify(await p6.evaluate(() => window.__spin)));
     await p6.emulateMedia({ reducedMotion: 'no-preference' });
-    // Toasts: at the top, 3 s, a tap dismisses, a hold keeps it until 3 s after the release
+    // Toasts: above the dock, 3 s, a tap dismisses, a hold keeps it until 3 s after the release
     await p6.click('#paletteDropdownBtn'); await p6.click('#paletteListContainer [data-theme="sage"]');
     await p6.waitForTimeout(400);   // it slides in over 0.3 s
     const toastBox = await p6.locator('#toast').boundingBox();
-    ok('toast: shows at the top of the screen, under the header, not the bottom', toastBox.y > 40 && toastBox.y < 120 && await p6.isVisible('#toast'), JSON.stringify(toastBox));
+    const dockTop = await p6.$eval('.vcge-dock', d => d.getBoundingClientRect().top);
+    ok('0.8 shell: the toast shows as a pill just above the dock (the mock-up), never over it', toastBox.y + toastBox.height <= dockTop && toastBox.y > dockTop - 200 && await p6.isVisible('#toast'), JSON.stringify({ toastBox, dockTop }));
     await p6.waitForTimeout(2200);
     ok('toast: still there at 2.6 s', !(await p6.$eval('#toast', t => t.classList.contains('opacity-0'))));
     await p6.waitForTimeout(700);
@@ -3527,17 +3452,17 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
 
     // #82: Flipside lights the front, Checkers the QR back, never both; Flipside turns the card back to its front
     await pV.click('#navCard'); await pV.waitForTimeout(700);
-    ok('#82 header: on the 3D card only Flipside is lit while the front is up', (await lit()) === 'navCard' && (await pV.getAttribute('#navCard', 'aria-current')) === 'page', await lit());
-    await pV.click('#navQr'); await settled(pV);
-    ok('#82 header: Checkers turns the card to its QR side and only Checkers is lit', (await turn()) === 'rotateY(180deg)' && (await lit()) === 'navQr' && (await pV.getAttribute('#navQr', 'aria-current')) === 'page' && !(await pV.getAttribute('#navCard', 'aria-current')), `${await turn()} ${await lit()}`);
+    ok('#82 (0.8 shell): on the 3D card the Card step is lit and current while the front is up, the QR shortcut is not', (await lit()) === 'navCard' && (await pV.getAttribute('#navCard', 'aria-current')) === 'step', await lit());
+    await pV.$eval('#navQr', b => b.click()); await settled(pV);
+    ok('#82 (0.8 shell): the QR shortcut turns the card to its QR side and is current too; the Card step stays lit', (await turn()) === 'rotateY(180deg)' && (await lit()) === 'navCard,navQr' && (await pV.getAttribute('#navQr', 'aria-current')) === 'step', `${await turn()} ${await lit()}`);
     await pV.click('#navCard'); await settled(pV);
-    ok('#82 header: Flipside turns the card back to its front and only Flipside is lit', (await turn()) === 'rotateY(0deg)' && (await lit()) === 'navCard', `${await turn()} ${await lit()}`);
+    ok('#82 (0.8 shell): the Card step turns the card back to its front and the QR shortcut goes off', (await turn()) === 'rotateY(0deg)' && (await lit()) === 'navCard', `${await turn()} ${await lit()}`);
     await pV.click('#flipCardBtn'); await settled(pV);
-    ok('#82 header: the Flip card button moves the light with the card', (await lit()) === 'navQr', await lit());
+    ok('#82 (0.8 shell): the Flip card button moves the QR shortcut\'s light with the card', (await lit()) === 'navCard,navQr', await lit());
     await pV.click('#navFields'); await pV.waitForTimeout(600);
-    ok('#82 header: away from the 3D card neither Flipside nor Checkers is lit', (await lit()) === '', await lit());
+    ok('#82 (0.8 shell): away from the 3D card neither is lit', (await lit()) === '', await lit());
     await pV.click('#navCard'); await settled(pV); await pV.waitForTimeout(300);
-    ok('#82 header: Flipside from another card arrives on the front', (await turn()) === 'rotateY(0deg)' && (await lit()) === 'navCard', `${await turn()} ${await lit()}`);
+    ok('#82 (0.8 shell): the Card step from another screen arrives on the front', (await turn()) === 'rotateY(0deg)' && (await lit()) === 'navCard', `${await turn()} ${await lit()}`);
 
     // #73: a tap on the right half turns the card to the right (its right edge goes away: the angle rises), on the left
     // half the other way; the card still settles exactly on a face
@@ -3594,21 +3519,21 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       await pV.click('#flipCardBtn'); await settled(pV);
     }
 
-    // #87: neither MOD tag lies on any of the card's controls
+    // #87 (0.8 shell: no MOD tags now): neither the bar, the head nor the dock lies on any of the card's controls
     const overlaps = await pV.evaluate(() => {
-      const tags = Array.from(document.querySelectorAll('#cardCard > .mod-tag span')).map(t => t.getBoundingClientRect());
+      const tags = Array.from(document.querySelectorAll('#vcgeHead, .vcge-dock, .vcge-bar')).map(t => t.getBoundingClientRect());   // 0.8 shell: the head, the dock and the bar
       const controls = Array.from(document.querySelectorAll('#cardCard button, #cardCard select, #cardCard label')).filter(c => c.offsetParent).map(c => [c.id || c.textContent.trim(), c.getBoundingClientRect()]);
       const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
       return controls.filter(([, r]) => tags.some(t => hit(t, r))).map(([id]) => id);
     });
-    ok('#87 tags: the MOD-06 / MOD-07 tags lie on none of the 3D Card\'s buttons (Flip card included)', overlaps.length === 0, JSON.stringify(overlaps));
+    ok('#87: the bar, the head and the dock lie on none of the 3D Card\'s buttons (Flip card included)', overlaps.length === 0, JSON.stringify(overlaps));
     await pV.setViewportSize({ width: 390, height: 844 }); await pV.waitForTimeout(500);
     const overlapsPhone = await pV.evaluate(() => {
-      const tags = Array.from(document.querySelectorAll('#cardCard > .mod-tag span')).map(t => t.getBoundingClientRect());
+      const tags = Array.from(document.querySelectorAll('#vcgeHead, .vcge-dock, .vcge-bar')).map(t => t.getBoundingClientRect());   // 0.8 shell: the head, the dock and the bar
       const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
       return Array.from(document.querySelectorAll('#cardCard button, #cardCard select, #cardCard label')).filter(c => c.offsetParent && tags.some(t => hit(t, c.getBoundingClientRect()))).map(c => c.id);
     });
-    ok('#87 tags: on a phone too', overlapsPhone.length === 0, JSON.stringify(overlapsPhone));
+    ok('#87: on a phone too', overlapsPhone.length === 0, JSON.stringify(overlapsPhone));
     await pV.setViewportSize({ width: 1280, height: 900 }); await pV.waitForTimeout(500);
 
     // #86: an icon in front of every line (handset, mobile, fax, envelope, globe, building or house), every value lined up
@@ -3707,9 +3632,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const shareCard = await pA.evaluate(() => {
       const ids = ['downloadVcfBtn', 'shareNativeBtn', 'copyVcardBtn', 'exportQrBtn', 'printCardBtn', 'emailBtn', 'smsBtn'];
       const rects = ids.map(id => document.getElementById(id).getBoundingClientRect());
-      return { current: document.querySelector('.deck-card.is-current').id, heights: rects.map(r => Math.round(r.height)), allInside: rects.every(r => r.width > 0 && r.height > 0), tag: document.querySelector('#cardShare .mod-tag').textContent.trim(), hint: document.getElementById('shareFileExample').textContent };
+      return { current: document.querySelector('.deck-card.is-current').id, heights: rects.map(r => Math.round(r.height)), allInside: rects.every(r => r.width > 0 && r.height > 0), title: document.getElementById('hTitle').textContent, hint: document.getElementById('shareFileExample').textContent };
     });
-    ok('Share card: all seven ways out on one card, each at least 44 px tall, tagged MOD-08', shareCard.current === 'cardShare' && shareCard.heights.every(h => h >= 44) && shareCard.allInside && shareCard.tag === 'MOD-08', JSON.stringify(shareCard));
+    ok('Share screen: all seven ways out on one screen, each at least 44 px tall, the head says "Share or save"', shareCard.current === 'cardShare' && shareCard.heights.every(h => h >= 44) && shareCard.allInside && shareCard.title === 'Share or save', JSON.stringify(shareCard));
     ok('Share card names the files after the contact; an empty card is "Contact"', shareCard.hint === 'Contact.vcf, Contact QR.png', shareCard.hint);
     await pA.click('#exportQrBtn'); await pA.waitForTimeout(200);
     ok('empty card: QR PNG says to add a contact first, no pop-up', !(await pA.isVisible('#exportQrSheet')) && (await tA('toastMessage')) === 'Add a contact first.');

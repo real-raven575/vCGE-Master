@@ -1494,12 +1494,15 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('logo: the SVG logos are flat vector art with no fonts, scripts, links or embedded metadata', svgs.every(([, t]) => t.startsWith('<svg') && !/<script|<text|<metadata|<image|href="http|c2pa:manifest/i.test(t)),
     svgs.filter(([, t]) => /<script|<text|<metadata|<image|href="http|c2pa:manifest/i.test(t)).map(([f]) => f).join());
   // The header, Welcome and Thank You logos are CSS backgrounds, drawn only in the branded edition (edition.js)
+  const deckCss0 = fs.readFileSync(`${R}/modules/mod01-shell/deck.css`, 'utf8');
   const marks = [...html.matchAll(/<span class="([^"]*vcge-logo-mark[^"]*)" role="img" aria-label="vCGE"><\/span>/g)].map(m => m[1]);
   const markRule = css.match(/html:not\(\[data-edition="plain"\]\) \.vcge-logo-mark \{ background: url\('\.\.\/\.\.\/(assets\/brand\/[^']+)'\)/);
-  ok('logo: the header and the Thank You page carry the logo, named vCGE for screen readers, from the bundled file (branded edition only)',
-    marks.join() === 'deck-logo vcge-logo-mark,vcge-welcome-logo vcge-logo-mark' && !!markRule && fs.existsSync(`${R}/${markRule[1]}`), marks.join());
-  ok('logo: the header shows the colour wordmark beside the icon, and keeps "vCard Generator Engine" for screen readers',
-    /<span class="deck-wordmark vcge-wordmark" aria-hidden="true"><\/span>\s*<span class="deck-brand-text vcge-sr-only">vCard Generator Engine<\/span>/.test(html));
+  ok('logo: the top bar\'s mark (0.8 shell) is the logo and "vCGE" in the Start button, and the Thank You page carries the logo named vCGE for screen readers, from the bundled file (branded edition only)',
+    marks.join() === 'vcge-welcome-logo vcge-logo-mark' && !!markRule && fs.existsSync(`${R}/${markRule[1]}`)
+    && /<button id="navWelcome"[^>]*class="vcge-mark"><span class="deck-logo vcge-logo-mark" aria-hidden="true"><\/span><span class="deck-wordmark vcge-wordmark" aria-hidden="true"><\/span><b class="vcge-mark-text">vCGE<\/b><\/button>/.test(html), marks.join());
+  ok('logo: the top bar keeps "vCard Generator Engine" for screen readers, and plain shows the colour wordmark in place of the icon and "vCGE"',
+    /<span class="deck-brand-text vcge-sr-only">vCard Generator Engine<\/span>/.test(html)
+    && /html\[data-edition="plain"\] \.vcge-mark \.deck-wordmark \{ display: block;/.test(deckCss0) && /html\[data-edition="plain"\] \.vcge-mark \.vcge-mark-text \{ display: none; \}/.test(deckCss0));
   ok('logo: the Welcome card draws the main logo, and leaves it and the tagline out in plain; "Made by" and the maker mark show in both',
     /isPlain\(\) \? \[\] : \[el\('span', \{ className: 'vcge-welcome-logo vcge-logo-mark', role: 'img', 'aria-label': 'vCGE' \}\)\]/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8'))
     && /isPlain\(\) \? \[\] : \[el\('p', \{ id: 'welcomeTagline'/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8'))
@@ -1527,9 +1530,9 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const ed = await import(`${R}/modules/mod01-shell/edition.js`);
   const docOf = (edition) => ({ documentElement: { dataset: edition ? { edition } : {} } });
   ok('edition: branded unless index.html says data-edition="plain"', ed.isPlain(docOf('plain')) && !ed.isPlain(docOf()) && !ed.isPlain(docOf('branded')) && !ed.isPlain(null));
-  ok('edition: plain names every header card instead of its pilot, and the Thank You page says "Session ended."',
-    Object.values(ed.PLAIN_NAV).join() === 'Start,Capture,Read,Fields,Card,QR,Share' && ed.PLAIN_THANKS === 'Session ended.'
-    && (html.match(/id="nav(?:Welcome|Capture|Read|Fields|Card|Qr|Share)"/g) || []).map(m => m.slice(4, -1)).join() === Object.keys(ed.PLAIN_NAV).join());
+  ok('edition: plain names every dock step instead of its pilot, and the Thank You page says "Session ended."',
+    Object.values(ed.PLAIN_NAV).join() === 'Capture,Read,Details,Card,Share,QR' && ed.PLAIN_THANKS === 'Session ended.'
+    && (html.match(/id="nav(?:Capture|Read|Fields|Card|Qr|Share)"/g) || []).map(m => m.slice(4, -1)).join() === Object.keys(ed.PLAIN_NAV).join());
   ok('logo: no icon link points at a host', ![...html.matchAll(/<link[^>]+rel="(?:icon|apple-touch-icon)"[^>]*>/g)].some(m => /https?:/.test(m[0])));
   // Shutout's touches (shellArt.js, the "make it cute" round): the turtle and the plates are pictures only, branded only
   const art = await import(`${R}/modules/mod01-shell/shellArt.js`);
@@ -1543,15 +1546,19 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   art.initShellArt({ addEventListener() {} });
   ok('shell art: does nothing in the plain edition, or without a page', !artTouched);
   const deckCss = fs.readFileSync(`${R}/modules/mod01-shell/deck.css`, 'utf8');
-  const turtleTag = (html.match(/<span id="deckTurtle"[^>]*>/) || [''])[0], platesTag = html.match(/<span id="deckPlates"[^>]*>([\s\S]*?)<\/span>/);
-  ok('shell art: the turtle and the six plates (one per card, in order) are hidden from screen readers, and hidden in plain',
-    / aria-hidden="true"/.test(turtleTag) && !!platesTag && / aria-hidden="true"/.test(platesTag[0])
-    && [...platesTag[1].matchAll(/data-card="(\w+)"/g)].map(m => m[1]).join() === 'welcome,capture,read,fields,card,share'
-    && /html\[data-edition="plain"\] \.deck-turtle, html\[data-edition="plain"\] \.deck-plates \{ display: none; \}/.test(deckCss));
-  ok('shell art: the turtle walks only when motion is allowed, and the sheets\' grab bar and pebble are branded only',
-    /@media \(prefers-reduced-motion: no-preference\) \{ \.deck-turtle\.is-placed \{ transition: top 0\.3s ease-out; \} \}/.test(deckCss)
-    && !/\.deck-turtle[^{]*\{[^}]*transition: (?!none)/.test(deckCss.replace(/@media \(prefers-reduced-motion: no-preference\) \{[^\n]*\n/g, ''))
-    && /html:not\(\[data-edition="plain"\]\) \.vcge-sheet-panel::before \{/.test(deckCss) && /html:not\(\[data-edition="plain"\]\) \.vcge-sheet-close \{/.test(deckCss));
+  // 0.8 shell (raven575 2026-11-02: the mock-up exactly; the turtle and plates are shelved, their maths kept for later)
+  ok('0.8 shell: no turtle, no shell plates and no MOD tags in the page; the shell art finds nothing to draw',
+    !/id="deckTurtle"|id="deckPlates"|class="mod-tag/.test(html) && !/\.deck-turtle|\.deck-plates/.test(deckCss));
+  ok('0.8 shell: sheets slide up from the bottom (380 ms, the sheet ease) over a scrim that fades in (260 ms), with a grab bar in both editions; and slide down again; none under reduced motion',
+    /\.vcge-sheet-panel \{[^}]*animation: vcgeSheetUp 380ms var\(--ease-sheet\) both;/.test(deckCss) && /@keyframes vcgeSheetUp \{ from \{ transform: translateY\(105%\); \} to \{ transform: none; \} \}/.test(deckCss)
+    && /\.vcge-sheet::before \{[^}]*background: rgba\(8, 6, 14, \.42\); animation: vcgeScrimIn 260ms/.test(deckCss)
+    && /\.vcge-sheet\.is-closing \.vcge-sheet-panel \{[^}]*transform: translateY\(105%\); transition: transform 380ms var\(--ease-sheet\);/.test(deckCss)
+    && /\n\.vcge-sheet-panel::before \{/.test(deckCss) && /--ease-sheet: cubic-bezier\(\.32, \.72, 0, 1\)/.test(deckCss)
+    && /@media \(prefers-reduced-motion: reduce\) \{ \.vcge-sheet::before, \.vcge-sheet-panel \{ animation: none; \} \}/.test(deckCss));
+  ok('0.8 shell: a screen slides in from the side it comes from (280 ms, 28 px, the mock-up ease), and only fades under reduced motion',
+    /@keyframes vcgeInF \{ from \{ opacity: 0; transform: translateX\(28px\); \}/.test(deckCss) && /@keyframes vcgeInB \{ from \{ opacity: 0; transform: translateX\(-28px\); \}/.test(deckCss)
+    && /\.enter-f \{ animation: vcgeInF 280ms var\(--ease-out\) both; \}/.test(deckCss) && /--ease-out: cubic-bezier\(\.2, \.8, \.2, 1\)/.test(deckCss)
+    && /@media \(prefers-reduced-motion: reduce\) \{ \.enter-f, \.enter-b \{ animation: vcgeFade 150ms linear both; \} \}/.test(deckCss));
   // The walk (raven575's test report 2026-10-22): a capped spring, simulated at 60 frames a second
   const walkFor = (from, to, seconds = 8) => {
     let st = { x: from, v: 0 }, t = 0, top = 0, past = 0, at01 = null, settledAt = null;
@@ -1592,11 +1599,10 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('layout: a new page size seen by the resize observer updates the tier at once (WebKit can be late with the resize event)',
     fakeRoOn === fakeRoot && fakeRoot.dataset.tier === 'laptop', fakeRoot.dataset.tier);
   const uiCssL = fs.readFileSync(`${R}/modules/mod01-shell/ui.css`, 'utf8');
-  ok('layout: cards measure their own width, sizes stay today\'s up to a 52rem card, drop-downs are 44 px, short screens free the height',
+  ok('layout: screens measure their own width, the shell is one centred column (the mock-up is a phone), drop-downs are 44 px',
     /@supports \(container-type: inline-size\) \{\s*\.deck-card \{ container: deck-card \/ inline-size; \}/.test(deckCss)
-    && /padding: clamp\(1\.25rem, 1\.25rem \+ \(100cqi - 52rem\)/.test(deckCss) && /font-size: clamp\(1\.125rem, 1\.125rem \+ \(100cqi - 52rem\)/.test(deckCss)
-    && /\nselect \{ min-height: var\(--vcge-tap\); \}/.test(uiCssL)
-    && /@media \(max-height: 499\.98px\) \{ :root \{ --vcge-header-h: calc\(2\.75 \* var\(--vcge-hu\)\); --vcge-strip-h: var\(--vcge-vault-strip, 0px\); \} \}/.test(deckCss));
+    && /--sh-col: 40rem;/.test(deckCss) && /\.deck \{[^}]*max-width: var\(--sh-col\); margin: 0 auto;/.test(deckCss)
+    && /\nselect \{ min-height: var\(--vcge-tap\); \}/.test(uiCssL));
 }
 
 // MOD01 saved settings (settings.js): the one localStorage entry, `name=number` pairs, preferences only

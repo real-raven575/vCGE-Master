@@ -141,14 +141,12 @@ function setVaultIndicator() {
     updateTimerStrip();
 }
 
-// Header badge: UNLOCKED while the card is on the page, LOCKED while it is held behind the session PIN.
+// The Vault's state for screen readers (the session pill in the top bar shows it: the ring, the time, the padlock):
+// UNLOCKED while the card is on the page, LOCKED while it is held behind the session PIN.
 function setVaultBadge() {
     const unlocked = vaultMode === 'open';
     $('vaultBadgeText').textContent = unlocked ? 'Vault: UNLOCKED' : 'Vault: LOCKED';
-    $('vaultBadge').className = `flex text-xs px-2.5 py-1 rounded-full items-center gap-1.5 border ${unlocked
-        ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950 dark:text-emerald-400 dark:border-emerald-800/50'
-        : 'bg-slate-100 text-slate-600 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700'}`;
-    $('vaultBadgeDot').className = `w-1.5 h-1.5 rounded-full ${unlocked ? 'bg-emerald-500' : 'bg-slate-400'}`;
+    $('vaultBadge').dataset.state = unlocked ? 'unlocked' : 'locked';
 }
 
 // Security panel: session PIN and biometric state.
@@ -226,11 +224,9 @@ function updateTimerStrip() {
     const remaining = idleTtl.getRemainingTime();
     const show = vaultMode === 'open' && remaining > 0 && hasWork();
     $('vaultTimerStrip').classList.toggle('hidden', !show);
-    // The strip hangs under the header: its height is published (0px when hidden) so Shell can move the cards down by it
-    // instead of the strip covering their titles. A layout signal only, never any data.
-    document.documentElement.style.setProperty('--vcge-vault-strip', show ? `${$('vaultTimerBand').offsetHeight}px` : '0px');
     const warn = show && remaining <= TIMER_WARN_SECONDS;
     NOTE_HIDDEN.forEach(c => $('vaultTimerNote').classList.toggle(c, !warn));
+    updateSessionPill(show, remaining);
     if (!show) return;
     $('vaultTimerLabel').textContent = sessionPin.isSet() ? 'Locks in' : 'Clears in';
     $('vaultTimerTime').textContent = minutes(remaining);
@@ -239,6 +235,22 @@ function updateTimerStrip() {
     TIMER_WARN.forEach(c => $('vaultTimerBand').classList.toggle(c, warn));
     $('vaultTimerBar').classList.toggle('bg-brand-500', !warn);
     $('vaultTimerBar').classList.toggle('bg-amber-500', warn);
+}
+
+// The session pill in the top bar (0.8 shell, Creative's mock-up): the lock ring empties as the time runs out and the
+// time sits beside it; with nothing open it is the padlock alone. The Vault's own page keeps the full timer.
+const RING_LENGTH = 94.2;     // 2 * pi * 15, the ring's circle in index.html
+function updateSessionPill(show, remaining) {
+    const pill = $('navVault'), arc = $('sessArc'), txt = $('sessTxt');
+    if (!pill || !arc || !txt) return;
+    pill.classList.toggle('has-time', show);
+    pill.classList.toggle('is-locked', vaultMode !== 'open');
+    txt.textContent = show ? minutes(remaining) : '';
+    const left = show ? Math.max(0, Math.min(1, remaining / IDLE_PURGE_SECONDS)) : (vaultMode === 'open' ? 1 : 0);
+    arc.setAttribute('stroke-dashoffset', (RING_LENGTH * (1 - left)).toFixed(1));
+    const base = 'Vault: PIN and fingerprint';
+    const label = show ? `${base}. ${sessionPin.isSet() ? 'Locks' : 'Clears'} in ${minutes(remaining)}` : base;
+    pill.setAttribute('aria-label', isPlain() ? label : `${label} (Ghost)`);
 }
 
 let checkingPin = false;

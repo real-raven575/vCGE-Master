@@ -138,6 +138,7 @@ function close() {
         window.removeEventListener('resize', onViewportChange);
         window.removeEventListener('scroll', onViewportChange, true);
         document.removeEventListener('transitionend', onViewportChange, true);
+        document.removeEventListener('animationend', onViewportChange, true);
         onViewportChange = null;
     }
     document.removeEventListener('keydown', onKey, true);
@@ -219,7 +220,8 @@ function goTo(i) {
         };
         window.addEventListener('resize', onViewportChange);
         window.addEventListener('scroll', onViewportChange, true);
-        document.addEventListener('transitionend', onViewportChange, true);   // the card grows as it becomes current
+        document.addEventListener('transitionend', onViewportChange, true);
+        document.addEventListener('animationend', onViewportChange, true);    // a screen slides in, the Vault sheet slides up
     }
     placeStep();
     next.focus();

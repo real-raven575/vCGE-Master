@@ -134,7 +134,7 @@ html[data-edition="plain"] .vcge-pilot-chip, html[data-edition="plain"] .vcge-pm
 .vcge-about .vcge-hoh { width: 150px; }
 .vcge-about-word { width: 120px; margin: 8px 0 4px; }
 .vcge-about p { margin: 0; font-size: 12px; opacity: 0.8; }
-html[data-edition="plain"]:not(.edition-ready) .deck-header button > span { visibility: hidden; }
+html[data-edition="plain"]:not(.edition-ready) .vcge-steps button > span { visibility: hidden; }
 
 /* App icons (src/vendor/icons/app, Tabler, MIT) */
 .vcge-icon { width: 1.5rem; height: 1.5rem; stroke-width: var(--vcge-icon-stroke); }
