@@ -78,8 +78,12 @@ async function stopDriver(driver) {
     await until(() => js(`const h = document.getElementById('vaultHandoff'); return !h || h.classList.contains('hidden');`), 3000);
     if (wanted && (await current()) !== wanted) console.log('onCard: still not on', wanted, await deckState());
   };
+  // A sheet slides up for 380 ms: a button in it sits below the window until the slide ends, so a click waits for it.
+  const sheetsSettled = () => until(() => js(`return Array.from(document.querySelectorAll('.vcge-sheet:not(.hidden)'))
+    .every(s => s.getAnimations({ subtree: true }).every(a => a.playState !== 'running'));`), 3000);
   const click = async (css) => {
     await onCard(css);
+    await sheetsSettled();
     // WebKitWebDriver scrolls only the page before a click, not the card's own scrolling body, so a button low on a
     // long card is scrolled into view first, as a person would. It must still be the element under the tap.
     await js(`document.querySelector(arguments[0]).scrollIntoView({ block: 'nearest', inline: 'nearest' });`, css);
@@ -96,7 +100,7 @@ async function stopDriver(driver) {
       throw e;
     }
   };
-  const type = async (css, text) => { await onCard(css); const id = await el(css); await wd('POST', S(`/element/${id}/clear`), {}); await wd('POST', S(`/element/${id}/value`), { text }); };
+  const type = async (css, text) => { await onCard(css); await sheetsSettled(); const id = await el(css); await wd('POST', S(`/element/${id}/clear`), {}); await wd('POST', S(`/element/${id}/value`), { text }); };
   const val = (id) => js(`return document.getElementById(arguments[0]).value;`, id);
   const txt = (id) => js(`return document.getElementById(arguments[0]).textContent.trim();`, id);
   const visible = (id) => js(`const e = document.getElementById(arguments[0]); return !e.classList.contains('hidden');`, id);
