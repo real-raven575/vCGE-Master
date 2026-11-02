@@ -262,6 +262,7 @@ html[data-cb="1"] .vcge-step[data-state="now"] > span { font-weight: 800; text-d
 html[data-cb="1"] .vcge-trash { border-color: #0f172a; border-width: 3px; }
 html[data-cb="1"] .vcge-seg button[aria-pressed="true"], html[data-cb="1"] .vcge-switch:checked::before { background: #2563eb; border-color: #1d4ed8; }
 html[data-cb="1"] .vcge-seg button[aria-pressed="true"] { color: #ffffff; }
+html[data-cb="1"] .vcge-btn-primary:not(:disabled) { background: #2563eb; color: #ffffff; }
 
 .thank-you { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; padding: 1rem; background: #f1f5f9; color: #0f172a; }
 .thank-you.hidden { display: none; }

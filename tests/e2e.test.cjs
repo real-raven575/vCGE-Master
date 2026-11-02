@@ -1651,8 +1651,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const sidesLeft = await footSides();
     ok('fields (0.8): left hand puts the trash lower right, and Next stays the dock\'s "Make the card" under the screen', sidesLeft.trash === 'right' && sidesLeft.okBottom && sidesLeft.label === 'Make the card', JSON.stringify(sidesLeft));
     await pF.click('#navSettings'); await pF.click('#handRightBtn'); await pF.click('#cbToggle'); await pF.keyboard.press('Escape'); await pF.waitForTimeout(200);
-    ok('fields (0.8): colour-blind mode leaves no green "Everything\'s correct" on the screen; the dock\'s "Make the card" is the one Next, ready to press', !(await pF.isVisible('#fieldsDoneBtn')) && await pF.isVisible('#dockNext') && !(await pF.$eval('#dockNext', b => b.disabled))
-      && (await pF.textContent('#dockNext')).trim() === 'Make the card');
+    ok('fields (0.8): colour-blind mode leaves no green "Everything\'s correct" on the screen; the dock\'s "Make the card" is the one Next, ready to press and blue', !(await pF.isVisible('#fieldsDoneBtn')) && await pF.isVisible('#dockNext') && !(await pF.$eval('#dockNext', b => b.disabled))
+      && (await pF.textContent('#dockNext')).trim() === 'Make the card' && (await pF.$eval('#dockNext', b => getComputedStyle(b).backgroundColor)) === 'rgb(37, 99, 235)');
     await pF.click('#navSettings'); await pF.click('#cbToggle'); await pF.keyboard.press('Escape');
     // Reduce motion: the arrival counts, nothing moves
     await pF.emulateMedia({ reducedMotion: 'reduce' });
