@@ -15,7 +15,8 @@
  * shade along the border, splits the pixels between the two, takes the patch connected to the centre, wraps it in
  * its convex hull, fits the tightest rotated rectangle around the hull and picks the hull points nearest that
  * rectangle's corners. A patch that is too small, runs off every edge, or is nothing like a card's shape gives null,
- * and the corners stay where they are. It only ever runs when the person presses the button.
+ * and the corners stay where they are. It runs when the person presses Snap to card, and on a small copy of the live
+ * picture while the camera is open, so the viewfinder's corners can turn green when a card is in them (camera.js).
  */
 
 export const SMALL_SIDE = 240;         // the photo is read at this many pixels along its longer side

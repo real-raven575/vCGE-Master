@@ -194,32 +194,7 @@ html[data-edition="plain"] .vcge-chip-pilot { display: none; }
 .vcge-toast.opacity-0 { transform: translate(-50%, 16px); }
 .vcge-toast #toastAction { color: var(--sh-soft); }
 
-/* ---- Welcome card ---------------------------------------------------------------------------------------------- */
-.welcome-body { display: flex; flex-direction: column; align-items: center; text-align: center; }
-.welcome-body h2 { font-size: 1.5rem; font-weight: 700; margin: 0.75rem 0 0.125rem; }
-.welcome-actions { display: flex; flex-direction: column; align-items: center; gap: 0.75rem; margin: 0.5rem 0 0; width: 100%; max-width: 22rem; }
-.welcome-pin { background: #f1f5f9; color: #0f172a; border-color: #cbd5e1; border-radius: 0.75rem; padding: 0.6rem 1rem; font-size: 0.9rem; font-weight: 600; cursor: pointer; }
-.welcome-start {
-    width: 9.5rem; height: 9.5rem; border-radius: 1.5rem; background: #16a34a; color: #020617; border-color: #15803d;
-    font-size: 1.6rem; font-weight: 800; letter-spacing: 0.06em; cursor: pointer; box-shadow: 0 12px 24px -10px rgba(22, 163, 74, 0.7);
-    transition: transform 0.15s ease-in-out, background-color 0.15s;
-}
-.welcome-start:hover { background: #22c55e; }
-.welcome-start:active { transform: scale(0.97); }
-.welcome-tour { width: 11rem; min-height: 3.25rem; border-radius: 0.75rem; background: #f1f5f9; color: #0f172a; border-color: #cbd5e1; font-size: 1rem; font-weight: 600; cursor: pointer; }
-.welcome-tour:hover { background: #e2e8f0; }
-.welcome-cancel { background: transparent; color: #64748b; border-color: transparent; font-size: 0.85rem; font-weight: 600; letter-spacing: 0.06em; cursor: pointer; padding: 0.5rem 1rem; }
-.welcome-cancel:hover { color: #dc2626; }
-.welcome-sample { background: transparent; border-color: transparent; color: #15803d; font-size: 0.85rem; font-weight: 600; text-decoration: underline; cursor: pointer; }
-.welcome-fine { font-size: 0.7rem; color: #64748b; margin: 0.75rem 0 0; max-width: 22rem; }
-.dark .welcome-pin, .dark .welcome-tour { background: #1e293b; color: #f1f5f9; border-color: #334155; }
-.dark .welcome-pin:hover, .dark .welcome-tour:hover { background: #334155; }
-.dark .welcome-sample { color: #4ade80; }
-.dark .welcome-fine, .dark .welcome-cancel { color: #94a3b8; }
-/* Phones in portrait: the buttons sit in thumb reach of the right hand, on the line a third in from the right edge */
-@media (max-width: 599.98px) and (orientation: portrait) {
-    .welcome-actions { margin-left: 33%; width: 67%; max-width: none; }
-}
+/* ---- Welcome card: its 0.8 layout is in screens-r2.css (0.8 redo R2) ---- */
 
 /* ---- Settings controls: a two-button group (Right / Left), a switch and a drop-down, each at least 44 px tall ---- */
 .vcge-seg { display: inline-flex; gap: var(--vcge-gap); }
@@ -241,13 +216,10 @@ html[data-edition="plain"] .vcge-chip-pilot { display: none; }
 #fontSelect { font-family: var(--vcge-ui-font, 'Inter'), sans-serif; }
 
 /* ---- Left hand (html[data-hand="left"], Settings): the top bar runs mirrored (the mark on the right, Settings far
-   left), the trash button moves to the lower right, and on phones the Welcome buttons sit on the left thumb line. ---- */
+   left) and the trash button moves to the lower right (Capture swaps Photo and Flip: screens-r2.css). ---- */
 html[data-hand="left"] .vcge-bar { flex-direction: row-reverse; }
 html[data-hand="left"] .vcge-mark { margin-right: 0; margin-left: auto; flex-direction: row-reverse; }
 html[data-hand="left"] .deck-tools, html[data-hand="left"] .deck-card-foot { flex-direction: row-reverse; }
-@media (max-width: 599.98px) and (orientation: portrait) {
-    html[data-hand="left"] .welcome-actions { margin-left: 0; margin-right: 33%; }
-}
 /* ---- App themes (themes.js, Settings): a colour theme puts its colours in --vcge-* (the shell reads them through
    its --sh-* tokens above) and names itself on html[data-app-theme]. :root is there to outweigh the Tailwind dark:
    classes on the page. ------------------------------------------------------------------------------------------- */

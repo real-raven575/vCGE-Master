@@ -102,10 +102,10 @@ async function stopDriver(driver) {
   const visible = (id) => js(`const e = document.getElementById(arguments[0]); return !e.classList.contains('hidden');`, id);
   // A check that throws (the page is mid-reload, e.g. right after a wipe) counts as not yet, and is tried again.
   const until = async (fn, ms = 20000) => { const end = Date.now() + ms; while (Date.now() < end) { try { if (await fn()) return true; } catch { /* not yet */ } await sleep(250); } return false; };
-  // The deck opens on the Welcome card every start: press START to reach the Capture card.
+  // The deck opens on the Welcome card every start: press the dock's "Scan a card" (0.8) to reach the Capture card.
   const startNow = async () => {
-    await until(() => js(`return !!document.getElementById('welcomeStartBtn');`), 5000);
-    await js(`const b = document.getElementById('welcomeStartBtn'); if (b) b.click();`);
+    await until(() => js(`const w = document.getElementById('welcomeBody'); return !!(w && w.dataset.wired);`), 5000);
+    await js(`const b = document.getElementById('dockNext'); if (b) b.click();`);
   };
   // The Security panel is the Vault page, a sheet over the deck: open it from the header, close it with its X.
   const openVaultPage = async () => { await click('#navVault'); await until(() => visible('vaultPage'), 5000); };
@@ -113,9 +113,9 @@ async function stopDriver(driver) {
 
   try {
     await until(() => js(`return document.readyState === 'complete' && !!document.getElementById('vaultModal');`));
-    ok('desktop app opens on the Welcome card (START / Take a Tour)', await until(() => js(`return document.getElementById('cardWelcome').classList.contains('is-current') && !!document.getElementById('welcomeTourBtn');`), 5000));
-    await click('#welcomeStartBtn');
-    ok('START moves the deck to the Capture card', await until(() => js(`return document.documentElement.dataset.card === 'capture' && document.getElementById('cardCapture').classList.contains('is-current');`), 5000));
+    ok('desktop app opens on the Welcome card (Scan a card / Take a Tour)', await until(() => js(`return document.getElementById('cardWelcome').classList.contains('is-current') && !!document.getElementById('welcomeTourBtn');`), 5000));
+    await click('#dockNext');
+    ok('the dock\'s Scan a card moves the deck to the Capture card', await until(() => js(`return document.documentElement.dataset.card === 'capture' && document.getElementById('cardCapture').classList.contains('is-current');`), 5000));
     ok('desktop app opens straight to an empty card (no passphrase dialog)', !(await visible('vaultModal')) && (await val('firstName')) === '' && (await txt('vaultStateIndicator')) === 'UNLOCKED / memory only');
     ok('Tauri IPC is available (withGlobalTauri)', await js(`return !!(window.__TAURI__ && window.__TAURI__.core);`));
     ok('page is served from the Tauri asset protocol', /^(tauri:|http:\/\/tauri\.localhost)/.test(await js('return location.href;')), await js('return location.href;'));

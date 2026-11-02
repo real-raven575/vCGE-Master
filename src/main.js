@@ -981,7 +981,7 @@ function wireIntake() {
     $('rotateRightBtn').addEventListener('click', () => { showRetakePrompt(false); cropEditor.rotate(1); });
     // Snap to card moves the handles only when it finds a card; otherwise it says so and leaves them alone.
     $('snapCardBtn').addEventListener('click', () => { if (!cropEditor.snapToCard()) deckToast('No card edges found. Drag the corners onto the card yourself.'); });
-    // Cancel on the crop step drops the photo: back to Take a photo or Upload a photo.
+    // Cancel on the crop step drops the photo: back to the viewfinder (Start the camera, or Photo).
     $('cancelReviewBtn').addEventListener('click', () => { showRetakePrompt(false); camera.discardPhoto(); if (heldReadings().length) openReviewFrom(heldReadings()); });
     // Type it in: the unreadable photo is dropped and the Fields card opens for typing (or the review, if earlier photos
     // of this card were read).

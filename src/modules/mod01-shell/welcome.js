@@ -2,9 +2,10 @@
  * vCGE-MOD01: Welcome card, "Take a Tour" and the Thank You page
  * Created by raven575, Team vCGE (Claude) & Gemini
  *
- * The first card of the deck, every time vCGE opens: Set Up PIN/BIO Lock Now, START (the big one), Take a Tour,
- * CANCEL, and a small "Play with sample fields" link. Nothing is stored (no "seen it" flag anywhere), so it greets
- * every new session. It touches no contact data and sends nothing on the bus. CANCEL wipes the session (through the
+ * The first card of the deck, every time vCGE opens (0.8 redo R2, Creative's CRTV-0020 mock-up; the markup is in
+ * index.html): Shutout waving, "Scan a card. Keep the contact.", the privacy line, the tagline and "Made by". The primary
+ * button, "Scan a card", is the dock's. Quiet buttons under the privacy line: Take a Tour, Set Up PIN/BIO Lock Now, Play
+ * with sample fields and CANCEL. Nothing is stored (no "seen it" flag anywhere), so it greets every new session. It touches no contact data and sends nothing on the bus. CANCEL wipes the session (through the
  * deck's cancel hook, which main.js points at the Vault's wipe) and shows the Thank You page.
  * The tour spotlights one card at a time and moves the deck as it goes; a sideways swipe anywhere goes to the next or the
  * previous step. It stays under the lock screen and every pop-up, and leaves their keys alone. No sound, no flashing;
@@ -13,9 +14,10 @@
 import { isPlain } from './edition.js';
 import { go, openSheet, closeSheet, sheetOpen, cardEl, requestCancel, requestStartOver, SWIPE_PX } from './deck.js';
 
+// A step lights its card, or one part of it (spot) when that part is in view: on Capture, the viewfinder and the shutter row.
 export const TOUR_STEPS = [
-    { card: 'capture', title: 'Scan a business card',
-        body: 'Take a photo or upload one. vCGE reads it right here on this device. The photo never leaves.' },
+    { card: 'capture', spot: '#capCamera', title: 'Scan a business card',
+        body: 'Point the camera at a card and tap the shutter, or tap Photo to choose one. vCGE reads it right here on this device. The photo never leaves.' },
     { card: 'fields', title: 'Check the details',
         body: 'First you straighten the photo and check each line it read. Nothing fills these fields until you say so. You can also type or fix anything here.' },
     { card: 'card', title: 'Your 3D card',
@@ -25,13 +27,7 @@ export const TOUR_STEPS = [
     { sheet: 'vaultPage', title: 'Your card stays private',
         body: 'Nothing is saved. Step away and the card locks, then wipes. Set a 4-digit PIN to unlock it fast. The red trash button on any card clears everything now.' },
     { header: true, title: 'You’re ready',
-        body: 'The icons at the top jump to any card. The lock shows whether your card is locked, and the cog opens Settings. That’s the tour.' }
-];
-
-const WELCOME_POINTS = [
-    'Snap or upload a business card. It’s read right here on this device, with no internet.',
-    'Check the details and see the contact as a 3D card with a QR code.',
-    'Share it only when you choose. Nothing is saved, and the card is wiped when you leave.'
+        body: 'The steps at the bottom jump to any screen. The lock at the top shows the time left before your card locks, and the cog opens Settings. That’s the tour.' }
 ];
 
 const GAP = 16;
@@ -45,10 +41,12 @@ function el(tag, props = {}, ...children) {
     return node;
 }
 
-// What a tour step points at: the card, the Vault page's panel, or the header.
+// What a tour step points at: its part of the card when that is in view, else the card; the Vault page's panel; the header.
 function targetOf(step) {
     if (step.header) return document.querySelector('header');
     if (step.sheet) return document.getElementById(step.sheet).querySelector('.vcge-sheet-panel');
+    const part = step.spot ? document.querySelector(step.spot) : null;
+    if (part && part.getClientRects().length) return part;
     return cardEl(step.card);
 }
 
@@ -66,28 +64,14 @@ export function renderWelcomeCard() {
     endSplashOnInput();
     const host = document.getElementById('welcomeBody');
     if (!host) return;
-    const pin = el('button', { type: 'button', id: 'welcomePinBtn', className: 'welcome-pin' }, 'Set Up PIN/BIO Lock Now');
-    const start = el('button', { type: 'button', id: 'welcomeStartBtn', className: 'welcome-start' }, 'START');
-    const tour = el('button', { type: 'button', id: 'welcomeTourBtn', className: 'welcome-tour' }, 'Take a Tour');
-    const cancel = el('button', { type: 'button', id: 'welcomeCancelBtn', className: 'welcome-cancel' }, 'CANCEL');
-    const sample = el('button', { type: 'button', id: 'welcomeSampleBtn', className: 'welcome-sample' }, 'Play with sample fields');
-    pin.addEventListener('click', () => openSheet('vaultPage'));
-    start.addEventListener('click', () => go('capture'));
-    tour.addEventListener('click', () => startTour());
-    cancel.addEventListener('click', cancelSession);
-    sample.addEventListener('click', () => go('fields'));
-    const list = el('ol', { className: 'vcge-welcome-points' }, ...WELCOME_POINTS.map(t => el('li', {}, t)));
-    host.replaceChildren(
-        // The logo and the tagline are the branded edition's (the logo is a CSS background, never fetched in plain)
-        ...(isPlain() ? [] : [el('span', { className: 'vcge-welcome-logo vcge-logo-mark', role: 'img', 'aria-label': 'vCGE' })]),
-        el('h2', { id: 'welcomeTitle' }, 'Welcome to vCGE'),
-        ...(isPlain() ? [] : [el('p', { id: 'welcomeTagline', className: 'vcge-welcome-tagline' }, 'Operation: Never Lose Contact')]),
-        list,
-        el('div', { className: 'welcome-actions' }, pin, start, tour, cancel),
-        sample,
-        el('p', { className: 'welcome-fine' }, 'This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data: it keeps one small settings file on this device (hand, colors, theme, font, text size, wipe time), and nothing you scan, upload or type is ever saved.'),
-        // "Made by" and the Herd of Helpers maker mark, in both editions (plain: the HoH Block mark), CRTV-0020
-        el('div', { className: 'vcge-maker' }, el('small', {}, 'Made by'), el('span', { className: 'vcge-hoh', role: 'img', 'aria-label': 'Herd of Helpers' })));
+    // Shutout's art and the tagline are the branded edition's (screens-r2.css also hides them in plain before this runs)
+    if (isPlain()) ['welcomeArt', 'welcomeTagline'].forEach(id => { const n = document.getElementById(id); if (n) n.remove(); });
+    const on = (id, fn) => { const b = document.getElementById(id); if (b) b.addEventListener('click', fn); };
+    on('welcomePinBtn', () => openSheet('vaultPage'));
+    on('welcomeTourBtn', () => startTour());
+    on('welcomeCancelBtn', cancelSession);
+    on('welcomeSampleBtn', () => go('fields'));
+    host.dataset.wired = '1';    // the buttons answer from here on
     const thanks = document.getElementById('thankYouPage');
     if (thanks) {
         document.getElementById('thankYouStartOverBtn').addEventListener('click', () => requestStartOver());
