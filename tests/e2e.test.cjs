@@ -1397,10 +1397,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const rainbow = await upload('rainbow', 'rainbow.png');
     ok('a logo of many colours is kept as a picture (PNG with its transparency), and the toast says why', !rainbow.traced && rainbow.display.png && rainbow.display.w < 400 && /kept as is \(it has more than two colours\)/.test(rainbow.toast), JSON.stringify(rainbow));
     ok('mixed-tone transparent logo: no plate', !rainbow.plate, rainbow.plate);
-    await p11.click('#paletteDropdownBtn'); await p11.click('#paletteListContainer [data-theme="sage"]');
+    await p11.click('#paletteListContainer [data-theme="sage"]');
     const pastel = await upload('pastel', 'pastel.png');
     ok('a light picture on a light card (Sage) gets a plate in the accent colour; dark slate behind it in the vCard photo', !pastel.traced && pastel.plate === 'rgb(63, 90, 54)' && pastel.photo.corner.every(v => v < 80), JSON.stringify({ plate: pastel.plate, corner: pastel.photo.corner }));
-    await p11.click('#paletteDropdownBtn'); await p11.click('#paletteListContainer [data-theme="twilight"]');
+    await p11.click('#paletteListContainer [data-theme="twilight"]');
     ok('on a dark card (Twilight) the same light picture needs no plate', (await p11.$eval('#previewLogoStrip', s => s.firstElementChild.style.background)) === '');
     const opaque = await upload('opaque', 'banner.png');
     ok('opaque logo is extended with its own edge colour in the vCard photo', near(opaque.photo.corner, [204, 0, 0], 50), JSON.stringify(opaque.photo.corner));
@@ -3008,6 +3008,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('buttons: every visible button is at least 44 px with a 2 px outline (the shell\'s own buttons: a 1 px ring and a soft shadow, as in the mock-up)', small.length === 0, JSON.stringify(small));
     // A finger tap on the outer 4 px of a button is ignored; in the middle it works; a mouse click on the edge still works
     await pU.click('#navCard'); await pU.waitForTimeout(700);
+    await pU.locator('#flipCardBtn').scrollIntoViewIfNeeded(); await pU.waitForTimeout(200);   // 0.8 Card: Flip card sits below the card
     const flip = await pU.locator('#flipCardBtn').boundingBox();
     const turned = () => pU.$eval('#card3DFlipper', el => el.style.transform);
     await pU.touchscreen.tap(flip.x + flip.width / 2, flip.y + 1.5); await settled(pU);
@@ -3021,6 +3022,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const pM = await ctxM.newPage();
       await pM.goto(ORIGIN); await pM.waitForTimeout(500);
       await pM.click('#navCard'); await pM.waitForTimeout(700);
+      await pM.locator('#flipCardBtn').scrollIntoViewIfNeeded(); await pM.waitForTimeout(200);
       const flipM = await pM.locator('#flipCardBtn').boundingBox();
       await pM.mouse.click(flipM.x + flipM.width / 2, flipM.y + 1.5); await settled(pM);
       const turnedM = await pM.$eval('#card3DFlipper', el => el.style.transform);
@@ -3193,7 +3195,22 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       cute.peekShown && cute.tailShown && cute.hidden && cute.label === 'Flip card' && cute.noPress && cute.moving === 0 && cute.whole && cute.clearOfQr, JSON.stringify(cute));
     ok('card: with no logo the card has no rim', await p6.$eval('#card3DFlipper', el => !('rim' in el.dataset) && getComputedStyle(document.getElementById('cardFront'), '::after').opacity === '0'));
     ok('card: the picker lists the eight fall palettes in order', (await p6.$$eval('#paletteListContainer button', bs => bs.map(b => b.textContent.trim()).join('|'))) === 'Pumpkin|Maple|Harvest Gold|Cranberry|Spruce|Sage|Slate Blue|Twilight');
-    await p6.click('#paletteDropdownBtn'); await p6.click('#paletteListContainer [data-theme="pumpkin"]');
+    // 0.8 Card (gap list row 17): the card comes first, then the spin note, the round colour swatches and the logo tip;
+    // the old tool row above the card is gone
+    const cardLayout = await p6.evaluate(() => {
+      const body = document.querySelector('#cardCard .deck-card-body'), kids = [...body.children];
+      const at = (el) => kids.findIndex(k => k === el || k.contains(el));
+      const sw = [...document.querySelectorAll('#paletteListContainer button')].map(b => { const r = b.getBoundingClientRect(), cs = getComputedStyle(b); return { w: Math.round(r.width), h: Math.round(r.height), top: Math.round(r.top), round: cs.borderTopLeftRadius === '50%' || parseFloat(cs.borderTopLeftRadius) >= r.width / 2 - 1, pressed: b.getAttribute('aria-pressed') }; });
+      const card = document.getElementById('card3DFlipper').getBoundingClientRect(), flip = document.getElementById('flipCardBtn').getBoundingClientRect();
+      return { firstIsCard: at(document.getElementById('card3DFlipper')) === 0, order: [at(document.getElementById('card3DFlipper')), at(body.querySelector('.r4-flipnote')), at(document.getElementById('paletteListContainer')), at(body.querySelector('.r4-logo')), at(document.getElementById('flipCardBtn'))],
+        note: body.querySelector('.r4-flipnote').textContent.trim(), tip: body.querySelector('.r4-logo .r4-tip-line').textContent.trim(), sw, toolsBelow: flip.top > card.bottom, oldRow: !!document.getElementById('paletteDropdownBtn') };
+    });
+    ok('0.8 card: the card first, then "Tap the right side to spin right, the left side to spin left.", round 44 px colour swatches in one row (Slate Blue pressed), the logo tip with its safe-area guide, then the style controls below the card',
+      cardLayout.firstIsCard && cardLayout.order.every((v, i, a) => i === 0 || v > a[i - 1]) && cardLayout.note === 'Tap the right side to spin right, the left side to spin left.'
+      && cardLayout.tip === 'Add a logo. You will see a safe-area guide so the rounded corners never clip it.' && cardLayout.sw.length === 8 && cardLayout.sw.every(b => b.w === 44 && b.h === 44 && b.round && b.top === cardLayout.sw[0].top)
+      && cardLayout.sw.filter(b => b.pressed === 'true').length === 1 && cardLayout.sw[6].pressed === 'true' && cardLayout.toolsBelow && !cardLayout.oldRow, JSON.stringify(cardLayout));
+    await p6.click('#paletteListContainer [data-theme="pumpkin"]');
+    ok('0.8 card: the picked swatch is the pressed one', (await p6.$$eval('#paletteListContainer button[aria-pressed="true"]', bs => bs.map(b => b.dataset.theme).join())) === 'pumpkin');
     ok('card: Pumpkin colours the whole face, front and back, with dark ink; the back too', (await face()).bg === rgb('#e8792b') && (await face()).ink === rgb('#2a1407') && (await p6.$eval('#cardBack', el => getComputedStyle(el).backgroundColor)) === rgb('#e8792b') && (await p6.textContent('#toastMessage')) === 'Applied palette: Pumpkin', JSON.stringify(await face()));
     ok('card: the initials badge is the accent with the card colour on it', (await p6.$eval('#previewAvatar', el => [el.style.background, el.style.color].join('|'))) === `${rgb('#7a3309')}|${rgb('#e8792b')}`, await p6.$eval('#previewAvatar', el => el.style.background));
     // Every phone, email and site, each with its label; the third of a kind is left off the printed card
@@ -3211,17 +3228,20 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('card: every phone and email is on the card with its label (Work, Mobile, Work fax)', lines.phones.length === 3 && lines.phones.map(l => l.label).join('|') === 'Work|Mobile|Work fax' && lines.phones[2].value === '+1 (312) 555-0103' && lines.emails.length === 3 && lines.sites.length === 1 && lines.sites[0].value === 'https://example.com', JSON.stringify(lines));
     ok('card: past two of a kind a line is left off the printed card (no room on 2 in)', !lines.phones[0].printHidden && !lines.phones[1].printHidden && lines.phones[2].printHidden && lines.emails[2].printHidden && !lines.sites[0].printHidden, JSON.stringify(lines));
     ok('card: an empty list reads as before', (await p6.evaluate(() => { document.getElementById('websiteValue0').value = ''; document.getElementById('websiteValue0').dispatchEvent(new Event('input')); return document.querySelector('#previewWebsites .card-line').textContent; })) === 'No website');
-    // The spin: a tap flips (26 fps steps with a small snap, settling exactly on the face); a sideways drag on the card
+    // The spin: a tap flips (0.8 mock-up: 620 ms with a soft ease out, settling exactly on the face); a sideways drag on the card
     // turns it and it settles on the nearest face; a drag from the screen edge is the browser's; the deck stays put.
     await p6.click('#navCard'); await p6.waitForTimeout(700);
     let flipper = await p6.locator('#card3DFlipper').boundingBox();
     const angle = () => p6.$eval('#card3DFlipper', el => el.style.transform);
     const frames = [];
-    await p6.evaluate(() => { window.__spin = []; new MutationObserver(() => window.__spin.push(document.getElementById('card3DFlipper').style.transform)).observe(document.getElementById('card3DFlipper'), { attributes: true, attributeFilter: ['style'] }); });
+    await p6.evaluate(() => { window.__spin = []; window.__spinT = []; new MutationObserver(() => { window.__spin.push(document.getElementById('card3DFlipper').style.transform); window.__spinT.push(performance.now()); }).observe(document.getElementById('card3DFlipper'), { attributes: true, attributeFilter: ['style'] }); });
+    const flipT0 = await p6.evaluate(() => performance.now());
     await p6.click('#flipCardBtn'); await settled(p6);
     frames.push(...await p6.evaluate(() => window.__spin));
+    const spinT = await p6.evaluate(() => window.__spinT);
     const degs = frames.map(f => parseFloat(/rotateY\(([-\d.]+)deg\)/.exec(f)[1]));
-    ok('card: a flip is stepped (about 10 frames over 0.42 s), snaps a little past 180 and settles exactly on 180', (await angle()) === 'rotateY(180deg)' && degs.length >= 7 && degs.length <= 14 && Math.max(...degs) > 181 && (await p6.$eval('#card3DFlipper', el => el.dataset.spin)) === 'still', JSON.stringify(degs));
+    const flipMs = spinT.length ? Math.round(spinT[spinT.length - 1] - Math.max(flipT0, spinT[0] - 1000 / 60)) : 0;
+    ok('0.8 card: a flip takes about 0.62 s with a soft ease out (many smooth frames, never past 180, never back) and settles exactly on 180', (await angle()) === 'rotateY(180deg)' && degs.length >= 15 && Math.max(...degs) === 180 && degs.every((d, i) => i === 0 || d >= degs[i - 1]) && flipMs >= 560 && flipMs <= 1000 && (await p6.$eval('#card3DFlipper', el => el.dataset.spin)) === 'still', JSON.stringify({ flipMs, n: degs.length, degs: degs.map(Math.round) }));
     // Measured again once the card is in view: on a short phone the 0.8 dock covers the bottom of the deck, and the
     // Flip click above may have scrolled the card body, so the first box can be stale or partly under the dock
     await p6.locator('#card3DFlipper').scrollIntoViewIfNeeded(); await p6.waitForTimeout(200);
@@ -3299,7 +3319,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('card: under reduce motion the flip is instant (one frame)', (await angle()) === 'rotateY(0deg)' && (await p6.evaluate(() => window.__spin.length)) === 1, JSON.stringify(await p6.evaluate(() => window.__spin)));
     await p6.emulateMedia({ reducedMotion: 'no-preference' });
     // Toasts: above the dock, 3 s, a tap dismisses, a hold keeps it until 3 s after the release
-    await p6.click('#paletteDropdownBtn'); await p6.click('#paletteListContainer [data-theme="sage"]');
+    await p6.click('#paletteListContainer [data-theme="sage"]');
     await p6.waitForTimeout(400);   // it slides in over 0.3 s
     const toastBox = await p6.locator('#toast').boundingBox();
     const dockTop = await p6.$eval('.vcge-dock', d => d.getBoundingClientRect().top);
@@ -3308,10 +3328,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('toast: still there at 2.6 s', !(await p6.$eval('#toast', t => t.classList.contains('opacity-0'))));
     await p6.waitForTimeout(700);
     ok('toast: gone after 3 s', await p6.$eval('#toast', t => t.classList.contains('opacity-0')));
-    await p6.click('#paletteDropdownBtn'); await p6.click('#paletteListContainer [data-theme="maple"]');
+    await p6.click('#paletteListContainer [data-theme="maple"]');
     await p6.click('#toastMessage');
     ok('toast: a tap dismisses it at once', await p6.$eval('#toast', t => t.classList.contains('opacity-0')));
-    await p6.click('#paletteDropdownBtn'); await p6.click('#paletteListContainer [data-theme="spruce"]');
+    await p6.click('#paletteListContainer [data-theme="spruce"]');
     await p6.waitForTimeout(400);   // measured after the slide-in, or the press lands where the toast was, not where it is
     const tb = await p6.locator('#toast').boundingBox();
     await p6.mouse.move(tb.x + tb.width / 2, tb.y + tb.height / 2); await p6.mouse.down();
@@ -3386,7 +3406,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // The logo's look and the card's finish (raven575 test report, 2026-10-22)
     await p6.click('#navCard'); await p6.waitForTimeout(300);
     ok('card: the logo and finish controls start folded under "Logo & finish", so the card stays in view on a phone', !(await p6.$eval('#cardLookPanel', d => d.open)) && !(await p6.isVisible('#logoSizeSelect')) && (await p6.textContent('#cardLookPanel summary')).trim() === 'Logo & finish');
-    await p6.click('#cardLookPanel summary');
+    await p6.click('#cardLookPanel summary'); await p6.waitForTimeout(400);
+    ok('0.8 card: with Logo & finish open the card shows its logo safe-area guide (a dashed outline inside the rounded corners)', await p6.$eval('#cardFront .r4-safe-guide', g => { const cs = getComputedStyle(g), r = g.getBoundingClientRect(), f = document.getElementById('cardFront').getBoundingClientRect(); return parseFloat(cs.opacity) > 0.3 && cs.borderTopStyle === 'dashed' && r.left - f.left >= 8 && f.bottom - r.bottom >= 8 && cs.pointerEvents === 'none' && g.getAttribute('aria-hidden') === 'true'; }));
     const presets = await p6.$$eval('#logoPresetSelect optgroup', gs => gs.map(g => g.label + ':' + g.children.length));
     ok(EDITION_PLAIN ? 'plain edition: the ready-made logos are the eight palette pictures, with no team characters' : 'logo: the ready-made logos are every Team vCGE character (one per sample) and a picture for each of the eight palettes',
       JSON.stringify(presets) === JSON.stringify(EDITION_PLAIN ? ['To match a palette:8'] : [`Team vCGE:${samples().length}`, 'To match a palette:8']), JSON.stringify(presets));
@@ -3399,6 +3420,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p6.waitForTimeout(300);
     const pick = await p6.evaluate(() => ({ toast: document.getElementById('toastMessage').textContent, img: !!document.querySelector('#previewAvatar img'), select: document.getElementById('logoPresetSelect').value, remove: !document.getElementById('removeAvatarBtn').classList.contains('hidden') }));
     ok('logo: a ready-made pumpkin goes on the card like an upload (Remove logo shown) and the picker is ready again', pick.toast === 'Logo: Pumpkin' && pick.img && pick.select === '' && pick.remove, JSON.stringify(pick));
+    ok('0.8 card: a logo going on the card brings up its safe-area guide for a moment', (await p6.$eval('#card3DFlipper', el => el.dataset.guide)) === 'on');
     // offsetWidth: the logo's own size, before the card's 3D view and the deck scale it on screen (WebKit draws it 94%).
     const badge = () => p6.$eval('#previewAvatar', el => ({ w: el.offsetWidth, bg: el.style.background, ink: el.style.color }));
     const sizes = {};
@@ -3522,7 +3544,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // #87 (0.8 shell: no MOD tags now): neither the bar, the head nor the dock lies on any of the card's controls
     const overlaps = await pV.evaluate(() => {
       const tags = Array.from(document.querySelectorAll('#vcgeHead, .vcge-dock, .vcge-bar')).map(t => t.getBoundingClientRect());   // 0.8 shell: the head, the dock and the bar
-      const controls = Array.from(document.querySelectorAll('#cardCard button, #cardCard select, #cardCard label')).filter(c => c.offsetParent).map(c => [c.id || c.textContent.trim(), c.getBoundingClientRect()]);
+      // 0.8 Card: the style controls sit below the card and scroll; one scrolled out of the screen's own view is not under
+      // the bar or dock, so only the part of each control inside the scrolling screen counts
+      const view = document.querySelector('#cardCard .deck-card-body').getBoundingClientRect();
+      const clip = (r) => ({ left: Math.max(r.left, view.left), right: Math.min(r.right, view.right), top: Math.max(r.top, view.top), bottom: Math.min(r.bottom, view.bottom) });
+      const controls = Array.from(document.querySelectorAll('#cardCard button, #cardCard select, #cardCard label')).filter(c => c.offsetParent).map(c => [c.id || c.textContent.trim(), c.closest('.deck-card-body') ? clip(c.getBoundingClientRect()) : c.getBoundingClientRect()]).filter(([, r]) => r.right > r.left && r.bottom > r.top);
       const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
       return controls.filter(([, r]) => tags.some(t => hit(t, r))).map(([id]) => id);
     });
@@ -3531,7 +3557,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const overlapsPhone = await pV.evaluate(() => {
       const tags = Array.from(document.querySelectorAll('#vcgeHead, .vcge-dock, .vcge-bar')).map(t => t.getBoundingClientRect());   // 0.8 shell: the head, the dock and the bar
       const hit = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
-      return Array.from(document.querySelectorAll('#cardCard button, #cardCard select, #cardCard label')).filter(c => c.offsetParent && tags.some(t => hit(t, c.getBoundingClientRect()))).map(c => c.id);
+      const view = document.querySelector('#cardCard .deck-card-body').getBoundingClientRect();   // 0.8 Card: only the part in the screen's view
+      const clip = (r) => ({ left: Math.max(r.left, view.left), right: Math.min(r.right, view.right), top: Math.max(r.top, view.top), bottom: Math.min(r.bottom, view.bottom) });
+      return Array.from(document.querySelectorAll('#cardCard button, #cardCard select, #cardCard label')).filter(c => c.offsetParent).map(c => [c.id, c.closest('.deck-card-body') ? clip(c.getBoundingClientRect()) : c.getBoundingClientRect()]).filter(([, r]) => r.right > r.left && r.bottom > r.top && tags.some(t => hit(t, r))).map(([id]) => id);
     });
     ok('#87: on a phone too', overlapsPhone.length === 0, JSON.stringify(overlapsPhone));
     await pV.setViewportSize({ width: 1280, height: 900 }); await pV.waitForTimeout(500);
@@ -3632,10 +3660,22 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const shareCard = await pA.evaluate(() => {
       const ids = ['downloadVcfBtn', 'shareNativeBtn', 'copyVcardBtn', 'exportQrBtn', 'printCardBtn', 'emailBtn', 'smsBtn'];
       const rects = ids.map(id => document.getElementById(id).getBoundingClientRect());
-      return { current: document.querySelector('.deck-card.is-current').id, heights: rects.map(r => Math.round(r.height)), allInside: rects.every(r => r.width > 0 && r.height > 0), title: document.getElementById('hTitle').textContent, hint: document.getElementById('shareFileExample').textContent };
+      return { current: document.querySelector('.deck-card.is-current').id, heights: rects.map(r => Math.round(r.height)), allInside: rects.every(r => r.width > 0 && r.height > 0), title: document.getElementById('hTitle').textContent, hint: `${document.getElementById('shareVcfName').textContent}, ${document.getElementById('shareQrName').textContent}` };
     });
     ok('Share screen: all seven ways out on one screen, each at least 44 px tall, the head says "Share or save"', shareCard.current === 'cardShare' && shareCard.heights.every(h => h >= 44) && shareCard.allInside && shareCard.title === 'Share or save', JSON.stringify(shareCard));
-    ok('Share card names the files after the contact; an empty card is "Contact"', shareCard.hint === 'Contact.vcf, Contact QR.png', shareCard.hint);
+    ok('Share card names the files after the contact in its Save rows; an empty card is "Contact"', shareCard.hint === 'Contact.vcf, Contact QR.png', shareCard.hint);
+    // 0.8 Share (gap list row 18): "Ready to go.", then Save and Send groups whose rows say what leaves and where, then
+    // the reminder that sharing does not clear the card
+    const shareLayout = await pA.evaluate(() => {
+      const body = document.querySelector('#cardShare .deck-card-body');
+      const groups = [...body.querySelectorAll('.r4-group')].map(g => ({ head: g.querySelector('h4').textContent.trim(), rows: [...g.querySelectorAll('button.share-btn')].map(b => b.id), told: [...g.querySelectorAll('button.share-btn')].every(b => b.querySelector('b').textContent.trim() && b.querySelector('small').textContent.trim().length > 15) }));
+      const done = body.querySelector('.r4-done'), tip = body.querySelector(':scope > .r4-tip');
+      const order = [...body.children].filter(e => getComputedStyle(e).display !== 'none').map(e => e.classList.contains('r4-done') ? 'done' : e.classList.contains('r4-group') ? 'group' : e.classList.contains('r4-tip') ? 'tip' : e.tagName);
+      return { groups, ready: done && done.textContent.includes('Ready to go.'), tip: tip && tip.textContent.trim(), order: order.join(','), vcfRow: [...document.getElementById('downloadVcfBtn').querySelectorAll('b, small')].map(e => e.textContent.trim()).join(' ') };
+    });
+    ok('0.8 Share: "Ready to go." first, then Save (.vcf, QR image, print) and Send (share, copy, email, text), each row naming what leaves and where, then the reminder that sharing does not clear the card',
+      shareLayout.ready && shareLayout.order === 'done,group,group,tip' && JSON.stringify(shareLayout.groups.map(g => [g.head, g.rows])) === JSON.stringify([['Save', ['downloadVcfBtn', 'exportQrBtn', 'printCardBtn']], ['Send', ['shareNativeBtn', 'copyVcardBtn', 'emailBtn', 'smsBtn']]])
+      && shareLayout.groups.every(g => g.told) && shareLayout.vcfRow === 'Save contact file Contact.vcf goes to your Downloads' && shareLayout.tip === 'Sharing does not clear the card. Lock or close the app to wipe it.', JSON.stringify(shareLayout));
     await pA.click('#exportQrBtn'); await pA.waitForTimeout(200);
     ok('empty card: QR PNG says to add a contact first, no pop-up', !(await pA.isVisible('#exportQrSheet')) && (await tA('toastMessage')) === 'Add a contact first.');
     await pA.click('#printCardBtn'); await pA.waitForTimeout(200);
@@ -3667,7 +3707,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const ready = await pA.evaluate(() => { const b = document.getElementById('readyToShareBtn'), r = b.getBoundingClientRect(), c = document.getElementById('cardCard').getBoundingClientRect(); return { inFoot: r.top > c.top + c.height / 2, h: Math.round(r.height), bg: getComputedStyle(b).backgroundColor }; });
     await pA.click('#readyToShareBtn'); await pA.waitForTimeout(700);
     ok('Ready to share (green, in the 3D Card\'s foot) takes the person to the Share card', ready.inFoot && ready.h >= 44 && ready.bg === 'rgb(22, 163, 74)' && (await pA.evaluate(() => document.querySelector('.deck-card.is-current').id)) === 'cardShare', JSON.stringify(ready));
-    ok('the file hint follows the contact', (await tA('shareFileExample')) === 'Jane Doe.vcf, Jane Doe QR.png', await tA('shareFileExample'));
+    ok('the file names in the Save rows follow the contact', (await tA('shareVcfName')) === 'Jane Doe.vcf' && (await tA('shareQrName')) === 'Jane Doe QR.png', `${await tA('shareVcfName')}, ${await tA('shareQrName')}`);
 
     // Export QR pop-up: a live preview from the same code as the card back, Themed by default
     await pA.click('#exportQrBtn');

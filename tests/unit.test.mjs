@@ -1339,6 +1339,18 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     ok('a spin is stepped at 26 fps and lands exactly on the target', frames.length >= 9 && frames.length <= 12 && frames[frames.length - 1] === 180 && Math.max(...frames) > 180, JSON.stringify(frames.map(Math.round)));
     stop();
   }
+  // 0.8 Card (gap list row 17): a flip takes the mock-up's 620 ms with its soft ease out, cubic-bezier(.2, .8, .2, 1)
+  {
+    const e = card.easeSoft, xs = Array.from({ length: 101 }, (_, i) => e(i / 100));
+    ok('0.8 card: a flip is 620 ms at 60 fps, the safe-area guide shows 2.4 s', card.TAP_SPIN_MS === 620 && card.TAP_SPIN_FPS === 60 && card.SAFE_GUIDE_MS === 2400);
+    ok('0.8 card: the soft ease out starts at 0, ends at 1, rises all the way, never passes 1, and is mostly there by half time',
+      e(0) === 0 && e(1) === 1 && xs.every((v, i) => i === 0 || v >= xs[i - 1]) && Math.max(...xs) <= 1 && e(0.5) > 0.85 && e(0.1) > 0.2, JSON.stringify([e(0.1), e(0.5), e(0.9)]));
+    ok('0.8 card: cubicBezier matches the CSS curve (linear is linear; ease-in starts slow)', Math.abs(card.cubicBezier(0, 0, 1, 1)(0.3) - 0.3) < 1e-6 && card.cubicBezier(0.42, 0, 1, 1)(0.25) < 0.1);
+    let t = 0; const frames = []; const timers = [];
+    card.tween(0, 180, card.TAP_SPIN_MS, v => frames.push(v), { now: () => t, schedule: (fn, ms) => { timers.push([fn, ms]); return timers.length; }, cancel: () => {}, ease: card.easeSoft, fps: card.TAP_SPIN_FPS });
+    const gaps = []; while (timers.length) { const [fn, ms] = timers.shift(); gaps.push(ms); t += ms; fn(); }
+    ok('0.8 card: a flip tween runs smoothly (about 37 frames of 16.7 ms), never past 180, and lands exactly on it', frames.length >= 34 && frames.length <= 40 && gaps.every(g => Math.abs(g - 1000 / 60) < 1e-9) && Math.max(...frames) === 180 && frames[frames.length - 1] === 180 && frames.every((v, i) => i === 0 || v >= frames[i - 1]), `${frames.length} frames`);
+  }
   ok('spin, edge and toast numbers follow the plan: 26 fps, 5 percent, 48 px edge, 3 s toast', card.STEP_FPS === 26 && card.OVERSHOOT === 0.05 && card.EDGE_PX === 48 && card.TOAST_MS === 3000 && card.PRINT_LINES_EACH === 2);
 
   // iPad test video, 2026-10-17 (#74, #85, #86): the logo inset, the typefaces and sizes, the line icons and labels
