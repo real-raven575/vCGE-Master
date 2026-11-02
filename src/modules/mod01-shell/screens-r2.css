@@ -75,7 +75,7 @@ button.r2-close svg { width: 20px; height: 20px; }
 /* Zoom chips over the foot of the picture */
 .r2-zoom { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; background: rgba(10, 12, 10, 0.5); padding: 4px; border-radius: 999px; }
 .r2-zoom button { width: 44px; height: 44px; min-width: 44px; border: 0; border-radius: 50%; padding: 0; background: transparent; color: var(--r2-on-glass);
-    font-size: 0.75rem; font-weight: 700; cursor: pointer; }
+    font-size: 0.75rem; font-weight: 700; cursor: pointer; touch-action: manipulation; }   /* (two quick chip taps are two taps, not a double-tap) */
 .r2-zoom button[aria-pressed="true"] { background: rgba(255, 255, 255, 0.22); color: var(--r2-chip-on); }
 .r2-zoom button:focus-visible, button.r2-close:focus-visible { outline: 3px solid var(--r2-on-glass); outline-offset: 1px; }
 
