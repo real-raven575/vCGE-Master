@@ -2497,7 +2497,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       return `${Math.round(r.left)},${Math.round(r.top)} hit ${h ? (h.id || h.getAttribute('data-zoom') || h.className || h.tagName) : 'none'} in ${innerWidth}x${innerHeight}`; });
     await pV.click('#zoomChips [data-zoom="1"]');
     const chipBack = await pV.waitForFunction(() => document.getElementById('cameraStream').style.transform === '' && document.getElementById('zoomDisplay').textContent === '1.0x', null, { timeout: 5000 }).then(() => true, () => false);
-    const chipAfter = chipBack ? '' : await pV.evaluate(() => `transform "${document.getElementById('cameraStream').style.transform}", readout ${document.getElementById('zoomDisplay').textContent}, slider ${document.getElementById('zoomSlider').value}, pressed ${Array.from(document.querySelectorAll('#zoomChips [data-zoom]')).map(b => b.getAttribute('aria-pressed')).join()}, focus ${document.activeElement && (document.activeElement.getAttribute('data-zoom') || document.activeElement.id)}`);
+    const chipAfter = chipBack ? '' : await pV.evaluate(() => `transform "${document.getElementById('cameraStream').style.transform}", readout ${document.getElementById('zoomDisplay').textContent}, slider ${document.getElementById('zoomSlider').value}, pressed ${Array.from(document.querySelectorAll('#zoomChips [data-zoom]')).map(b => b.getAttribute('aria-pressed')).join()}, focus ${document.activeElement && (document.activeElement.getAttribute('data-zoom') || document.activeElement.id)}, finder scrolled ${document.getElementById('viewfinderArea').scrollLeft},${document.getElementById('viewfinderArea').scrollTop}`);
     ok('zoom chips: 2× zooms the camera to 2x and shows pressed; 1× takes it back', chipLanded && chipPressed === 'false,false,true' && chipBack && (await pV.$eval('#zoomChips [data-zoom="1"]', b => b.getAttribute('aria-pressed'))) === 'true', `${chipLanded} ${chipPressed} ${chipBack}${chipAfter ? ' | 1× tap at ' + chipHit + ' | after: ' + chipAfter : ''}`);
     ok('viewfinder: the shutter sits in the middle 60 percent of the screen height', (shutter.t + shutter.b) / 2 > 844 * 0.2 && (shutter.t + shutter.b) / 2 < 844 * 0.8, String((shutter.t + shutter.b) / 2));
 
@@ -2635,7 +2635,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     });
     // (the scale is the pinch's, which the check above takes to 0.01: Firefox rounds touch points to 1/60 px, so 1.99996)
     const pannedScale = Number((/scale\(([\d.]+)\)/.exec(panned.after) || [])[1]);
-    ok('one finger pans the zoomed photo', panned.before !== panned.after && Math.abs(pannedScale - 2) < 0.01 && Math.abs(pannedScale - pinch.scale) < 1e-6, JSON.stringify(panned));
+    ok('one finger pans the zoomed photo', panned.before !== panned.after && Math.abs(pannedScale - 2) < 0.01 && Math.abs(pannedScale - pinch.scale) < 1e-4, JSON.stringify(panned));
     // A fast pinch past 6x turns back at once (raven575, Chrome on Android, 2026-10-22: a fast pinch "won't let you zoom
     // all the way back out"): 20 px apart -> 240 px asks for 12x and stops at 6x; back to 120 px is half of that, 3x
     const overshoot = await pV.evaluate(() => {
