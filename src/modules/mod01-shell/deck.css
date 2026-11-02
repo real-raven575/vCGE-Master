@@ -282,3 +282,8 @@ html[data-app-theme] .deck-card textarea, html[data-app-theme] .deck-card select
     -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
 }
 @media (forced-colors: active) { .vcge-tex, .vcge-emblem { display: none; } }
+
+/* ---- Plain edition: its sheets keep the plain frame (no grab bar, a 20 px top, a flat square close button) ---- */
+html[data-edition="plain"] .vcge-sheet-panel { border-radius: 1.25rem 1.25rem 0 0; }
+html[data-edition="plain"] .vcge-sheet-panel::before { content: none; }
+html[data-edition="plain"] .vcge-sheet-close { background: transparent; border-radius: 0.75rem; box-shadow: none; }
