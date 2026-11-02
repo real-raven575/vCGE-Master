@@ -454,6 +454,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('layout: every drop-down list on screen is at least 44 px tall', lay.lowSelects.length === 0, JSON.stringify(lay));
     // A phone held sideways (390 px tall): the bar and the head tighten, the dock is one row, and the screen keeps over half the height
     await page.setViewportSize({ width: 844, height: 390 }); await page.waitForTimeout(400);
+    await page.waitForFunction(() => document.documentElement.dataset.short === '1', null, { timeout: 3000 }).catch(() => {});
     const low = await page.evaluate(() => ({ short: document.documentElement.dataset.short, inner: [innerWidth, innerHeight, Math.round(document.documentElement.scrollWidth)], bar: document.querySelector('.vcge-bar').getBoundingClientRect().height,
       dock: document.querySelector('.vcge-dock').getBoundingClientRect().height, screen: document.getElementById('deck').getBoundingClientRect().height,
       buttons: Array.from(document.querySelectorAll('.vcge-bar button, .vcge-dock button')).filter(b => b.getClientRects().length && b.offsetWidth > 1).every(b => b.getBoundingClientRect().height >= 43.5) }));
@@ -1722,6 +1723,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const sidesLeft = await footSides();
     ok('fields (0.8): left hand leaves no trash on the card, and Next stays the dock\'s "Make the card" under the screen', sidesLeft.trash === 'none' && sidesLeft.okBottom && sidesLeft.label === 'Make the card', JSON.stringify(sidesLeft));
     await pF.click('#navSettings'); await setHand(pF, false); await pF.click('#cbToggle'); await pF.keyboard.press('Escape'); await pF.waitForTimeout(200);
+    // (the dock's colour eases into the colour-blind blue: the check reads it once it has landed, CI iPhone 11-02)
+    await pF.waitForFunction(() => getComputedStyle(document.getElementById('dockNext')).backgroundColor === 'rgb(37, 99, 235)' && !document.querySelector('.vcge-sheet.is-closing'), null, { timeout: 3000 }).catch(() => {});
     ok('fields (0.8): colour-blind mode leaves no green "Everything\'s correct" on the screen; the dock\'s "Make the card" is the one Next, ready to press and blue', !(await pF.isVisible('#fieldsDoneBtn')) && await pF.isVisible('#dockNext') && !(await pF.$eval('#dockNext', b => b.disabled))
       && (await pF.textContent('#dockNext')).trim() === 'Make the card' && (await pF.$eval('#dockNext', b => getComputedStyle(b).backgroundColor)) === 'rgb(37, 99, 235)',
       await pF.evaluate(() => { const n = document.getElementById('dockNext'), d = document.getElementById('fieldsDoneBtn'); return JSON.stringify({ cb: document.documentElement.dataset.cb, card: document.documentElement.dataset.card, done: !!d && d.getClientRects().length > 0, next: n && [n.textContent.trim(), n.disabled, getComputedStyle(n).backgroundColor, n.getClientRects().length > 0], sheet: [...document.querySelectorAll('.vcge-sheet:not(.hidden)')].map(x => x.id + ' ' + x.className) }); }));

@@ -1084,6 +1084,10 @@ export class CardView {
         });
 
         $('flipCardBtn').addEventListener('click', () => this.toggleFlip());
+        // Logo & finish open shows the logo safe-area guide (screens-r4.css). Said on the Card screen itself as well as by
+        // :has(): Safari did not restyle :has(details[open]) when the panel opened (CI iPhone, 11-02)
+        const look = $('cardLookPanel'), cardScreen = $('cardCard');
+        if (look && cardScreen) look.addEventListener('toggle', () => { if (look.open) cardScreen.dataset.look = 'open'; else delete cardScreen.dataset.look; });
         this.wireSpin();
         this.wireToast();
 

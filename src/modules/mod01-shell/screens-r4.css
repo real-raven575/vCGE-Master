@@ -75,7 +75,8 @@
 }
 @media (prefers-reduced-motion: no-preference) { #cardFront > .r4-safe-guide { transition: opacity 260ms var(--r4-ease-out); } }
 #card3DFlipper[data-guide="on"] #cardFront > .r4-safe-guide,
-#cardCard:has(#cardLookPanel[open]) #cardFront > .r4-safe-guide { opacity: 0.55; }
+#cardCard:has(#cardLookPanel[open]) #cardFront > .r4-safe-guide,
+#cardCard[data-look="open"] #cardFront > .r4-safe-guide { opacity: 0.55; }
 @media print { .r4-safe-guide { display: none !important; } }
 
 /* ---- Share ------------------------------------------------------------------------------------------------------ */
