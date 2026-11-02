@@ -278,13 +278,14 @@ async function stopDriver(driver) {
     const sizes = () => js(`const r = e => e.getBoundingClientRect();
       return { root: parseFloat(getComputedStyle(document.documentElement).fontSize), note: parseFloat(getComputedStyle(document.getElementById('settingsNote')).fontSize),
         header: r(document.querySelector('.vcge-bar')).height, icon: r(document.querySelector('#navSettings .vcge-icon')).width };`);
-    const pickSize = (code) => js(`const s = document.getElementById('sizeSelect'); s.value = arguments[0]; s.dispatchEvent(new Event('change', { bubbles: true }));`, code);
+    // The size slider walks the fixed sizes smallest first: 0 Small, 1 Normal, 2 Large, 3 Larger
+    const pickSize = (step) => js(`const s = document.getElementById('sizeRange'); s.value = arguments[0]; s.dispatchEvent(new Event('input', { bubbles: true }));`, step);
     const sizeNormal = await sizes();
-    await pickSize('2'); await sleep(200);
+    await pickSize('3'); await sleep(200);
     const sizeLarger = await sizes();
     ok('desktop: Larger text grows the text by a quarter, the top bar and its icons keep their size', Math.abs(sizeLarger.root / sizeNormal.root - 1.25) < 0.01 && Math.abs(sizeLarger.note / sizeNormal.note - 1.25) < 0.03
       && Math.abs(sizeLarger.header - sizeNormal.header) < 0.6 && Math.abs(sizeLarger.icon - sizeNormal.icon) < 0.6, JSON.stringify([sizeNormal, sizeLarger]));
-    await pickSize('0'); await js(`localStorage.removeItem('vcge_settings');`);
+    await pickSize('1'); await js(`localStorage.removeItem('vcge_settings');`);
 
     // Left hand at tablet width in the system webview (WebKit, as on the iPad; raven575, 2026-10-18): the 0.8 top bar
     // runs mirrored (Settings far left, the vCGE mark on the right), every button inside the window, none overlapping.
@@ -297,10 +298,10 @@ async function stopDriver(driver) {
     const winRect = await wd('GET', S('/window/rect'));
     await wd('POST', S('/window/rect'), { width: 820, height: winRect.height });
     await until(async () => (await js('return innerWidth;')) <= 820, 5000);
-    await js(`document.getElementById('handLeftBtn').click();`);
+    await js(`const t = document.getElementById('handToggle'); t.checked = true; t.dispatchEvent(new Event('change', { bubbles: true }));`);
     const leftFits = await until(async () => { const f = await navFit(); return f.hand === 'left' && f.mirrored && f.out.length === 0 && f.overlap.length === 0; }, 5000);
     ok('desktop: left hand at tablet width mirrors the top bar, every button inside the window, none overlapping', leftFits, JSON.stringify(await navFit()));
-    await js(`document.getElementById('handRightBtn').click(); localStorage.removeItem('vcge_settings');`);
+    await js(`const t = document.getElementById('handToggle'); t.checked = false; t.dispatchEvent(new Event('change', { bubbles: true })); localStorage.removeItem('vcge_settings');`);
     await wd('POST', S('/window/rect'), { width: winRect.width, height: winRect.height });
   } finally {
     await wd('DELETE', S('')).catch(() => {});

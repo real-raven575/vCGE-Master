@@ -173,3 +173,38 @@ export function applyTheme(root, code, plain = false) {
     if (t.vars) root.dataset.appTheme = t.id; else delete root.dataset.appTheme;
     return t;
 }
+
+/**
+ * Theme + Appearance (0.8, Creative's CRTV-0020 Settings sheet): the picker shows each palette once, as a swatch, and
+ * Appearance (System / Light / Dark) picks its light or its dark version. The fixed codes above do not change: a family
+ * is only the pair of codes it already had (Herd is Light 1 and Dark 0). The card palettes in Autumn have one version
+ * each, so a family there carries a light or a dark code, not both.
+ */
+const shortLabel = (t) => t.label.replace(/ \((light|dark)\)$/, '').replace(/ the .*$/, '');
+const familyKey = (t) => (t.group === 'Basic' ? 'herd' : t.group === 'Autumn' ? `card-${t.id}` : t.id.replace(/-(light|dark)$/, ''));
+export const THEME_FAMILIES = Object.freeze((() => {
+    const out = [], byKey = new Map();
+    for (const t of THEMES) {
+        const key = familyKey(t);
+        let f = byKey.get(key);
+        if (!f) {
+            f = { id: key, label: t.group === 'Basic' ? 'Herd' : shortLabel(t), group: t.group === 'Basic' ? 'Everyday' : t.group,
+                season: t.season || '', branded: !!t.branded, light: null, dark: null };
+            byKey.set(key, f); out.push(f);
+        }
+        f[t.mode] = t.code;
+    }
+    // Herd leads the Everyday row (the mock-up's order); the rest keep the order their codes were added
+    const order = (f) => (f.id === 'herd' ? -1 : THEME_GROUPS.indexOf(f.group));
+    return out.map((f, i) => [f, i]).sort((a, b) => order(a[0]) - order(b[0]) || a[1] - b[1]).map(([f]) => Object.freeze(f));
+})());
+
+/** The family a theme code belongs to (Herd for an unknown code). */
+export function familyOf(code) {
+    return THEME_FAMILIES.find(f => f.light === code || f.dark === code) || THEME_FAMILIES[0];
+}
+
+/** The code to show for a family in a mode ('light' or 'dark'): its own version, or its only one. */
+export function familyCode(family, mode) {
+    return family[mode] !== null ? family[mode] : (family.light !== null ? family.light : family.dark);
+}

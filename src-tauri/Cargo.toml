@@ -1,6 +1,6 @@
 [package]
 name = "vcge"
-version = "0.7.0"
+version = "0.8.0"
 description = "vCard Generator Engine (vCGE) - offline-first digital business card engine"
 authors = ["raven575", "Team vCGE (Claude)", "Gemini"]
 license = "MIT"

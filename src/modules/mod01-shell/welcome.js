@@ -25,7 +25,7 @@ export const TOUR_STEPS = [
     { card: 'share', title: 'Share when you choose',
         body: 'Save a .vcf file, show the QR, email, text or print. Nothing leaves vCGE until you press one of these.' },
     { sheet: 'vaultPage', title: 'Your card stays private',
-        body: 'Nothing is saved. Step away and the card locks, then wipes. Set a 4-digit PIN to unlock it fast. The red trash button on any card clears everything now.' },
+        body: 'Nothing is saved. Step away and the card locks, then wipes. Set a 4-digit PIN to unlock it fast. Wipe and start over, at the bottom of this sheet, clears everything now.' },
     { header: true, title: 'You’re ready',
         body: 'The steps at the bottom jump to any screen. The lock at the top shows the time left before your card locks, and the cog opens Settings. That’s the tour.' }
 ];

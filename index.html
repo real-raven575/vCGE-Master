@@ -128,7 +128,7 @@
                         <button id="welcomeSampleBtn" type="button" class="r2-quiet">Play with sample fields</button>
                         <button id="welcomeCancelBtn" type="button" class="r2-quiet r2-quiet-stop">CANCEL</button>
                     </div>
-                    <p class="r2-fine">This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data: it keeps one small settings file on this device (hand, colors, theme, font, text size, wipe time), and nothing you scan, upload or type is ever saved.</p>
+                    <p class="r2-fine">This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data: it keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time), and nothing you scan, upload or type is ever saved.</p>
                 </div>
             </div>
         </section>
@@ -228,7 +228,6 @@
                 <canvas id="captureCanvas" class="hidden"></canvas>
             </div>
             <div class="deck-card-foot">
-                <button type="button" class="vcge-trash" aria-label="Wipe everything and start over" title="Wipe everything and start over"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg></button>
             </div>
         </section>
         <section id="cardRead" class="deck-card" data-card="read" data-step="Step 2 of 5 · Read" data-pilot-emoji="🦉" data-pilot="Glyph" data-title="Check the text" data-next="#applyOcrBtn" data-next-label="Fill details" aria-label="Read">
@@ -285,7 +284,6 @@
                 <p id="readEmpty" class="read-tip read-empty"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="6" width="18" height="13" rx="3"></rect><circle cx="12" cy="12.5" r="3.2"></circle><path d="M8.5 6l1.5-2h4l1.5 2"></path></svg><span>No photo yet. Take or upload one on the Capture card and it is read here, on this device.</span></p>
             </div>
             <div class="deck-card-foot">
-                <button type="button" class="vcge-trash" aria-label="Wipe everything and start over" title="Wipe everything and start over"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg></button>
             </div>
         </section>
         <section id="cardFields" class="deck-card" data-card="fields" data-step="Step 3 of 5 · Details" data-pilot-emoji="🐙" data-pilot="Pidge" data-title="Contact details" data-next="#fieldsDoneBtn" data-next-label="Make the card" aria-label="Fields">
@@ -387,7 +385,6 @@
             </div>
             </div>
             <div class="deck-card-foot">
-                <button type="button" class="vcge-trash" aria-label="Wipe everything and start over" title="Wipe everything and start over"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg></button>
                 <!-- The dock's "Make the card" presses this one (deck.js data-next; fieldsCard.js labels it). It is not shown on its own -->
                 <button id="fieldsDoneBtn" type="button" class="fields-ok">Everything's correct</button>
             </div>
@@ -491,7 +488,6 @@
                 </section>
             </div>
             <div class="deck-card-foot">
-                <button type="button" class="vcge-trash" aria-label="Wipe everything and start over" title="Wipe everything and start over"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg></button>
                 <button id="readyToShareBtn" type="button" class="share-ready" aria-describedby="readyLightsText">Ready to share<span class="ready-lights" aria-hidden="true"><span class="ready-light"></span><span class="ready-light"></span><span class="ready-light"></span></span></button>
                 <span id="readyLightsText" class="ready-lights-text">Lit: none yet.</span>
             </div>
@@ -522,7 +518,6 @@
                 <p class="r4-tip r4-tip-line"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/></svg><span>Sharing does not clear the card. Lock or close the app to wipe it.</span></p>
             </div>
             <div class="deck-card-foot">
-                <button type="button" class="vcge-trash" aria-label="Wipe everything and start over" title="Wipe everything and start over"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg></button>
             </div>
         </section>
     </main>
@@ -544,109 +539,130 @@
         </div>
     </nav>
 
-    <!-- Vault page (MOD02 content, opened by the header lock icon or the Welcome card): PIN, fingerprint, wipe, audit log -->
-    <!-- Vault page (MOD02, Ghost): set, change or remove the PIN and the fingerprint or face unlock. Fresh every visit, never saved. -->
+    <!-- Vault sheet (0.8 redo R5, Creative's CRTV-0020 mock-up; MOD02, Ghost): the ring with the time until the lock, the
+         PIN and Face or fingerprint switches (On / Off in words), the lock and wipe times, the activity log, Lock now and
+         the wipe (the trash, moved here from the cards). Set up fresh every visit, never saved. -->
     <div id="vaultPage" class="vcge-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="vaultPageTitle">
-        <div class="vcge-sheet-panel space-y-3">
-            <div class="vcge-sheet-head">
-                <h2 id="vaultPageTitle" class="vault-title"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#lock"></use></svg>Vault</h2>
+        <div class="vcge-sheet-panel r5-sheet">
+            <div class="vcge-sheet-head r5-head">
+                <h2 id="vaultPageTitle" class="vault-title vcge-sheet-title"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#lock"></use></svg>Vault</h2>
                 <span class="vcge-pilot-chip vcge-sheet-pilot" title="Ghost the Raccoon keeps the Vault"><i aria-hidden="true">🦝</i><span>Ghost</span></span>
-                <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close">&#x2715;</button>
+                <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
             </div>
-            <p class="vault-lead">Your card is held in memory only and is never saved. Set a PIN, and a fingerprint or face if your device has one, so the card locks instead of being wiped when you step away. Both are set up fresh every visit and forgotten when you leave.</p>
-            <div class="vault-row">
-                <span><span class="font-medium">MOD02 Vault</span> <span id="vaultStateIndicator" class="text-xs font-mono text-emerald-500">UNLOCKED / memory only</span></span>
-                <span><button id="vaultLockNowBtn" type="button" class="vault-btn-quiet hidden"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#lock"></use></svg>Lock now</button></span>
-            </div>
-            <p id="purgeCountdown" class="text-[11px] font-mono text-slate-500 dark:text-slate-400">Auto-clear idle</p>
-            <div id="quickUnlockPanel" class="vault-section hidden">
-                <h3>PIN and fingerprint</h3>
-                <!-- Switches: green "On" when on, red "Off" when off. The PIN switch asks for a PIN; Change sits beside it once set. -->
-                <div class="vault-row">
-                    <span id="sessionPinStatus" class="vault-sr-only">Session PIN: not set</span>
-                    <span id="pinSwitchLabel">Session PIN</span>
-                    <span>
-                        <button id="setSessionPinBtn" type="button" class="vault-btn-quiet hidden">Change</button>
-                        <button id="pinSwitch" type="button" role="switch" aria-checked="false" aria-labelledby="pinSwitchLabel" class="vault-switch"><span class="vault-switch-word">Off</span><span class="vault-switch-knob" aria-hidden="true"></span></button>
-                    </span>
+            <div class="r5-body">
+                <div class="r5-bigring" id="vaultRing">
+                    <svg viewBox="0 0 72 72" aria-hidden="true"><circle cx="36" cy="36" r="31"></circle><circle id="vaultRingArc" class="r5-arc" cx="36" cy="36" r="31" stroke-dasharray="194.8" stroke-dashoffset="0"></circle></svg>
+                    <div><b id="vaultRingTime">2:00</b><span id="vaultRingNote">until auto lock.</span></div>
                 </div>
-                <p id="pinOffNote" class="vault-note">Turn on to lock the card instead of wiping it when you step away.</p>
-                <div id="biometricRow" class="vault-row hidden">
-                    <span id="biometricStatus" class="vault-sr-only">Face ID / fingerprint: off</span>
-                    <span id="biometricSwitchLabel">Face ID / fingerprint</span>
-                    <span><button id="biometricSwitch" type="button" role="switch" aria-checked="false" aria-labelledby="biometricSwitchLabel" class="vault-switch"><span class="vault-switch-word">Off</span><span class="vault-switch-knob" aria-hidden="true"></span></button></span>
+                <p class="vcge-sr-only"><span id="vaultStateIndicator">UNLOCKED / memory only</span> <span id="purgeCountdown">Auto-clear idle</span></p>
+                <div id="quickUnlockPanel" class="r5-group hidden">
+                    <h4>Unlock with</h4>
+                    <!-- Switches: "On" in green or "Off" in red beside a switch, so colour is never the only cue. The PIN
+                         switch asks for a PIN; Change sits beside it once set. -->
+                    <div class="r5-sw-row vault-row">
+                        <span id="sessionPinStatus" class="vault-sr-only">Session PIN: not set</span>
+                        <span class="r5-lbl"><b id="pinSwitchLabel">Session PIN</b><small>4 digits, forgotten when you leave. <span id="pinOffNote">Turn on to lock the card instead of wiping it when you step away.</span></small></span>
+                        <button id="setSessionPinBtn" type="button" class="r5-chip r5-change hidden">Change</button>
+                        <button id="pinSwitch" type="button" role="switch" aria-checked="false" aria-labelledby="pinSwitchLabel" class="vault-switch r5-switch"><span class="vault-switch-word">Off</span><span class="r5-track" aria-hidden="true"><span class="vault-switch-knob"></span></span></button>
+                    </div>
+                    <div id="biometricRow" class="r5-sw-row vault-row hidden">
+                        <span id="biometricStatus" class="vault-sr-only">Face ID / fingerprint: off</span>
+                        <span class="r5-lbl"><b id="biometricSwitchLabel">Face or fingerprint</b><small id="biometricOffNote">Turn on to unlock with your face or fingerprint at the lock screen.</small></span>
+                        <button id="biometricSwitch" type="button" role="switch" aria-checked="false" aria-labelledby="biometricSwitchLabel" class="vault-switch r5-switch"><span class="vault-switch-word">Off</span><span class="r5-track" aria-hidden="true"><span class="vault-switch-knob"></span></span></button>
+                    </div>
+                    <p id="biometricNotes" class="r5-note hidden">Turning it on makes your browser save a passkey for this site on your device, because the browser requires it to check your face or fingerprint. The passkey holds no contact details. vCGE forgets it when the card is wiped, so after a wipe you turn it on again. Old ones can be deleted in your password manager.</p>
                 </div>
-                <div id="biometricNotes" class="hidden">
-                    <p id="biometricOffNote" class="vault-note">Turn on to unlock with your face or fingerprint.</p>
-                    <p class="vault-note">Turning it on makes your browser save a passkey for this site on your device, because the browser requires it to check your face or fingerprint. The passkey holds no contact details. vCGE forgets it when the card is wiped, so after a wipe you turn it on again. Old ones can be deleted in your password manager.</p>
+                <div class="r5-group">
+                    <h4 id="lockChipsLabel">Auto lock after</h4>
+                    <!-- The lock time is fixed at 2 minutes (Cornerstone's rule); the mock-up's 5 and 15 are shown but not offered -->
+                    <div class="r5-minis" role="group" aria-labelledby="lockChipsLabel" aria-describedby="lockChipsNote">
+                        <button type="button" class="r5-chip" aria-pressed="true">2 min</button><button type="button" class="r5-chip" aria-pressed="false" disabled>5 min</button><button type="button" class="r5-chip" aria-pressed="false" disabled>15 min</button>
+                    </div>
+                    <p id="lockChipsNote" class="r5-note r5-note-in">With a PIN, the card locks after 2 minutes without activity. That time is fixed.</p>
+                    <h4 id="wipeChipsLabel">Wipe after lock</h4>
+                    <div id="wipeChips" class="r5-minis" role="group" aria-labelledby="wipeChipsLabel">
+                        <button type="button" class="r5-chip" data-wipe="0" aria-pressed="true">7 min</button><button type="button" class="r5-chip" data-wipe="1" aria-pressed="false">10 min</button><button type="button" class="r5-chip" data-wipe="2" aria-pressed="false">15 min</button>
+                    </div>
                 </div>
-                <p class="vault-note">vCGE saves none of your card. Leaving, closing or reloading the page wipes it. With a 4-digit PIN set, the screen turning off or 2 idle minutes lock it instead, and <span id="vaultWipeMinutes">7</span> minutes after the lock it is wiped (Settings can make that 10 or 15). Without a PIN, 30 s out of view or 2 idle minutes wipe it.</p>
-            </div>
-            <div class="vault-row">
-                <span><button id="wipeVaultBtn" type="button" class="vault-btn-quiet vault-btn-danger">Wipe everything and start over</button></span>
-                <span><button id="vaultSettingsBtn" type="button" class="vault-btn-quiet" data-open-sheet="settingsSheet">Settings</button></span>
-            </div>
-            <div>
-                <h3 class="text-xs font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400 mb-1">Egress &amp; vault audit log</h3>
-                <ul id="auditLog" class="text-[11px] font-mono text-slate-500 dark:text-slate-400 space-y-0.5"></ul>
+                <div class="r5-group">
+                    <h4>Activity</h4>
+                    <ul id="auditLog" class="r5-log" aria-label="Egress and vault audit log"></ul>
+                </div>
+                <div class="r5-actions">
+                    <button id="vaultLockNowBtn" type="button" class="vcge-btn vcge-btn-quiet hidden"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#lock"></use></svg>Lock now</button>
+                    <button id="wipeVaultBtn" type="button" class="vcge-btn r5-danger" aria-label="Wipe everything and start over" title="Wipe everything and start over"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg>Wipe and start over</button>
+                </div>
+                <p class="r5-foot">vCGE saves none of your card. Leaving, closing or reloading the page wipes it. With a 4-digit PIN set, the screen turning off or 2 idle minutes lock it instead, and <span id="vaultWipeMinutes">7</span> minutes after the lock it is wiped. Without a PIN, 30 s out of view or 2 idle minutes wipe it. The wipe asks first, and you hold Yes to confirm.</p>
             </div>
         </div>
     </div>
 
-    <!-- Settings (MOD01): hand, colour-blind mode, theme, UI font and text size, kept in the one settings entry -->
+    <!-- Settings sheet (0.8 redo R5, Creative's CRTV-0020 mock-up; MOD01): App theme swatches and Appearance, the
+         platform style, text size and font, the Comfort switches, the Cornerstone credit and About. Kept in the one
+         settings entry (settings.js). -->
     <div id="settingsSheet" class="vcge-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
-        <div class="vcge-sheet-panel">
-            <div class="vcge-sheet-head">
+        <div class="vcge-sheet-panel r5-sheet">
+            <div class="vcge-sheet-head r5-head">
                 <h2 id="settingsTitle" class="vcge-sheet-title"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#settings"></use></svg>Settings</h2>
-                <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close">&#x2715;</button>
+                <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
             </div>
-            <div class="vcge-sheet-row">
-                <span id="handLabel">Hand</span>
-                <div class="vcge-seg" role="group" aria-labelledby="handLabel">
-                    <button id="handRightBtn" type="button" aria-pressed="true">Right</button>
-                    <button id="handLeftBtn" type="button" aria-pressed="false">Left</button>
+            <div class="r5-body">
+                <div class="r5-group">
+                    <h4 id="appThemesLabel">App theme</h4>
+                    <div id="appThemes" class="r5-themes" role="group" aria-labelledby="appThemesLabel"></div>
+                    <details id="moreThemes" class="r5-more"><summary>More themes</summary><div id="moreThemesGrid" class="r5-themes"></div></details>
+                    <h4 id="appearanceLabel">Appearance</h4>
+                    <div id="appearanceChips" class="r5-minis" role="group" aria-labelledby="appearanceLabel">
+                        <button type="button" class="r5-chip" data-v="system" aria-pressed="false">System</button><button type="button" class="r5-chip" data-v="light" aria-pressed="false">Light</button><button type="button" class="r5-chip" data-v="dark" aria-pressed="false">Dark</button>
+                    </div>
+                    <p id="appearanceOne" class="r5-note r5-note-in hidden">This theme comes in one version only.</p>
                 </div>
+                <div class="r5-group">
+                    <h4 id="styleChipsLabel">Style</h4>
+                    <div id="styleChips" class="r5-minis" role="group" aria-labelledby="styleChipsLabel" aria-describedby="styleChipsNote">
+                        <button type="button" class="r5-chip" data-style="herd" aria-pressed="true">Herd</button><button type="button" class="r5-chip" data-style="material" aria-pressed="false">Material</button><button type="button" class="r5-chip" data-style="ios" aria-pressed="false">iOS</button><button type="button" class="r5-chip" data-style="windows" aria-pressed="false">Windows</button><button type="button" class="r5-chip" data-style="gnome" aria-pressed="false">GNOME</button><button type="button" class="r5-chip" data-style="kde" aria-pressed="false">KDE</button>
+                    </div>
+                    <p id="styleChipsNote" class="r5-note r5-note-in">Herd is vCGE's own look. The others follow Android, iPhone, Windows and the GNOME and KDE desktops.</p>
+                </div>
+                <div class="r5-group">
+                    <h4 id="sizeLabel">Text size</h4>
+                    <div class="r5-range"><span class="r5-a-small" aria-hidden="true">A</span><input id="sizeRange" type="range" min="0" max="3" step="1" value="1" aria-labelledby="sizeLabel" aria-describedby="sizeHint"><span class="r5-a-big" aria-hidden="true">A</span></div>
+                    <p id="sizeHint" class="r5-note r5-note-in">The text grows; the icons at the top stay the same size.</p>
+                    <div class="r5-sw-row r5-font-row">
+                        <label class="r5-lbl" for="fontSelect"><b>Font</b></label>
+                        <select id="fontSelect" class="r5-select" aria-label="UI font"></select>
+                    </div>
+                </div>
+                <div class="r5-group">
+                    <h4>Comfort</h4>
+                    <div class="r5-sw-row">
+                        <label class="r5-lbl" for="handToggle"><b>Left-handed</b><small>Moves the top buttons and camera tools</small></label>
+                        <input id="handToggle" type="checkbox" role="switch" class="r5-toggle">
+                    </div>
+                    <div class="r5-sw-row">
+                        <label class="r5-lbl" for="cbToggle"><b>Colour-blind mode</b><small id="cbHint">Words and marks next to every colour cue</small></label>
+                        <input id="cbToggle" type="checkbox" role="switch" class="r5-toggle" aria-describedby="cbHint">
+                    </div>
+                    <div class="r5-sw-row">
+                        <label class="r5-lbl" for="texToggle"><b>Background texture</b><small>A soft dot pattern behind the screens</small></label>
+                        <input id="texToggle" type="checkbox" role="switch" class="r5-toggle" checked>
+                    </div>
+                    <!-- Plain is its own build (the plain edition): the switch shows where it would be, and is never live here -->
+                    <div class="r5-sw-row r5-plain-row">
+                        <label class="r5-lbl" for="plainToggle"><b>Plain look</b><small id="plainNote">A separate download: the Plain edition hides the Herd pilots and art</small></label>
+                        <input id="plainToggle" type="checkbox" role="switch" class="r5-toggle" disabled aria-describedby="plainNote">
+                    </div>
+                </div>
+                <!-- Project manager credit (branded only) and About (CRTV-0020): the maker mark, the wordmark and the credits -->
+                <div class="vcge-pm-credit"><span class="vcge-pilot-chip"><i aria-hidden="true">🐘</i><span>Cornerstone</span></span><p><b>Project manager</b>Keeps the Herd on task and on the right path.</p></div>
+                <div id="settingsAbout" class="r5-group vcge-about">
+                    <span class="vcge-hoh" role="img" aria-label="Herd of Helpers"></span>
+                    <span class="vcge-about-word vcge-wordmark" role="img" aria-label="vCGE"></span>
+                    <p>vCGE 0.8</p>
+                    <p>&copy; 2026 raven575, Herd of Helpers (claude) &amp; gemini</p>
+                </div>
+                <p id="settingsNote" class="r5-foot">vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time). Nothing you scan, upload or type is ever saved.</p>
             </div>
-            <div class="vcge-sheet-row">
-                <label for="cbToggle">Colour-blind mode</label>
-                <input id="cbToggle" type="checkbox" role="switch" class="vcge-switch" aria-describedby="cbHint">
-            </div>
-            <p id="cbHint" class="vcge-sheet-hint">Words and marks next to every colour cue.</p>
-            <div class="vcge-sheet-row">
-                <label for="themeSelect">App theme</label>
-                <select id="themeSelect" class="vcge-select" aria-label="App theme"></select>
-            </div>
-            <div class="vcge-sheet-row">
-                <label for="fontSelect">UI font</label>
-                <select id="fontSelect" class="vcge-select" aria-label="UI font"></select>
-            </div>
-            <div class="vcge-sheet-row">
-                <label for="sizeSelect">Text size</label>
-                <select id="sizeSelect" class="vcge-select" aria-label="Text size" aria-describedby="sizeHint"></select>
-            </div>
-            <p id="sizeHint" class="vcge-sheet-hint">The text on the cards grows; the icons at the top stay the same size.</p>
-            <div class="vcge-sheet-row">
-                <label for="wipeSelect">Wipe after the lock</label>
-                <select id="wipeSelect" class="vcge-select" aria-label="Wipe after the lock" aria-describedby="wipeHint"></select>
-            </div>
-            <p id="wipeHint" class="vcge-sheet-hint">With a PIN, vCGE locks after 2 minutes without activity, then wipes the card this long after the lock.</p>
-            <div class="vcge-sheet-row">
-                <span>Language</span>
-                <span class="vcge-sheet-soon">English (more coming later)</span>
-            </div>
-            <div class="vcge-sheet-row">
-                <span>PIN and fingerprint</span>
-                <button id="settingsVaultBtn" type="button" class="px-3 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-xs font-semibold transition" data-open-sheet="vaultPage">Open the Vault</button>
-            </div>
-            <!-- Project manager credit (branded only) and About (CRTV-0020): the maker mark, the wordmark and the credits -->
-            <div class="vcge-pm-credit"><span class="vcge-pilot-chip"><i aria-hidden="true">🐘</i><span>Cornerstone</span></span><p><b>Project manager</b>Keeps the Herd on task and on the right path.</p></div>
-            <div id="settingsAbout" class="vcge-about">
-                <span class="vcge-hoh" role="img" aria-label="Herd of Helpers"></span>
-                <span class="vcge-about-word vcge-wordmark" role="img" aria-label="vCGE"></span>
-                <p>vCGE 0.7</p>
-                <p>&copy; 2026 raven575, Herd of Helpers (claude) &amp; gemini</p>
-            </div>
-            <p id="settingsNote" class="vcge-sheet-note">vCGE keeps one small settings file on this device (hand, colors, theme, font, text size, wipe time). Nothing you scan, upload or type is ever saved.</p>
         </div>
     </div>
 
