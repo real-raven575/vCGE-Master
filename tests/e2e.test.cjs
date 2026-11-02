@@ -3113,7 +3113,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       ok('swipe: a nudge shorter than 24 px stays on the same screen', (await deckState()).card === 'welcome', JSON.stringify(await deckState()));
       await touch(700, 500);
       ok('swipe: right to left goes on to the next step', (await deckState()).card === 'capture', JSON.stringify(await deckState()));
-      await touch(950, 60);
+      await touch(820, 60);  // starts inside the centred column (40rem), where the screens take the finger
       ok('swipe: a long fling still goes only one step, not two', (await deckState()).card === 'read', JSON.stringify(await deckState()));
       await touch(20, 400);
       ok('swipe: a swipe from the screen\'s edge is left to the browser (its back gesture)', (await deckState()).card === 'read', JSON.stringify(await deckState()));
