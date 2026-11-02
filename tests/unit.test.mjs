@@ -673,6 +673,12 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('tween: stepped frames about 38 ms apart, ending exactly on the target', seen.length >= 6 && seen.length <= 8 && seen[seen.length - 1] === 2 && seen.slice(0, -1).every(v => v > 1 && v < 2.1), JSON.stringify(seen));
   const instant = []; tween(1, 3, 260, (v) => instant.push(v), { instant: true, schedule, cancel: () => {} });
   ok('tween: under reduce motion the end value applies at once', instant.length === 1 && instant[0] === 3 && timers.length === 0);
+  // 0.8 Capture (R2): the corners turn green only after two looks in a row find a card, and back after two misses
+  const { nextSeen, chipFor, FOUND_RUN } = await import(`${R}/modules/mod03-camera/viewfinder.js`);
+  const run = (hits) => hits.reduce((st, h) => nextSeen(st, h), { found: false, run: 0 }).found;
+  ok('card watch: one look that finds a card is not enough; two in a row turn the corners green', FOUND_RUN === 2 && !run([true]) && run([true, true]) && !run([true, false, true]));
+  ok('card watch: once found, one miss keeps it green and two misses turn it back (no flicker)', run([true, true, false]) && !run([true, true, false, false]) && run([true, true, false, true, false]));
+  ok('zoom chips: the chip for the zoom asked for, none for a zoom between them', chipFor(1, [0.5, 1, 2]) === 1 && chipFor(2.02, [0.5, 1, 2]) === 2 && chipFor(0.5, [0.5, 1, 2]) === 0 && chipFor(1.5, [0.5, 1, 2]) === -1 && chipFor(NaN, [1]) === -1);
 }
 
 // The live camera's own zoom (MOD03, raven575, Chrome on Android, 2026-10-24: the fader skipped, jumped back and forth
@@ -697,6 +703,24 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   cam.applyZoom(2); cam.applyZoom(1);                       // the fader taken back down to 1x meanwhile
   await settle(); await settle();
   ok('camera zoom: the last zoom asked for is the last one the camera gets, so it never stops at an old zoom', JSON.stringify(sent) === '[1,3,1]' && !cam.zoomInFlight && finish.length === 0, JSON.stringify(sent));
+  // The zoom chips (0.8 Capture, R2) drive the same zoom: the slider's value, kept inside what the camera can do
+  const chip = (v) => Object.assign(el(), { dataset: { zoom: v }, attrs: {}, setAttribute(k, x) { this.attrs[k] = x; } });
+  const chips = ['0.5', '1', '2'].map(chip);
+  const cam2 = new VCGEActiveCamera({ ...cfg, zoomSlider: el(), zoomChips: chips, hint: el(), shutterLabel: el(), startButton: el() });
+  cam2.zoomSlider.min = '1'; cam2.zoomSlider.max = '4';
+  cam2.pickZoom('2');
+  const pressed = () => chips.map(c => c.attrs['aria-pressed']).join();
+  ok('zoom chips: 2x sets the zoom to 2 through the slider and shows 2x pressed', cam2.zoomSlider.value === '2' && cam2.targetZoom === 2 && pressed() === 'false,false,true', `${cam2.zoomSlider.value} ${pressed()}`);
+  cam2.pickZoom('0.5');
+  ok('zoom chips: .5x on a camera that cannot go wider stays at 1x, and 1x shows pressed', cam2.zoomSlider.value === '1' && cam2.targetZoom === 1 && pressed() === 'false,true,false', `${cam2.zoomSlider.value} ${pressed()}`);
+  let started = 0; cam2.startButton.click = () => { started++; };
+  cam2.activeStream = null; cam2.captureFrame();
+  cam2.starting = true; cam2.captureFrame();
+  ok('shutter with the camera off starts the camera (once, not again while it starts) and takes no photo', started === 1 && cam2.capturedImageDataUrl === null, String(started));
+  cam2.showFound(true);
+  ok('card found: the hint and the shutter label say so in words', cam2.hint.textContent === 'Hold still, then tap the shutter' && cam2.shutterLabel.textContent === 'Card found');
+  cam2.stopWatch();
+  ok('camera off: the corners and the shutter go back, and the label says the camera is off', cam2.hint.textContent === 'Fit the card inside the corners' && cam2.shutterLabel.textContent === 'Camera off' && cam2.watchTimer === null);
   globalThis.addEventListener = savedAdd;
 }
 
@@ -1520,11 +1544,24 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('logo: the top bar keeps "vCard Generator Engine" for screen readers, and plain shows the colour wordmark in place of the icon and "vCGE"',
     /<span class="deck-brand-text vcge-sr-only">vCard Generator Engine<\/span>/.test(html)
     && /html\[data-edition="plain"\] \.vcge-mark \.deck-wordmark \{ display: block;/.test(deckCss0) && /html\[data-edition="plain"\] \.vcge-mark \.vcge-mark-text \{ display: none; \}/.test(deckCss0));
-  ok('logo: the Welcome card draws the main logo, and leaves it and the tagline out in plain; "Made by" and the maker mark show in both',
-    /isPlain\(\) \? \[\] : \[el\('span', \{ className: 'vcge-welcome-logo vcge-logo-mark', role: 'img', 'aria-label': 'vCGE' \}\)\]/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8'))
-    && /isPlain\(\) \? \[\] : \[el\('p', \{ id: 'welcomeTagline'/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8'))
-    && /el\('div', \{ className: 'vcge-maker' \}, el\('small', \{\}, 'Made by'\)/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8'))
+  // 0.8 redo R2: the Welcome card is Creative's (markup in index.html): Shutout's art and the tagline, taken out in plain
+  // (welcome.js removes them, screens-r2.css hides them before it runs); "Made by" and the maker mark in both. The main
+  // logo stays on the Thank You page.
+  const welcomeHtml = html.slice(html.indexOf('<section id="cardWelcome"'), html.indexOf('</section>', html.indexOf('<section id="cardWelcome"')));
+  const r2Css = fs.readFileSync(`${R}/modules/mod01-shell/screens-r2.css`, 'utf8');
+  ok('logo: the Welcome card shows Shutout and the tagline, both left out in plain; "Made by" and the maker mark show in both; the Thank You logo is the bundled file',
+    /<svg id="welcomeArt" class="r2-art" viewBox="0 0 200 150" role="img" aria-label="Shutout the Box Turtle waving">/.test(welcomeHtml)
+    && /<p id="welcomeTagline" class="r2-tag">Operation: Never Lose Contact<\/p>/.test(welcomeHtml)
+    && /if \(isPlain\(\)\) \['welcomeArt', 'welcomeTagline'\]\.forEach\(id => \{ const n = document\.getElementById\(id\); if \(n\) n\.remove\(\); \}\);/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8'))
+    && /html\[data-edition="plain"\] #welcomeArt, html\[data-edition="plain"\] #welcomeTagline \{ display: none; \}/.test(r2Css)
+    && /<div class="vcge-maker"><small>Made by<\/small><span class="vcge-hoh" role="img" aria-label="Herd of Helpers"><\/span><\/div>/.test(welcomeHtml)
     && /html:not\(\[data-edition="plain"\]\) \.vcge-welcome-logo\.vcge-logo-mark \{ background-image: url\('\.\.\/\.\.\/assets\/brand\/vcge-logo\.svg'\); \}/.test(css));
+  ok('welcome (0.8): the promise and the privacy line, no Start button of its own: the dock\'s primary reads "Scan a card" and moves on (empty data-next)',
+    /<h3 id="welcomeTitle">Scan a card\. Keep the contact\.<\/h3>/.test(welcomeHtml) && welcomeHtml.includes('Nothing is saved. Your card stays in memory and is wiped after you lock or close the app.')
+    && !/welcomeStartBtn/.test(html) && /<section id="cardWelcome"[^>]*data-next="" data-next-label="Scan a card"/.test(html));
+  ok('splash and maker mark (0.8): the splash takes the theme\'s colours, and the C1 mark is drawn to its art (the mock-up\'s crop)',
+    /\.vcge-splash \{[^}]*background: var\(--sh-bg\); color: var\(--sh-ink\);/.test(css) && /\.vcge-splash small \{[^}]*color: var\(--sh-muted\);/.test(css)
+    && /\.vcge-hoh \{ display: block; width: 118px; aspect-ratio: 608 \/ 520;/.test(css) && fs.readFileSync(`${R}/assets/brand/hoh-c1.svg`, 'utf8').startsWith('<svg xmlns="http://www.w3.org/2000/svg" viewBox="96 40 608 520"'));
   // Plain may draw only assets/maker (the wordmark and the HoH Block mark, raven575 2026-11-01): every rule that
   // reaches assets/brand starts with html:not([data-edition="plain"])
   const brandRules = css.replace(/\/\*[\s\S]*?\*\//g, '').split('}').filter(r => r.includes("assets/brand/"));
@@ -1657,7 +1694,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     && (code.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ui.js'") || l.includes("'./themes.js'")) && !/fetch\(|document\.cookie|sessionStorage|indexedDB|innerHTML|publish\(/.test(code));
   ok('settings: the only storage key named in the code is the settings key (plus the old theme key it removes)', [...code.matchAll(/(?:getItem|setItem|removeItem)\((\w+)/g)].every(m => m[1] === 'SETTINGS_KEY' || m[1] === 'OLD_THEME_KEY'));
   ok('settings: the Settings sheet and the Welcome card carry the one-file disclaimer', fs.readFileSync(`${R}/../index.html`, 'utf8').includes('vCGE keeps one small settings file on this device (hand, colors, theme, font, text size, wipe time). Nothing you scan, upload or type is ever saved.')
-    && /remembers none of your sensitive data/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8')) && !fs.existsSync(`${R}/modules/mod01-shell/themeManager.js`));
+    && /<section id="cardWelcome"[\s\S]*?remembers none of your sensitive data[\s\S]*?<\/section>/.test(fs.readFileSync(`${R}/../index.html`, 'utf8')) && !fs.existsSync(`${R}/modules/mod01-shell/themeManager.js`));
   // App themes (themes.js, theme step 1): fixed codes, readable colours, branded ones left out of plain
   const th = await import(`${R}/modules/mod01-shell/themes.js`);
   const lin = (h) => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(c => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));

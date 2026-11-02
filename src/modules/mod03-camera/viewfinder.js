@@ -20,6 +20,8 @@ export const CARD_ASPECT = 3.5 / 2;      // a business card, long side over shor
 export const FRAME_FILL = 0.88;          // how much of the viewfinder the card frame spans along its tighter side
 export const STEP_FPS = 26;              // motion is stepped at 24 to 30 fps so it is not too crisp (shared rule)
 export const OVERSHOOT = 0.05;           // the small snap past the target before settling (4 to 6 percent)
+export const FOUND_RUN = 2;              // looks in a row that must agree before the corners turn green, or back
+export const CHIP_NEAR = 0.05;           // a zoom this close to a chip's counts as that chip's
 
 /**
  * The window of the video that a `viewW` x `viewH` viewfinder shows with the video covering it, scaled by `zoom`
@@ -48,6 +50,24 @@ export function cardFrameRect(viewW, viewH) {
     let width = viewW * FRAME_FILL, height = width / aspect;
     if (height > viewH * FRAME_FILL) { height = viewH * FRAME_FILL; width = height * aspect; }
     return { x: (viewW - width) / 2, y: (viewH - height) / 2, width, height, orientation };
+}
+
+/**
+ * The live card watch's memory: `state` is { found, run }. A look that agrees with `found` clears the run; FOUND_RUN looks
+ * in a row that disagree flip it. So one odd frame never turns the corners green, or back (no flicker).
+ */
+export function nextSeen(state, hit) {
+    const found = !!(state && state.found), seen = !!hit;
+    if (seen === found) return { found, run: 0 };
+    const run = ((state && state.run) || 0) + 1;
+    return run >= FOUND_RUN ? { found: seen, run: 0 } : { found, run };
+}
+
+/** The index of the zoom chip whose value is `zoom` (within CHIP_NEAR), or -1 for a zoom between them. */
+export function chipFor(zoom, values) {
+    const z = Number(zoom);
+    if (!Number.isFinite(z)) return -1;
+    return values.findIndex(v => Math.abs(v - z) < CHIP_NEAR);
 }
 
 // The "back" constant that makes the second half overshoot by exactly OVERSHOOT (its peak is 2c^3 / (27 (c + 1)^2)).

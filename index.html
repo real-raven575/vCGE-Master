@@ -95,60 +95,103 @@
 
     <!-- THE SCREENS (MOD01): one per step, shown one at a time (deck.js). The head above names the step, its pilot and the screen. -->
     <main id="deck" class="deck" aria-label="vCGE screens">
-        <section id="cardWelcome" class="deck-card" data-card="welcome" data-step="Welcome" data-pilot-emoji="🐢" data-pilot="Shutout" data-title="Hello there" data-next="#welcomeStartBtn" data-next-label="Scan a card" aria-label="Welcome">
-            <div class="deck-card-body space-y-4">
-                <div id="welcomeBody" class="welcome-body"></div>
+        <section id="cardWelcome" class="deck-card" data-card="welcome" data-step="Welcome" data-pilot-emoji="🐢" data-pilot="Shutout" data-title="Hello there" data-next="" data-next-label="Scan a card" aria-label="Welcome">
+            <!-- Welcome (0.8 redo R2, CRTV-0020 mock-up): Shutout waving, the one-line promise, the privacy line, the tagline and
+                 "Made by". The primary button "Scan a card" is the dock's (data-next is empty, so it moves on to Capture).
+                 welcome.js wires the quiet buttons and leaves Shutout and the tagline out of the plain edition. -->
+            <div class="deck-card-body">
+                <div id="welcomeBody" class="r2-hero">
+                    <svg id="welcomeArt" class="r2-art" viewBox="0 0 200 150" role="img" aria-label="Shutout the Box Turtle waving">
+                        <ellipse class="r2-art-floor" cx="100" cy="138" rx="66" ry="8"/>
+                        <path d="M44 104c0-34 25-58 56-58s56 24 56 58c0 10-8 16-18 16H62c-10 0-18-6-18-16z" fill="#6E7F3A"/>
+                        <path d="M62 102c0-22 17-40 38-40s38 18 38 40" fill="none" stroke="#56662A" stroke-width="4" stroke-linecap="round"/>
+                        <path d="M100 62v40M76 72l10 30M124 72l-10 30" stroke="#56662A" stroke-width="4" stroke-linecap="round"/>
+                        <path d="M38 112c-6 0-10 8-6 14 4 5 14 4 18-2" fill="#B7C46E"/>
+                        <path d="M162 112c6 0 10 8 6 14-4 5-14 4-18-2" fill="#B7C46E"/>
+                        <circle cx="100" cy="44" r="27" fill="#B7C46E"/>
+                        <ellipse cx="90" cy="42" rx="4" ry="5" fill="#2A2440"/><ellipse cx="110" cy="42" rx="4" ry="5" fill="#2A2440"/>
+                        <circle cx="91.5" cy="40" r="1.4" fill="#fff"/><circle cx="111.5" cy="40" r="1.4" fill="#fff"/>
+                        <path d="M92 54q8 6 16 0" fill="none" stroke="#2A2440" stroke-width="2.6" stroke-linecap="round"/>
+                        <circle cx="82" cy="52" r="4" fill="#F6C3AE" opacity=".8"/><circle cx="118" cy="52" r="4" fill="#F6C3AE" opacity=".8"/>
+                        <path d="M150 86c8-10 14-24 12-34" stroke="#B7C46E" stroke-width="12" stroke-linecap="round" fill="none"/>
+                        <circle cx="162" cy="48" r="9" fill="#B7C46E"/>
+                    </svg>
+                    <h3 id="welcomeTitle">Scan a card. Keep the contact.</h3>
+                    <p class="r2-lede">Point your camera at a business card. vCGE reads it on this device and helps you save it.</p>
+                    <div class="r2-privacy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg><span>Nothing is saved. Your card stays in memory and is wiped after you lock or close the app.</span></div>
+                    <p id="welcomeTagline" class="r2-tag">Operation: Never Lose Contact</p>
+                    <!-- "Made by" and the Herd of Helpers maker mark, in both editions (plain: the HoH Block mark), CRTV-0020 -->
+                    <div class="vcge-maker"><small>Made by</small><span class="vcge-hoh" role="img" aria-label="Herd of Helpers"></span></div>
+                    <div class="r2-more">
+                        <button id="welcomeTourBtn" type="button" class="r2-quiet">Take a Tour</button>
+                        <button id="welcomePinBtn" type="button" class="r2-quiet">Set Up PIN/BIO Lock Now</button>
+                        <button id="welcomeSampleBtn" type="button" class="r2-quiet">Play with sample fields</button>
+                        <button id="welcomeCancelBtn" type="button" class="r2-quiet r2-quiet-stop">CANCEL</button>
+                    </div>
+                    <p class="r2-fine">This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data: it keeps one small settings file on this device (hand, colors, theme, font, text size, wipe time), and nothing you scan, upload or type is ever saved.</p>
+                </div>
             </div>
         </section>
         <section id="cardCapture" class="deck-card" data-card="capture" data-step="Step 1 of 5 · Capture" data-pilot-emoji="🐈" data-pilot="Iris" data-title="Capture" data-next="#runOcrBtn" data-next-label="Use this photo" aria-label="Capture">
-            <div class="deck-card-body space-y-4">
+            <div class="deck-card-body r2-capbody">
                 <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Scan a business card</h2>
-                <p id="photoCountNote" class="hidden text-sm text-slate-500 dark:text-slate-400" role="status"></p>
-                <!-- Iris peeking over a card (MOD03 cute touch; branded edition only, see camera.css). Tap: one wink. -->
-                <div id="capIris" class="cap-iris" role="img" aria-label="Iris the lynx peeking over a business card">
-                    <svg viewBox="0 0 120 80" aria-hidden="true" focusable="false">
-                        <path d="M33 34 L29 7 L48 25 Z" fill="#c08a4a"/><path d="M87 34 L91 7 L72 25 Z" fill="#c08a4a"/>
-                        <path d="M35 28 L33 14 L43 25 Z" fill="#f4c7b8"/><path d="M85 28 L87 14 L77 25 Z" fill="#f4c7b8"/>
-                        <path d="M29 7 L28 0 M91 7 L92 0" stroke="#3f2a17" stroke-width="2" stroke-linecap="round"/>
-                        <ellipse cx="60" cy="47" rx="31" ry="25" fill="#d9ab6c"/>
-                        <path d="M30 50 L22 56 L32 55 Z M90 50 L98 56 L88 55 Z" fill="#d9ab6c"/>
-                        <g class="iris-eye-l"><ellipse cx="48" cy="41" rx="5" ry="5.5" fill="#f59e0b"/><ellipse cx="48" cy="41" rx="1.5" ry="4.3" fill="#0f172a"/></g>
-                        <g class="iris-eye-r"><ellipse cx="72" cy="41" rx="5" ry="5.5" fill="#f59e0b"/><ellipse cx="72" cy="41" rx="1.5" ry="4.3" fill="#0f172a"/></g>
-                        <rect x="8" y="49" width="104" height="30" rx="4" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
-                        <path d="M18 60 H58 M18 67 H74 M18 73 H50" stroke="#cbd5e1" stroke-width="2.5" stroke-linecap="round"/>
-                        <ellipse cx="42" cy="50" rx="7" ry="4.5" fill="#d9ab6c"/><ellipse cx="78" cy="50" rx="7" ry="4.5" fill="#d9ab6c"/>
-                        <path d="M39 48 V52 M42 47.5 V52.5 M45 48 V52 M75 48 V52 M78 47.5 V52.5 M81 48 V52" stroke="#a87436" stroke-width="1" stroke-linecap="round"/>
-                    </svg>
-                </div>
-                <!-- Capture (MOD03, Iris): Take a photo first, Upload a photo second; the picker is the device's own -->
-                <div id="captureChoice" class="cap-choice">
-                    <button id="startCameraBtn" type="button" class="cap-btn cap-btn-primary"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#camera"></use></svg><span>Take a photo</span></button>
-                    <label id="uploadPhotoBtn" class="cap-btn">
-                        <svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#upload"></use></svg><span>Upload a photo</span>
-                        <input id="imageUpload" type="file" accept="image/*" class="hidden" aria-label="Upload a photo">
-                    </label>
-                </div>
-                <button id="reopenScanBtn" type="button" class="hidden w-full py-2 px-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/60 dark:hover:bg-slate-700 rounded-xl text-xs font-semibold transition">Reopen last scan (fix lines and fill again, no new OCR)</button>
-                <!-- Viewfinder: the live picture with thin corner brackets marking a card-shaped frame, the zoom fader on the
-                     left (48 px from the screen edge) and the round red shutter on the right; Settings can mirror them -->
-                <div id="cameraPanel" class="hidden cap-finder">
-                    <div id="viewfinderArea" class="cap-view">
-                        <video id="cameraStream" autoplay playsinline muted></video>
-                        <div id="cardFrame" class="cap-frame" aria-hidden="true">
+                <p id="photoCountNote" class="hidden r2-note" role="status"></p>
+                <button id="reopenScanBtn" type="button" class="hidden r2-reopen">Reopen last scan (fix lines and fill again, no new OCR)</button>
+                <!-- Capture (0.8 redo R2, CRTV-0020 mock-up; MOD03 Iris): the viewfinder first, nearly full width, with card-shaped
+                     corners that turn green when a card is in them, the hint and the zoom chips; under it the shutter in the middle
+                     (a red ring that turns green) with Photo (upload) and Flip camera either side. It fits one screen: the
+                     viewfinder takes the room the rest leaves. Left-handed (Settings) swaps Photo and Flip. -->
+                <div id="capCamera" class="r2-cam">
+                    <div id="viewfinderArea" class="cap-view r2-finder">
+                        <div id="cameraPanel" class="hidden r2-live"><video id="cameraStream" autoplay playsinline muted></video></div>
+                        <!-- The camera is off: Iris peeks over a card (tap: one wink) above the button that starts it -->
+                        <div class="r2-idle">
+                            <div id="capIris" class="cap-iris" role="img" aria-label="Iris the lynx peeking over a business card">
+                                <svg viewBox="0 0 120 80" aria-hidden="true" focusable="false">
+                                    <path d="M33 34 L29 7 L48 25 Z" fill="#c08a4a"/><path d="M87 34 L91 7 L72 25 Z" fill="#c08a4a"/>
+                                    <path d="M35 28 L33 14 L43 25 Z" fill="#f4c7b8"/><path d="M85 28 L87 14 L77 25 Z" fill="#f4c7b8"/>
+                                    <path d="M29 7 L28 0 M91 7 L92 0" stroke="#3f2a17" stroke-width="2" stroke-linecap="round"/>
+                                    <ellipse cx="60" cy="47" rx="31" ry="25" fill="#d9ab6c"/>
+                                    <path d="M30 50 L22 56 L32 55 Z M90 50 L98 56 L88 55 Z" fill="#d9ab6c"/>
+                                    <g class="iris-eye-l"><ellipse cx="48" cy="41" rx="5" ry="5.5" fill="#f59e0b"/><ellipse cx="48" cy="41" rx="1.5" ry="4.3" fill="#0f172a"/></g>
+                                    <g class="iris-eye-r"><ellipse cx="72" cy="41" rx="5" ry="5.5" fill="#f59e0b"/><ellipse cx="72" cy="41" rx="1.5" ry="4.3" fill="#0f172a"/></g>
+                                    <rect x="8" y="49" width="104" height="30" rx="4" fill="#ffffff" stroke="#94a3b8" stroke-width="1.5"/>
+                                    <path d="M18 60 H58 M18 67 H74 M18 73 H50" stroke="#cbd5e1" stroke-width="2.5" stroke-linecap="round"/>
+                                    <ellipse cx="42" cy="50" rx="7" ry="4.5" fill="#d9ab6c"/><ellipse cx="78" cy="50" rx="7" ry="4.5" fill="#d9ab6c"/>
+                                    <path d="M39 48 V52 M42 47.5 V52.5 M45 48 V52 M75 48 V52 M78 47.5 V52.5 M81 48 V52" stroke="#a87436" stroke-width="1" stroke-linecap="round"/>
+                                </svg>
+                            </div>
+                            <button id="startCameraBtn" type="button" class="r2-start"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#camera"></use></svg><span>Start the camera</span></button>
+                        </div>
+                        <div id="cardFrame" class="cap-frame r2-corners" aria-hidden="true">
                             <span class="cap-corner tl"></span><span class="cap-corner tr"></span><span class="cap-corner br"></span><span class="cap-corner bl"></span>
                         </div>
-                        <div class="cap-fader">
-                            <span id="zoomDisplay" class="cap-zoom" aria-live="off">1.0x</span>
-                            <div class="cap-fader-track"><input id="zoomSlider" type="range" min="1" max="4" step="0.1" value="1" aria-label="Zoom" aria-orientation="vertical" data-no-swipe></div>
-                        </div>
-                        <div class="cap-shutter-slot">
-                            <button id="captureBtn" type="button" class="cap-shutter" aria-label="Take the photo" title="Take the photo"><svg class="vcge-icon cap-shutter-icon" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#camera"></use></svg><svg class="vcge-icon cap-shutter-check" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#circle-check"></use></svg></button>
-                            <span class="cap-shutter-label" aria-hidden="true">Shutter</span>
+                        <div id="camHint" class="r2-hint" aria-live="polite">Fit the card inside the corners</div>
+                        <button id="stopCameraBtn" type="button" class="r2-close" aria-label="Close camera" title="Close camera"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+                        <!-- Zoom: three chips over the foot of the picture. They drive the same zoom as before (camera.js pickZoom: the
+                             slider below, kept as the zoom's value, eases into each change); a pinch still zooms anywhere in between. -->
+                        <div id="zoomChips" class="r2-zoom" role="group" aria-label="Zoom">
+                            <button type="button" data-zoom="0.5" aria-pressed="false" aria-label="Zoom out to half">.5×</button><button type="button" data-zoom="1" aria-pressed="true" aria-label="No zoom">1×</button><button type="button" data-zoom="2" aria-pressed="false" aria-label="Zoom in two times">2×</button>
+                            <span id="zoomDisplay" class="hidden" aria-live="off">1.0x</span>
+                            <input id="zoomSlider" class="hidden" type="range" min="1" max="4" step="0.1" value="1" aria-label="Zoom" tabindex="-1" data-no-swipe>
                         </div>
                     </div>
-                    <div class="cap-finder-tools">
-                        <button id="switchCameraBtn" type="button">Switch camera</button>
-                        <button id="stopCameraBtn" type="button">Close camera</button>
+                    <div class="r2-camrow">
+                        <div class="r2-side">
+                            <label id="uploadPhotoBtn" class="r2-sidebtn" title="Choose a photo">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="M21 16l-5-5-8 9"/></svg>
+                                <input id="imageUpload" type="file" accept="image/*" class="hidden" aria-label="Choose a photo">
+                            </label>
+                            <span aria-hidden="true">Photo</span>
+                        </div>
+                        <div class="r2-shut">
+                            <button id="captureBtn" type="button" class="cap-shutter r2-shutter" aria-label="Take the photo" title="Take the photo" aria-describedby="shutLbl"><svg class="vcge-icon cap-shutter-icon" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#camera"></use></svg><svg class="vcge-icon cap-shutter-check" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#circle-check"></use></svg></button>
+                            <div id="shutLbl" class="r2-shutlbl">Camera off</div>
+                        </div>
+                        <div class="r2-side">
+                            <button id="switchCameraBtn" type="button" class="r2-sidebtn" aria-label="Switch camera" title="Switch camera"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><path d="M9 13a3 3 0 0 1 5.5-1.6M15 14a3 3 0 0 1-5.5 1.6"/><path d="M14.5 9.5v2h-2M9.5 17.5v-2h2"/></svg></button>
+                            <span aria-hidden="true">Flip</span>
+                        </div>
                     </div>
                 </div>
                 <!-- Crop & straighten (MOD03): the handles start at the photo's full edge; Snap to card finds the edges on request -->

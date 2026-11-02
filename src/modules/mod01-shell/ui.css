@@ -97,7 +97,7 @@ html[data-edition="plain"] .vcge-logo-mark, html[data-edition="plain"] .mod-tag 
 
 /* The Herd of Helpers maker mark: the colourful C1 in the branded edition, the one-ink HoH Block (B2) in plain, which
    takes the text colour. In dark mode C1 gets a soft white glow so it lifts off the page (raven575 2026-11-01). */
-.vcge-hoh { display: block; width: 118px; aspect-ratio: 4 / 3; margin: 0 auto; }
+.vcge-hoh { display: block; width: 118px; aspect-ratio: 608 / 520; margin: 0 auto; }   /* C1 drawn to its art, as the mock-up crops it */
 html:not([data-edition="plain"]) .vcge-hoh { background: url('../../assets/brand/hoh-c1.svg') center / contain no-repeat; }
 html.dark:not([data-edition="plain"]) .vcge-hoh { filter: drop-shadow(0 0 1.5px rgba(255, 255, 255, 0.3)) drop-shadow(0 0 5px rgba(255, 255, 255, 0.14)); }
 html[data-edition="plain"] .vcge-hoh { aspect-ratio: 646 / 244; background: currentColor;
@@ -107,11 +107,10 @@ html[data-edition="plain"] .vcge-hoh { aspect-ratio: 646 / 244; background: curr
 
 /* Opening splash: shown by CSS on load and faded out by CSS, so it can never stay up; vcge-splash-off ends it at once */
 .vcge-splash { position: fixed; inset: 0; z-index: 90; display: grid; place-content: center; justify-items: center; gap: 14px;
-    background: #f5f2fa; color: #2a2440; pointer-events: none; animation: vcge-splash-out 420ms ease 1.8s both; }
-html.dark .vcge-splash { background: #18151f; color: #eeeaf7; }
+    background: var(--sh-bg); color: var(--sh-ink); pointer-events: none; animation: vcge-splash-out 420ms ease 1.8s both; }
 .vcge-splash .vcge-hoh { width: 220px; animation: vcge-splash-zoom 900ms cubic-bezier(.2, .8, .2, 1) both; }
 html[data-edition="plain"] .vcge-splash .vcge-hoh { width: 240px; }
-.vcge-splash small { font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; opacity: 0.75; }
+.vcge-splash small { font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--sh-muted); }
 .vcge-splash-logo { display: block; width: 220px; aspect-ratio: 1752 / 1276; }
 html:not([data-edition="plain"]) .vcge-splash-logo { background: url('../../assets/brand/vcge-logo.svg') center / contain no-repeat; }
 html[data-edition="plain"] .vcge-splash-logo { width: 200px; aspect-ratio: 1285 / 572; background: url('../../assets/maker/vcge-wordmark.svg') center / contain no-repeat; }

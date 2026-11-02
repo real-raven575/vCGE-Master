@@ -292,10 +292,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     }
   };
   const plainContext = browser.newContext.bind(browser);
+  // 0.8: the Welcome screen has no Start button of its own; the dock's primary ("Scan a card") moves on once the
+  // Welcome buttons are wired (welcome.js marks #welcomeBody)
   const pressStartNow = () => new MutationObserver((_, o) => {
-    const b = document.getElementById('welcomeStartBtn');
-    if (b) { o.disconnect(); b.click(); }
-  }).observe(document, { childList: true, subtree: true });
+    const w = document.getElementById('welcomeBody'), b = document.getElementById('dockNext');
+    if (w && w.dataset.wired && b) { o.disconnect(); b.click(); }
+  }).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-wired'] });
   // VCGE_EDITION=plain: every load of the app's page gets <html data-edition="plain">, as the plain branch's index.html has
   const editionRoute = (c) => (FORCE_PLAIN ? c.route(u => u.origin + u.pathname === ORIGIN || u.origin + u.pathname === ORIGIN + 'index.html',
     async (route) => { const r = await route.fetch(); await route.fulfill({ response: r, body: (await r.text()).replace('<html lang="en"', '<html lang="en" data-edition="plain"') }); }) : null);
@@ -2319,8 +2321,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await ctx3.close();
   }
 
-  // MOD03 Capture card (redesign step 5): Take / Upload buttons, the viewfinder with corner brackets, the zoom fader 48 px
-  // from the screen edge, the green shutter that sinks and pops back, a shot that is exactly what the viewfinder showed,
+  // MOD03 Capture card (0.8 redo R2, CRTV-0020): the viewfinder first with its corners, hint and zoom chips; Photo, the
+  // shutter and Flip under it; the shutter that sinks and pops back, a shot that is exactly what the viewfinder showed,
   // handles at the full edge, Snap to card, bad uploads turned away with a toast, the left-hand mirror
   {
     // Playwright's Firefox sends no pointer events for the mouse in a page with touch turned on (only mousedown, mouseup
@@ -2361,8 +2363,16 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pV.goto(ORIGIN); await pV.waitForTimeout(500);
     const card = () => pV.evaluate(() => document.documentElement.dataset.card);
     const box = (sel) => pV.evaluate((sel) => { const r = document.querySelector(sel).getBoundingClientRect(); return { l: r.left, t: r.top, r: r.right, b: r.bottom, w: r.width, h: r.height }; }, sel);
-    const choice = await pV.$$eval('#captureChoice > *', els => els.map(e => ({ text: e.textContent.trim(), h: e.offsetHeight, left: e.getBoundingClientRect().left })));
-    ok('capture: Take a photo first (left), Upload a photo second (right), both medium buttons side by side', choice.length === 2 && choice[0].text === 'Take a photo' && choice[1].text === 'Upload a photo' && choice[0].left < choice[1].left && choice.every(c => c.h >= 44), JSON.stringify(choice));
+    // 0.8 (CRTV-0020): the viewfinder first, nearly full width; under it Photo (upload) on the left, the shutter in the middle
+    // and Flip on the right, the whole camera on one screen with no scroll
+    const camRow = () => pV.evaluate(() => { const b = (q) => { const r = document.querySelector(q).getBoundingClientRect(); return { l: r.left, r: r.right, t: r.top, b: r.bottom, w: r.width, h: r.height }; };
+      const body = document.querySelector('#cardCapture .deck-card-body');
+      return { view: b('#viewfinderArea'), photo: b('#uploadPhotoBtn'), shut: b('#captureBtn'), flip: b('#switchCameraBtn'), labels: Array.from(document.querySelectorAll('#cardCapture .r2-side > span')).map(e => e.textContent).join(),
+        vw: document.documentElement.clientWidth, over: body.scrollHeight - body.clientHeight, dock: document.querySelector('.vcge-dock').getBoundingClientRect().top }; });
+    const row = await camRow();
+    ok('capture: the viewfinder first, nearly full width; Photo (left), the shutter centred under it, Flip (right); one screen, no scroll', row.view.w >= row.vw - 48 && row.shut.t >= row.view.b
+      && Math.abs((row.shut.l + row.shut.r) / 2 - (row.view.l + row.view.r) / 2) < 2 && row.photo.r < row.shut.l && row.flip.l > row.shut.r && Math.abs((row.photo.t + row.photo.b) / 2 - (row.flip.t + row.flip.b) / 2) < 1
+      && row.photo.h >= 44 && row.flip.h >= 44 && row.labels === 'Photo,Flip' && row.over <= 0 && row.shut.b <= row.dock, JSON.stringify(row));
     ok('capture: the upload button opens the device\'s own image picker (any image type, no pop-up of our own)', (await pV.getAttribute('#imageUpload', 'accept')) === 'image/*' && (await pV.getAttribute('#imageUpload', 'type')) === 'file');
 
     // A file that is not a photo is turned away with a toast, the crop step never opens
@@ -2385,15 +2395,41 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // The checks below all need a running camera; without one they are failed together, and the run goes on
     if (!started) ok('viewfinder, zoom, shutter, shot, Snap on a card-less shot, Retake, an early shutter press and Close camera (21 checks)', false, 'not tried: the camera never started (the check above says why)');
     else {
-    const view = await box('#viewfinderArea'), frame = await box('#cardFrame'), fader = await box('.cap-fader'), shutter = await box('#captureBtn');
-    const overlay = await pV.evaluate(() => Array.from(document.querySelectorAll('#viewfinderArea > *')).map(e => e.id || e.className));
-    ok('viewfinder: only the video, the corner brackets, the fader and the shutter sit over the picture', overlay.length === 4 && (await pV.$$('#cardFrame .cap-corner')).length === 4 && !(await pV.$('#focusRing')), JSON.stringify(overlay));
+    const view = await box('#viewfinderArea'), frame = await box('#cardFrame'), fader = await box('#zoomChips'), shutter = await box('#captureBtn');
+    const overlay = await pV.evaluate(() => Array.from(document.querySelectorAll('#viewfinderArea > *')).filter(e => getComputedStyle(e).display !== 'none').map(e => e.id || e.className));
+    ok('viewfinder: over the live picture only the corners, the hint, Close and the zoom chips (the shutter is under it)', overlay.join() === 'cameraPanel,cardFrame,camHint,stopCameraBtn,zoomChips'
+      && (await pV.$$('#cardFrame .cap-corner')).length === 4 && !(await pV.$('#focusRing')) && ['Fit the card inside the corners', 'Hold still, then tap the shutter'].includes(await pV.textContent('#camHint')), JSON.stringify(overlay));
     ok('viewfinder: the card frame is upright in portrait, centred and fills most of the view', (await pV.getAttribute('#cardFrame', 'data-orientation')) === 'portrait' && frame.h > frame.w && Math.abs(frame.w / frame.h - 2 / 3.5) < 0.02
       && frame.h > view.h * 0.8 && Math.abs((frame.l + frame.r) / 2 - (view.l + view.r) / 2) < 2, JSON.stringify({ view, frame }));
-    ok('viewfinder: the brackets are thin lines (2 px) with nothing filled in', await pV.$eval('#cardFrame .cap-corner.tl', c => { const s = getComputedStyle(c); return s.borderTopWidth === '2px' && s.borderLeftWidth === '2px' && s.borderRightWidth === '0px' && s.backgroundColor === 'rgba(0, 0, 0, 0)'; }));
-    ok('viewfinder: the zoom fader is vertical, on the left, at least 48 px from the screen edge', fader.l >= 48 && fader.h > fader.w && fader.l < view.l + view.w / 3 && (await pV.getAttribute('#zoomSlider', 'aria-orientation')) === 'vertical' && (await pV.textContent('#zoomDisplay')) === '1.0x', JSON.stringify(fader));
-    ok('viewfinder: the shutter is a round red button on the right, in the middle of the height', shutter.l > view.l + view.w / 2 && Math.abs((shutter.t + shutter.b) / 2 - (view.t + view.b) / 2) < 4 && shutter.w === shutter.h && shutter.w >= 64
-      && await pV.$eval('#captureBtn', b => getComputedStyle(b).borderRadius.startsWith('999') && /220, 38, 38/.test(getComputedStyle(b).backgroundImage) && !/22, 163, 74/.test(getComputedStyle(b).backgroundImage)), JSON.stringify(shutter));
+    // The corners (mock-up): 3 px white brackets, rounded, nothing filled in; green while a card is in them, the shutter too
+    // Read in one go (the live card watch sets these classes itself every 0.6 s), under reduce motion so the 0.3 s fade has landed
+    await pV.emulateMedia({ reducedMotion: 'reduce' });
+    const { cornerOff, cornerOn, shutOff, shutOn } = await pV.evaluate(() => {
+      const v = document.getElementById('viewfinderArea'), b = document.getElementById('captureBtn'), was = [v.classList.contains('found'), b.classList.contains('ready')];
+      const look = () => { const s = getComputedStyle(document.querySelector('#cardFrame .cap-corner.tl')); return { w: s.borderTopWidth, l: s.borderLeftWidth, r: s.borderRightWidth, bg: s.backgroundColor, colour: s.borderTopColor, round: s.borderTopLeftRadius }; };
+      v.classList.remove('found'); b.classList.remove('ready');
+      const cornerOff = look(), shutOff = getComputedStyle(b).backgroundColor;
+      v.classList.add('found'); b.classList.add('ready');
+      const cornerOn = look(), shutOn = getComputedStyle(b).backgroundColor;
+      v.classList.toggle('found', was[0]); b.classList.toggle('ready', was[1]);
+      return { cornerOff, cornerOn, shutOff, shutOn };
+    });
+    await pV.emulateMedia({ reducedMotion: null });
+    ok('viewfinder: the corners are 3 px rounded white brackets with nothing filled in, green with a card in them; the shutter turns green with them', cornerOff.w === '3px' && cornerOff.l === '3px' && cornerOff.r === '0px'
+      && cornerOff.bg === 'rgba(0, 0, 0, 0)' && cornerOff.round === '12px' && /255, 255, 255/.test(cornerOff.colour) && cornerOn.colour === 'rgb(127, 224, 162)' && shutOff !== shutOn, JSON.stringify({ cornerOff, cornerOn, shutOff, shutOn }));
+    const chipText = await pV.$$eval('#zoomChips [data-zoom]', bs => bs.map(b => `${b.textContent}:${b.getAttribute('aria-pressed')}:${Math.round(b.getBoundingClientRect().height)}`).join());
+    ok('viewfinder: three zoom chips (.5×, 1×, 2×) centred at the foot of the picture, 1× pressed', chipText === '.5×:false:44,1×:true:44,2×:false:44'
+      && Math.abs((fader.l + fader.r) / 2 - (view.l + view.r) / 2) < 2 && fader.b <= view.b - 8 && fader.b >= view.b - 24 && (await pV.textContent('#zoomDisplay')) === '1.0x', JSON.stringify({ chipText, fader, view }));
+    const shutterRing = await pV.$eval('#captureBtn', b => { const s = getComputedStyle(b); return { round: s.borderRadius, ring: s.boxShadow, disc: s.backgroundColor, clip: s.backgroundClip }; });
+    ok('viewfinder: the shutter is round, under the viewfinder in the middle, a red ring round a red disc', shutter.t >= view.b && Math.abs((shutter.l + shutter.r) / 2 - (view.l + view.r) / 2) < 2 && shutter.w === shutter.h && shutter.w >= 64
+      && shutterRing.round.startsWith('999') && /inset/.test(shutterRing.ring) && shutterRing.clip === 'content-box' && shutterRing.ring.includes(shutterRing.disc), JSON.stringify({ shutter, shutterRing }));
+    // A chip zooms the same way the fader did: 2× eases to 2x, 1× back
+    await pV.click('#zoomChips [data-zoom="2"]');
+    const chipLanded = await pV.waitForFunction(() => document.getElementById('cameraStream').style.transform === 'scale(2)', null, { timeout: 5000 }).then(() => true, () => false);
+    const chipPressed = await pV.$$eval('#zoomChips [data-zoom]', bs => bs.map(b => b.getAttribute('aria-pressed')).join());
+    await pV.click('#zoomChips [data-zoom="1"]');
+    const chipBack = await pV.waitForFunction(() => document.getElementById('cameraStream').style.transform === '' && document.getElementById('zoomDisplay').textContent === '1.0x', null, { timeout: 5000 }).then(() => true, () => false);
+    ok('zoom chips: 2× zooms the camera to 2x and shows pressed; 1× takes it back', chipLanded && chipPressed === 'false,false,true' && chipBack && (await pV.$eval('#zoomChips [data-zoom="1"]', b => b.getAttribute('aria-pressed'))) === 'true', `${chipLanded} ${chipPressed} ${chipBack}`);
     ok('viewfinder: the shutter sits in the middle 60 percent of the screen height', (shutter.t + shutter.b) / 2 > 844 * 0.2 && (shutter.t + shutter.b) / 2 < 844 * 0.8, String((shutter.t + shutter.b) / 2));
 
     // The fader eases into a change: the readout passes through a value between 1 and 2 before landing on 2.0x
@@ -2572,8 +2608,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pV.click('#startCameraBtn'); await pV.waitForTimeout(400);
     if (!(await pV.isVisible('#cameraPanel'))) ok('left-hand viewfinder and reduce-motion zoom (2 checks)', false, `not tried: the camera never started: ${await pV.textContent('#eventLog')}`);
     else {
-    const faderL = await box('.cap-fader'), shutterL = await box('#captureBtn');
-    ok('left hand: the shutter is on the left and the fader on the right, 48 px from the screen edge', shutterL.l < faderL.l && 390 - faderL.r >= 48 && shutterL.l >= 48, JSON.stringify({ faderL, shutterL }));
+    const photoL = await box('#uploadPhotoBtn'), flipL = await box('#switchCameraBtn'), shutterL = await box('#captureBtn'), viewL = await box('#viewfinderArea');
+    ok('left hand: Photo and Flip swap sides (Flip on the left), the shutter stays in the middle', flipL.r < shutterL.l && photoL.l > shutterL.r && Math.abs((shutterL.l + shutterL.r) / 2 - (viewL.l + viewL.r) / 2) < 2, JSON.stringify({ photoL, flipL, shutterL }));
     await pV.click('#navSettings'); await pV.click('#handRightBtn'); await pV.keyboard.press('Escape');
     await pV.evaluate(() => localStorage.clear());
     // Reduce motion: zoom applies at once
@@ -2635,8 +2671,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       await pI.evaluate(() => { const n = document.getElementById('photoCountNote'); n.dataset.photo = '2'; n.dataset.of = '3'; });
       ok('plain: no paw dots by the photo count', (await pseudo('#photoCountNote', '::before', 'content')) === 'none');
     } else {
-      const irisBox = await pI.$eval('#capIris', el => { const r = el.getBoundingClientRect(), c = document.getElementById('captureChoice').getBoundingClientRect(); return { h: r.height, above: r.bottom <= c.top + 1 }; });
-      ok('Iris peeks over a card above Take a photo / Upload a photo', await pI.isVisible('#capIris') && irisBox.h > 30 && irisBox.above, JSON.stringify(irisBox));
+      const irisBox = await pI.$eval('#capIris', el => { const r = el.getBoundingClientRect(), c = document.getElementById('startCameraBtn').getBoundingClientRect(), v = document.getElementById('viewfinderArea').getBoundingClientRect();
+        return { h: r.height, above: r.bottom <= c.top + 1, inside: r.top >= v.top && r.bottom <= v.bottom }; });
+      ok('Iris peeks over a card in the empty viewfinder, above Start the camera', await pI.isVisible('#capIris') && irisBox.h > 30 && irisBox.above && irisBox.inside, JSON.stringify(irisBox));
       await pI.click('#capIris');
       const wunk = await winking();
       await pI.waitForTimeout(900);
@@ -2890,22 +2927,27 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const first = await state();
     ok('welcome: the deck opens on the Welcome card', first.welcomeCurrent && first.card === 'welcome' && !first.thanks && !first.vault, JSON.stringify(first));
     if (!EDITION_PLAIN) {
-      ok('welcome: title and the tagline "Operation: Never Lose Contact"', first.title === 'Welcome to vCGE' && first.tagline === 'Operation: Never Lose Contact', JSON.stringify(first));
-      ok('welcome: the logo sits above the title, loaded from the bundled file', await logoMarkShown(pH, '#cardWelcome .vcge-welcome-logo')
-        && await pH.$eval('#cardWelcome .vcge-welcome-logo', i => i.getBoundingClientRect().height >= 60 && i.getBoundingClientRect().bottom <= document.getElementById('welcomeTitle').getBoundingClientRect().top));
+      ok('welcome: title "Scan a card. Keep the contact." and the tagline "Operation: Never Lose Contact"', first.title === 'Scan a card. Keep the contact.' && first.tagline === 'Operation: Never Lose Contact', JSON.stringify(first));
+      ok('welcome (0.8): Shutout waves above the title, centred', await pH.isVisible('#welcomeArt')
+        && await pH.$eval('#welcomeArt', a => { const r = a.getBoundingClientRect(), t = document.getElementById('welcomeTitle').getBoundingClientRect();
+          return r.height >= 100 && r.bottom <= t.top && Math.abs((r.left + r.right) / 2 - (t.left + t.right) / 2) < 2; }));
       ok('Thank You page: the logo is drawn from the bundled file', await pH.$eval('#thankYouPage .vcge-welcome-logo', el => /url\(/.test(getComputedStyle(el).backgroundImage) && el.getAttribute('aria-label') === 'vCGE'));
     } else {
-      ok('plain edition: the Welcome card says "Welcome to vCGE" with no tagline and no logo', first.title === 'Welcome to vCGE' && first.tagline === undefined
-        && !(await pH.$('#cardWelcome .vcge-welcome-logo')) && !(await pH.$('#welcomeTagline')), JSON.stringify(first));
+      ok('plain edition: the Welcome card says "Scan a card. Keep the contact." with no tagline and no Shutout', first.title === 'Scan a card. Keep the contact.' && first.tagline === undefined
+        && !(await pH.$('#welcomeArt')) && !(await pH.$('#welcomeTagline')), JSON.stringify(first));
       ok('plain edition: the Thank You page has no logo and reads "Session ended."', await logoMarkGone(pH, '#thankYouPage .vcge-welcome-logo')
         && (await pH.textContent('#thankYouText')) === 'Session ended.');
     }
-    ok('welcome: buttons read Set Up PIN/BIO Lock Now, START, Take a Tour, CANCEL', (await pH.textContent('#welcomePinBtn')) === 'Set Up PIN/BIO Lock Now' && (await pH.textContent('#welcomeStartBtn')) === 'START'
-      && (await pH.textContent('#welcomeTourBtn')) === 'Take a Tour' && (await pH.textContent('#welcomeCancelBtn')) === 'CANCEL');
+    ok('welcome: buttons read Set Up PIN/BIO Lock Now, Take a Tour, CANCEL; the primary is the dock\'s "Scan a card" (no Start button in the card)', (await pH.textContent('#welcomePinBtn')) === 'Set Up PIN/BIO Lock Now' && (await pH.textContent('#dockNext')) === 'Scan a card'
+      && !(await pH.$('#welcomeStartBtn')) && (await pH.textContent('#welcomeTourBtn')) === 'Take a Tour' && (await pH.textContent('#welcomeCancelBtn')) === 'CANCEL');
+    // The mock-up's order: Shutout, the promise, the line under it, the privacy line with its shield, the tagline, "Made by"
+    const order = await pH.evaluate(() => ['#welcomeArt', '#welcomeTitle', '.r2-lede', '.r2-privacy', '#welcomeTagline', '#cardWelcome .vcge-maker'].map(q => document.querySelector(q)).filter(Boolean).map(e => Math.round(e.getBoundingClientRect().top)));
+    ok('welcome (0.8): the mock-up\'s order, top to bottom, with the shield in the privacy line', order.length === (EDITION_PLAIN ? 4 : 6) && order.every((t, i) => !i || t > order[i - 1])
+      && await pH.$eval('.r2-privacy', p => !!p.querySelector('svg') && p.textContent.includes('Nothing is saved.')), JSON.stringify(order));
     ok('0.8 shell: the screens out of view are hidden (from sight, taps and assistive tech); only Welcome shows', await pH.evaluate(() => document.querySelectorAll('.deck-card[aria-hidden="true"]').length === 5 && document.getElementById('cardWelcome').getAttribute('aria-hidden') === 'false'
       && Array.from(document.querySelectorAll('.deck-card')).filter(c => getComputedStyle(c).display !== 'none').map(c => c.id).join() === 'cardWelcome'));
-    await pH.click('#welcomeStartBtn'); await pH.waitForTimeout(700);
-    ok('welcome: START moves to the Capture screen and lights its dock step', (await state()).card === 'capture'
+    await pH.click('#dockNext'); await pH.waitForTimeout(700);
+    ok('welcome: the dock\'s Scan a card moves to the Capture screen and lights its dock step', (await state()).card === 'capture'
       && await pH.$eval('#navCapture', b => b.classList.contains('is-on') && b.getAttribute('aria-current') === 'step' && b.dataset.state === 'now') && await pH.$eval('#navRead', b => !b.classList.contains('is-on')));
     // A slow webview (frames 100 ms apart, under the deck's 150 ms watchdog) must not strand a two-card move on the
     // card in between: the settle waits for the deck's own move to finish (seen on the Linux desktop CI: Read).
@@ -2977,7 +3019,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       await pH.waitForTimeout(700);
       const s = await pH.evaluate((i) => {
         const spot = document.getElementById('tourSpot').getBoundingClientRect(), tip = document.getElementById('tourTip').getBoundingClientRect();
-        const area = (i < 4 ? document.getElementById(['cardCapture', 'cardFields', 'cardCard', 'cardShare'][i])
+        const area = (i < 4 ? document.getElementById(['capCamera', 'cardFields', 'cardCard', 'cardShare'][i])
           : i === 4 ? document.querySelector('#vaultPage .vcge-sheet-panel') : document.querySelector('header')).getBoundingClientRect();
         // The spotlight surrounds the area as far as it is on screen (its outline is pulled 4 px in at the screen edge)
         const covers = spot.left <= Math.max(area.left, 4) + 1 && spot.top <= Math.max(area.top, 4) + 1 && spot.right >= Math.min(area.right, innerWidth - 4) - 1 && spot.bottom >= Math.min(area.bottom, innerHeight - 4) - 1;
@@ -2992,7 +3034,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       && titles.every((t, i) => t.step === `Step ${i + 1} of 6` && t.focus === 'tourNextBtn'), titles.map(t => t.title + ' ' + t.step).join(' | '));
     ok('tour: the deck moves to each step\'s card and the Vault page opens for its step only', titles.map(t => t.card).join('|') === 'capture|fields|card|share|share|share'
       && titles.map(t => t.vault ? 1 : 0).join('') === '000010', titles.map(t => t.card + (t.vault ? '+vault' : '')).join('|'));
-    ok('tour: each step spotlights its area (scan, fields, card, share, Vault page, header)', titles.every(t => t.covers), JSON.stringify(titles.map(t => t.spot)));
+    ok('tour: each step spotlights its area (the viewfinder and shutter row, fields, card, share, Vault page, header)', titles.every(t => t.covers), JSON.stringify(titles.map(t => t.spot)));
     ok('tour: the last step\'s button is START NOW', titles[5].next === 'START NOW' && titles.slice(0, 5).every(t => t.next === 'Next'));
     // The tip sits beside a small area (the top bar); a whole screen or the Vault sheet (0.8: a bottom sheet across the
     // shell's column) leaves no room beside it, so there it sits over the area
@@ -3051,7 +3093,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const small = await pU.evaluate(() => Array.from(document.querySelectorAll('button:not(.crop-handle), label'))
       .filter(b => (b.tagName === 'BUTTON' || b.querySelector(':scope > input[type=file]')) && b.offsetParent && !b.classList.contains('vcge-sr-only'))   // (the QR shortcut is for screen readers and keys only)
       .map(b => { const cs = getComputedStyle(b); return { id: b.id || b.textContent.trim().slice(0, 20), h: b.offsetHeight, w: b.offsetWidth, border: cs.borderTopWidth,
-        ring: b.matches('.vcge-mark, .vcge-iconbtn, .vcge-step, .vcge-btn, .vcge-sheet-close, .vcge-trash, .vcge-lockbtn') && (b.matches('.vcge-mark, .vcge-step, .vcge-btn-primary') || /0px 0px 0px 1(\.5)?px/.test(cs.boxShadow)) }; })
+        ring: b.matches('.vcge-mark, .vcge-iconbtn, .vcge-step, .vcge-btn, .vcge-sheet-close, .vcge-trash, .vcge-lockbtn, .r2-quiet, .r2-reopen, .r2-sidebtn, .r2-start, .r2-shutter, .r2-close, .r2-zoom button')
+          // (0.8 Welcome and Capture, R2: the mock-up's filled buttons, the shutter's ring and the chips over the picture need no ring)
+          && (b.matches('.vcge-mark, .vcge-step, .vcge-btn-primary, .r2-start, .r2-close, .r2-zoom button') || (b.matches('.r2-shutter') && /inset/.test(cs.boxShadow)) || /0px 0px 0px 1(\.5)?px/.test(cs.boxShadow)) }; })
       .filter(b => b.h < 43.5 || b.w < 43.5 || (b.border !== '2px' && !b.ring)));
     ok('buttons: every visible button is at least 44 px with a 2 px outline (the shell\'s own buttons: a 1 px ring and a soft shadow, as in the mock-up)', small.length === 0, JSON.stringify(small));
     // A finger tap on the outer 4 px of a button is ignored; in the middle it works; a mouse click on the edge still works
