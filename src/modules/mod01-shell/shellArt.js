@@ -11,7 +11,7 @@
  * The plain edition shows neither (deck.css), and this file does no work there.
  */
 import { CARDS } from './deck.js';
-import { isPlain } from './edition.js';
+import { isPlain, isShelved } from './edition.js';
 
 // Where the turtle sits (px from the header's left edge) to be centred under a button.
 export const turtleX = (button, header, width) => Math.round(button.left + button.width / 2 - header.left - width / 2);
@@ -35,7 +35,7 @@ export function stepWalk(state, target, dt, walk = WALK) {
 }
 
 export function initShellArt(doc = document) {
-    if (!doc || typeof doc.querySelector !== 'function' || isPlain(doc)) return;
+    if (!doc || typeof doc.querySelector !== 'function' || isPlain(doc) || isShelved(doc)) return;   // 0.8 shelf: no turtle
     const header = doc.querySelector('.deck-header'), nav = header && header.querySelector('.deck-nav');
     const turtle = doc.getElementById('deckTurtle'), plates = doc.getElementById('deckPlates');
     if (!nav || !turtle || !plates) return;

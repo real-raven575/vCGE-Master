@@ -139,3 +139,7 @@ html[data-edition="plain"]:not(.edition-ready) .deck-header button > span { visi
 /* App icons (src/vendor/icons/app, Tabler, MIT) */
 .vcge-icon { width: 1.5rem; height: 1.5rem; stroke-width: var(--vcge-icon-stroke); }
 .vcge-icon * { stroke-width: var(--vcge-icon-stroke); }
+
+/* The 0.8 shelf (edition.js isShelved; raven575 2026-11-02): the CSS-only flourishes stay still or out of sight */
+html[data-shelf="on"] .vcge-splash .vcge-hoh, html[data-shelf="on"] .read-shimmer, html[data-shelf="on"] .wipe-yes-sweep { animation: none !important; }
+html[data-shelf="on"] .read-shimmer, html[data-shelf="on"] .wipe-yes-sweep, html[data-shelf="on"] .deck-turtle, html[data-shelf="on"] .deck-plates { display: none !important; }

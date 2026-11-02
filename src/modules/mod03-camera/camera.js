@@ -10,6 +10,7 @@
  * bus only ever gets a signal. Messages to the person go through the `toast` hook main.js hands in (Shell's toast).
  */
 import { globalEventBus, Events } from '../../share/eventBus.js';
+import { isShelved } from '../mod01-shell/edition.js';
 import { visibleSourceRect, cardFrameRect, tween } from './viewfinder.js';
 import { readyClick, playShutterClick } from './shutterClick.js';
 
@@ -329,7 +330,7 @@ export class VCGEActiveCamera {
     }
 
     wink() {
-        if (!this.irisPeek || this.reducedMotion() || this.irisPeek.classList.contains('wink')) return;
+        if (!this.irisPeek || this.reducedMotion() || isShelved() || this.irisPeek.classList.contains('wink')) return;
         this.irisPeek.classList.add('wink');
         setTimeout(() => this.irisPeek.classList.remove('wink'), IRIS_WINK_MS);
     }

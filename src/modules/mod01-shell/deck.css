@@ -319,3 +319,28 @@ html[data-app-theme] .deck-card textarea, html[data-app-theme] .deck-card select
     -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
 }
 @media (forced-colors: active) { .vcge-tex, .vcge-emblem { display: none; } }
+
+/* ---- 0.8 redesign, push B: the step dock (Creative's mock-up). On a phone held upright the card icons leave the header
+   for a dock at the bottom of the screen, where the thumb rests; the current card's icon is lit in the accent with a
+   short bar over it. The header keeps the Vault and Settings. Tablets and desktops keep the icons in the header. The
+   header's blur is off on phones so the dock can sit on the screen's edge (a blurred parent would hold it). ---------- */
+:root { --vcge-dock-h: 0px; }
+@media (max-width: 599.98px) and (orientation: portrait) {
+    :root { --vcge-dock-h: calc(3.75 * var(--vcge-hu) + env(safe-area-inset-bottom, 0px)); }
+    .deck-header { -webkit-backdrop-filter: none; backdrop-filter: none; justify-content: flex-end; }
+    .deck-nav {
+        position: fixed; left: 0; right: 0; bottom: 0; z-index: 45; height: var(--vcge-dock-h);
+        padding: calc(0.25 * var(--vcge-hu)) calc(0.25 * var(--vcge-hu)) env(safe-area-inset-bottom, 0px);
+        justify-content: space-around; align-items: center; overflow: visible;
+        background: color-mix(in srgb, var(--vcge-bg, #f1f5f9) 94%, transparent); border-top: 1px solid var(--vcge-border, #e2e8f0);
+        box-shadow: 0 -6px 16px -10px rgba(30, 20, 60, 0.25);
+    }
+    .dark .deck-nav { background: color-mix(in srgb, var(--vcge-bg, #020617) 94%, transparent); border-top-color: var(--vcge-border, #1e293b); }
+    .deck-header.is-compact .deck-nav { justify-content: space-around; overflow-x: visible; }
+    .deck-nav button.is-on { background: transparent; border-color: transparent; color: var(--vcge-accent, #16a34a); }
+    html[data-app-theme] .deck-nav button.is-on { background: transparent; border-color: transparent; color: var(--vcge-accent); }
+    .deck-nav button.is-on::before {
+        content: ""; position: absolute; top: calc(-0.25 * var(--vcge-hu)); left: 28%; right: 28%; height: 3px; border-radius: 3px; background: currentColor;
+    }
+    .deck { flex: 0 1 auto; height: calc(100vh - var(--vcge-header-h) - var(--vcge-dock-h)); height: calc(100dvh - var(--vcge-header-h) - var(--vcge-dock-h)); }
+}

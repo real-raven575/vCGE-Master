@@ -14,6 +14,8 @@ const PORT = String(18000 + Math.floor(Math.random() * 2000));
 const ORIGIN = `http://localhost:${PORT}/`;
 const FORCE_PLAIN = process.env.VCGE_EDITION === 'plain';
 let EDITION_PLAIN = FORCE_PLAIN;   // settled once the server is up
+// The 0.8 shelf (raven575, 2026-11-02): <html data-shelf="on"> switches the earlier flourishes off; their checks become "stays off" checks
+let SHELVED = false;
 
 // The sample contacts as the edition under test lists them (card3dView.js PRESETS / PLAIN_PRESETS): first, last, company
 const SAMPLES_BRANDED = [['Shutout', 'the Box Turtle'], ['Ghost', 'the Raccoon'], ['Iris', 'the Lynx'], ['Glyph', 'the Owl'], ['Pidge', 'the Octopus'], ['Flipside', 'the Chameleon'],
@@ -256,7 +258,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
 (async () => {
   const server = spawn(process.execPath, [path.join(ROOT, 'scripts/serve.mjs')], { env: { ...process.env, PORT } });
   await new Promise((resolve, reject) => { server.stdout.once('data', resolve); server.once('exit', c => reject(new Error(`server exited ${c}`))); });
-  EDITION_PLAIN = FORCE_PLAIN || /<html[^>]*\sdata-edition="plain"/.test(await (await fetch(ORIGIN)).text());
+  { const html = await (await fetch(ORIGIN)).text();
+    EDITION_PLAIN = FORCE_PLAIN || /<html[^>]*\sdata-edition="plain"/.test(html);
+    SHELVED = /<html[^>]*\sdata-shelf="on"/.test(html); }
   console.log(`Browser: ${RUN}, ${EDITION_PLAIN ? 'plain' : 'branded'} edition`);
   const browser = await playwright[ENGINE].launch(CHANNELS[BROWSER] ? { channel: CHANNELS[BROWSER] } : {});
   // Every context takes the chosen device (if any), and the welcome pop-up that opens on every start is pressed
@@ -357,9 +361,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       plates: Array.from(document.querySelectorAll('#deckPlates [data-card]')).map(p => p.dataset.state || '').join(),
       platesShown: getComputedStyle(document.getElementById('deckPlates')).display !== 'none', hidden: t.getAttribute('aria-hidden') + document.getElementById('deckPlates').getAttribute('aria-hidden') };
   });
-  if (EDITION_PLAIN) {
+  if (EDITION_PLAIN || SHELVED) {
     const a0 = await shellArt();
-    ok('plain edition: no turtle and no shell plates', !a0.shown && !a0.platesShown, JSON.stringify(a0));
+    ok(EDITION_PLAIN ? 'plain edition: no turtle and no shell plates' : '0.8 shelf: no turtle and no shell plates', !a0.shown && !a0.platesShown, JSON.stringify(a0));
   } else {
     // The page opens on the Capture card: Shutout walks to Start and back (not Fields: its form pops in once, later)
     await page.waitForFunction(() => document.getElementById('deckTurtle').classList.contains('is-placed'), null, { timeout: 5000 }).catch(() => {});
@@ -524,7 +528,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   await page.click('#runOcrBtn');
   await readEnds(page);
   const bar = await page.evaluate(() => window.__ocrBar);
-  ok('OK moves to the Read card, where the photo shimmers while it is read, the label says the reader is being prepared, and the wash is full before the review opens', bar.shown && bar.shimmer && bar.photo && bar.values.includes(100) && bar.labels.includes('Preparing the reader…') && !(await visible('ocrProgress')) && (await visible('ocrStepText')) && (await page.evaluate(() => document.documentElement.dataset.card)) === 'read', JSON.stringify({ shown: bar.shown, shimmer: bar.shimmer, photo: bar.photo, max: Math.max(...bar.values), labels: [...new Set(bar.labels)] }));
+  ok(SHELVED ? 'OK moves to the Read card, where the photo shows still while it is read (0.8 shelf: no shimmer), the label says the reader is being prepared, and the wash is full before the review opens'
+    : 'OK moves to the Read card, where the photo shimmers while it is read, the label says the reader is being prepared, and the wash is full before the review opens', bar.shown && bar.shimmer === !SHELVED && bar.photo && bar.values.includes(100) && bar.labels.includes('Preparing the reader…') && !(await visible('ocrProgress')) && (await visible('ocrStepText')) && (await page.evaluate(() => document.documentElement.dataset.card)) === 'read', JSON.stringify({ shown: bar.shown, shimmer: bar.shimmer, photo: bar.photo, max: Math.max(...bar.values), labels: [...new Set(bar.labels)] }));
   ok('the reading indicator shows no number (no visible digits, screen readers hear text)', !/\d/.test(await page.$eval('#ocrProgress', el => el.innerText)) && (await page.getAttribute('#ocrProgressBar', 'aria-valuetext')) === 'Reading the card', await page.$eval('#ocrProgress', el => el.innerText));
   ok('after the read the photo under the shimmer is dropped', !(await page.getAttribute('#ocrReadPhoto', 'src')));
   ok('first scan says the reader is being prepared, then extracting', bar.labels.indexOf('Preparing the reader…') >= 0 && bar.labels.indexOf('Extracting…', bar.labels.indexOf('Preparing the reader…')) > 0, [...new Set(bar.labels)].join(' | '));
@@ -610,7 +615,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   // App themes (raven575's test report, 2026-10-22): Basic, the Autumn colours and, in the branded edition only, a dark and a light per character
   const themeState = () => page.evaluate(() => ({ id: document.documentElement.dataset.appTheme || '', dark: document.documentElement.classList.contains('dark'),
     bg: getComputedStyle(document.body).backgroundColor, card: getComputedStyle(document.querySelector('.deck-card.is-current')).backgroundColor,
-    on: getComputedStyle(document.querySelector('.deck-nav button.is-on')).backgroundColor, entry: localStorage.getItem('vcge_settings') }));
+    on: getComputedStyle(document.querySelector('.deck-nav button.is-on')).backgroundColor, onInk: getComputedStyle(document.querySelector('.deck-nav button.is-on')).color,
+    dock: matchMedia('(max-width: 599.98px) and (orientation: portrait)').matches, entry: localStorage.getItem('vcge_settings') }));
   const themeGroups = await page.$$eval('#themeSelect optgroup', gs => gs.map(g => g.label + ':' + g.children.length).join('|'));
   ok(EDITION_PLAIN ? 'the theme list is Basic (2), Everyday (8), Seasonal (14) and Autumn (8), no characters in plain' : 'the theme list is Basic (2), Everyday (8), Seasonal (14), Autumn (8) and Team vCGE (18)',
     themeGroups === (EDITION_PLAIN ? 'Basic:2|Everyday:8|Seasonal:14|Autumn:8' : 'Basic:2|Everyday:8|Seasonal:14|Autumn:8|Team vCGE:18'), themeGroups);
@@ -621,7 +627,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   await page.selectOption('#themeSelect', '2'); await themeSettled();
   const pumpkin = await themeState();
   ok('Pumpkin colours the page, the cards and the lit header icon, stays light, and its code 2 is saved', pumpkin.id === 'pumpkin' && !pumpkin.dark && pumpkin.bg === 'rgb(243, 221, 206)'
-    && pumpkin.card === 'rgb(250, 244, 240)' && pumpkin.on === 'rgb(225, 107, 24)' && pumpkin.entry === 'hand=0;cb=0;theme=2;font=0;size=0;wipe=0', JSON.stringify(pumpkin));
+    && pumpkin.card === 'rgb(250, 244, 240)' && (pumpkin.dock ? pumpkin.onInk === 'rgb(225, 107, 24)' : pumpkin.on === 'rgb(225, 107, 24)') && pumpkin.entry === 'hand=0;cb=0;theme=2;font=0;size=0;wipe=0', JSON.stringify(pumpkin));
   if (!EDITION_PLAIN) {
     await page.selectOption('#themeSelect', '12'); await themeSettled();
     const shutout = await themeState();
@@ -645,7 +651,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   const [xSettings, xVault, xCapture, xShare] = await headerOrder();
   const trashSide = () => page.evaluate(() => { const c = document.querySelector('.deck-card.is-current'), t = c.querySelector('.vcge-trash').getBoundingClientRect(), r = c.getBoundingClientRect(); return t.left + t.width / 2 > r.left + r.width / 2 ? 'right' : 'left'; });
   ok('Left hand mirrors the header (Settings far left, Vault beside it, Airlock before Iris) and moves the trash button to the lower right',
-    (await htmlState()).hand === 'left' && xSettings < xVault && xVault < xShare && xShare < xCapture && (await trashSide()) === 'right' && (await htmlState()).entry === 'hand=1;cb=0;theme=1;font=0;size=0;wipe=0', JSON.stringify([xSettings, xVault, xShare, xCapture, await trashSide()]));
+    // 0.8 phone dock: Settings and Vault stay in the header and the step icons sit in the dock, so each row is mirrored on its own
+    (await htmlState()).hand === 'left' && xSettings < xVault && ((await themeState()).dock || xVault < xShare) && xShare < xCapture && (await trashSide()) === 'right' && (await htmlState()).entry === 'hand=1;cb=0;theme=1;font=0;size=0;wipe=0', JSON.stringify([xSettings, xVault, xShare, xCapture, await trashSide()]));
   await page.click('#handRightBtn');
   const [rSettings, rVault, rCapture] = await headerOrder();
   ok('Right hand puts it back: Iris first, Vault then Settings at the far right, trash lower left', rCapture < rVault && rVault < rSettings && (await trashSide()) === 'left' && (await htmlState()).hand === 'right');
@@ -920,7 +927,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p8.fill('#vaultPin', '2468'); await p8.waitForTimeout(600);   // the sunglasses are on (0.4 s); the dissolve ends at 1 s
     const f4 = await p8.evaluate(() => { const m = document.getElementById('vaultModal'); return { face: m.dataset.face, hidden: m.classList.contains('hidden'), dissolving: m.classList.contains('vault-dissolve'),
       shades: getComputedStyle(document.querySelector('#vaultGhost .vg-shades')).opacity, card: document.getElementById('firstName').value }; });
-    if (EDITION_PLAIN) ok('plain edition: the right PIN unlocks at once, no dissolve', f4.hidden && !f4.dissolving, JSON.stringify(f4));
+    if (EDITION_PLAIN || SHELVED) ok(EDITION_PLAIN ? 'plain edition: the right PIN unlocks at once, no dissolve' : '0.8 shelf: the right PIN unlocks at once, no dissolve', f4.hidden && !f4.dissolving, JSON.stringify(f4));
     else ok('4th digit, right PIN: sunglasses on, then the lock screen dissolves before the card comes back', f4.face === 'shades' && f4.shades === '1' && f4.dissolving && !f4.hidden && f4.card === '', JSON.stringify(f4));
     await p8.waitForSelector('#vaultModal', { state: 'hidden' });
     ok('after the dissolve the lock screen is reset for the next lock', await p8.evaluate(() => !document.getElementById('vaultModal').classList.contains('vault-dissolve')));
@@ -1148,6 +1155,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pL.goto(ORIGIN); await pL.waitForTimeout(500);
     const padlock = () => pL.evaluate(() => { const r = document.getElementById('vaultHandoff'); return { hidden: r.classList.contains('hidden'), playing: r.dataset.playing || '', state: r.dataset.state || '', pe: getComputedStyle(r).pointerEvents, live: document.getElementById('vaultHandoffLive').textContent }; });
     ok('no padlock at boot or after START (Welcome hands nothing to the vault)', (await padlock()).hidden && (await pL.$eval('.deck-card.is-current', c => c.dataset.card)) === 'capture');
+    if (SHELVED) {
+      await pL.click('#navRead'); await pL.waitForTimeout(700);
+      const gone = await padlock();
+      ok('0.8 shelf: moving to the next card plays no padlock and announces nothing', gone.hidden && !gone.playing && gone.live === '', JSON.stringify(gone));
+    } else {
     await pL.click('#navRead');
     await pL.waitForSelector('#vaultHandoff[data-playing="cycle"]', { timeout: 2000 });
     const first = await padlock();
@@ -1182,6 +1194,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const glow = await pL.evaluate(() => { const r = document.getElementById('vaultHandoff'), g = r.querySelector('.vault-handoff-glow'), svg = r.querySelector('.vault-handoff-lock');
       return { glow: !!g && g.nextElementSibling === svg && getComputedStyle(g).backgroundImage.startsWith('radial-gradient') && getComputedStyle(g).pointerEvents === 'none', filter: getComputedStyle(svg).filter }; });
     ok('the glow is its own layer behind the lock; the moving lock carries no filter (no cut-outs)', glow.glow && glow.filter === 'none', JSON.stringify(glow));
+    }
     ok('padlock: no page errors', errorsL.length === 0, errorsL.join(' | '));
     await ctxL.close();
   }
@@ -1429,6 +1442,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     else {
       ok('F1: every box group carries a pigeonhole tab, hidden from screen readers (8 kinds, 14 tabs)', tabs.length === 14 && new Set(tabs).size === 8 && tabs.every(t => !t.endsWith('!'))
         && (await pU.textContent('#fieldsForm label:has(#firstName) .field-label')).trim() === 'First name', JSON.stringify(tabs));
+      if (SHELVED) ok('0.8 shelf: no FILED stamp; the button still reads "Everything\'s correct"', !stamp && (await pU.textContent('#fieldsDoneBtn')).trim() === "Everything's correct");
+      else {
       ok('F2: the FILED stamp sits on the green button, hidden from screen readers, and the label reads as before', (await pU.$eval('#fieldsDoneBtn .fields-stamp', s => s.textContent === 'FILED' && s.getAttribute('aria-hidden') === 'true'))
         && (await pU.$eval('#fieldsDoneBtn', b => b.querySelector('span:not(.fields-stamp)').textContent)) === "Everything's correct");
       await pU.click('#navFields'); await pU.waitForTimeout(600);
@@ -1440,6 +1455,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const stillUnderReduce = !(await pU.$eval('#fieldsDoneBtn', b => b.classList.contains('is-stamping')));
       await pU.emulateMedia({ reducedMotion: 'no-preference' });
       ok('F2: a press gives one stamp press that ends by itself; under reduce motion nothing moves', pressed === 'fields-stamp' && pressEnded && stillUnderReduce, JSON.stringify({ pressed, pressEnded, stillUnderReduce }));
+      }
     }
     ok('F4: the tray is hidden while there is nothing unplaced', await pU.$eval('#fieldsUnknown', t => t.classList.contains('hidden')));
     await pU.setInputFiles('#imageUpload', await renderCardImage(pU)); await pU.waitForTimeout(300);
@@ -1458,6 +1474,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok(EDITION_PLAIN ? 'plain edition: the tray has no pigeonhole art' : 'F4: the tray title carries the empty pigeonhole', EDITION_PLAIN ? !(await pU.$('#fieldsUnknown .fields-hole')) : !!(await pU.$('#fieldsUnknown .fields-hole[aria-hidden="true"] svg')));
     const titleLine = pU.locator('#fieldsUnknownList .fields-unknown-line', { hasText: 'Director of Engineering' });
     await pU.waitForFunction(() => !document.getElementById('fieldsForm').classList.contains('is-popping'), null, { timeout: 3000 }).catch(() => {});   // measured at rest, not mid-pop
+    await pU.waitForFunction(() => document.getElementById('cardFields').getAnimations({ subtree: true }).length === 0, null, { timeout: 3000 }).catch(() => {});   // nor while the card still grows into view
     const lineBox = await titleLine.boundingBox();
     await titleLine.click();
     ok('F4: tapping a line picks it (pressed, with a dot) and says what to do next', (await titleLine.getAttribute('aria-pressed')) === 'true'
@@ -1542,8 +1559,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pF.selectOption('#fakeContactSelect', '2');
     await pF.waitForTimeout(500);
     const pop = await pF.evaluate(() => window.__pop);
-    ok('fields: choosing a sample fills the form, pops it in (one animation, 8 steps over 0.32 s), offers Undo, and the list reads the prompt again',
-      (await pF.inputValue('#firstName')) === samples()[2][0] && (await pF.inputValue('#organization')) === samples()[2][2] && (await pops()) === 2 && pop.names.includes('fields-pop') && pop.steps === 'steps(8)' && pop.ms === '0.32s'
+    ok(SHELVED ? 'fields: choosing a sample fills the form (0.8 shelf: counted as an arrival, no pop animation), offers Undo, and the list reads the prompt again'
+      : 'fields: choosing a sample fills the form, pops it in (one animation, 8 steps over 0.32 s), offers Undo, and the list reads the prompt again',
+      (await pF.inputValue('#firstName')) === samples()[2][0] && (await pF.inputValue('#organization')) === samples()[2][2] && (await pops()) === 2
+      && (SHELVED ? pop.names.length === 0 : pop.names.includes('fields-pop') && pop.steps === 'steps(8)' && pop.ms === '0.32s')
       && await pF.isVisible('#toastAction') && (await pF.$eval('#fakeContactSelect', s => s.value)) === '' && (await card()) === 'fields', JSON.stringify({ pop, pops: await pops(), card: await card() }));
     ok('fields: the list and the green button are at least 44 px tall; the button reads "Everything\'s correct" (its name for screen readers too; the FILED stamp is hidden from them) with the tick icon', (await pF.$$eval('#fakeContactSelect, #fieldsDoneBtn', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44)
       && (await pF.$eval('#fieldsDoneBtn', b => b.querySelector(':scope > span:not(.fields-stamp)').textContent)) === "Everything's correct"
@@ -1561,7 +1580,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const sidesRight = await footSides();
     await pF.click('#fieldsDoneBtn'); await pF.waitForTimeout(700);
     ok('fields: "Everything\'s correct" sits lower right (the trash lower left) and moves on to the 3D Card with the details on it',
-      sidesRight.ok === 'right' && sidesRight.trash === 'left' && sidesRight.okBottom && (await card()) === 'card' && (await pF.textContent('#previewFullName')) === `${samples()[2][0]} ${samples()[2][1]}` && await pF.isVisible('#vaultHandoff[data-playing]').catch(() => true),
+      sidesRight.ok === 'right' && sidesRight.trash === 'left' && sidesRight.okBottom && (await card()) === 'card' && (await pF.textContent('#previewFullName')) === `${samples()[2][0]} ${samples()[2][1]}` && (SHELVED ? !(await pF.isVisible('#vaultHandoff[data-playing]')) : await pF.isVisible('#vaultHandoff[data-playing]').catch(() => true)),
       JSON.stringify({ sidesRight, card: await card() }));
     await pF.click('#navSettings'); await pF.click('#handLeftBtn'); await pF.keyboard.press('Escape'); await pF.waitForTimeout(200);
     await pF.click('#navFields'); await pF.waitForTimeout(600);
@@ -1692,7 +1711,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('Esc cancels the print choice (a sheet: a swipe would too) and nothing is printed', !(await p9.isVisible('#printChoiceSheet')) && (await p9.evaluate(() => document.getElementById('printSheet').children.length)) === 0);
     await p9.click('#printCardBtn'); await p9.click('#printThemedBtn');
     const printFalcon = await p9.evaluate(() => ({ toast: document.getElementById('toastMessage').textContent, hidden: document.getElementById('toastFalcon').classList.contains('hidden') }));
-    ok('Airlock E2: after a print the toast says so and the falcon is on it', printFalcon.toast === 'Sent to the print dialog.' && !printFalcon.hidden, JSON.stringify(printFalcon));
+    ok(SHELVED ? 'Airlock E2: after a print the toast says so (0.8 shelf: no falcon)' : 'Airlock E2: after a print the toast says so and the falcon is on it', printFalcon.toast === 'Sent to the print dialog.' && printFalcon.hidden === SHELVED, JSON.stringify(printFalcon));
     const sheet = await p9.evaluate(() => {
       const card = document.querySelector('#printSheet .print-card'), flipper = document.getElementById('card3DFlipper');
       return { cards: document.querySelectorAll('#printSheet .print-card').length, qr: !!document.querySelector('#printSheet .print-qr img'), ids: document.querySelectorAll('#printSheet [id]').length,
@@ -2550,7 +2569,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       await pI.click('#capIris');
       const wunk = await winking();
       await pI.waitForTimeout(900);
-      ok('a tap on Iris winks one eye once, then she is still again', wunk && !(await winking()));
+      ok(SHELVED ? '0.8 shelf: a tap on Iris does not wink' : 'a tap on Iris winks one eye once, then she is still again', wunk === !SHELVED && !(await winking()));
       await pI.emulateMedia({ reducedMotion: 'reduce' });
       await pI.click('#capIris');
       ok('reduce motion: no wink', !(await winking()));
@@ -3063,9 +3082,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const h = document.querySelector('.deck-header'), nav = h.querySelector('.deck-nav').getBoundingClientRect();
       const boxes = Array.from(h.querySelectorAll('button')).filter(b => b.offsetParent).map(b => {
         const r = b.getBoundingClientRect(), inNav = !!b.closest('.deck-nav');
-        return { id: b.id, l: inNav ? Math.max(r.left, nav.left) : r.left, r: inNav ? Math.min(r.right, nav.right) : r.right, spill: b.scrollWidth > b.clientWidth + 0.5 };
+        return { id: b.id, l: inNav ? Math.max(r.left, nav.left) : r.left, r: inNav ? Math.min(r.right, nav.right) : r.right, t: r.top, btm: r.bottom, spill: b.scrollWidth > b.clientWidth + 0.5 };
       }).filter(b => b.r > b.l).sort((a, b) => a.l - b.l);   // in screen order: left hand mirrors the header
-      const overlaps = boxes.slice(1).filter((b, i) => b.l < boxes[i].r - 0.5).map(b => b.id);
+      // Any two buttons whose boxes cross, side to side and top to bottom (0.8: on a phone the card icons sit in the dock at the
+      // bottom of the screen, under the header's Vault and Settings, so only buttons in the same row can run into each other)
+      const overlaps = boxes.filter((b, i) => boxes.some((a, j) => j < i && b.l < a.r - 0.5 && a.l < b.r - 0.5 && b.t < a.btm - 0.5 && a.t < b.btm - 0.5)).map(b => b.id);
       done({ compact: h.classList.contains('is-compact'), names: getComputedStyle(h.querySelector('#navCapture span')).display !== 'none', overlaps, spills: boxes.filter(b => b.spill).map(b => b.id), wide: document.documentElement.scrollWidth > innerWidth,
         // For a failure's report only: the window and header widths, how far the nav overflows, and the screen tier
         iw: innerWidth, hw: Math.round(h.getBoundingClientRect().width), nav: [h.querySelector('.deck-nav').scrollWidth, h.querySelector('.deck-nav').clientWidth], tier: document.documentElement.dataset.tier });
@@ -3092,6 +3113,14 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const hw = await header();
       ok(`header at ${w} px: no button runs into another, nothing scrolls sideways`, hw.overlaps.length === 0 && hw.spills.length === 0 && !hw.wide, JSON.stringify(hw));
     }
+    // 0.8 push B (Creative's step dock): on a phone held upright the card icons sit in a dock on the bottom edge, every one
+    // at least 44 px tall and inside the screen, and the cards end above the dock; the header keeps Vault and Settings
+    const dock = await pV.evaluate(() => { const n = document.querySelector('.deck-nav').getBoundingClientRect(), d = document.getElementById('deck').getBoundingClientRect();
+      const bs = [...document.querySelectorAll('.deck-nav button')].map(b => b.getBoundingClientRect());
+      return { bottom: Math.round(innerHeight - n.bottom), top: Math.round(n.top), deckEnd: Math.round(d.bottom), tall: bs.every(r => r.height >= 44), inside: bs.every(r => r.left >= -0.5 && r.right <= innerWidth + 0.5),
+        tools: [...document.querySelectorAll('.deck-tools button')].filter(b => b.offsetParent).every(b => b.getBoundingClientRect().bottom <= document.querySelector('.deck-header').getBoundingClientRect().bottom + 0.5) }; });
+    ok('0.8 dock (phone, upright): the card icons sit on the bottom edge, 44 px tall, inside the screen; the cards end above them; Vault and Settings stay up top',
+      dock.bottom === 0 && dock.deckEnd <= dock.top + 1 && dock.tall && dock.inside && dock.tools, JSON.stringify(dock));
     await pV.setViewportSize({ width: 1024, height: 1366 }); await pV.waitForTimeout(300);
     await pV.click('#navWelcome'); await pV.waitForTimeout(700);
     const centred = await pV.evaluate(() => { const r = document.getElementById('cardWelcome').getBoundingClientRect(); return { l: r.left, r: innerWidth - r.right }; });
@@ -3692,11 +3721,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const dots = [...document.querySelectorAll('#readyToShareBtn .ready-light')].map(d => getComputedStyle(d));
       return { popped: document.querySelectorAll('#readyToShareBtn .ready-light.is-popping').length, lit: document.querySelectorAll('#readyToShareBtn .ready-light.is-lit').length, words: document.getElementById('readyLightsText').textContent, fills: dots.map(d => d.backgroundColor), borders: dots.map(d => d.borderTopWidth) };
     });
-    ok('Airlock E3: a name, an email and a scannable code light all three, each filled (not just a colour change) and each grew once as it came on', lightsOn.lit === 3 && lightsOn.popped === 3 && lightsOn.words === 'Lit: a name, a way to reach them, a scannable QR code.' && lightsOn.fills.every(f => f !== 'rgba(0, 0, 0, 0)') && lightsOn.borders.every(b => b === '2px'), JSON.stringify(lightsOn));
+    ok(SHELVED ? 'Airlock E3: a name, an email and a scannable code light all three, each filled (not just a colour change); 0.8 shelf: none grows' : 'Airlock E3: a name, an email and a scannable code light all three, each filled (not just a colour change) and each grew once as it came on', lightsOn.lit === 3 && lightsOn.popped === (SHELVED ? 0 : 3) && lightsOn.words === 'Lit: a name, a way to reach them, a scannable QR code.' && lightsOn.fills.every(f => f !== 'rgba(0, 0, 0, 0)') && lightsOn.borders.every(b => b === '2px'), JSON.stringify(lightsOn));
     const unlitFill = await pA.evaluate(() => { const d = document.createElement('span'); d.className = 'ready-light'; document.getElementById('readyToShareBtn').append(d); const f = getComputedStyle(d).backgroundColor; d.remove(); return f; });
     ok('Airlock E3: an unlit light is only an outline (no fill)', unlitFill === 'rgba(0, 0, 0, 0)', unlitFill);
     const qrBack = await pA.evaluate(() => { const c = document.getElementById('qrCanvas'), h = document.getElementById('qrHint'), tail = h.querySelector('.qr-tail'); return { reveal: c.classList.contains('qr-reveal'), anim: getComputedStyle(c).animationName, hint: !h.classList.contains('hidden') && h.textContent.trim(), tail: getComputedStyle(tail).display }; });
-    ok('Checkers Q1: the first real code fills in with the stripe reveal', qrBack.reveal && qrBack.anim === 'qr-stripes', JSON.stringify(qrBack));
+    ok(SHELVED ? '0.8 shelf: the first real code shows at once, no stripe reveal' : 'Checkers Q1: the first real code fills in with the stripe reveal', SHELVED ? !qrBack.reveal && qrBack.anim === 'none' : qrBack.reveal && qrBack.anim === 'qr-stripes', JSON.stringify(qrBack));
     ok(`Checkers Q3: "Point a phone camera here" under the code, ${EDITION_PLAIN ? 'without the tail (plain edition)' : 'with the zebra\'s tail'}`, qrBack.hint === 'Point a phone camera here' && (EDITION_PLAIN ? qrBack.tail === 'none' : qrBack.tail !== 'none'), JSON.stringify(qrBack));
     await pA.evaluate(() => { const e = document.getElementById('jobTitle'); e.value = 'Editor'; e.dispatchEvent(new Event('input', { bubbles: true })); }); await pA.waitForTimeout(50);
     ok('Checkers Q1: the reveal plays once, not again on the next keystroke', (await pA.evaluate(() => document.getElementById('qrCanvas').getAnimations().length)) === 0);
@@ -3711,7 +3740,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // Export QR pop-up: a live preview from the same code as the card back, Themed by default
     await pA.click('#exportQrBtn');
     const hatch = await pA.evaluate(() => { const h = document.querySelector('#exportQrBtn .hatch'); return { open: h.classList.contains('is-open'), ring: document.getElementById('exportQrBtn').classList.contains('is-launching'), whoosh: getComputedStyle(h, '::after').animationName, shown: getComputedStyle(h).display, all: document.querySelectorAll('#cardShare button.share-btn .hatch').length }; });
-    ok(`Airlock E1: ${EDITION_PLAIN ? 'the plain edition has no hatch doors' : 'every Share button has a hatch door; a press swings it open with air lines and a green ring'}`, hatch.all === 7 && (EDITION_PLAIN ? hatch.shown === 'none' : hatch.shown !== 'none' && hatch.open && hatch.ring && hatch.whoosh === 'hatch-whoosh'), JSON.stringify(hatch));
+    ok(`Airlock E1: ${EDITION_PLAIN ? 'the plain edition has no hatch doors' : SHELVED ? 'every Share button has a hatch door; 0.8 shelf: a press does not swing it open' : 'every Share button has a hatch door; a press swings it open with air lines and a green ring'}`, hatch.all === 7 && (EDITION_PLAIN ? hatch.shown === 'none' : SHELVED ? hatch.shown !== 'none' && !hatch.open && !hatch.ring : hatch.shown !== 'none' && hatch.open && hatch.ring && hatch.whoosh === 'hatch-whoosh'), JSON.stringify(hatch));
     await pA.waitForSelector('#exportQrSheet', { state: 'visible' });
     await pA.waitForFunction(() => document.getElementById('exportQrPreview').width > 0);
     const expected = await decodeQr(pA);
@@ -3759,7 +3788,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('Save PNG downloads "Jane Doe QR.png" and closes the pop-up', dlQr.suggestedFilename() === 'Jane Doe QR.png' && !(await pA.isVisible('#exportQrSheet')), dlQr.suggestedFilename());
     const falconOf = () => pA.evaluate(() => { const f = document.getElementById('toastFalcon'), cs = getComputedStyle(f); return { hidden: f.classList.contains('hidden'), shown: cs.display, anim: cs.animationName, flap: getComputedStyle(f.querySelector('.falcon-body')).animationName, wide: f.getBoundingClientRect().width, parcel: f.classList.contains('with-parcel') && getComputedStyle(f.querySelector('.falcon-parcel')).display !== 'none' }; });
     const pngFalcon = await falconOf();
-    ok(`Airlock E2 + Checkers Q8: ${EDITION_PLAIN ? 'the plain edition shows no falcon' : 'after Save PNG a big falcon swoops over the toast, beating its wings, carrying the striped parcel'}`, !pngFalcon.hidden && (EDITION_PLAIN ? pngFalcon.shown === 'none' : pngFalcon.shown !== 'none' && pngFalcon.anim === 'falcon-glide' && pngFalcon.flap === 'falcon-flap' && pngFalcon.wide >= 50 && pngFalcon.parcel), JSON.stringify(pngFalcon));
+    if (SHELVED) ok('0.8 shelf: after Save PNG no falcon flies', pngFalcon.hidden, JSON.stringify(pngFalcon));
+    else ok(`Airlock E2 + Checkers Q8: ${EDITION_PLAIN ? 'the plain edition shows no falcon' : 'after Save PNG a big falcon swoops over the toast, beating its wings, carrying the striped parcel'}`, !pngFalcon.hidden && (EDITION_PLAIN ? pngFalcon.shown === 'none' : pngFalcon.shown !== 'none' && pngFalcon.anim === 'falcon-glide' && pngFalcon.flap === 'falcon-flap' && pngFalcon.wide >= 50 && pngFalcon.parcel), JSON.stringify(pngFalcon));
     const pngBytes = fs.readFileSync(await dlQr.path());
     ok('the saved file is a PNG', pngBytes.slice(1, 4).toString() === 'PNG');
     await pA.waitForFunction(() => !!document.querySelector('#previewAvatar img, #previewAvatar svg, #previewLogoStrip img, #previewLogoStrip svg'), null, { timeout: 5000 });
@@ -3769,7 +3799,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const vcfA = fs.readFileSync(await dlV.path(), 'utf8');
     ok('the .vcf now carries that logo as its photo', /\r\nPHOTO;TYPE=JPEG;ENCODING=b:/.test(vcfA), vcfA.slice(0, 80));
     const vcfFalcon = await falconOf();
-    ok('Airlock E2: Save .vcf says "Saved Jane Doe.vcf." and the falcon flies again, this time without the parcel', (await tA('toastMessage')) === 'Saved Jane Doe.vcf.' && !vcfFalcon.hidden && !vcfFalcon.parcel, JSON.stringify(vcfFalcon));
+    ok(SHELVED ? 'Airlock E2: Save .vcf says "Saved Jane Doe.vcf." (0.8 shelf: no falcon)' : 'Airlock E2: Save .vcf says "Saved Jane Doe.vcf." and the falcon flies again, this time without the parcel', (await tA('toastMessage')) === 'Saved Jane Doe.vcf.' && (SHELVED ? vcfFalcon.hidden : !vcfFalcon.hidden && !vcfFalcon.parcel), JSON.stringify(vcfFalcon));
     await pA.emulateMedia({ reducedMotion: 'reduce' });
     ok('Airlock E2: under reduce motion the falcon does not glide', (await falconOf()).anim === 'none');
     await pA.emulateMedia({ reducedMotion: 'no-preference' });

@@ -19,6 +19,7 @@
  * in it). The tray is on-screen only: a lock, a wipe, a new photo, a sample or the scan's Undo empties it.
  */
 import { globalEventBus, Events } from '../../share/eventBus.js';
+import { isShelved } from '../mod01-shell/edition.js';
 
 export const POP_MS = 320;                      // the pop-in, start to rest
 export const POP_FPS = 26;                      // stepped, like the padlock and the shimmer (never too crisp)
@@ -75,7 +76,7 @@ export function popIn() {
     const form = $('fieldsForm');
     if (!form) return;
     form.dataset.pops = String(Number(form.dataset.pops || 0) + 1);
-    if (reducedMotion()) return;
+    if (reducedMotion() || isShelved()) return;
     form.classList.remove('is-popping');
     void form.offsetWidth;                      // restart the animation when a pop is already running
     form.classList.add('is-popping');
@@ -121,7 +122,7 @@ export function initFieldsCard({ samples = [], prompt = SAMPLE_PROMPT, onSample 
     if (done) {
         done.textContent = '';
         done.append(okIcon(), Object.assign(document.createElement('span'), { textContent: DONE_LABEL }));
-        if (!isPlain) {
+        if (!isPlain && !isShelved()) {
             const stamp = Object.assign(document.createElement('span'), { className: 'fields-stamp', textContent: 'FILED' });
             stamp.setAttribute('aria-hidden', 'true');
             done.append(stamp);
