@@ -289,3 +289,33 @@ html[data-cb="1"] .vcge-seg button[aria-pressed="true"] { color: #ffffff; }
 @media (max-width: 599.98px) and (orientation: portrait) {
     .thank-you-box { position: absolute; left: 1rem; right: 1rem; top: 50%; transform: translateY(-50%); width: auto; }
 }
+
+/* ---- 0.8 redesign, push A (Creative's CRTV-0020 mock-up, raven575 "0.8 redesign is go" 2026-11-01 23:59 UTC) ----
+   Background texture and pilot emblems (emblems.js), soft depth on the cards and sheets, and input boxes with a light
+   theme-tinted fill so they lift off the emblem behind them. Colours come from the theme (themes.js); the extra ones
+   fall back to mixes of the seven every theme has. */
+:root {
+    --vcge-sunk: color-mix(in srgb, var(--vcge-border, #e2e8f0) 45%, var(--vcge-bg, #f1f5f9));
+    --vcge-shadow: 0 1px 2px rgba(30, 20, 60, 0.07), 0 6px 16px -6px rgba(30, 20, 60, 0.18);
+    --vcge-field-fill: color-mix(in srgb, var(--vcge-bg, #f1f5f9) 25%, transparent);
+}
+:root.dark { --vcge-shadow: 0 1px 2px rgba(0, 0, 0, 0.45), 0 6px 16px -6px rgba(0, 0, 0, 0.6); }
+.vcge-tex { position: fixed; inset: 0; width: 100%; height: 100%; z-index: -1;   /* under everything, over the page colour */
+    pointer-events: none; color: var(--vcge-text, #0f172a); opacity: 0.085; }
+.dark .vcge-tex { opacity: 0.12; }
+.deck-card { isolation: isolate; }   /* the emblem (z-index -1) paints over the card's own fill, under its content */
+html[data-app-theme] .deck-card { box-shadow: 0 0 0 1px var(--vcge-border), var(--vcge-shadow); }
+.vcge-emblem {   /* a clip box the size of the card, so the MOD tag can still hang over the card's edge */
+    position: absolute; inset: 0; z-index: -1; overflow: hidden; border-radius: inherit; pointer-events: none;
+    color: var(--vcge-accent, #16a34a); opacity: 0.16;
+}
+.vcge-emblem svg {
+    position: absolute; display: block; width: var(--em-s, 360px); height: var(--em-s, 360px); transform: rotate(var(--em-r, 0deg));
+    left: calc(var(--em-x, 90%) - var(--em-s, 360px) / 2); top: calc(var(--em-y, 60%) - var(--em-s, 360px) / 2);
+}
+html[data-app-theme] .deck-card input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]),
+html[data-app-theme] .deck-card textarea, html[data-app-theme] .deck-card select {
+    background-color: var(--vcge-field-fill); color: var(--vcge-text); border-color: var(--vcge-border);
+    -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
+}
+@media (forced-colors: active) { .vcge-tex, .vcge-emblem { display: none; } }
