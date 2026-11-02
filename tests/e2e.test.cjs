@@ -377,8 +377,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const img = new Image(); img.src = m[1];
       return img.decode().then(() => img.naturalWidth > 0, () => false);
     }) && await wordmarkShown() && !(await page.isVisible('#navWelcome .vcge-mark-text')));
-  else ok('plain edition: the header shows no logo and never fetched one, and "vCard Generator Engine" stays as text', await logoMarkGone(page, '.deck-logo')
-    && !(await brandFetches()).length && (await page.textContent('.deck-brand-text')).trim() === 'vCard Generator Engine', (await brandFetches()).join(' '));
+  // Plain is not unbranded (raven575, 11-02): its top bar has the app icon and the colour wordmark too; no other brand art is fetched
+  else ok('plain edition: the top bar shows the app icon and the blue and green vCGE wordmark like every version, fetches no other brand art, and "vCard Generator Engine" stays as text',
+    await page.$eval('.deck-logo', async (el) => { const m = /url\("?([^")]+)"?\)/.exec(getComputedStyle(el).backgroundImage), r = el.getBoundingClientRect();
+      if (!m || !/vcge-app-icon-64(-[\w-]+)?\.png$/.test(m[1]) || r.width < 30) return false; const img = new Image(); img.src = m[1]; return img.decode().then(() => img.naturalWidth > 0, () => false); })
+    && await wordmarkShown() && (await brandFetches()).every(u => /vcge-app-icon-64(-[\w-]+)?\.png$/.test(u)) && (await page.textContent('.deck-brand-text')).trim() === 'vCard Generator Engine', (await brandFetches()).join(' '));
   if (EDITION_PLAIN && FORCE_PLAIN) notRunHere('plain edition: every tab and home-screen icon is the plain icon', 'VCGE_EDITION=plain runs the working branch, whose icons are the branded ones; the plain branch swaps them');
   else if (EDITION_PLAIN) {
     // The plain icon is a white contact card on slate: the card's top edge, the head, slate above and inside the card.

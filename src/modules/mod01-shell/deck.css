@@ -51,6 +51,9 @@ button.vcge-mark { min-height: 44px; } button.vcge-step { min-height: 56px; } bu
 .vcge-mark .deck-wordmark { display: block; height: 22px; }
 .vcge-mark .vcge-mark-text { display: none; }
 html[data-edition="plain"] .vcge-mark .deck-wordmark { display: block; height: 26px; }
+/* Every version keeps the app icon beside the wordmark (raven575 11-02: plain is not unbranded); the plain branch swaps
+   this file for its own icon under the same name */
+html[data-edition="plain"] .vcge-mark .deck-logo.vcge-logo-mark { display: block; background: url('../../assets/brand/vcge-app-icon-64.png') center / contain no-repeat; }
 html[data-edition="plain"] .vcge-mark .vcge-mark-text { display: none; }
 .vcge-mark-text { font-family: ui-rounded, "SF Pro Rounded", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; font-size: 17px; letter-spacing: -.01em; }
 .deck-tools { display: flex; align-items: center; gap: 10px; flex: none; }

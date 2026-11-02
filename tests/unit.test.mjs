@@ -1541,9 +1541,9 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('logo: the top bar\'s mark (0.8 shell) is the logo and "vCGE" in the Start button, and the Thank You page carries the logo named vCGE for screen readers, from the bundled file (branded edition only)',
     marks.join() === 'vcge-welcome-logo vcge-logo-mark' && !!markRule && fs.existsSync(`${R}/${markRule[1]}`)
     && /<button id="navWelcome"[^>]*class="vcge-mark"><span class="deck-logo vcge-logo-mark" aria-hidden="true"><\/span><span class="deck-wordmark vcge-wordmark" aria-hidden="true"><\/span><b class="vcge-mark-text">vCGE<\/b><\/button>/.test(html), marks.join());
-  ok('logo: the top bar keeps "vCard Generator Engine" for screen readers, and the colour wordmark shows beside the icon (plain: the wordmark alone)',
+  ok('logo: the top bar keeps "vCard Generator Engine" for screen readers, and the colour wordmark shows beside the app icon in every version (plain too: plain is not unbranded)',
     /<span class="deck-brand-text vcge-sr-only">vCard Generator Engine<\/span>/.test(html)
-    && /html\[data-edition="plain"\] \.vcge-mark \.deck-wordmark \{ display: block;/.test(deckCss0) && /\n\.vcge-mark \.deck-wordmark \{ display: block; height: 22px; \}/.test(deckCss0) && /\n\.vcge-mark \.vcge-mark-text \{ display: none; \}/.test(deckCss0) && /html\[data-edition="plain"\] \.vcge-mark \.vcge-mark-text \{ display: none; \}/.test(deckCss0));
+    && /html\[data-edition="plain"\] \.vcge-mark \.deck-wordmark \{ display: block;/.test(deckCss0) && /\n\.vcge-mark \.deck-wordmark \{ display: block; height: 22px; \}/.test(deckCss0) && /\n\.vcge-mark \.vcge-mark-text \{ display: none; \}/.test(deckCss0) && /html\[data-edition="plain"\] \.vcge-mark \.deck-logo\.vcge-logo-mark \{ display: block; background: url\('\.\.\/\.\.\/assets\/brand\/vcge-app-icon-64\.png'\)/.test(deckCss0) && /html\[data-edition="plain"\] \.vcge-mark \.vcge-mark-text \{ display: none; \}/.test(deckCss0));
   // 0.8 redo R2: the Welcome card is Creative's (markup in index.html): Shutout's art and the tagline, taken out in plain
   // (welcome.js removes them, screens-r2.css hides them before it runs); "Made by" and the maker mark in both. The main
   // logo stays on the Thank You page.
