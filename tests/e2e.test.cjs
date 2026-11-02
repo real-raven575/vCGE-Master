@@ -2560,6 +2560,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // The shutter sinks on the press and pops back after the release; the shot is the window the viewfinder showed
     await pV.locator('#captureBtn').scrollIntoViewIfNeeded();
     const shutterNow = await box('#captureBtn');   // measured again: the pinch above may have scrolled the screen (0.8: the head and the dock take room)
+    // The zoomed picture stays inside the viewfinder: the shutter under it takes the press (CI WebKit, 11-02: with
+    // overflow: clip the 2x picture took it)
+    const shutterHit = await pV.evaluate(([x, y]) => { const h = document.elementFromPoint(x, y); return h ? (h.closest('#captureBtn') ? 'captureBtn' : h.id || h.tagName) : 'none'; }, [shutterNow.l + shutterNow.w / 2, shutterNow.t + shutterNow.h / 2]);
+    ok('shutter: at 2x the zoomed picture stays in the viewfinder and the shutter takes the press', shutterHit === 'captureBtn', shutterHit);
     await pV.mouse.move(shutterNow.l + shutterNow.w / 2, shutterNow.t + shutterNow.h / 2); await pV.mouse.down(); await pV.waitForTimeout(60);
     const sunk = await pV.$eval('#captureBtn', b => b.style.transform);
     const clicksBefore = await pV.evaluate(() => window.__clicks.length);

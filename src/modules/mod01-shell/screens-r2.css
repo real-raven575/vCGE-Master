@@ -50,9 +50,6 @@ button.r2-reopen { align-self: center; min-height: 44px; padding: 0 16px; border
 /* The viewfinder: nearly the full width, rounded, dark glass until the camera starts */
 #cardCapture .r2-finder { position: relative; flex: 1 1 auto; min-height: 120px; width: 100%; aspect-ratio: auto; max-height: none;
     border-radius: 28px; overflow: hidden; background: var(--r2-glass); }
-/* (clip, not just hidden: a zoomed picture spills past the finder, and a hidden box can still be scrolled, by a focus in
-   Firefox, which moved the zoom chips from under a tap) */
-@supports (overflow: clip) { #cardCapture .r2-finder { overflow: clip; } }
 .r2-live { position: absolute; inset: 0; background: #000; }
 .r2-live.hidden { display: none; }
 .r2-idle { position: absolute; inset: 0; display: grid; place-content: center; justify-items: center; gap: 14px; padding: 16px; }
