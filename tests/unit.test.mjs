@@ -1541,9 +1541,9 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('logo: the top bar\'s mark (0.8 shell) is the logo and "vCGE" in the Start button, and the Thank You page carries the logo named vCGE for screen readers, from the bundled file (branded edition only)',
     marks.join() === 'vcge-welcome-logo vcge-logo-mark' && !!markRule && fs.existsSync(`${R}/${markRule[1]}`)
     && /<button id="navWelcome"[^>]*class="vcge-mark"><span class="deck-logo vcge-logo-mark" aria-hidden="true"><\/span><span class="deck-wordmark vcge-wordmark" aria-hidden="true"><\/span><b class="vcge-mark-text">vCGE<\/b><\/button>/.test(html), marks.join());
-  ok('logo: the top bar keeps "vCard Generator Engine" for screen readers, and plain shows the colour wordmark in place of the icon and "vCGE"',
+  ok('logo: the top bar keeps "vCard Generator Engine" for screen readers, and the colour wordmark shows beside the icon (plain: the wordmark alone)',
     /<span class="deck-brand-text vcge-sr-only">vCard Generator Engine<\/span>/.test(html)
-    && /html\[data-edition="plain"\] \.vcge-mark \.deck-wordmark \{ display: block;/.test(deckCss0) && /html\[data-edition="plain"\] \.vcge-mark \.vcge-mark-text \{ display: none; \}/.test(deckCss0));
+    && /html\[data-edition="plain"\] \.vcge-mark \.deck-wordmark \{ display: block;/.test(deckCss0) && /\n\.vcge-mark \.deck-wordmark \{ display: block; height: 22px; \}/.test(deckCss0) && /\n\.vcge-mark \.vcge-mark-text \{ display: none; \}/.test(deckCss0) && /html\[data-edition="plain"\] \.vcge-mark \.vcge-mark-text \{ display: none; \}/.test(deckCss0));
   // 0.8 redo R2: the Welcome card is Creative's (markup in index.html): Shutout's art and the tagline, taken out in plain
   // (welcome.js removes them, screens-r2.css hides them before it runs); "Made by" and the maker mark in both. The main
   // logo stays on the Thank You page.
@@ -1601,6 +1601,16 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('shell art: does nothing in the plain edition, or without a page', !artTouched);
   const deckCss = fs.readFileSync(`${R}/modules/mod01-shell/deck.css`, 'utf8');
   // 0.8 shell (raven575 2026-11-02: the mock-up exactly; the turtle and plates are shelved, their maths kept for later)
+  {
+    // The dock's five icons are Creative's own line icons (the mock-up's STEP_ICONS), drawn in the page so each platform style restyles them
+    const dockHtml = fs.readFileSync(`${R}/../index.html`, 'utf8');
+    const want = { navCapture: '<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>', navRead: '<path d="M5 6h14M5 11h10M5 16h12"/>',
+      navFields: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20c1-4 4-6 7-6s6 2 7 6"/>', navCard: '<rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M7 11h6M7 14h4"/>',
+      navShare: '<path d="M12 15V4M8 8l4-4 4 4M6 12v7h12v-7"/>' };
+    ok('0.8 dock: the five step icons are the mock-up\'s line icons (camera, lines, person, card, share), not the old sprite',
+      Object.entries(want).every(([id, paths]) => new RegExp(`id="${id}"[^>]*>[^<]*<svg class="vcge-icon vcge-step-icon" viewBox="0 0 24 24"[^>]*>${paths.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}</svg>`).test(dockHtml))
+      && !/class="vcge-step"[^>]*>[^<]*<svg[^>]*><use href="[^"]*sprite\.svg/.test(dockHtml));
+  }
   ok('0.8 shell: no turtle, no shell plates and no MOD tags in the page; the shell art finds nothing to draw',
     !/id="deckTurtle"|id="deckPlates"|class="mod-tag/.test(html) && !/\.deck-turtle|\.deck-plates/.test(deckCss));
   ok('0.8 shell: sheets slide up from the bottom (380 ms, the sheet ease) over a scrim that fades in (260 ms), with a grab bar in both editions; and slide down again; none under reduced motion',

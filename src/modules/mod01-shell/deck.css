@@ -46,8 +46,11 @@ button.vcge-mark { min-height: 44px; } button.vcge-step { min-height: 56px; } bu
 .vcge-mark { display: flex; align-items: center; gap: 10px; margin-right: auto; background: transparent; border: 0; padding: 0;
     color: var(--sh-ink); cursor: pointer; min-height: 44px; }
 .vcge-mark .deck-logo { width: 32px; height: 32px; flex: none; border-radius: 8px; }
-.vcge-mark .deck-wordmark { display: none; }
-html[data-edition="plain"] .vcge-mark .deck-wordmark { display: block; height: 28px; }
+/* The mock-up's mark: the app icon and the colour wordmark (blue "vC", green "GE"); the text stays for nothing but the
+   build's own tests of the words, hidden like the mock-up's <b> (plain: a larger wordmark and no icon, ui.css) */
+.vcge-mark .deck-wordmark { display: block; height: 22px; }
+.vcge-mark .vcge-mark-text { display: none; }
+html[data-edition="plain"] .vcge-mark .deck-wordmark { display: block; height: 26px; }
 html[data-edition="plain"] .vcge-mark .vcge-mark-text { display: none; }
 .vcge-mark-text { font-family: ui-rounded, "SF Pro Rounded", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif; font-size: 17px; letter-spacing: -.01em; }
 .deck-tools { display: flex; align-items: center; gap: 10px; flex: none; }

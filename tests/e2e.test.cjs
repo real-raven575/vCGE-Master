@@ -365,13 +365,18 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   ok('loads with no 404s', notFound.length === 0, notFound.join(', '));
   const favicon = await page.evaluate(() => { const l = document.querySelector('link[rel="icon"][sizes="32x32"]'); return l ? l.href : null; });
   ok('the tab icon is a bundled file on the same origin', !!favicon && favicon.startsWith(base) && (await page.request.get(favicon)).status() === 200 && (await page.request.get(favicon)).headers()['content-type'].includes('image/png'), favicon);
-  // The top bar's mark (0.8 shell): the app icon and "vCGE" on every screen size, in the Start button
-  if (!EDITION_PLAIN) ok('the top bar shows the app icon (bundled, loaded) and "vCGE" beside it, on every screen size', await page.$eval('.deck-logo', async (el) => {
+  // The top bar's mark (0.8 shell, Creative's mock-up): the app icon and the colour wordmark on every screen size, in the Start button
+  const wordmarkShown = () => page.$eval('#navWelcome .deck-wordmark', async (el) => {
+    const m = /url\("?([^")]+)"?\)/.exec(getComputedStyle(el).backgroundImage), r = el.getBoundingClientRect();
+    if (!m || !/vcge-wordmark\.svg$/.test(m[1]) || r.height < 20 || r.width < 40) return false;
+    const img = new Image(); img.src = m[1]; return img.decode().then(() => img.naturalWidth > 0, () => false);
+  });
+  if (!EDITION_PLAIN) ok('the top bar shows the app icon and the blue and green vCGE wordmark beside it (both bundled and loaded), on every screen size', await page.$eval('.deck-logo', async (el) => {
       const m = /url\("?([^")]+)"?\)/.exec(getComputedStyle(el).backgroundImage), r = el.getBoundingClientRect();
       if (!m || !m[1].startsWith(location.origin) || r.width < 30) return false;
       const img = new Image(); img.src = m[1];
       return img.decode().then(() => img.naturalWidth > 0, () => false);
-    }) && (await page.textContent('#navWelcome .vcge-mark-text')).trim() === 'vCGE' && await page.isVisible('#navWelcome .vcge-mark-text'));
+    }) && await wordmarkShown() && !(await page.isVisible('#navWelcome .vcge-mark-text')));
   else ok('plain edition: the header shows no logo and never fetched one, and "vCard Generator Engine" stays as text', await logoMarkGone(page, '.deck-logo')
     && !(await brandFetches()).length && (await page.textContent('.deck-brand-text')).trim() === 'vCard Generator Engine', (await brandFetches()).join(' '));
   if (EDITION_PLAIN && FORCE_PLAIN) notRunHere('plain edition: every tab and home-screen icon is the plain icon', 'VCGE_EDITION=plain runs the working branch, whose icons are the branded ones; the plain branch swaps them');
@@ -3816,6 +3821,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('0.8 Share: "Ready to go." first, then Save (.vcf, QR image, print) and Send (share, copy, email, text), each row naming what leaves and where, then the reminder that sharing does not clear the card',
       shareLayout.ready && shareLayout.order === 'done,group,group,tip' && JSON.stringify(shareLayout.groups.map(g => [g.head, g.rows])) === JSON.stringify([['Save', ['downloadVcfBtn', 'exportQrBtn', 'printCardBtn']], ['Send', ['shareNativeBtn', 'copyVcardBtn', 'emailBtn', 'smsBtn']]])
       && shareLayout.groups.every(g => g.told) && shareLayout.vcfRow === 'Save contact file Contact.vcf goes to your Downloads' && shareLayout.tip === 'Sharing does not clear the card. Lock or close the app to wipe it.', JSON.stringify(shareLayout));
+    const plane = await pA.evaluate(() => { const e = document.querySelector('#cardShare > .vcge-emblem svg'), h = document.getElementById('hTitle').getBoundingClientRect(); if (!e) return null;
+      const r = e.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2; return { y: Math.round(y), headTop: Math.round(h.top), cardTop: Math.round(document.getElementById('cardShare').getBoundingClientRect().top),
+        drawn: document.elementsFromPoint(x, Math.max(y, r.top + 4)).some(n => n.closest && n.closest('#cardShare > .vcge-emblem')) || getComputedStyle(document.getElementById('deck')).overflowY === 'visible' }; });
+    ok('0.8 Share: Airlock\'s paper plane rises behind the head, beside the title, as in the mock-up (not clipped at the screen\'s top)', !!plane && plane.y < plane.cardTop && plane.y > plane.headTop - 60 && plane.drawn, JSON.stringify(plane));
     await pA.click('#exportQrBtn'); await pA.waitForTimeout(200);
     ok('empty card: QR PNG says to add a contact first, no pop-up', !(await pA.isVisible('#exportQrSheet')) && (await tA('toastMessage')) === 'Add a contact first.');
     await pA.click('#printCardBtn'); await pA.waitForTimeout(200);
@@ -3844,9 +3853,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pA.emulateMedia({ reducedMotion: 'reduce' });
     ok('Checkers Q1: under reduce motion the code shows at once', (await pA.$eval('#qrCanvas', c => getComputedStyle(c).animationName)) === 'none');
     await pA.emulateMedia({ reducedMotion: 'no-preference' });
-    const ready = await pA.evaluate(() => { const b = document.getElementById('readyToShareBtn'), r = b.getBoundingClientRect(), c = document.getElementById('cardCard').getBoundingClientRect(); return { inFoot: r.top > c.top + c.height / 2, h: Math.round(r.height), bg: getComputedStyle(b).backgroundColor }; });
-    await pA.click('#readyToShareBtn'); await pA.waitForTimeout(700);
-    ok('Ready to share (green, in the 3D Card\'s foot) takes the person to the Share card', ready.inFoot && ready.h >= 44 && ready.bg === 'rgb(22, 163, 74)' && (await pA.evaluate(() => document.querySelector('.deck-card.is-current').id)) === 'cardShare', JSON.stringify(ready));
+    // 0.8 (Creative's mock-up): the Card screen has no green button of its own; the dock's "Share" is the one way on
+    const ready = await pA.evaluate(() => { const b = document.getElementById('dockNext'), r = b.getBoundingClientRect(), c = document.getElementById('cardCard').getBoundingClientRect(); return { below: r.top >= c.bottom - 1, h: Math.round(r.height), label: b.textContent.trim(), ready: !b.disabled, green: !!document.getElementById('readyToShareBtn').offsetParent }; });
+    await pA.click('#dockNext'); await pA.waitForTimeout(700);
+    ok('0.8 Card: no green "Ready to share" on the screen; the dock\'s "Share" (under the screen, 44 px) takes the person to the Share card', !ready.green && ready.below && ready.h >= 44 && ready.label === 'Share' && ready.ready && (await pA.evaluate(() => document.querySelector('.deck-card.is-current').id)) === 'cardShare', JSON.stringify(ready));
     ok('the file names in the Save rows follow the contact', (await tA('shareVcfName')) === 'Jane Doe.vcf' && (await tA('shareQrName')) === 'Jane Doe QR.png', `${await tA('shareVcfName')}, ${await tA('shareQrName')}`);
 
     // Export QR pop-up: a live preview from the same code as the card back, Themed by default

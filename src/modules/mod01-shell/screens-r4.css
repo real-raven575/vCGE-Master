@@ -110,3 +110,14 @@ html[data-edition="plain"] .r4-done-em { display: none; }
 html[data-edition="plain"] .r4-chev { display: block; }
 #cardShare .r4-row-end .hatch { width: 0.85rem; height: 1.05rem; }
 #cardShare .r4-tip { margin-top: -8px; }
+
+/* The mock-up's Card screen has no button of its own: the dock's "Share" presses #readyToShareBtn (data-next), so the
+   green in-screen copy is not shown (raven575, 11-02: "redundant, please use buttons from Creative") */
+#cardCard > .deck-card-foot { display: none; }
+
+/* Airlock's paper plane flies up beside the head, as in the mock-up (its spot is above the screen's top edge, y -9 %),
+   so the Share screen's emblem box does not clip it */
+#cardShare > .vcge-emblem { overflow: visible; }
+/* The deck clips only sideways (the 280 ms slide), so the plane can rise behind the head; browsers without
+   overflow: clip keep the deck's full clip and the plane's lower half */
+@supports (overflow: clip) { #deck { overflow-x: clip; overflow-y: visible; } }

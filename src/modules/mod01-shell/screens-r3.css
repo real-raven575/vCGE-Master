@@ -6,12 +6,16 @@
 :root { --r3-warn: var(--vcge-warn, #8a5800); --r3-good: var(--vcge-good, #2e7d4f); }
 :root.dark { --r3-warn: var(--vcge-warn, #f2c060); --r3-good: var(--vcge-good, #7fd39e); }
 
+/* ---- The mock-up's type: its screens run at 17 px (.app font-size), so these two do too; everything below is in em, so
+   the text-size setting still scales it all ---- */
+#cardRead > .deck-card-body, #cardFields > .deck-card-body { font-size: 1.0625rem; }
+
 /* ---- Shared pieces: the rounded box, the tip, the quiet buttons ------------------------------------------------- */
 #cardRead .read-input,
 #cardFields .field-input {
     width: 100%; min-height: 52px; box-sizing: border-box; margin: 0;
     border-radius: 16px; border: 1.5px solid var(--sh-line); background: var(--sh-surface); color: var(--sh-ink);
-    box-shadow: var(--sh-shadow); font: inherit; font-size: 1rem; padding: 0 16px;
+    box-shadow: var(--sh-shadow); font: inherit; font-size: 1em; padding: 0 16px;
     transition: border-color 160ms, background 160ms;
 }
 #cardFields textarea.field-input { padding: 14px 16px; line-height: 1.4; resize: vertical; }
@@ -28,7 +32,7 @@
 #cardRead .read-quiet-btn {
     min-height: 44px; padding: 0 16px; border: 0; border-radius: 999px; cursor: pointer;
     background: var(--sh-surface); color: var(--sh-ink); box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow);
-    font: 600 .9rem system-ui, sans-serif; transition: transform 120ms var(--ease-out);
+    font: 600 .9em system-ui, sans-serif; transition: transform 120ms var(--ease-out);
 }
 #cardRead .read-quiet-btn:active, #cardFields .fields-add:active { transform: scale(.96); }
 
@@ -53,14 +57,14 @@
 #cardRead .read-field { flex: 1 1 0; min-width: 0; }
 #cardRead .read-input { padding: 0 14px; text-overflow: ellipsis; }
 #cardRead .read-line.is-flagged .read-input, #cardRead .read-input.read-flagged { border-color: var(--r3-warn); }
-#cardRead .read-field .read-flagged { padding-right: 3rem; }
+#cardRead .read-field .read-flagged { padding-right: 3em; }
 
 /* The type chip: the role picker laid over it (a tap opens the system's own list) */
 #cardRead .read-type {
     position: relative; flex: none; display: inline-flex; align-items: center; gap: 4px; max-width: 46%;
     min-height: 36px; padding: 0 12px; border-radius: 999px; cursor: pointer;
     background: var(--sh-surface); color: var(--sh-ink); box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow);
-    font: 600 .8rem system-ui, sans-serif; transition: transform 120ms var(--ease-out);
+    font: 600 .8em system-ui, sans-serif; transition: transform 120ms var(--ease-out);
 }
 #cardRead .read-type:active { transform: scale(.96); }
 #cardRead .read-type:focus-within { box-shadow: 0 0 0 2px var(--sh-accent), var(--sh-shadow); }
@@ -113,20 +117,19 @@
 #cardRead .read-empty { margin-top: 4px; }
 
 /* ---- Details: groups, labels above, rounded boxes ------------------------------------------------------------------ */
-#cardFields #fieldsForm { display: grid; gap: 18px; margin-bottom: 24px; }
-#cardFields .fields-group { margin: 10px 0 -6px; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--sh-muted); }
-#cardFields #fieldsForm > .fields-group:first-child { margin-top: 0; }
+#cardFields #fieldsForm { display: grid; gap: 24px; margin-bottom: 26px; }
+#cardFields .fields-group { margin: 10px 0 -10px; font-size: 12px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--sh-muted); }
 #cardFields label.block { display: grid; gap: 6px; min-width: 0; }
 #cardFields .field-label, #cardFields fieldset > legend.field-label {
     display: flex; align-items: center; margin: 0; padding-left: 4px;
-    font-size: .8rem; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--sh-muted);
+    font-size: .8em; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--sh-muted);
 }
 #cardFields fieldset > legend.field-label { margin-bottom: 6px; }
 #cardFields .fields-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 #cardFields fieldset { margin: 0; padding: 0; border: 0; min-width: 0; }
 #cardFields .fields-list { display: grid; gap: 8px; }
 #cardFields .fields-rows { display: grid; gap: 8px; }
-#cardFields .fields-hint { margin: -10px 0 0; padding-left: 4px; font-size: .78rem; color: var(--sh-muted); }
+#cardFields .fields-hint { margin: -10px 0 0; padding-left: 4px; font-size: .78em; color: var(--sh-muted); }
 
 /* A typed list row (MOD06 builds it: type, value, remove): the value box first, then its type as a chip */
 #cardFields .fields-rows > div { display: flex; gap: 8px; align-items: center; min-width: 0; }
@@ -142,23 +145,23 @@
 }
 #cardFields .fields-rows > div > select {
     order: 2; flex: none; width: auto; max-width: 42%; min-height: 44px; padding-left: 12px; border-radius: 999px;
-    font: 600 .8rem system-ui, sans-serif; box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow); border: 0;
+    font: 600 .8em system-ui, sans-serif; box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow); border: 0;
 }
 #cardFields .fields-rows > div > button {
     order: 3; flex: none; width: 44px; min-width: 44px; height: 44px; padding: 0; border: 0; border-radius: 50%;
-    background: transparent; color: var(--sh-muted); font-size: 1.25rem; cursor: pointer;
+    background: transparent; color: var(--sh-muted); font-size: 1.25em; cursor: pointer;
 }
 #cardFields .fields-rows > div > button:hover { color: var(--sh-stop); }
 
 /* Phone style: one quiet line under the numbers */
 #cardFields .fields-phone-style { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding-left: 4px; }
-#cardFields .fields-cc { font-size: .8rem; color: var(--sh-muted); gap: 8px; }
-#cardFields .fields-phone-style select { width: auto; min-height: 44px; border-radius: 999px; font-size: .85rem; padding-left: 12px; }
+#cardFields .fields-cc { font-size: .8em; color: var(--sh-muted); gap: 8px; }
+#cardFields .fields-phone-style select { width: auto; min-height: 44px; border-radius: 999px; font-size: .85em; padding-left: 12px; }
 
 /* "+ Add phone" and the like: small accent text links under their list */
 #cardFields .fields-add-row {
     justify-self: start; min-height: 44px; padding: 0 4px; border: 0; background: transparent; cursor: pointer;
-    color: var(--sh-accent); font: 600 .85rem system-ui, sans-serif;
+    color: var(--sh-accent); font: 600 .85em system-ui, sans-serif;
 }
 
 /* Address: two columns, the street and the city across both */
@@ -168,7 +171,7 @@
 #cardFields .fields-address #stateText.hidden { display: none; }
 
 /* The rarer boxes ("+ Add a field") */
-#cardFields .fields-more:not(.hidden) { display: grid; gap: 18px; }
+#cardFields .fields-more:not(.hidden) { display: grid; gap: 24px; }
 
 /* "+ Add a field": the mock-up's quiet full-width button */
 #cardFields .fields-add:not(.hidden) {
@@ -181,10 +184,10 @@
 /* The sample list and Clear form: last on the screen and quiet (the mock-up has no place for them) */
 #cardFields .fields-tools { display: flex; align-items: center; gap: 10px; margin-top: 22px; padding-top: 14px; border-top: 1px dashed var(--sh-line); }
 #cardFields .fields-fake { flex: 1 1 auto; min-width: 0; }
-#cardFields .fields-fake select { min-height: 44px; border-radius: 999px; font-size: .85rem; font-weight: 600; color: var(--sh-muted); box-shadow: none; background-color: transparent; }
+#cardFields .fields-fake select { min-height: 44px; border-radius: 999px; font-size: .85em; font-weight: 600; color: var(--sh-muted); box-shadow: none; background-color: transparent; }
 #cardFields .fields-clear {
     flex: none; min-height: 44px; padding: 0 10px; border: 0; background: transparent; cursor: pointer;
-    color: var(--sh-muted); font: 600 .85rem system-ui, sans-serif; text-decoration: underline; text-underline-offset: 3px;
+    color: var(--sh-muted); font: 600 .85em system-ui, sans-serif; text-decoration: underline; text-underline-offset: 3px;
 }
 #cardFields .fields-clear:hover { color: var(--sh-stop); }
 
