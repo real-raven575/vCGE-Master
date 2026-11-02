@@ -2488,9 +2488,13 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pV.click('#zoomChips [data-zoom="2"]');
     const chipLanded = await pV.waitForFunction(() => document.getElementById('cameraStream').style.transform === 'scale(2)', null, { timeout: 5000 }).then(() => true, () => false);
     const chipPressed = await pV.$$eval('#zoomChips [data-zoom]', bs => bs.map(b => b.getAttribute('aria-pressed')).join());
+    // (where the 1× tap lands, for a miss: Firefox CI saw the zoom stay at 2x after it)
+    const chipHit = await pV.$eval('#zoomChips [data-zoom="1"]', b => { const r = b.getBoundingClientRect(), h = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return `${Math.round(r.left)},${Math.round(r.top)} hit ${h ? (h.id || h.getAttribute('data-zoom') || h.className || h.tagName) : 'none'} in ${innerWidth}x${innerHeight}`; });
     await pV.click('#zoomChips [data-zoom="1"]');
     const chipBack = await pV.waitForFunction(() => document.getElementById('cameraStream').style.transform === '' && document.getElementById('zoomDisplay').textContent === '1.0x', null, { timeout: 5000 }).then(() => true, () => false);
-    ok('zoom chips: 2× zooms the camera to 2x and shows pressed; 1× takes it back', chipLanded && chipPressed === 'false,false,true' && chipBack && (await pV.$eval('#zoomChips [data-zoom="1"]', b => b.getAttribute('aria-pressed'))) === 'true', `${chipLanded} ${chipPressed} ${chipBack}`);
+    const chipAfter = chipBack ? '' : await pV.evaluate(() => `transform "${document.getElementById('cameraStream').style.transform}", readout ${document.getElementById('zoomDisplay').textContent}, slider ${document.getElementById('zoomSlider').value}, pressed ${Array.from(document.querySelectorAll('#zoomChips [data-zoom]')).map(b => b.getAttribute('aria-pressed')).join()}, focus ${document.activeElement && (document.activeElement.getAttribute('data-zoom') || document.activeElement.id)}`);
+    ok('zoom chips: 2× zooms the camera to 2x and shows pressed; 1× takes it back', chipLanded && chipPressed === 'false,false,true' && chipBack && (await pV.$eval('#zoomChips [data-zoom="1"]', b => b.getAttribute('aria-pressed'))) === 'true', `${chipLanded} ${chipPressed} ${chipBack}${chipAfter ? ' | 1× tap at ' + chipHit + ' | after: ' + chipAfter : ''}`);
     ok('viewfinder: the shutter sits in the middle 60 percent of the screen height', (shutter.t + shutter.b) / 2 > 844 * 0.2 && (shutter.t + shutter.b) / 2 < 844 * 0.8, String((shutter.t + shutter.b) / 2));
 
     // The fader eases into a change: the readout passes through a value between 1 and 2 before landing on 2.0x
@@ -2625,7 +2629,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       fire('pointerdown', r.left + r.width / 2, r.top + r.height / 2); fire('pointermove', r.left + r.width / 2 + 30, r.top + r.height / 2 + 10); fire('pointerup', r.left + r.width / 2 + 30, r.top + r.height / 2 + 10);
       return { before, after: v.style.transform };
     });
-    ok('one finger pans the zoomed photo', panned.before !== panned.after && /scale\(2\)/.test(panned.after), JSON.stringify(panned));
+    // (the scale is the pinch's, which the check above takes to 0.01: Firefox rounds touch points to 1/60 px, so 1.99996)
+    const pannedScale = Number((/scale\(([\d.]+)\)/.exec(panned.after) || [])[1]);
+    ok('one finger pans the zoomed photo', panned.before !== panned.after && Math.abs(pannedScale - 2) < 0.01 && Math.abs(pannedScale - pinch.scale) < 1e-6, JSON.stringify(panned));
     // A fast pinch past 6x turns back at once (raven575, Chrome on Android, 2026-10-22: a fast pinch "won't let you zoom
     // all the way back out"): 20 px apart -> 240 px asks for 12x and stops at 6x; back to 120 px is half of that, 3x
     const overshoot = await pV.evaluate(() => {
@@ -3357,11 +3363,13 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const sw = [...document.querySelectorAll('#paletteListContainer button')].map(b => { const r = b.getBoundingClientRect(), cs = getComputedStyle(b); return { w: Math.round(r.width), h: Math.round(r.height), top: Math.round(r.top), round: cs.borderTopLeftRadius === '50%' || parseFloat(cs.borderTopLeftRadius) >= r.width / 2 - 1, pressed: b.getAttribute('aria-pressed') }; });
       const card = document.getElementById('card3DFlipper').getBoundingClientRect(), flip = document.getElementById('flipCardBtn').getBoundingClientRect();
       return { firstIsCard: at(document.getElementById('card3DFlipper')) === 0, order: [at(document.getElementById('card3DFlipper')), at(body.querySelector('.r4-flipnote')), at(document.getElementById('paletteListContainer')), at(body.querySelector('.r4-logo')), at(document.getElementById('flipCardBtn'))],
-        note: body.querySelector('.r4-flipnote').textContent.trim(), tip: body.querySelector('.r4-logo .r4-tip-line').textContent.trim(), sw, toolsBelow: flip.top > card.bottom, oldRow: !!document.getElementById('paletteDropdownBtn') };
+        note: body.querySelector('.r4-flipnote').textContent.trim(), tip: body.querySelector('.r4-logo .r4-tip-line').textContent.trim(), sw, toolsBelow: flip.top > card.bottom, oldRow: !!document.getElementById('paletteDropdownBtn'), room: Math.round(document.querySelector('#cardCard .r4-card').clientWidth) };
     });
-    ok('0.8 card: the card first, then "Tap the right side to spin right, the left side to spin left.", round 44 px colour swatches in one row (Slate Blue pressed), the logo tip with its safe-area guide, then the style controls below the card',
+    ok('0.8 card: the card first, then "Tap the right side to spin right, the left side to spin left.", round 44 px colour swatches in one row, or two rows of four on a narrow phone (Slate Blue pressed), the logo tip with its safe-area guide, then the style controls below the card',
       cardLayout.firstIsCard && cardLayout.order.every((v, i, a) => i === 0 || v > a[i - 1]) && cardLayout.note === 'Tap the right side to spin right, the left side to spin left.'
-      && cardLayout.tip === 'Add a logo. You will see a safe-area guide so the rounded corners never clip it.' && cardLayout.sw.length === 8 && cardLayout.sw.every(b => b.w === 44 && b.h === 44 && b.round && b.top === cardLayout.sw[0].top)
+      && cardLayout.tip === 'Add a logo. You will see a safe-area guide so the rounded corners never clip it.' && cardLayout.sw.length === 8 && cardLayout.sw.every(b => b.w === 44 && b.h === 44 && b.round)
+      // one row where eight fit (352 px); on a narrower phone (Galaxy S24, 360 px wide) two rows of four, as screens-r4.css lays them
+      && (cardLayout.room >= 352 ? cardLayout.sw.every(b => b.top === cardLayout.sw[0].top) : cardLayout.sw.every((b, i) => b.top === cardLayout.sw[i < 4 ? 0 : 4].top) && cardLayout.sw[4].top > cardLayout.sw[0].top)
       && cardLayout.sw.filter(b => b.pressed === 'true').length === 1 && cardLayout.sw[6].pressed === 'true' && cardLayout.toolsBelow && !cardLayout.oldRow, JSON.stringify(cardLayout));
     await p6.click('#paletteListContainer [data-theme="pumpkin"]');
     ok('0.8 card: the picked swatch is the pressed one', (await p6.$$eval('#paletteListContainer button[aria-pressed="true"]', bs => bs.map(b => b.dataset.theme).join())) === 'pumpkin');

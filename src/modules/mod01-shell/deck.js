@@ -169,9 +169,10 @@ export function closeSheet(id) {
     sheet.classList.remove('is-open');
     clearTimeout(sheetTimers.get(id));
     if (reducedMotion()) { sheet.classList.add('hidden'); return; }
+    // (A sheet a module reopens itself mid-slide, by dropping is-closing, is left open when the slide's time is up.)
     // The sheet counts as closed at once (is-closing: hidden to pointers and screen readers) while its panel slides down
     sheet.classList.add('is-closing');
-    sheetTimers.set(id, setTimeout(() => { if (!sheet.classList.contains('is-open')) { sheet.classList.add('hidden'); sheet.classList.remove('is-closing'); } }, SHEET_MS));
+    sheetTimers.set(id, setTimeout(() => { if (!sheet.classList.contains('is-open') && sheet.classList.contains('is-closing')) { sheet.classList.add('hidden'); sheet.classList.remove('is-closing'); } }, SHEET_MS));
 }
 
 export function sheetOpen(id) { const s = $(id); return !!s && !s.classList.contains('hidden') && !s.classList.contains('is-closing'); }
