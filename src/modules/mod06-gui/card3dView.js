@@ -179,7 +179,12 @@ const $ = (id) => document.getElementById(id);
 // Motion (shared rule, same numbers as mod03-camera/viewfinder.js): stepped at 26 fps, a 5 percent snap past the target.
 export const STEP_FPS = 26;
 export const OVERSHOOT = 0.05;
-export const SPIN_MS = 420;              // a flip or the settle after a drag
+export const SPIN_MS = 420;              // the settle after a drag
+// A flip (a tap on the card, Flip card, a step that turns it): 620 ms with the soft ease out of Creative's 0.8 mock-up
+// (cubic-bezier(.2, .8, .2, 1)), drawn smoothly at 60 fps instead of the stepped 26 fps, with no snap past the face.
+export const TAP_SPIN_MS = 620;
+export const TAP_SPIN_FPS = 60;
+export const SAFE_GUIDE_MS = 2400;       // the logo's safe-area guide stays this long after a logo goes on the card
 const SPIN_TAP_PX = 8;                   // a drag shorter than this is a tap
 const CLICK_AFTER_LIFT_MS = 600;         // a click this soon after a lift belongs to that press
 export const EDGE_PX = 48;               // no drag within this much of the screen edge (browser back gesture)
@@ -190,17 +195,30 @@ export function easeSnap(t) {
     const q = (p - 0.5) / 0.5 - 1;
     return 0.5 + 0.5 * (1 + (BACK + 1) * q * q * q + BACK * q * q);
 }
-export function tween(from, to, ms, apply, { instant = false, now = () => Date.now(), schedule = setTimeout, cancel = clearTimeout } = {}) {
+/** CSS cubic-bezier(x1, y1, x2, y2) as a function of progress (0 to 1), solved for x by bisection. */
+export function cubicBezier(x1, y1, x2, y2) {
+    const at = (a, b, t) => 3 * a * (1 - t) * (1 - t) * t + 3 * b * (1 - t) * t * t + t * t * t;
+    return (p) => {
+        const x = Math.max(0, Math.min(1, p));
+        if (x === 0 || x === 1) return x;
+        let lo = 0, hi = 1;
+        for (let i = 0; i < 40; i++) { const t = (lo + hi) / 2; if (at(x1, x2, t) < x) lo = t; else hi = t; }
+        return at(y1, y2, (lo + hi) / 2);
+    };
+}
+/** The mock-up's soft ease out (--ease-out): fast away, gentle landing, never past the end. */
+export const easeSoft = cubicBezier(0.2, 0.8, 0.2, 1);
+export function tween(from, to, ms, apply, { instant = false, now = () => Date.now(), schedule = setTimeout, cancel = clearTimeout, ease = easeSnap, fps = STEP_FPS } = {}) {
     if (instant || !(ms > 0) || from === to) { apply(to); return () => {}; }
     const t0 = now();
     let timer = null;
     const step = () => {
         const p = (now() - t0) / ms;
         if (p >= 1) { apply(to); timer = null; return; }
-        apply(from + (to - from) * easeSnap(p));
-        timer = schedule(step, 1000 / STEP_FPS);
+        apply(from + (to - from) * ease(p));
+        timer = schedule(step, 1000 / fps);
     };
-    timer = schedule(step, 1000 / STEP_FPS);
+    timer = schedule(step, 1000 / fps);
     return () => { if (timer !== null) { cancel(timer); timer = null; } };
 }
 const reducedMotion = () => typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -602,7 +620,8 @@ export class CardView {
         this.themeKey = themeKeyOf(themeKey);
         const t = THEMES[this.themeKey];
         $('currentPaletteLabel').textContent = t.label;
-        $('paletteSwatch').style.background = `linear-gradient(135deg, ${t.card} 50%, ${t.accent} 50%)`;
+        const swatches = $('paletteListContainer');
+        if (swatches) swatches.querySelectorAll('button[data-theme]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.theme === this.themeKey)));
         const flipper = $('card3DFlipper');
         flipper.style.setProperty('--card-bg', t.card);
         flipper.style.setProperty('--card-ink', t.ink);
@@ -677,6 +696,7 @@ export class CardView {
             if (token !== this.sampleLogoToken) return;
             this.setAvatar(photo, display);
             this.changed();
+            this.showSafeGuide();
             this.showToast(`Logo: ${name}`);
         }).catch(err => {
             console.warn('[vCGE] Ready-made logo not readable:', err);
@@ -759,6 +779,18 @@ export class CardView {
         if (has && asking) $('removeLogoNo').focus();
     }
 
+    /**
+     * The logo's safe-area guide (0.8 mock-up): a dashed outline inside the card's rounded corners, shown for a moment
+     * after a logo goes on the card (and while Logo & finish is open, screens-r4.css), so the corners never clip it.
+     */
+    showSafeGuide() {
+        const flipper = $('card3DFlipper');
+        if (!flipper) return;
+        flipper.dataset.guide = 'on';
+        clearTimeout(this.guideTimer);
+        this.guideTimer = setTimeout(() => { delete flipper.dataset.guide; }, SAFE_GUIDE_MS);
+    }
+
     // ---- The spin: tap flips, a sideways drag on the card turns it, and it settles on the nearest face -------
 
     setAngle(deg) {
@@ -767,8 +799,11 @@ export class CardView {
         if (flipper) flipper.style.transform = `rotateY(${Number.isInteger(deg) ? deg : deg.toFixed(2)}deg)`;
     }
 
-    /** Turns the card to `target` degrees with the shared ease (instant under reduce motion), then squares the record. */
-    spinTo(target, { instant = false } = {}) {
+    /**
+     * Turns the card to `target` degrees (instant under reduce motion), then squares the record. A flip (`flip: true`)
+     * takes the mock-up's 620 ms soft ease out; the settle after a drag keeps the shared stepped ease.
+     */
+    spinTo(target, { instant = false, flip = false } = {}) {
         if (this.stopSpin) this.stopSpin();
         const flipper = $('card3DFlipper');
         const done = (end) => {
@@ -782,7 +817,8 @@ export class CardView {
         };
         if (instant || reducedMotion()) { done(target); return; }
         if (flipper) flipper.dataset.spin = 'moving';
-        const stop = tween(this.angle, target, SPIN_MS, (a) => { if (a === target) done(target); else this.setAngle(a); });
+        const motion = flip ? { ease: easeSoft, fps: TAP_SPIN_FPS } : {};
+        const stop = tween(this.angle, target, flip ? TAP_SPIN_MS : SPIN_MS, (a) => { if (a === target) done(target); else this.setAngle(a); }, motion);
         this.stopSpin = () => { stop(); this.stopSpin = null; if (flipper) flipper.dataset.spin = 'still'; };
     }
 
@@ -804,7 +840,7 @@ export class CardView {
         let target = base + (flipped ? 180 : 0);
         if (target - this.angle > 180) target -= 360;
         if (this.angle - target > 180) target += 360;
-        this.spinTo(target, options);
+        this.spinTo(target, { flip: true, ...options });
     }
 
     toggleFlip() {
@@ -818,7 +854,7 @@ export class CardView {
     flipFrom(side) {
         this.isFlipped = !this.isFlipped;
         this.reportFace();
-        this.spinTo(Math.round(this.angle / 180) * 180 + (side === 'left' ? -180 : 180));
+        this.spinTo(Math.round(this.angle / 180) * 180 + (side === 'left' ? -180 : 180), { flip: true });
     }
 
     wireSpin() {
@@ -996,16 +1032,17 @@ export class CardView {
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.dataset.theme = key;
-            btn.className = 'w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 text-xs font-semibold transition';
-            const swatch = document.createElement('span');
-            swatch.className = 'w-5 h-5 rounded-full shrink-0 border border-black/10';
-            swatch.style.background = `linear-gradient(135deg, ${t.card} 50%, ${t.accent} 50%)`;
+            // A round swatch (0.8 mock-up): the card colour into its accent; the name is read out and shown on hover.
+            btn.className = 'r4-swatch';
+            btn.title = t.label;
+            btn.setAttribute('aria-pressed', String(key === this.themeKey));
+            btn.style.background = `linear-gradient(135deg, ${t.card} 45%, ${t.accent})`;
             const label = document.createElement('span');
+            label.className = 'vcge-sr-only';
             label.textContent = t.label;
-            btn.append(swatch, label);
+            btn.append(label);
             btn.addEventListener('click', () => {
                 this.applyTheme(key);
-                $('paletteMenu').classList.add('hidden');
                 this.changed();
                 this.showToast(`Applied palette: ${t.label}`);
             });
@@ -1050,12 +1087,7 @@ export class CardView {
         this.wireSpin();
         this.wireToast();
 
-        $('paletteDropdownBtn').addEventListener('click', (e) => {
-            e.stopPropagation();
-            $('paletteMenu').classList.toggle('hidden');
-        });
         document.addEventListener('click', () => {
-            $('paletteMenu').classList.add('hidden');
             $('addressAutocompleteList').classList.add('hidden');
         });
 
@@ -1077,6 +1109,7 @@ export class CardView {
                 this.sampleLogoToken++;
                 this.setAvatar(logo.photo, logo.display);
                 this.changed();
+                this.showSafeGuide();
                 this.showToast(logoMessage(logo));
             };
             reader.readAsDataURL(file);

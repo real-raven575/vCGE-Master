@@ -38,7 +38,8 @@ body { font-family: 'Inter', sans-serif; }
     .card-face .card-line-label { font-size: calc(0.625rem * var(--card-scale)); }
 }
 
-/* 3D Card spin: card3dView.js turns the card in JS (26 fps steps with a small snap, instant under reduce motion), so no
+/* 3D Card spin: card3dView.js turns the card in JS (a flip: 620 ms soft ease out; the settle after a drag: 26 fps steps
+   with a small snap; instant under reduce motion), so no
    CSS transition. A sideways drag on the card spins it; the browser keeps vertical scrolling. */
 .perspective-1000 { perspective: 1000px; }
 .transform-style-3d { transform-style: preserve-3d; touch-action: pan-y pinch-zoom; }
