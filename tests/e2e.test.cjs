@@ -2497,6 +2497,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('viewfinder: the shutter is round, under the viewfinder in the middle, a red ring round a red disc', shutter.t >= view.b && Math.abs((shutter.l + shutter.r) / 2 - (view.l + view.r) / 2) < 2 && shutter.w === shutter.h && shutter.w >= 64
       && shutterRing.round.startsWith('999') && /inset/.test(shutterRing.ring) && shutterRing.clip === 'content-box' && shutterRing.ring.includes(shutterRing.disc), JSON.stringify({ shutter, shutterRing }));
     // A chip zooms the same way the fader did: 2× eases to 2x, 1× back
+    await pV.bringToFront();   // (a page not in front may get no taps in Firefox, CI 11-02)
     await pV.click('#zoomChips [data-zoom="2"]');
     const chipLanded = await pV.waitForFunction(() => document.getElementById('cameraStream').style.transform === 'scale(2)', null, { timeout: 5000 }).then(() => true, () => false);
     const chipPressed = await pV.$$eval('#zoomChips [data-zoom]', bs => bs.map(b => b.getAttribute('aria-pressed')).join());
@@ -3592,7 +3593,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // The logo's look and the card's finish (raven575 test report, 2026-10-22)
     await p6.click('#navCard'); await p6.waitForTimeout(300);
     ok('card: the logo and finish controls start folded under "Logo & finish", so the card stays in view on a phone', !(await p6.$eval('#cardLookPanel', d => d.open)) && !(await p6.isVisible('#logoSizeSelect')) && (await p6.textContent('#cardLookPanel summary')).trim() === 'Logo & finish');
+    // (the guide fades in: WebKit runs no transitions on a page that is not in front, CI 11-02)
+    await p6.bringToFront();
     await p6.click('#cardLookPanel summary'); await p6.waitForTimeout(400);
+    await p6.waitForFunction(() => parseFloat(getComputedStyle(document.querySelector('#cardFront .r4-safe-guide')).opacity) > 0.3, null, { timeout: 3000 }).catch(() => {});
     ok('0.8 card: with Logo & finish open the card shows its logo safe-area guide (a dashed outline inside the rounded corners)', await p6.$eval('#cardFront .r4-safe-guide', g => { const cs = getComputedStyle(g), r = g.getBoundingClientRect(), f = document.getElementById('cardFront').getBoundingClientRect(); return parseFloat(cs.opacity) > 0.3 && cs.borderTopStyle === 'dashed' && r.left - f.left >= 8 && f.bottom - r.bottom >= 8 && cs.pointerEvents === 'none' && g.getAttribute('aria-hidden') === 'true'; }),
       await p6.$eval('#cardFront .r4-safe-guide', g => { const cs = getComputedStyle(g), r = g.getBoundingClientRect(), f = document.getElementById('cardFront').getBoundingClientRect(); return JSON.stringify({ open: document.getElementById('cardLookPanel').open, opacity: cs.opacity, border: cs.borderTopStyle, left: Math.round(r.left - f.left), bottom: Math.round(f.bottom - r.bottom), pe: cs.pointerEvents }); }).catch(e => String(e).slice(0, 120)));
     const presets = await p6.$$eval('#logoPresetSelect optgroup', gs => gs.map(g => g.label + ':' + g.children.length));
