@@ -516,7 +516,26 @@ function purgeVolatileState(reason) {
     }
 }
 
+// The Vault sheet's ring (0.8, Creative's mock-up): the time until the open card locks (or is cleared, with no PIN),
+// emptying as it runs; while the card is locked, the time until it is wiped.
+const BIG_RING_LENGTH = 194.8;   // 2 * pi * 31, #vaultRingArc in index.html
+function updateVaultRing() {
+    const arc = $('vaultRingArc'), time = $('vaultRingTime'), note = $('vaultRingNote');
+    if (!arc || !time || !note) return;
+    const locked = vaultMode === 'quick', running = !!idleTtl.timerId;
+    const left = locked ? resetRemaining() : running ? idleTtl.getRemainingTime() : IDLE_PURGE_SECONDS;
+    const span = locked ? (resetSpan || wipeSeconds()) : IDLE_PURGE_SECONDS;
+    time.textContent = minutes(left);
+    arc.setAttribute('stroke-dashoffset', (BIG_RING_LENGTH * (1 - Math.max(0, Math.min(1, left / span)))).toFixed(1));
+    const wipeMin = wipeSeconds() / 60;
+    note.textContent = locked ? 'until the locked card is wiped. Your PIN brings it back before then.'
+        : sessionPin.isSet() ? `until auto lock. After it locks, the card is wiped in ${wipeMin} minutes.`
+        : running ? 'until the card is cleared. Turn on a PIN to lock it instead.'
+        : 'without activity locks the card (with a PIN) or clears it.';
+}
+
 function updatePurgeCountdown() {
+    updateVaultRing();
     $('vaultWipeMinutes').textContent = String(wipeSeconds() / 60);   // follows Settings while the Vault page is open
     const el = $('purgeCountdown');
     // With a PIN the idle time locks the card first, so it reads "Auto-lock"; without one it clears it.

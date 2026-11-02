@@ -170,6 +170,16 @@ async function logoMarkGone(page, sel) {
   return page.$$eval(sel, els => els.every(el => getComputedStyle(el).display === 'none' && getComputedStyle(el).backgroundImage === 'none'));
 }
 async function openVault(page) { if (!(await vaultOpen(page))) { await page.click('#navVault'); await page.waitForSelector('#vaultPage', { state: 'visible' }); } }
+// Settings (0.8 redo R5): a theme by its fixed code is its swatch plus, for a palette with both versions, the Appearance chip
+async function setTheme(page, code) {
+  const sel = await page.evaluate((c) => { const b = [...document.querySelectorAll('#settingsSheet [data-family]')].find(x => x.dataset.light === String(c) || x.dataset.dark === String(c));
+    if (!b) return null; const d = b.closest('details'); if (d) d.open = true;
+    return { fam: b.dataset.family, mode: b.dataset.light === String(c) ? 'light' : 'dark', both: !!b.dataset.light && !!b.dataset.dark }; }, code);
+  await page.click(`#settingsSheet [data-family="${sel.fam}"]`);
+  if (sel.both) await page.click(`#appearanceChips [data-v="${sel.mode}"]`);
+}
+const setHand = (page, left) => page.setChecked('#handToggle', left);
+const setSize = (page, name) => page.$eval('#sizeRange', (r, n) => { r.value = String(['Small', 'Normal', 'Large', 'Larger'].indexOf(n)); r.dispatchEvent(new Event('input', { bubbles: true })); }, name);
 async function closeVault(page) { if (await vaultOpen(page)) { await page.click('#vaultPage [data-sheet-close]'); await page.waitForSelector('#vaultPage', { state: 'hidden' }); } }
 
 // On phones the header has no room for the Lock button, so Lock lives on the Vault page ("Lock now") instead.
@@ -620,84 +630,116 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     dark: document.documentElement.classList.contains('dark'), body: getComputedStyle(document.body).fontFamily, entry: localStorage.getItem('vcge_settings') }));
   ok('before any change: nothing is stored, right hand, Inter, dark', (await settingsKeys()).length === 0 && (await htmlState()).hand === 'right' && (await htmlState()).dark && /Inter/.test((await htmlState()).body), JSON.stringify(await htmlState()));
   await page.click('#navSettings');
-  ok('the cog opens Settings: hand, colour-blind switch, theme, font, language "coming later", PIN button and the disclaimer', await page.isVisible('#settingsSheet') && await page.isVisible('#handRightBtn') && await page.isVisible('#cbToggle') && await page.isVisible('#themeSelect')
-    && await page.isVisible('#fontSelect') && /coming later/.test(await page.textContent('#settingsSheet')) && await page.isVisible('#settingsVaultBtn')
+  ok('the cog opens Settings (0.8 sheet): theme swatches, Appearance, the six styles, text size, font, the Left-handed, colour-blind, texture and Plain look switches, and the disclaimer', await page.isVisible('#settingsSheet') && await page.isVisible('#handToggle') && await page.isVisible('#cbToggle') && await page.isVisible('#appThemes [data-family="herd"]')
+    && await page.isVisible('#appearanceChips') && (await page.$$eval('#styleChips button', bs => bs.map(b => b.textContent).join())) === 'Herd,Material,iOS,Windows,GNOME,KDE'
+    && await page.isVisible('#sizeRange') && await page.isVisible('#fontSelect') && await page.isVisible('#texToggle') && await page.$eval('#plainToggle', c => c.disabled) && /separate download|This is the Plain edition/.test(await text('plainNote'))
     && (await text('settingsNote')) === 'vCGE keeps one small settings file on this device (hand, colors, theme, font, text size, wipe time). Nothing you scan, upload or type is ever saved.');
   ok('the font list is the seven fonts, alphabetical, Inter chosen', (await page.$$eval('#fontSelect option', os => os.map(o => o.textContent).join('|'))) === 'Atkinson Hyperlegible|Comic Neue|Inter|Lexend|Macondo|OpenDyslexic|Tinos'
     && (await page.$eval('#fontSelect', s => s.selectedOptions[0].textContent)) === 'Inter');
-  ok('every settings control is at least 44 px tall', (await page.$$eval('#handRightBtn, #handLeftBtn, #cbToggle, #themeSelect, #fontSelect, #sizeSelect, #wipeSelect', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44));
-  await page.selectOption('#themeSelect', '1');
+  ok('every settings control is at least 44 px tall (the switches are 34 px tracks in a row at least 44 px tall)', (await page.$$eval('#appThemes button, #appearanceChips button, #styleChips button, #fontSelect', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44)
+    && (await page.$$eval('#handToggle, #cbToggle, #texToggle, #sizeRange', els => els.map(e => e.closest('.r5-sw-row, .r5-range').getBoundingClientRect().height))).every(h => h >= 44));
+  await setTheme(page, 1);
   ok('theme Light: light mode and the entry appears, one key, name=number pairs', !(await htmlState()).dark && (await settingsKeys()).join() === 'vcge_settings' && (await htmlState()).entry === 'hand=0;cb=0;theme=1;font=0;size=0;wipe=0');
   // App themes (raven575's test report, 2026-10-22): Basic, the Autumn colours and, in the branded edition only, a dark and a light per character
   const themeState = () => page.evaluate(() => ({ id: document.documentElement.dataset.appTheme || '', dark: document.documentElement.classList.contains('dark'),
     bg: getComputedStyle(document.body).backgroundColor, primary: getComputedStyle(document.getElementById('dockNext')).backgroundColor,
     on: getComputedStyle(document.querySelector('.vcge-step[data-state="now"]')).color, entry: localStorage.getItem('vcge_settings') }));
-  const themeGroups = await page.$$eval('#themeSelect optgroup', gs => gs.map(g => g.label + ':' + g.children.length).join('|'));
-  ok(EDITION_PLAIN ? 'the theme list is Basic (2), Everyday (8), Seasonal (14) and Autumn (8), no characters in plain' : 'the theme list is Basic (2), Everyday (8), Seasonal (14), Autumn (8) and Team vCGE (18)',
-    themeGroups === (EDITION_PLAIN ? 'Basic:2|Everyday:8|Seasonal:14|Autumn:8' : 'Basic:2|Everyday:8|Seasonal:14|Autumn:8|Team vCGE:18'), themeGroups);
+  const themeGroups = await page.evaluate(() => [...document.querySelectorAll('#appThemes > *, #moreThemesGrid > *')].reduce((a, el) => { if (el.classList.contains('r5-tgroup')) a.push([el.textContent, 0]); else a[a.length - 1][1]++; return a; }, []).map(g => g.join(':')).join('|'));
+  ok(EDITION_PLAIN ? 'the theme swatches are Everyday (5: Herd = Dark + Light) and Seasonal (7), then the card colours (8) under More themes, no characters in plain' : 'the theme swatches are Everyday (5: Herd = Dark + Light) and Seasonal (7), then the card colours (8) and Team vCGE (9 characters, each light and dark) under More themes',
+    themeGroups === (EDITION_PLAIN ? 'Everyday:5|Seasonal:7|Card colours:8' : 'Everyday:5|Seasonal:7|Card colours:8|Team vCGE:9'), themeGroups);
   // The dock's steps and buttons fade their colour (deck.css): read only once no fade is running on the step in view,
   // the primary button or the page (getAnimations() starts any pending fade first, so it can't be read too early)
   const themeSettled = () => page.waitForFunction(() => [document.querySelector('.vcge-step[data-state="now"]'), document.getElementById('dockNext'), document.body]
     .every(el => el && el.getAnimations().length === 0), null, { timeout: 5000 });
-  await page.selectOption('#themeSelect', '2'); await themeSettled();
+  await setTheme(page, 2); await themeSettled();
   const pumpkin = await themeState();
   ok('Pumpkin colours the page, the primary button and the step in view, stays light, and its code 2 is saved', pumpkin.id === 'pumpkin' && !pumpkin.dark && pumpkin.bg === 'rgb(243, 221, 206)'
     && pumpkin.primary === 'rgb(225, 107, 24)' && pumpkin.on === 'rgb(225, 107, 24)' && pumpkin.entry === 'hand=0;cb=0;theme=2;font=0;size=0;wipe=0', JSON.stringify(pumpkin));
   if (!EDITION_PLAIN) {
-    await page.selectOption('#themeSelect', '12'); await themeSettled();
+    await setTheme(page, 12); await themeSettled();
     const shutout = await themeState();
     ok('Shutout the Box Turtle (dark) turns dark mode on with its own colours, code 12 saved', shutout.id === 'shutout-dark' && shutout.dark && shutout.bg === 'rgb(28, 32, 14)'
       && shutout.entry === 'hand=0;cb=0;theme=12;font=0;size=0;wipe=0', JSON.stringify(shutout));
   }
-  await page.selectOption('#themeSelect', '1'); await themeSettled();
+  await setTheme(page, 1); await themeSettled();
   const backLight = await themeState();
   ok('back to Light: Creative\'s Herd light colours (0.8), light mode', backLight.id === 'light' && backLight.bg === 'rgb(245, 242, 250)' && !(await htmlState()).dark && (await htmlState()).entry === 'hand=0;cb=0;theme=1;font=0;size=0;wipe=0', JSON.stringify(backLight));
   // 0.8 (CRTV-0020): one Seasonal theme end to end, then the pilot emblems and the dot texture stay out of the way
-  await page.selectOption('#themeSelect', '47'); await themeSettled();
+  await setTheme(page, 47); await themeSettled();
   const pumpkinDark = await themeState();
   ok('Seasonal Pumpkin (dark), code 47: its colours, dark mode on, saved', pumpkinDark.id === 'pumpkin-dark' && pumpkinDark.dark && pumpkinDark.entry === 'hand=0;cb=0;theme=47;font=0;size=0;wipe=0', JSON.stringify(pumpkinDark));
-  await page.selectOption('#themeSelect', '1'); await themeSettled();
+  await setTheme(page, 1); await themeSettled();
   const art = await page.evaluate(() => ({ cards: [...document.querySelectorAll('.deck-card')].map(c => { const e = c.querySelector(':scope > .vcge-emblem'); return e ? c.dataset.card + ':' + e.dataset.pilot + ':' + getComputedStyle(e).pointerEvents : c.dataset.card + ':none'; }).join(),
     tex: (() => { const t = document.querySelector('svg.vcge-tex'); return t ? getComputedStyle(t).pointerEvents + '/' + t.getAttribute('aria-hidden') : 'none'; })() }));
   ok('0.8: each card shows its pilot\'s line emblem behind the content and the dot texture sits behind the deck, none of them taking a tap',
     art.cards === 'welcome:shutout:none,capture:iris:none,read:glyph:none,fields:pidge:none,card:flipside:none,share:airlock:none' && art.tex === 'none/true', JSON.stringify(art));
-  await page.click('#handLeftBtn');
+  await setHand(page, true);
   const headerOrder = () => page.evaluate(() => ['navSettings', 'navVault', 'navWelcome', 'navCapture', 'navShare'].map(id => document.getElementById(id).getBoundingClientRect().left));
   const [xSettings, xVault, xMark, xCapture, xShare] = await headerOrder();
-  const trashSide = () => page.evaluate(() => { const c = document.querySelector('.deck-card.is-current'), t = c.querySelector('.vcge-trash').getBoundingClientRect(), r = c.getBoundingClientRect(); return t.left + t.width / 2 > r.left + r.width / 2 ? 'right' : 'left'; });
-  ok('Left hand mirrors the top bar (Settings far left, the session pill beside it, the vCGE mark on the right; the dock\'s steps keep their order, as in the mock-up) and moves the trash button to the lower right',
-    (await htmlState()).hand === 'left' && xSettings < xVault && xVault < xMark && xCapture < xShare && (await trashSide()) === 'right' && (await htmlState()).entry === 'hand=1;cb=0;theme=1;font=0;size=0;wipe=0', JSON.stringify([xSettings, xVault, xMark, xCapture, xShare, await trashSide()]));
-  await page.click('#handRightBtn');
+  // 0.8 redo R5 (gap list 7a): the trash left the cards; the wipe lives in the Vault sheet, the same for either hand
+  const trashSide = () => page.evaluate(() => document.querySelectorAll('.deck-card .vcge-trash').length === 0 && !!document.querySelector('#vaultPage #wipeVaultBtn use[href$="#trash"]') ? 'vault' : 'card');
+  ok('Left hand (the Left-handed switch) mirrors the top bar (Settings far left, the session pill beside it, the vCGE mark on the right; the dock\'s steps keep their order, as in the mock-up); no card carries a trash button, the wipe is in the Vault sheet',
+    (await htmlState()).hand === 'left' && xSettings < xVault && xVault < xMark && xCapture < xShare && (await trashSide()) === 'vault' && (await htmlState()).entry === 'hand=1;cb=0;theme=1;font=0;size=0;wipe=0', JSON.stringify([xSettings, xVault, xMark, xCapture, xShare, await trashSide()]));
+  await setHand(page, false);
   const [rSettings, rVault, rMark] = await headerOrder();
-  ok('Right hand puts it back: the mark first, the session pill then Settings at the far right, trash lower left', rMark < rVault && rVault < rSettings && (await trashSide()) === 'left' && (await htmlState()).hand === 'right');
+  ok('Right hand puts it back: the mark first, the session pill then Settings at the far right, the wipe still in the Vault sheet', rMark < rVault && rVault < rSettings && (await trashSide()) === 'vault' && (await htmlState()).hand === 'right');
   await page.check('#cbToggle'); await themeSettled();
   ok('colour-blind mode sets html[data-cb="1"] (MOD02 reads it) and the step in view is marked in blue with its label underlined', (await htmlState()).cb === '1' && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=0;size=0;wipe=0'
     && await page.$eval('.vcge-step[data-state="now"]', b => getComputedStyle(b).color === 'rgb(37, 99, 235)' && /underline/.test(getComputedStyle(b.querySelector('span')).textDecorationLine)));
   await page.selectOption('#fontSelect', { label: 'Lexend' });
   ok('the UI font follows the drop-down (Lexend) and its fixed code is saved', /Lexend/.test((await htmlState()).body) && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2;size=0;wipe=0');
+  // 0.8 redo R5: the six platform styles, the texture switch and Appearance System, in the same one entry
+  const look = () => page.evaluate(() => ({ style: document.documentElement.dataset.style, tex: document.documentElement.dataset.tex, texShown: getComputedStyle(document.querySelector('svg.vcge-tex')).display !== 'none',
+    radius: getComputedStyle(document.querySelector('#settingsSheet .vcge-sheet-panel')).borderTopLeftRadius, entry: localStorage.getItem('vcge_settings') }));
+  ok('Style starts on Herd and the texture is on', (await look()).style === 'herd' && (await look()).tex === 'on' && (await look()).texShown && await page.$eval('#styleChips [data-style="herd"]', b => b.getAttribute('aria-pressed') === 'true'));
+  const styleRadius = {};
+  for (const [id, code] of [['material', 1], ['ios', 2], ['windows', 3], ['gnome', 4], ['kde', 5]]) {
+    await page.click(`#styleChips [data-style="${id}"]`); await page.waitForTimeout(50);
+    const l = await look(); styleRadius[id] = l.radius;
+    ok(`Style ${id}: html[data-style="${id}"], its chip pressed, code ${code} saved after the six older names`, l.style === id && l.entry === `hand=0;cb=1;theme=1;font=2;size=0;wipe=0;style=${code}`
+      && await page.$eval(`#styleChips [data-style="${id}"]`, b => b.getAttribute('aria-pressed') === 'true'), JSON.stringify(l));
+  }
+  ok('each style shapes the sheets its own way (Material 28 px, iOS 34, Windows 8, GNOME 12, KDE 8 corners)', JSON.stringify(styleRadius) === '{"material":"28px","ios":"34px","windows":"8px","gnome":"12px","kde":"8px"}', JSON.stringify(styleRadius));
+  await page.click('#styleChips [data-style="herd"]');
+  ok('back to Herd: style leaves the entry again', (await look()).style === 'herd' && (await look()).entry === 'hand=0;cb=1;theme=1;font=2;size=0;wipe=0');
+  await page.click('label[for="texToggle"]');
+  ok('Background texture off: the dot texture goes and tex=1 is saved', (await look()).tex === 'off' && !(await look()).texShown && (await look()).entry === 'hand=0;cb=1;theme=1;font=2;size=0;wipe=0;tex=1', JSON.stringify(await look()));
+  await page.click('label[for="texToggle"]');
+  ok('Background texture on again', (await look()).tex === 'on' && (await look()).texShown && (await look()).entry === 'hand=0;cb=1;theme=1;font=2;size=0;wipe=0');
+  await page.click('#appearanceChips [data-v="system"]');
+  const sys = await page.evaluate(() => ({ dark: document.documentElement.classList.contains('dark'), sysDark: matchMedia('(prefers-color-scheme: dark)').matches, entry: localStorage.getItem('vcge_settings'),
+    pressed: document.querySelector('#appearanceChips [aria-pressed="true"]').dataset.v, herd: document.querySelector('#appThemes [data-family="herd"]').getAttribute('aria-pressed') }));
+  ok('Appearance System: Herd follows the device (mode=1 saved, theme still a fixed Herd code) and the System chip is pressed', sys.dark === sys.sysDark && sys.pressed === 'system' && sys.herd === 'true'
+    && sys.entry === `hand=0;cb=1;theme=${sys.sysDark ? 0 : 1};font=2;size=0;wipe=0;mode=1`, JSON.stringify(sys));
+  await page.click('#appearanceChips [data-v="light"]');
+  ok('Appearance Light: Herd light, mode leaves the entry', !(await htmlState()).dark && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2;size=0;wipe=0');
+  ok('Plain look is shown but never live: a disabled switch that says Plain is its own build', await page.$eval('#plainToggle', c => c.disabled && c.checked === (document.documentElement.dataset.edition === 'plain')));
   // Settings polish from raven575's iPad video: the cog by the title (#13) and a text size that leaves the header alone (#6)
   ok('Settings shows the cog left of its title', (await page.$eval('#settingsTitle use', u => u.getAttribute('href'))).endsWith('#settings')
     && await page.$eval('#settingsTitle', h => h.firstElementChild.tagName.toLowerCase() === 'svg'));
-  ok('the text size list is Small, Normal, Large, Larger, Normal chosen', (await page.$$eval('#sizeSelect option', os => os.map(o => o.textContent).join('|'))) === 'Small|Normal|Large|Larger'
-    && (await page.$eval('#sizeSelect', s => s.selectedOptions[0].textContent)) === 'Normal');
+  ok('the text size slider walks Small, Normal, Large, Larger, Normal chosen', await page.$eval('#sizeRange', r => r.min === '0' && r.max === '3' && r.step === '1' && r.value === '1' && r.getAttribute('aria-valuetext') === 'Normal'));
   const sizes = () => page.evaluate(() => { const r = e => e.getBoundingClientRect();
     return { root: parseFloat(getComputedStyle(document.documentElement).fontSize), note: parseFloat(getComputedStyle(document.getElementById('settingsNote')).fontSize),
       header: r(document.querySelector('.vcge-bar')).height, icon: r(document.querySelector('#navSettings .vcge-icon')).width }; });
   const sizeNormal = await sizes();
-  await page.selectOption('#sizeSelect', { label: 'Larger' }); await page.waitForTimeout(200);
+  await setSize(page, 'Larger'); await page.waitForTimeout(200);
   const sizeLarger = await sizes();
   ok('Larger: the text grows by a quarter, the header and its icons keep their size, and its code is saved', Math.abs(sizeLarger.root / sizeNormal.root - 1.25) < 0.01 && Math.abs(sizeLarger.note / sizeNormal.note - 1.25) < 0.03
     && Math.abs(sizeLarger.header - sizeNormal.header) < 0.6 && Math.abs(sizeLarger.icon - sizeNormal.icon) < 0.6 && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2;size=2;wipe=0', JSON.stringify([sizeNormal, sizeLarger]));
-  await page.selectOption('#sizeSelect', { label: 'Normal' }); await page.waitForTimeout(200);
+  await setSize(page, 'Normal'); await page.waitForTimeout(200);
   ok('Normal puts the text back', (await sizes()).root === sizeNormal.root && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2;size=0;wipe=0');
   // Wipe after the lock (raven575, 2026-10-18, #68): 7 (default), 10 or 15 minutes, on html for MOD02; the 2-minute lock stays
-  ok('the wipe list is 7, 10, 15 minutes, 7 chosen, and html says 7', (await page.$$eval('#wipeSelect option', os => os.map(o => o.textContent).join('|'))) === '7 minutes|10 minutes|15 minutes'
-    && (await page.$eval('#wipeSelect', s => s.selectedOptions[0].textContent)) === '7 minutes' && (await page.evaluate(() => document.documentElement.dataset.wipe)) === '7');
-  await page.selectOption('#wipeSelect', { label: '15 minutes' });
+  // 0.8 redo R5: the wipe time moved to the Vault sheet's chips (the mock-up); the lock chips show 2 min only
+  await page.click('#settingsSheet [data-sheet-close]'); await page.waitForSelector('#settingsSheet', { state: 'hidden' });
+  await openVault(page);
+  ok('the Vault\'s lock chips offer 2 min only (5 and 15 shown, not offered)', (await page.$$eval('#vaultPage [aria-labelledby="lockChipsLabel"] button', bs => bs.map(b => b.textContent + (b.disabled ? '-' : '+') + b.getAttribute('aria-pressed')).join())) === '2 min+true,5 min-false,15 min-false');
+  ok('the wipe chips are 7, 10, 15 min, 7 chosen, and html says 7', (await page.$$eval('#wipeChips button', os => os.map(o => o.textContent).join('|'))) === '7 min|10 min|15 min'
+    && (await page.$eval('#wipeChips [aria-pressed="true"]', b => b.textContent)) === '7 min' && (await page.evaluate(() => document.documentElement.dataset.wipe)) === '7');
+  await page.click('#wipeChips [data-wipe="2"]');
   ok('15 minutes: html[data-wipe="15"] and its code 2 is saved', (await page.evaluate(() => document.documentElement.dataset.wipe)) === '15' && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2;size=0;wipe=2');
-  await page.selectOption('#wipeSelect', { label: '7 minutes' });
+  await page.click('#wipeChips [data-wipe="0"]');
   ok('back to 7 minutes', (await page.evaluate(() => document.documentElement.dataset.wipe)) === '7' && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2;size=0;wipe=0');
-  await page.click('#settingsSheet [data-sheet-close]');
+  await closeVault(page);
   // A fresh start in the same browser (a second tab) comes back with the saved choices; the scan in this tab is untouched
   const pS = await context.newPage();
   await pS.goto(base); await pS.waitForTimeout(600);
@@ -706,20 +748,21 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   ok('next start: light theme, colour-blind mode and Lexend come back from the one entry; still exactly one key', !after.dark && after.cb === '1' && /Lexend/.test(after.body) && after.hand === 'right' && after.keys === 'vcge_settings', JSON.stringify(after));
   ok('the entry holds six numbers and no text', /^hand=\d;cb=\d;theme=\d\d?;font=\d;size=\d;wipe=\d$/.test(after.entry), after.entry);
   await pS.click('#navSettings');
-  ok('the sheet shows the saved choices', await pS.$eval('#cbToggle', c => c.checked) && (await pS.$eval('#fontSelect', s => s.selectedOptions[0].textContent)) === 'Lexend' && (await pS.$eval('#themeSelect', s => s.value)) === '1');
-  await pS.selectOption('#themeSelect', '0'); await pS.uncheck('#cbToggle'); await pS.selectOption('#fontSelect', { label: 'Inter' });
+  ok('the sheet shows the saved choices', await pS.$eval('#cbToggle', c => c.checked) && (await pS.$eval('#fontSelect', s => s.selectedOptions[0].textContent)) === 'Lexend' && await pS.$eval('#appThemes [data-family="herd"]', b => b.getAttribute('aria-pressed') === 'true') && await pS.$eval('#appearanceChips [data-v="light"]', b => b.getAttribute('aria-pressed') === 'true'));
+  await setTheme(pS, 0); await pS.uncheck('#cbToggle'); await pS.selectOption('#fontSelect', { label: 'Inter' });
   await pS.waitForTimeout(300);
   ok('back to dark, colour-blind off, Inter', await pS.evaluate(() => document.documentElement.classList.contains('dark') && !document.documentElement.dataset.cb && /Inter/.test(getComputedStyle(document.body).fontFamily) && localStorage.getItem('vcge_settings') === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0'));
   await pS.close();
   await page.bringToFront();
-  await page.click('#navSettings'); await page.selectOption('#themeSelect', '0'); await page.uncheck('#cbToggle'); await page.selectOption('#fontSelect', { label: 'Inter' }); await page.click('#settingsSheet [data-sheet-close]');
+  await page.click('#navSettings'); await setTheme(page, 0); await page.uncheck('#cbToggle'); await page.selectOption('#fontSelect', { label: 'Inter' }); await page.click('#settingsSheet [data-sheet-close]');
   await page.waitForTimeout(300);
   ok('this tab follows too once its own controls are used: dark, Inter, scan still here', (await htmlState()).dark && /Inter/.test((await htmlState()).body) && await page.$eval('#reopenScanBtn', b => !b.classList.contains('hidden') && !b.closest('.hidden')));
 
-  // Hold-to-wipe (MOD02): the red trash button on the card in view, and the Vault page's wipe button, open the same question
+  // Hold-to-wipe (MOD02): the wipe button with the trash (0.8 redo R5: moved from the cards into the Vault sheet) opens the question
   const nameBefore = await val('firstName');
-  await page.click('.deck-card.is-current .vcge-trash');
-  ok('trash button opens the wipe question, No focused, settings box unticked', await visible('wipeDialog') && (await text('wipeTitle')) === 'Are you sure you want to wipe everything and start over?'
+  const openTrash = async () => { await openVault(page); await page.click('#wipeVaultBtn'); };
+  await openTrash();
+  ok('the Vault sheet\'s trash (wipe) button opens the wipe question, No focused, settings box unticked', await visible('wipeDialog') && (await text('wipeTitle')) === 'Are you sure you want to wipe everything and start over?'
     && (await page.evaluate(() => document.activeElement && document.activeElement.id)) === 'wipeNoBtn' && !(await page.isChecked('#wipeSettingsBox')) && !(await visible('wipeSettingsConfirm')));
   const yesBox = await page.locator('#wipeYesBtn').boundingBox();
   ok('Yes and No sit side by side, both at least 44 px tall, No is red and Yes is green', yesBox.height >= 44 && (await page.locator('#wipeNoBtn').boundingBox()).height >= 44
@@ -735,10 +778,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   ok('"Yes, delete them" keeps the box ticked and closes the question', await page.isChecked('#wipeSettingsBox') && !(await visible('wipeSettingsConfirm')));
   await page.click('#wipeNoBtn');
   ok('No closes the dialog and keeps everything', !(await visible('wipeDialog')) && (await val('firstName')) === nameBefore && await page.$eval('#reopenScanBtn', b => !b.classList.contains('hidden') && !b.closest('.hidden')));
+  await closeVault(page);
   // "Also delete my saved settings" for real: Vault publishes the signal, Shell clears its one entry (MOD01 step 4)
-  await page.click('#navSettings'); await page.click('#handLeftBtn'); await page.click('#settingsSheet [data-sheet-close]');
+  await page.click('#navSettings'); await setHand(page, true); await page.click('#settingsSheet [data-sheet-close]'); await page.waitForSelector('#settingsSheet', { state: 'hidden' });
   ok('a saved setting is in place before the wipe', (await page.evaluate(() => localStorage.getItem('vcge_settings'))) === 'hand=1;cb=0;theme=0;font=0;size=0;wipe=0');
-  await page.click('.deck-card.is-current .vcge-trash');
+  await openTrash();
   await page.check('#wipeSettingsBox'); await page.click('#wipeSettingsYesBtn');
   await holdYes(page, 1700); await page.waitForTimeout(700);
   ok('wiping with the settings box ticked deletes the settings entry too: storage empty, right hand again', (await page.evaluate(() => localStorage.length + sessionStorage.length)) === 0
@@ -752,11 +796,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   await closeVault(page);
   // Colour-blind mode (Shell's settings set html[data-cb="1"]): words and a bar say what the colours say
   await page.evaluate(() => { document.documentElement.dataset.cb = '1'; });
-  await page.click('.deck-card.is-current .vcge-trash');
+  await openTrash();
   ok('colour-blind mode: Yes reads "Hold to wipe" and a fill bar shows', (await text('wipeYesText')) === 'Hold to wipe' && await visible('wipeHoldBar'));
   await page.click('#wipeNoBtn');
   await page.evaluate(() => { delete document.documentElement.dataset.cb; });
-  await page.click('.deck-card.is-current .vcge-trash');
+  await openTrash();
   const hist0 = await page.evaluate(() => ({ len: history.length, guard: !!(history.state && history.state.vcgeLeaveGuard) }));
   await holdYes(page, 1700); await page.waitForTimeout(600);
   // The fresh start replaces the history entry in place (location.replace, not reload: a second reload of the guard's
@@ -865,14 +909,17 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await openVault(p8);
     // (the fingerprint row is hidden where the device has none: it is shown for a moment to measure its switch)
     const sw8 = (id) => p8.evaluate((id) => { const b = document.getElementById(id), row = b.closest('.vault-row.hidden'); if (row) row.classList.remove('hidden');
-      const r = b.getBoundingClientRect(), k = b.querySelector('.vault-switch-knob').getBoundingClientRect(); if (row) row.classList.add('hidden');
-      return { on: b.getAttribute('aria-checked'), word: b.textContent.trim(), bg: getComputedStyle(b).backgroundColor, knob: r.width ? (k.left + k.width / 2 < r.left + r.width / 2 ? 'left' : 'right') : 'unseen' }; }, id);
+      b.getAnimations({ subtree: true }).forEach(a => a.finish());   // (read the switch where its 220 ms slide ends)
+      const tr = b.querySelector('.r5-track'), r = tr.getBoundingClientRect(), k = b.querySelector('.vault-switch-knob').getBoundingClientRect(); if (row) row.classList.add('hidden');
+      return { on: b.getAttribute('aria-checked'), word: b.textContent.trim(), bg: getComputedStyle(tr).backgroundColor, wordColor: getComputedStyle(b.querySelector('.vault-switch-word')).color, wordLeft: b.querySelector('.vault-switch-word').getBoundingClientRect().right <= r.left, knob: r.width ? (k.left + k.width / 2 < r.left + r.width / 2 ? 'left' : 'right') : 'unseen' }; }, id);
     // raven575 2026-10-22: Off = knob on the left (red), On = knob on the right (green), and the left-hand setting never mirrors it
     const handSwap8 = async (id) => { const hand = await p8.evaluate(() => document.documentElement.dataset.hand || '');
       await p8.evaluate(() => { document.documentElement.dataset.hand = 'left'; }); const left = (await sw8(id)).knob;
       await p8.evaluate((h) => { if (h) document.documentElement.dataset.hand = h; else delete document.documentElement.dataset.hand; }, hand); return left; };
     const pinOff8 = await sw8('pinSwitch');
-    ok('Vault page: the PIN is a switch, red with "Off" and a note to turn it on, no green button while it is off', pinOff8.on === 'false' && pinOff8.word === 'Off' && ['rgb(254, 226, 226)', 'rgba(127, 29, 29, 0.45)'].includes(pinOff8.bg)
+    // 0.8 redo R5 (the mock-up): the word sits left of a grey track when off ("Off" in red), a green track when on ("On" in green)
+    ok('Vault page: the PIN is a switch, "Off" in red beside a grey track and a note to turn it on, no green while it is off', pinOff8.on === 'false' && pinOff8.word === 'Off' && pinOff8.wordLeft
+      && ['rgb(220, 213, 234)', 'rgb(58, 52, 73)'].includes(pinOff8.bg) && ['rgb(179, 38, 30)', 'rgb(255, 138, 128)'].includes(pinOff8.wordColor)
       && await p8.isVisible('#pinOffNote') && !(await p8.isVisible('#setSessionPinBtn')) && !(await p8.isVisible('#vaultLockNowBtn')), JSON.stringify(pinOff8));
     const bioOff8 = await sw8('biometricSwitch');
     ok('Vault page: Off switches have the knob on the left (PIN and fingerprint), with the right or the left hand set', pinOff8.knob === 'left' && bioOff8.knob === 'left' && (await handSwap8('pinSwitch')) === 'left' && (await handSwap8('biometricSwitch')) === 'left', JSON.stringify([pinOff8, bioOff8]));
@@ -884,7 +931,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p8.waitForSelector('#quickSetupModal', { state: 'hidden' });
     ok('session PIN set: Security panel shows it and Lock appears', (await t8('sessionPinStatus')) === 'Session PIN: set' && await lockOffered(p8));
     const pinOn8 = await sw8('pinSwitch');
-    ok('Vault page: the PIN switch turns green with "On", Change and Lock now appear, the note goes', pinOn8.on === 'true' && pinOn8.word === 'On' && pinOn8.bg === 'rgb(22, 163, 74)'
+    ok('Vault page: the PIN switch turns green with "On" in green (the theme\'s good colour), Change and Lock now appear, the note goes', pinOn8.on === 'true' && pinOn8.word === 'On' && ['rgb(46, 125, 79)', 'rgb(127, 211, 158)'].includes(pinOn8.bg) && pinOn8.wordColor === pinOn8.bg
       && (await t8('setSessionPinBtn')) === 'Change' && await p8.isVisible('#vaultLockNowBtn') && !(await p8.isVisible('#pinOffNote')), JSON.stringify(pinOn8));
     ok('Vault page: the On switch has its knob on the right, with the right or the left hand set', pinOn8.knob === 'right' && (await handSwap8('pinSwitch')) === 'right', JSON.stringify(pinOn8));
     ok('Vault page: with a PIN the countdown reads "Auto-lock" (it locks before it clears)', /^Auto-lock (idle|in \d+ s)$/.test(await t8('purgeCountdown')), await t8('purgeCountdown'));
@@ -1074,12 +1121,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('unlock during the tour: Skip closes the tour', tourGone8, JSON.stringify(await tourState8()));
     await p8.waitForTimeout(700);
 
-    // Settings > Wipe after the lock (raven575, 2026-10-18): 10 or 15 minutes instead of 7; the 2-minute lock stays
+    // Wipe after the lock (raven575, 2026-10-18): 10 or 15 minutes instead of 7; the 2-minute lock stays. 0.8 redo R5:
+    // the choice is the Vault sheet's Wipe chips (the mock-up), stored in the same settings entry
     const wipeChoice = async (label) => {
-      if (await vaultOpen(p8)) await closeVault(p8);   // on a phone, unlocking after Lock now reopens the Vault page
-      await p8.click('#navSettings'); await p8.waitForSelector('#settingsSheet', { state: 'visible' });
-      await p8.selectOption('#wipeSelect', { label });
-      await p8.click('#settingsSheet [data-sheet-close]'); await p8.waitForSelector('#settingsSheet', { state: 'hidden' });
+      await openVault(p8);   // (on a phone, unlocking after Lock now reopens the Vault page)
+      await p8.click(`#wipeChips [data-wipe="${{ '7 minutes': 0, '10 minutes': 1, '15 minutes': 2 }[label]}"]`);
+      await closeVault(p8);
     };
     await wipeChoice('10 minutes');
     await openVault(p8);
@@ -1087,7 +1134,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await closeVault(p8);
     await p8.fill('#firstName', 'Ten'); await pressLock(p8);
     ok('wipe 10: the lock ring starts at 10:00', /^(10:00|9:5\d)$/.test(await t8('vaultLockRingTime')) && /resets in (10:00|9:5\d)/.test(await t8('quickUnlockCountdown')), await t8('vaultLockRingTime'));
-    await p8.evaluate(() => { const s = document.getElementById('wipeSelect'); s.value = '2'; s.dispatchEvent(new Event('change', { bubbles: true })); });
+    await p8.evaluate(() => document.querySelector('#wipeChips [data-wipe="2"]').click());
     await fastForward(p8, 1000);
     ok('wipe: a change made while locked applies from the next lock (this one stays 10)', (await p8.evaluate(() => document.documentElement.dataset.wipe)) === '15' && /^9:5\d$/.test(await t8('vaultLockRingTime')), await t8('vaultLockRingTime'));
     await fastForward(p8, 430000);   // 7 min 11 s after the lock
@@ -1595,18 +1642,18 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pF.evaluate(() => document.getElementById('cardFields').scrollIntoView({ inline: 'center', block: 'nearest' })); await pF.waitForTimeout(400);
     ok('fields: arriving by a swipe does not pop (no flash of a form that was already in view)', (await pops()) === 2 && (await card()) === 'fields', String(await pops()) + ' ' + (await card()));
     // "Everything's correct": the details go on to the 3D Card (the padlock hand-off follows the deck's signal)
-    const footSides = () => pF.evaluate(() => { const c = document.getElementById('cardFields').getBoundingClientRect(), t = document.querySelector('#cardFields .vcge-trash').getBoundingClientRect(), b = document.getElementById('fieldsDoneBtn').getBoundingClientRect();
-      const side = (r) => (r.left + r.width / 2 > c.left + c.width / 2 ? 'right' : 'left'); return { trash: side(t), ok: side(b), okBottom: b.bottom <= c.bottom + 1 && b.top > c.top + c.height / 2 }; });
+    const footSides = () => pF.evaluate(() => { const c = document.getElementById('cardFields').getBoundingClientRect(), t = document.querySelector('#cardFields .vcge-trash'), b = document.getElementById('fieldsDoneBtn').getBoundingClientRect();
+      const side = (r) => (r.left + r.width / 2 > c.left + c.width / 2 ? 'right' : 'left'); return { trash: t ? side(t.getBoundingClientRect()) : 'none', ok: side(b), okBottom: b.bottom <= c.bottom + 1 && b.top > c.top + c.height / 2 }; });
     const sidesRight = await footSides();
     await pF.click('#fieldsDoneBtn'); await pF.waitForTimeout(700);
-    ok('fields: "Everything\'s correct" sits lower right (the trash lower left) and moves on to the 3D Card with the details on it',
-      sidesRight.ok === 'right' && sidesRight.trash === 'left' && sidesRight.okBottom && (await card()) === 'card' && (await pF.textContent('#previewFullName')) === `${samples()[2][0]} ${samples()[2][1]}` && (SHELVED ? !(await pF.isVisible('#vaultHandoff[data-playing]')) : await pF.isVisible('#vaultHandoff[data-playing]').catch(() => true)),
+    ok('fields: "Everything\'s correct" sits lower right (no trash on the card: it moved into the Vault sheet) and moves on to the 3D Card with the details on it',
+      sidesRight.ok === 'right' && sidesRight.trash === 'none' && sidesRight.okBottom && (await card()) === 'card' && (await pF.textContent('#previewFullName')) === `${samples()[2][0]} ${samples()[2][1]}` && (SHELVED ? !(await pF.isVisible('#vaultHandoff[data-playing]')) : await pF.isVisible('#vaultHandoff[data-playing]').catch(() => true)),
       JSON.stringify({ sidesRight, card: await card() }));
-    await pF.click('#navSettings'); await pF.click('#handLeftBtn'); await pF.keyboard.press('Escape'); await pF.waitForTimeout(200);
+    await pF.click('#navSettings'); await setHand(pF, true); await pF.keyboard.press('Escape'); await pF.waitForTimeout(200);
     await pF.click('#navFields'); await pF.waitForTimeout(600);
     const sidesLeft = await footSides();
-    ok('fields: left hand puts "Everything\'s correct" lower left and the trash lower right', sidesLeft.ok === 'left' && sidesLeft.trash === 'right', JSON.stringify(sidesLeft));
-    await pF.click('#navSettings'); await pF.click('#handRightBtn'); await pF.click('#cbToggle'); await pF.keyboard.press('Escape'); await pF.waitForTimeout(200);
+    ok('fields: left hand puts "Everything\'s correct" lower left (and no trash comes back on the card)', sidesLeft.ok === 'left' && sidesLeft.trash === 'none', JSON.stringify(sidesLeft));
+    await pF.click('#navSettings'); await setHand(pF, false); await pF.click('#cbToggle'); await pF.keyboard.press('Escape'); await pF.waitForTimeout(200);
     ok('fields: colour-blind mode turns the green button blue', (await pF.$eval('#fieldsDoneBtn', b => getComputedStyle(b).backgroundColor)) === 'rgb(37, 99, 235)');
     await pF.click('#navSettings'); await pF.click('#cbToggle'); await pF.keyboard.press('Escape');
     // Reduce motion: the arrival counts, nothing moves
@@ -1660,9 +1707,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pN.waitForFunction(() => !document.getElementById('vaultTimerStrip').classList.contains('hidden'), null, { timeout: 3000 });
     const inView = await pN.evaluate(() => {
       const h = window.innerHeight, r = (sel) => document.querySelector(sel).getBoundingClientRect();
-      return { h, strip: !document.getElementById('vaultTimerStrip').classList.contains('hidden'), ok: r('#fieldsDoneBtn').bottom, trash: r('#cardFields .vcge-trash').bottom, deck: r('#deck').bottom, scrolls: document.querySelector('#cardFields .deck-card-body').scrollHeight > document.querySelector('#cardFields .deck-card-body').clientHeight };
+      return { h, strip: !document.getElementById('vaultTimerStrip').classList.contains('hidden'), ok: r('#fieldsDoneBtn').bottom, trash: r('#navVault').bottom, trashTop: r('#navVault').top, deck: r('#deck').bottom, scrolls: document.querySelector('#cardFields .deck-card-body').scrollHeight > document.querySelector('#cardFields .deck-card-body').clientHeight };
     });
-    ok('#62: iPad portrait, long form: "Everything\'s correct" and the trash are on the screen', inView.strip && inView.scrolls && inView.ok <= inView.h && inView.trash <= inView.h && inView.deck <= inView.h + 0.5, JSON.stringify(inView));
+    ok('#62: iPad portrait, long form: "Everything\'s correct" and the way to the wipe (the Vault pill; the trash moved into the Vault sheet) are on the screen', inView.strip && inView.scrolls && inView.ok <= inView.h && inView.trash <= inView.h && inView.trashTop >= 0 && inView.deck <= inView.h + 0.5, JSON.stringify(inView));
     const heightRule = await pN.evaluate(() => [...document.styleSheets].flatMap(sh => { try { return [...sh.cssRules]; } catch (e) { return []; } })
       .filter(r => r.selectorText === 'body.h-screen').map(r => r.style.height).join());
     ok('#62: the page height is the height in view (100dvh), not 100vh', heightRule === '100dvh' && (await pN.evaluate(() => Math.round(document.body.getBoundingClientRect().height) === window.innerHeight)), heightRule);
@@ -2520,13 +2567,13 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     if (noFeed) notRunHere('left-hand viewfinder and reduce-motion zoom (2 checks)', `this engine has no ${noFeed} for a test camera`);
     else {
     // Left hand (Settings): the shutter moves to the left and the fader to the right, still 48 px from the edge
-    await pV.click('#navSettings'); await pV.click('#handLeftBtn'); await pV.keyboard.press('Escape'); await pV.waitForTimeout(200);
+    await pV.click('#navSettings'); await setHand(pV, true); await pV.keyboard.press('Escape'); await pV.waitForTimeout(200);
     await pV.click('#startCameraBtn'); await pV.waitForTimeout(400);
     if (!(await pV.isVisible('#cameraPanel'))) ok('left-hand viewfinder and reduce-motion zoom (2 checks)', false, `not tried: the camera never started: ${await pV.textContent('#eventLog')}`);
     else {
     const faderL = await box('.cap-fader'), shutterL = await box('#captureBtn');
     ok('left hand: the shutter is on the left and the fader on the right, 48 px from the screen edge', shutterL.l < faderL.l && 390 - faderL.r >= 48 && shutterL.l >= 48, JSON.stringify({ faderL, shutterL }));
-    await pV.click('#navSettings'); await pV.click('#handRightBtn'); await pV.keyboard.press('Escape');
+    await pV.click('#navSettings'); await setHand(pV, false); await pV.keyboard.press('Escape');
     await pV.evaluate(() => localStorage.clear());
     // Reduce motion: zoom applies at once
     await pV.emulateMedia({ reducedMotion: 'reduce' });
@@ -3068,10 +3115,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pV.setViewportSize({ width: 1024, height: 1366 });
     const port = await header();
     ok('0.8 shell (iPad portrait, Lock button showing): nothing overlapping, nothing outside the screen (video #16)', await pV.isVisible('#lockVaultBtn') && clean(port), JSON.stringify(port));
-    await pV.evaluate(() => document.getElementById('handLeftBtn').click());
+    await pV.evaluate(() => { const t = document.getElementById('handToggle'); t.checked = true; t.dispatchEvent(new Event('change', { bubbles: true })); });
     const portLeft = await header();
     ok('0.8 shell (iPad portrait, left hand): the mirrored top bar is just as clear, every button inside the screen', await pV.evaluate(() => document.documentElement.dataset.hand) === 'left' && clean(portLeft), JSON.stringify(portLeft));
-    await pV.evaluate(() => document.getElementById('handRightBtn').click());
+    await pV.evaluate(() => { const t = document.getElementById('handToggle'); t.checked = false; t.dispatchEvent(new Event('change', { bubbles: true })); });
     for (const w of [900, 390, 360]) {
       await pV.setViewportSize({ width: w, height: 800 });
       const hw = await header();
