@@ -1640,26 +1640,43 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const lin = (h) => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(c => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
   const lumOf = (h) => { const [r, g, b] = lin(h); return 0.2126 * r + 0.7152 * g + 0.0722 * b; };
   const ratio = (a, b) => { const [x, y] = [lumOf(a), lumOf(b)].sort((m, n) => n - m); return (x + 0.05) / (y + 0.05); };
-  const weak = th.COLOUR_THEMES.filter(t => { const v = t.vars;
+  const weak = th.THEMES.filter(t => { const v = t.vars;
     return ratio(v.text, v.surface) < 4.5 || ratio(v.text, v.bg) < 4.5 || ratio(v.muted, v.surface) < 4.5 || ratio(v.onAccent, v.accent) < 4.5 || ratio(v.accent, v.surface) < 3; });
   ok('themes: every colour theme reads at 4.5:1 (text and muted text on its surface, text on its page, the lit icon\'s text) and its accent at 3:1', weak.length === 0, weak.map(t => t.id).join());
   const card3d = await import(`${R}/modules/mod06-gui/card3dView.js`);
-  ok('themes: Dark 0 and Light 1 as before, then the eight Autumn palettes, then a dark and a light for each of the nine characters; codes fixed and unique',
-    th.THEMES.map(t => t.code).join() === [...Array(28).keys()].join() && th.THEMES[0].id === 'dark' && th.THEMES[1].id === 'light'
+  ok('themes: Dark 0 and Light 1 as before, then the eight Autumn palettes, then a dark and a light for each of the nine characters, then Creative\'s 0.8 palettes from 28; codes fixed and unique',
+    th.THEMES.map(t => t.code).join() === [...Array(50).keys()].join() && th.THEMES[0].id === 'dark' && th.THEMES[1].id === 'light'
     && th.THEMES.filter(t => t.group === 'Autumn').map(t => t.id).join() === Object.keys(card3d.THEMES).join()
     && th.THEMES.filter(t => t.group === 'Team vCGE').length === 18 && th.THEMES.filter(t => t.group === 'Team vCGE').every(t => t.branded)
-    && new Set(th.THEMES.map(t => t.id)).size === 28);
-  ok('themes: plain lists Basic and Autumn only, and reads a saved character theme as Dark or Light by its mode',
-    th.themesFor(true).length === 10 && th.themesFor(false).length === 28 && th.themeFor(13, true).id === 'light' && th.themeFor(12, true).id === 'dark'
+    && new Set(th.THEMES.map(t => t.id)).size === 50);
+  // Creative's 0.8 palettes (CRTV-0020): Herd is Dark and Light; 4 more everyday and 7 seasonal, each a light then a dark
+  const cr = th.CREATIVE_THEMES;
+  ok('themes 0.8: Dark and Light carry Creative\'s Herd colours; then Signal, Autumn, Evergreen, Graphite (everyday) and Snowfall to Holly (seasonal), each light then dark, in both editions',
+    th.THEMES[0].vars.bg === '#18151f' && th.THEMES[1].vars.bg === '#f5f2fa' && th.THEMES[1].vars.accent === '#17736e'
+    && cr.map(t => t.id).join() === ['signal', 'autumn', 'evergreen', 'graphite', 'snowfall', 'lantern', 'heartfelt', 'bloom', 'tidepool', 'pumpkin', 'holly'].flatMap(k => [`${k}-light`, `${k}-dark`]).join()
+    && cr.every((t, i) => t.code === 28 + i && t.mode === (i % 2 ? 'dark' : 'light') && !t.branded && ['sunk', 'soft', 'softInk', 'good', 'warn', 'stop'].every(k => /^#[0-9a-f]{6}$/.test(t.vars[k])))
+    && cr.filter(t => t.group === 'Everyday').length === 8 && cr.filter(t => t.group === 'Seasonal').length === 14
+    && th.THEME_GROUPS.join() === 'Basic,Everyday,Seasonal,Autumn,Team vCGE', cr.map(t => t.id).join());
+  ok('themes: plain lists Basic, Everyday, Seasonal and Autumn only, and reads a saved character theme as Dark or Light by its mode',
+    th.themesFor(true).length === 32 && th.themesFor(false).length === 50 && th.themeFor(13, true).id === 'light' && th.themeFor(12, true).id === 'dark'
     && th.themeFor(12, false).id === 'shutout-dark' && th.themeFor(99).id === 'dark');
   const props = {}, cls = {};
   const troot = { dataset: {}, classList: { toggle: (c, on) => { cls[c] = on; } }, style: { setProperty: (k, v) => { props[k] = v; }, removeProperty: (k) => { delete props[k]; } } };
   th.applyTheme(troot, 5);   // Cranberry, a dark theme
   const cran = `${troot.dataset.appTheme}/${cls.dark}/${Object.keys(props).length}/${props['--vcge-accent']}`;
   th.applyTheme(troot, 1);
-  ok('themes: a colour theme puts its seven colours and its name on html and sets dark by its mode; Light takes them all away again',
-    cran === `cranberry/true/7/${th.themeFor(5).vars.accent}` && !('appTheme' in troot.dataset) && cls.dark === false && Object.keys(props).length === 0, cran);
-  ok('settings: theme codes up to the last theme read back; past it is Dark', st.parseSettings('theme=27').theme === 27 && st.parseSettings('theme=28').theme === 0);
+  const lightState = `${troot.dataset.appTheme}/${cls.dark}/${Object.keys(props).length}/${props['--vcge-sunk']}`;
+  th.applyTheme(troot, 5);
+  ok('themes: a colour theme puts its seven colours and its name on html and sets dark by its mode; Light puts Creative\'s Herd light (13 colours) in their place, and an older theme takes the extra six away again',
+    cran === `cranberry/true/7/${th.themeFor(5).vars.accent}` && lightState === 'light/false/13/#ece7f5' && Object.keys(props).length === 7 && !('--vcge-sunk' in props), cran + ' ' + lightState);
+  const em = await import(`${R}/modules/mod01-shell/emblems.js`);
+  const deckCss = fs.readFileSync(`${R}/modules/mod01-shell/deck.css`, 'utf8');
+  ok('0.8 emblems: one line-art emblem per card (Shutout, Iris, Glyph, Pidge, Flipside, Airlock), stroked in currentColor with no style attributes, scripts or links; hidden in forced colours',
+    Object.entries(em.EMBLEMS).map(([c, e]) => `${c}:${e.pilot}`).join() === 'welcome:shutout,capture:iris,read:glyph,fields:pidge,card:flipside,share:airlock'
+    && Object.values(em.EMBLEMS).every(e => { const t = em.emblemSvg(e); return t.includes('stroke="currentColor"') && t.includes('aria-hidden="true"') && !/style=|<script|href=|<text/i.test(t); })
+    && /@media \(forced-colors: active\) \{ \.vcge-tex, \.vcge-emblem \{ display: none; \} \}/.test(deckCss)
+    && /\.vcge-emblem \{[^}]*pointer-events: none/.test(deckCss) && /\.vcge-tex \{[^}]*pointer-events: none/.test(deckCss));
+  ok('settings: theme codes up to the last theme read back; past it is Dark', st.parseSettings('theme=49').theme === 49 && st.parseSettings('theme=50').theme === 0);
   localStorage.clear();
 }
 

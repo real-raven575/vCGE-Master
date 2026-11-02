@@ -612,8 +612,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     bg: getComputedStyle(document.body).backgroundColor, card: getComputedStyle(document.querySelector('.deck-card.is-current')).backgroundColor,
     on: getComputedStyle(document.querySelector('.deck-nav button.is-on')).backgroundColor, entry: localStorage.getItem('vcge_settings') }));
   const themeGroups = await page.$$eval('#themeSelect optgroup', gs => gs.map(g => g.label + ':' + g.children.length).join('|'));
-  ok(EDITION_PLAIN ? 'the theme list is Basic (2) and Autumn (8), no characters in plain' : 'the theme list is Basic (2), Autumn (8) and Team vCGE (18)',
-    themeGroups === (EDITION_PLAIN ? 'Basic:2|Autumn:8' : 'Basic:2|Autumn:8|Team vCGE:18'), themeGroups);
+  ok(EDITION_PLAIN ? 'the theme list is Basic (2), Everyday (8), Seasonal (14) and Autumn (8), no characters in plain' : 'the theme list is Basic (2), Everyday (8), Seasonal (14), Autumn (8) and Team vCGE (18)',
+    themeGroups === (EDITION_PLAIN ? 'Basic:2|Everyday:8|Seasonal:14|Autumn:8' : 'Basic:2|Everyday:8|Seasonal:14|Autumn:8|Team vCGE:18'), themeGroups);
   // The header buttons fade their colour over 0.15 s (deck.css): read only once no fade is running on the lit icon,
   // the current card or the page (getAnimations() starts any pending fade first, so it can't be read too early)
   const themeSettled = () => page.waitForFunction(() => [document.querySelector('.deck-nav button.is-on'), document.querySelector('.deck-card.is-current'), document.body]
@@ -629,7 +629,17 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       && shutout.entry === 'hand=0;cb=0;theme=12;font=0;size=0;wipe=0', JSON.stringify(shutout));
   }
   await page.selectOption('#themeSelect', '1'); await themeSettled();
-  ok('back to Light: the theme colours are gone', (await themeState()).id === '' && !(await htmlState()).dark && (await htmlState()).entry === 'hand=0;cb=0;theme=1;font=0;size=0;wipe=0');
+  const backLight = await themeState();
+  ok('back to Light: Creative\'s Herd light colours (0.8), light mode', backLight.id === 'light' && backLight.bg === 'rgb(245, 242, 250)' && !(await htmlState()).dark && (await htmlState()).entry === 'hand=0;cb=0;theme=1;font=0;size=0;wipe=0', JSON.stringify(backLight));
+  // 0.8 (CRTV-0020): one Seasonal theme end to end, then the pilot emblems and the dot texture stay out of the way
+  await page.selectOption('#themeSelect', '47'); await themeSettled();
+  const pumpkinDark = await themeState();
+  ok('Seasonal Pumpkin (dark), code 47: its colours, dark mode on, saved', pumpkinDark.id === 'pumpkin-dark' && pumpkinDark.dark && pumpkinDark.entry === 'hand=0;cb=0;theme=47;font=0;size=0;wipe=0', JSON.stringify(pumpkinDark));
+  await page.selectOption('#themeSelect', '1'); await themeSettled();
+  const art = await page.evaluate(() => ({ cards: [...document.querySelectorAll('.deck-card')].map(c => { const e = c.querySelector(':scope > .vcge-emblem'); return e ? c.dataset.card + ':' + e.dataset.pilot + ':' + getComputedStyle(e).pointerEvents : c.dataset.card + ':none'; }).join(),
+    tex: (() => { const t = document.querySelector('svg.vcge-tex'); return t ? getComputedStyle(t).pointerEvents + '/' + t.getAttribute('aria-hidden') : 'none'; })() }));
+  ok('0.8: each card shows its pilot\'s line emblem behind the content and the dot texture sits behind the deck, none of them taking a tap',
+    art.cards === 'welcome:shutout:none,capture:iris:none,read:glyph:none,fields:pidge:none,card:flipside:none,share:airlock:none' && art.tex === 'none/true', JSON.stringify(art));
   await page.click('#handLeftBtn');
   const headerOrder = () => page.evaluate(() => ['navSettings', 'navVault', 'navCapture', 'navShare'].map(id => document.getElementById(id).getBoundingClientRect().left));
   const [xSettings, xVault, xCapture, xShare] = await headerOrder();

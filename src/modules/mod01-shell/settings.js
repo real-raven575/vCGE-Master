@@ -10,8 +10,8 @@
  *   hand   0 right (default), 1 left: `html[data-hand="right|left"]` for the header mirror, the trash corner, the
  *          Welcome buttons' thumb line and any module that places a control by hand (MOD03's shutter and fader).
  *   cb     0 off (default), 1 on: colour-blind mode, `html[data-cb="1"]` (MOD02's wipe dialog reads it).
- *   theme  the colour theme by its fixed code (themes.js; 0 Dark, the default, 1 Light, then the Autumn and Team vCGE
- *          themes): its mode sets the `dark` class on <html> (Tailwind `darkMode: 'class'`), its colours the --vcge-*
+ *   theme  the colour theme by its fixed code (themes.js; 0 Dark, the default, 1 Light (both in Creative's Herd colours),
+ *          then the Autumn and Team vCGE themes, then Creative's Everyday and Seasonal ones from 28): its mode sets the `dark` class on <html> (Tailwind `darkMode: 'class'`), its colours the --vcge-*
  *          variables and html[data-app-theme]. Plain shows no branded theme and reads a saved one as Dark or Light.
  *   font   the UI font by its fixed code (FONT_CODES; Inter = 0): `html[data-font]` plus the --vcge-ui-font variable.
  *   size   the text size by its fixed code (TEXT_SIZES; Normal = 0): `html[data-size]` plus --vcge-size, the factor every
@@ -27,7 +27,7 @@
  */
 import { globalEventBus, Events } from '../../share/eventBus.js';
 import { UI_FONTS, DEFAULT_UI_FONT } from './ui.js';
-import { THEMES, themesFor, applyTheme } from './themes.js';
+import { THEMES, THEME_GROUPS, themesFor, applyTheme } from './themes.js';
 
 export const SETTINGS_KEY = 'vcge_settings';
 const OLD_THEME_KEY = 'vcge_theme_preference';
@@ -146,7 +146,7 @@ export function initSettings(doc = document) {
     const plain = doc.documentElement && doc.documentElement.dataset.edition === 'plain';
     const theme = $('themeSelect');
     if (theme && !theme.options.length) {
-        for (const group of [...new Set(themesFor(plain).map(t => t.group))]) {   // Basic, Autumn, then Team vCGE (branded)
+        for (const group of THEME_GROUPS.filter(gr => themesFor(plain).some(t => t.group === gr))) {   // Basic, Everyday, Seasonal, Autumn, then Team vCGE (branded)
             const g = doc.createElement('optgroup');
             g.label = group;
             for (const t of themesFor(plain).filter(x => x.group === group)) {
