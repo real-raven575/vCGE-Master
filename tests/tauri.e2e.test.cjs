@@ -129,8 +129,8 @@ async function stopDriver(driver) {
     ok('Tauri IPC is available (withGlobalTauri)', await js(`return !!(window.__TAURI__ && window.__TAURI__.core);`));
     ok('page is served from the Tauri asset protocol', /^(tauri:|http:\/\/tauri\.localhost)/.test(await js('return location.href;')), await js('return location.href;'));
     // The logo is a CSS background (edition.js): its file decodes from the bundle; the plain edition shows none
-    ok('desktop: the header logo loads from the bundled file (none in the plain edition)', await until(() => js(`const i = document.querySelector('.deck-logo'); if (!i) return false;
-      if (document.documentElement.dataset.edition === 'plain') return getComputedStyle(i).display === 'none';
+    // Plain is not unbranded (raven575, 11-02): every edition shows the app icon in the header
+    ok('desktop: the header logo loads from the bundled file (every edition)', await until(() => js(`const i = document.querySelector('.deck-logo'); if (!i) return false;
       const m = /url\\("?([^")]+)"?\\)/.exec(getComputedStyle(i).backgroundImage); if (!m) return false;
       if (!window.__logoImg) { window.__logoImg = new Image(); window.__logoImg.src = m[1]; }
       return window.__logoImg.complete && window.__logoImg.naturalWidth > 0;`), 5000));

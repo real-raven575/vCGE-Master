@@ -64,7 +64,8 @@ export default defineConfig({
         outDir: 'dist',
         emptyOutDir: true,
         target: 'es2021',
-        // Never inline fonts (the CSP allows font-src 'self' only) or the icon sprite (a <use> needs a real URL) as data: URLs
-        assetsInlineLimit: (file) => (/\.(woff2|svg)$/.test(file) ? false : undefined)
+        // Never inline fonts (the CSP allows font-src 'self' only), the icon sprite (a <use> needs a real URL)
+        // or the app icon and wordmark art (every edition loads them from their own bundled file) as data: URLs
+        assetsInlineLimit: (file) => (/\.(woff2|svg)$/.test(file) || /[\\/]assets[\\/](brand|maker)[\\/]/.test(file) ? false : undefined)
     }
 });
