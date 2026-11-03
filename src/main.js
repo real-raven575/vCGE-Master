@@ -784,7 +784,7 @@ async function runOcr() {
     readIndicator.show(photo);
     try {
         // The first scan (and the first after a wipe) starts the reader from ~7 MB of bundled files: say so.
-        const onStatus = (status) => readIndicator.status(status);
+        const onStatus = (status, fraction) => readIndicator.status(status, fraction);
         const { text, lines } = await executeOCRScan(photo, { onStatus });
         // Finished early: the wash fills up (and the owl closes its eyes) before the review step opens.
         readIndicator.stop(); readIndicator.set(1); readIndicator.finish();

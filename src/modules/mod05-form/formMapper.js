@@ -149,6 +149,9 @@ export class ContactFormMapper {
             if (!free(line) || !TITLE_WORDS.test(line.text) || /[@\d]/.test(line.text) || isQuoted(line.text)) return;
             let score = 2;
             if (best && best.score > 0 && Math.abs(index - best.index) === 1) score += 2;
+            // A title sits under the name more often than over it: "Technician" under the name beats a slogan above it
+            // whose "Your" the reader slipped on (raven575's first phone run of 0.8, 2026-11-03).
+            if (best && best.score > 0 && index === best.index + 1) score += 1;
             if (TAGLINE_START.test(line.text)) score -= 3;
             if (!title || score > title.score) title = { line, score };
         });
@@ -173,7 +176,7 @@ export class ContactFormMapper {
         // The card's slogan ("Your Technology Advisor") or a phrase in quotes is kept in Notes, not ignored (raven575,
         // 2026-10-17). Only lines no other step claimed.
         // So do the words for an occasion next to the logo ("20th Anniversary", "Since 1998").
-        lines.forEach(line => { if (free(line) && (isTagline(line.text) || OCCASION.test(line.text))) line.role = 'notes'; });
+        lines.forEach(line => { if (free(line) && (isTagline(line.text) || OCCASION.test(line.text))) { line.role = 'notes'; line.text = repairYour(line.text); line.body = repairYour(line.body); } });
 
         // A web path ending in the card's own state code, its I read as a bar ("Kalamazoom\" on a Michigan card), ends
         // in that code ("KalamazooMI"), also when the OCR put a space before it ("Kalamazoo Ml").
@@ -378,8 +381,14 @@ const TITLE_SPELLING = new Set([...TITLE_TERMS.filter(t => /^[a-z]+$/.test(t)), 
     'chairwoman', 'chairperson', 'owner', 'founder'
 ]]);
 const COMPANY_SUFFIX = /\b(?:inc|incorporated|llc|l\.l\.c|llp|ltd|limited|corp|corporation|co|company|plc|gmbh|pllc|pc|group|holdings|associates|partners|enterprises|industries|solutions|systems|technologies|technology|consulting|services|agency|studio|labs?|bank|university|college|institute|clinic|hospital)\b\.?/i;
-const TAGLINE_START = /^(?:your|our|the|we|where|making|helping|serving|for all|since)\b/i;
-const SLOGAN_START = /^(?:your|our|we|where|making|helping|serving|for all|since)\b/i;   // "The ..." can be a company name
+// "Your" also as the reader slips on it ("Yur", "Yovr", "Y0ur", "Vour"); repairYour puts it back.
+const YOUR_SLIP = '(?:your|yur|yo[uv]r|y0ur|y[o0]vr|vour)';
+const TAGLINE_START = new RegExp(`^(?:${YOUR_SLIP}|our|the|we|where|making|helping|serving|for all|since)\\b`, 'i');
+const SLOGAN_START = new RegExp(`^(?:${YOUR_SLIP}|our|we|where|making|helping|serving|for all|since)\\b`, 'i');   // "The ..." can be a company name
+/** A slogan's first word read with a slip ("Yur Technology Advisor") spelled "Your" again, keeping its capital. */
+export function repairYour(text) {
+    return text.replace(new RegExp(`^(["']?)${YOUR_SLIP}\\b`, 'i'), (m, q) => `${q}${/^["']?[a-z]/.test(m) ? 'your' : 'Your'}`);
+}   // "The ..." can be a company name
 const STREET_WORDS = /\b(?:st|street|ave|avenue|rd|road|blvd|boulevard|dr|drive|ln|lane|ct|court|way|pl|place|pkwy|parkway|hwy|highway|cir|circle|ter|terrace|trl|trail|sq|square|pike|row|loop|plaza|ste|suite|unit|floor|fl|bldg|building)\b\.?/i;
 const PO_BOX = /^(?:p\.?\s?o\.?\s?box|post office box)\s*\d+/i;
 

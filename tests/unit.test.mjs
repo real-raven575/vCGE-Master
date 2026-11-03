@@ -553,6 +553,12 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     && fm.parseOCRText('Jo Smith\nT 12 Main Street, Springfield, IL 62701').street === '12 Main Street');
   ok('MOD05 #54: a labelled phone number is never taken as a street', fm.classifyLines('Jo Smith\nT 269.492.7400\nPortage, MI 49024')[1].role === 'phoneWork');
   ok('MOD05 #53: the slogan goes to Notes, logo debris stays Ignore', ipad[1].role === 'notes' && ipad[0].role === 'ignore' && fm.buildFields(ipad).fields.notes === 'Your Technology Advisor');
+  // raven575's first phone run of 0.8 (2026-11-03), made-up card: the reader slipped on the slogan's "Your" ("Yur"), so it
+  // passed for a title and beat "Technician" under the name, which was left on Ignore.
+  const slip = fm.classifyLines('Yur Trusted Advisor\nJordan Example\nTechnician\n100 Sample Road, Suite 12\nSpringfield, OH 45501\nE jexample@example.com\nT 555.010.0199');
+  ok('MOD05 0.8 run: the title under the name is the job title, not a slogan above it', slip[2].role === 'jobTitle' && slip[0].role !== 'jobTitle', JSON.stringify(slip.slice(0, 3)));
+  ok('MOD05 0.8 run: a slogan whose "Your" was misread goes to Notes, spelled "Your" again', slip[0].role === 'notes' && slip[0].text === 'Your Trusted Advisor' && fm.buildFields(slip).fields.notes === 'Your Trusted Advisor', JSON.stringify(slip[0]));
+  ok('MOD05 0.8 run: a title above the name still wins when nothing is under it', fm.classifyLines('Technician\nJordan Example\nE jexample@example.com')[0].role === 'jobTitle');
   const quoted = fm.classifyLines('"Your Technology Advisor"\nNick Zafer\nOwner & General Manager');
   ok('MOD05 #53: a quoted phrase is never a job title or company: it goes to Notes', quoted[0].role === 'notes' && quoted[2].role === 'jobTitle', JSON.stringify(quoted));
   const occasion = fm.classifyLines('20th Anniversary\nJo Smith\nSince 1998');
@@ -785,7 +791,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 
 // Snap to card: the on-device edge finder (MOD03)
 {
-  const { findCardQuad, convexHull, orderCorners } = await import(`${R}/modules/mod03-camera/cardFinder.js`);
+  const { findCardQuad, convexHull, orderCorners, isCutCorner } = await import(`${R}/modules/mod03-camera/cardFinder.js`);
   // A white 1050 x 600 card, rotated and sheared on a grey background, with dark "text" rows on it (the e2e crooked card)
   const deg = Math.PI / 180;
   const mul = (a, b) => [a[0] * b[0] + a[2] * b[1], a[1] * b[0] + a[3] * b[1], a[0] * b[2] + a[2] * b[3], a[1] * b[2] + a[3] * b[3], a[0] * b[4] + a[2] * b[5] + a[4], a[1] * b[4] + a[3] * b[5] + a[5]];
@@ -819,6 +825,29 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const farCorners = [[0, 0], [1050, 0], [1050, 600], [0, 600]].map(([x, y]) => apply(far, x, y));
   const farQuad = findCardQuad(render(1600, 1200, 110, 255, true, far));
   ok('finder: a far-away card covering about 4% of the photo is found, every corner "good" on the edge bench (within 2% of the diagonal)', !!farQuad && farQuad.every((p, i) => Math.hypot(p.x - farCorners[i][0], p.y - farCorners[i][1]) < 0.02 * Math.hypot(1600, 1200)), JSON.stringify(farQuad));
+  // A grey-white card on a beige counter of the SAME brightness (raven575's first phone run of 0.8, 2026-11-03, made-up
+  // card): the counter darkens towards the bottom, a black strip runs along the photo's bottom edge, and a green band
+  // cuts the card's bottom-right corner. Shade alone sees no card; colour does, and the cut corner comes from the rectangle.
+  const counter = (() => {
+    const W = 1200, H = 1000, data = new Uint8ClampedArray(W * H * 4), inv = invert(m);
+    const toCard = (x, y) => { const [u, v] = apply(inv, x * 1.3 + 0.5, y * 1.3 - 120); return [u, v]; };
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const shade = 1.08 - 0.35 * (y / H) + ((x * 7 + y * 13) % 11 - 5) / 200;   // light from the top, speckled counter
+      let rgb = [184 * shade, 175 * shade, 156 * shade];
+      const [u, v] = toCard(x, y);
+      if (u >= 0 && u < 1050 && v >= 0 && v < 600) {
+        rgb = u + 0.9 * v > 1150 ? [110, 160, 135] : [178, 177, 182];   // green band across the bottom-right corner, else card paper
+        if (v > 60 && v < 420 && u > 60 && u < 650 && Math.floor(v / 50) % 2 === 0 && Math.floor(u / 12) % 3 !== 2) rgb = [60, 60, 64];
+      }
+      if (y > H - 40) rgb = [26, 26, 24];
+      const o = (y * W + x) * 4; data[o] = rgb[0]; data[o + 1] = rgb[1]; data[o + 2] = rgb[2]; data[o + 3] = 255;
+    }
+    const truth = [[0, 0], [1050, 0], [1050, 600], [0, 600]].map(([u, v]) => { const [x, y] = apply(m, u, v); return [(x - 0.5) / 1.3, (y + 120) / 1.3]; });
+    return { image: { data, width: W, height: H }, truth };
+  })();
+  const beige = findCardQuad(counter.image);
+  ok('finder: a white card on a beige counter of the same brightness is found by colour, every corner within 2% of the diagonal (cut corner included)', !!beige && beige.every((p, i) => Math.hypot(p.x - counter.truth[i][0], p.y - counter.truth[i][1]) < 0.02 * Math.hypot(1200, 1000)), JSON.stringify({ beige, truth: counter.truth }));
+  ok('finder: a corner far inside the rectangle while the other three sit on theirs counts as cut; a trapezoid does not', isCutCorner([2, 1, 160, 3], 2, [[0, 0], [550, 0], [550, 330], [0, 330]]) && !isCutCorner([20, 25, 30, 22], 2, [[0, 0], [550, 0], [550, 330], [0, 330]]));
   ok('convex hull drops inner points and keeps the corners', convexHull([[0, 0], [10, 0], [10, 10], [0, 10], [5, 5], [2, 3]]).length === 4);
   ok('corners are ordered top-left, top-right, bottom-right, bottom-left', orderCorners([{ x: 9, y: 9 }, { x: 0, y: 10 }, { x: 10, y: 0 }, { x: 1, y: 1 }]).map(p => `${p.x},${p.y}`).join(' ') === '1,1 10,0 9,9 0,10');
 }
@@ -944,6 +973,9 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   globalThis.Image = class { set src(v) { this.width = 10; this.height = 10; setTimeout(() => this.onload && this.onload(), 0); } };
   const origLog = console.log, origErr = console.error; console.log = () => {}; console.error = () => {};
   const ocr = await import(`${R}/modules/mod04-ocr/ocrWorker.js`);
+  // raven575's first phone run of 0.8 (2026-11-03): "Preparing the reader…" sat still through the first ~7 MB load and read as a freeze
+  ok('MOD04 0.8 run: start-up steps move forward from 0 to 1', ocr.startProgress('loading tesseract core', 0) === 0 && ocr.startProgress('loading tesseract core', 1) === 0.5 && ocr.startProgress('loading language traineddata', 0.5) === 0.75 && ocr.startProgress('initializing api', 1) === 1);
+  ok('MOD04 0.8 run: the read\'s own progress ("recognizing text") is not a start-up step', ocr.startProgress('recognizing text', 0.4) === null);
   let evt = null; share.globalEventBus.subscribe(share.Events.OCR_TEXT_EXTRACTED, e => evt = e);
   const failure = (p) => p.then(() => null, e => e);
 
@@ -1197,6 +1229,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 
   // The Read card (readCard.js): stepped fades, the Looks right timings, the lane
   const read = await import(`${R}/modules/mod04-ocr/readCard.js`);
+  ok('MOD04 0.8 run: the start-up label shows how far it is', read.startLabel(0.75) === 'Preparing the reader… 75%' && read.startLabel(0) === 'Preparing the reader…' && read.startLabel(null) === 'Preparing the reader…');
   ok('read card: motion stepped at 26 fps, blink-out and Looks right fade are quick (under 300 ms each)', read.STEP_FPS === 26 && read.BLINK_MS > 0 && read.BLINK_MS < 300 && read.CHECK_FADE_MS > 0 && read.CHECK_FADE_MS < 300 && read.CHECK_NOTE_AT > 0 && read.CHECK_NOTE_AT < 1);
   ok('read card: ease in and out starts at 0, passes 0.5 halfway, lands at 1', read.easeInOut(0) === 0 && read.easeInOut(0.5) === 0.5 && read.easeInOut(1) === 1 && read.easeInOut(0.25) < 0.25 && read.easeInOut(0.75) > 0.75);
   const steps = [0, 10, 40, 80, 120, 220, 500].map(t => read.fadeAt(1, 0, t, 220));
@@ -1718,6 +1751,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     return ratio(v.text, v.surface) < 4.5 || ratio(v.text, v.bg) < 4.5 || ratio(v.muted, v.surface) < 4.5 || ratio(v.onAccent, v.accent) < 4.5 || ratio(v.accent, v.surface) < 3; });
   ok('themes: every colour theme reads at 4.5:1 (text and muted text on its surface, text on its page, the lit icon\'s text) and its accent at 3:1', weak.length === 0, weak.map(t => t.id).join());
   const card3d = await import(`${R}/modules/mod06-gui/card3dView.js`);
+  ok('MOD06 0.8 run: the card\'s address line ends with the state and ZIP', card3d.cardAddressLine({ street: '100 Sample Road', city: 'Springfield', state: 'OH', zip: '45501' }, 'Suite 12') === '100 Sample Road, Suite 12, Springfield, OH 45501');
+  ok('MOD06: an address without a state still shows its ZIP, and an empty one stays empty', card3d.cardAddressLine({ city: 'Springfield', zip: '45501' }) === 'Springfield, 45501' && card3d.cardAddressLine({}) === '');
   ok('themes: Dark 0 and Light 1 as before, then the eight Autumn palettes, then a dark and a light for each of the nine characters, then Creative\'s 0.8 palettes from 28; codes fixed and unique',
     th.THEMES.map(t => t.code).join() === [...Array(50).keys()].join() && th.THEMES[0].id === 'dark' && th.THEMES[1].id === 'light'
     && th.THEMES.filter(t => t.group === 'Autumn').map(t => t.id).join() === Object.keys(card3d.THEMES).join()

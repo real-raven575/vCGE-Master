@@ -113,6 +113,15 @@ const LISTS = {
 // Line icons on the card (Tabler, the header's own set: src/vendor/icons/app/sprite.svg), by the kind of line.
 const SPRITE = 'src/vendor/icons/app/sprite.svg';
 const PHONE_ICONS = { mobile: 'device-mobile', pager: 'device-mobile', workFax: 'printer', homeFax: 'printer' };
+/**
+ * The address as the card shows it on one line: street, unit, city, then state and ZIP together ("Springfield, OH
+ * 45501"). The ZIP was missing from the card while the export had it (raven575's first phone run of 0.8, 2026-11-03).
+ */
+export function cardAddressLine(contact, unit = '') {
+    const stateZip = [contact.state, contact.zip].filter(Boolean).join(' ');
+    return [contact.street, unit, contact.city, stateZip].filter(Boolean).join(', ');
+}
+
 /** The icon for a line: `kind` is phones, emails, websites or address; `type` the entry's type (address: its addressType). */
 export function lineIcon(kind, type) {
     if (kind === 'phones') return PHONE_ICONS[type] || 'phone';
@@ -494,7 +503,7 @@ export class CardView {
         $('previewOrg').textContent = contact.organization || 'Company Name';
         $('previewTitle').textContent = contact.jobTitle || 'Job Title';
         Object.entries(LISTS).forEach(([key, cfg]) => this.renderLines($(cfg.preview), contact[key] || [], cfg, key));
-        const address = [contact.street, unit, contact.city, contact.state].filter(Boolean).join(', ');
+        const address = cardAddressLine(contact, unit);
         const addressType = (ADDRESS_TYPES.find(([v]) => v === contact.addressType) || [])[1] || '';
         $('previewAddress').replaceChildren(...this.lineCells('address', contact.addressType, address ? addressType : '', address || 'No address provided'));
         $('backCardName').textContent = fullName;
