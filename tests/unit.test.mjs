@@ -1849,6 +1849,21 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
       && /<input id="sizeRange" type="range"/.test(set5) && ['handToggle', 'cbToggle', 'texToggle'].every(id => new RegExp(`<input id="${id}" type="checkbox" role="switch"`).test(set5))
       && /<input id="plainToggle" type="checkbox" role="switch" class="r5-toggle" aria-describedby="plainNote">/.test(set5) && /id="plainConfirm" class="r5-plain-confirm hidden"/.test(set5)
       && /class="vcge-pm-credit"/.test(set5) && /id="settingsAbout"/.test(set5));
+    // raven575 (2026-11-03): the theme box starts closed with 3 quick picks; the Dyslexia, Colour-blind and Left-handed switches are one Accessibility group
+    ok('Settings: the theme box is one closed details (summary shows the theme in use) holding the swatches and More themes',
+      /<details id="themePicker" class="r5-picker">\s*<summary id="themeSummary"[^>]*><i id="themeSummarySwatch"[^>]*><\/i><span id="themeSummaryName">Herd<\/span><\/summary>\s*<div id="appThemes"[^>]*><\/div>\s*<details id="moreThemes"/.test(set5)
+      && !/id="themePicker"[^>]* open/.test(set5));
+    ok('Settings: the quick picks are Herd, Signal, Graphite; every other palette is under More themes, none twice', st.QUICK_THEMES.join() === 'herd,signal,graphite'
+      && st.SWATCH_GROUPS.map(g => `${g.label}:${g.more}`).join() === 'Quick picks:false,Everyday:true,Seasonal:true,Card colours:true,Team vCGE:true'
+      && st.swatchFamilies(th.THEME_FAMILIES, 'Quick').map(f => f.id).join() === 'herd,signal,graphite'
+      && st.swatchFamilies(th.THEME_FAMILIES, 'Everyday').map(f => f.id).join() === 'autumn,evergreen'
+      && st.SWATCH_GROUPS.flatMap(g => st.swatchFamilies(th.THEME_FAMILIES, g.group)).length === th.THEME_FAMILIES.length);
+    const a11y = set5.indexOf('id="a11yLabel">Accessibility</h4>'), comfort = set5.indexOf('<h4>Comfort</h4>');
+    ok('Settings: Accessibility holds Dyslexia-friendly font, Colour-blind mode and Left-handed, in that order, before Comfort (texture and Plain look)', a11y > 0 && comfort > a11y
+      && ['dyslexiaToggle', 'cbToggle', 'handToggle'].map(id => set5.indexOf(`<input id="${id}" type="checkbox" role="switch"`)).every((i, n, a) => i > a11y && i < comfort && (n === 0 || i > a[n - 1]))
+      && ['texToggle', 'plainToggle'].every(id => set5.indexOf(`<input id="${id}"`) > comfort));
+    ok('Settings: the dyslexia switch sets the font code only (OpenDyslexic on, Inter off), so nothing new is stored', st.DYSLEXIA_FONT === st.FONT_CODES['OpenDyslexic'] && st.dyslexiaFont(true) === 3 && st.dyslexiaFont(false) === 0
+      && st.serializeSettings({ font: st.dyslexiaFont(true) }) === 'hand=0;cb=0;theme=0;font=3;size=0;wipe=0');
     ok('R5: the texture switch hides the dot texture, and each of the five other styles has its own look',
       /html\[data-tex="off"\] \.vcge-tex \{ display: none; \}/.test(css5) && ['material', 'ios', 'windows', 'gnome', 'kde'].every(k => css5.includes(`html[data-style="${k}"]`)));
     ok('R5: the Vault and Settings sheets carry Ghost\'s and Shutout\'s emblems', Object.entries(em.SHEET_EMBLEMS).map(([id, e]) => `${id}:${e.pilot}`).join() === 'vaultPage:ghost,settingsSheet:shutout'

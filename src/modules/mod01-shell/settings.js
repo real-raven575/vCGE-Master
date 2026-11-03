@@ -159,17 +159,29 @@ export function applySettings(settings, root = document.documentElement, dark = 
 
 // ---- The Settings sheet (0.8, Creative's CRTV-0020 mock-up) ---------------------------------------------------------
 
-/** The swatch groups: Everyday and Seasonal in view (the mock-up), the card colours and the Team under More themes. */
+/** The quick picks in the theme box (raven575, 2026-11-03): one tap after opening it. Every other palette is under More themes. */
+export const QUICK_THEMES = Object.freeze(['herd', 'signal', 'graphite']);
+/** The swatch groups: the quick picks in view once the box is open; the rest of Everyday, Seasonal, the card colours and
+ *  the Team under More themes. */
 export const SWATCH_GROUPS = Object.freeze([
-    { group: 'Everyday', label: 'Everyday', more: false }, { group: 'Seasonal', label: 'Seasonal', more: false },
-    { group: 'Autumn', label: 'Card colours', more: true }, { group: 'Team vCGE', label: 'Team vCGE', more: true }
+    { group: 'Quick', label: 'Quick picks', more: false }, { group: 'Everyday', label: 'Everyday', more: true },
+    { group: 'Seasonal', label: 'Seasonal', more: true }, { group: 'Autumn', label: 'Card colours', more: true },
+    { group: 'Team vCGE', label: 'Team vCGE', more: true }
 ]);
+/** The palettes a swatch group shows: Quick is QUICK_THEMES in that order; the others leave the quick picks out. */
+export function swatchFamilies(families, group) {
+    if (group === 'Quick') return QUICK_THEMES.map(id => families.find(f => f.id === id)).filter(Boolean);
+    return families.filter(f => f.group === group && !QUICK_THEMES.includes(f.id));
+}
+/** The font code the Dyslexia-friendly switch sets: OpenDyslexic on, Inter (the default) off. */
+export const DYSLEXIA_FONT = FONT_CODES['OpenDyslexic'];
+export const dyslexiaFont = (on) => (on ? DYSLEXIA_FONT : FONT_CODES[DEFAULT_UI_FONT]);
 
 /**
  * Wire the sheets' controls (any of them may be missing), apply the saved settings and listen for the wipe signal.
- * Settings: #appThemes (theme swatches, built here; #moreThemes holds the extra groups), #appearanceChips (System /
- * Light / Dark), #styleChips (the six platform styles), #sizeRange (text size), #fontSelect, and the switches #handToggle,
- * #cbToggle and #texToggle. The Vault sheet: #wipeChips (7, 10 or 15 minutes after the lock).
+ * Settings: #themePicker (the closed theme box; #themeSummary shows the theme in use), #appThemes (the quick-pick
+ * swatches, built here; #moreThemes holds the other groups), #appearanceChips (System / Light / Dark), #styleChips (the six
+ * platform styles), #sizeRange (text size), #fontSelect, and the switches #dyslexiaToggle, #cbToggle, #handToggle and #texToggle. The Vault sheet: #wipeChips (7, 10 or 15 minutes after the lock).
  */
 /** hasContacts: true while anything is held in memory (MOD02's vault); restart: starts vCGE fresh (main.js passes startFresh). */
 export function initSettings(doc = document, { hasContacts = () => false, restart = () => {} } = {}) {
@@ -189,7 +201,10 @@ export function initSettings(doc = document, { hasContacts = () => false, restar
         const t = shown(), fam = familyOf(t.code), both = fam.light !== null && fam.dark !== null;
         pressAll($('appThemes'), '[data-family]', b => b.dataset.family === fam.id);
         const more = $('moreThemes');
-        if (more && families.some(f => f.id === fam.id && SWATCH_GROUPS.some(g => g.more && g.group === f.group))) more.open = true;
+        if (more && !QUICK_THEMES.includes(fam.id) && families.some(f => f.id === fam.id)) more.open = true;
+        const sumName = $('themeSummaryName'), sumSw = $('themeSummarySwatch');
+        if (sumName) sumName.textContent = fam.label;
+        if (sumSw) { sumSw.style.setProperty('--sw-a', t.vars ? t.vars.accent : ''); sumSw.style.setProperty('--sw-b', t.vars ? t.vars.bg : ''); }
         const chips = $('appearanceChips');
         pressAll(chips, '[data-v]', b => b.dataset.v === (s.mode === 1 && both ? 'system' : t.mode));
         chips?.querySelectorAll('[data-v]').forEach(b => { b.disabled = !both && b.dataset.v !== t.mode; });
@@ -202,7 +217,8 @@ export function initSettings(doc = document, { hasContacts = () => false, restar
             const i = Math.max(0, TEXT_SIZES.findIndex(x => x.code === s.size));
             size.value = String(i); size.setAttribute('aria-valuetext', TEXT_SIZES[i].name);
         }
-        const hand = $('handToggle'), cb = $('cbToggle'), tex = $('texToggle'), font = $('fontSelect');
+        const hand = $('handToggle'), cb = $('cbToggle'), tex = $('texToggle'), font = $('fontSelect'), dys = $('dyslexiaToggle');
+        if (dys) dys.checked = s.font === DYSLEXIA_FONT;
         if (hand) hand.checked = s.hand === 1;
         if (cb) cb.checked = s.cb === 1;
         if (tex) tex.checked = s.tex === 0;
@@ -214,7 +230,7 @@ export function initSettings(doc = document, { hasContacts = () => false, restar
     if (themes && !themes.querySelector('[data-family]')) {
         const more = $('moreThemesGrid');
         for (const g of SWATCH_GROUPS) {
-            const list = families.filter(f => f.group === g.group);
+            const list = swatchFamilies(families, g.group);
             const host = g.more ? more : themes;
             if (!list.length || !host) continue;
             const head = doc.createElement('span');
@@ -270,6 +286,7 @@ export function initSettings(doc = document, { hasContacts = () => false, restar
     size?.addEventListener('input', (e) => set({ size: (TEXT_SIZES[Number(e.target.value)] || TEXT_SIZES[1]).code }));
     $('handToggle')?.addEventListener('change', (e) => set({ hand: e.target.checked ? 1 : 0 }));
     $('cbToggle')?.addEventListener('change', (e) => set({ cb: e.target.checked ? 1 : 0 }));
+    $('dyslexiaToggle')?.addEventListener('change', (e) => set({ font: dyslexiaFont(e.target.checked) }));
     $('texToggle')?.addEventListener('change', (e) => set({ tex: e.target.checked ? 0 : 1 }));
     font?.addEventListener('change', (e) => set({ font: Number(e.target.value) }));
     // Plain look: in the Plain download the switch is on and fixed (that build is plain by its html line). In the Herd build it

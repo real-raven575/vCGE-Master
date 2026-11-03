@@ -173,7 +173,7 @@ async function openVault(page) { if (!(await vaultOpen(page))) { await page.clic
 // Settings (0.8 redo R5): a theme by its fixed code is its swatch plus, for a palette with both versions, the Appearance chip
 async function setTheme(page, code) {
   const sel = await page.evaluate((c) => { const b = [...document.querySelectorAll('#settingsSheet [data-family]')].find(x => x.dataset.light === String(c) || x.dataset.dark === String(c));
-    if (!b) return null; const d = b.closest('details'); if (d) d.open = true;
+    if (!b) return null; for (let d = b.closest('details'); d; d = d.parentElement.closest('details')) d.open = true;
     return { fam: b.dataset.family, mode: b.dataset.light === String(c) ? 'light' : 'dark', both: !!b.dataset.light && !!b.dataset.dark }; }, code);
   await page.click(`#settingsSheet [data-family="${sel.fam}"]`);
   if (sel.both) await page.click(`#appearanceChips [data-v="${sel.mode}"]`);
@@ -671,14 +671,25 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     dark: document.documentElement.classList.contains('dark'), body: getComputedStyle(document.body).fontFamily, entry: localStorage.getItem('vcge_settings') }));
   ok('before any change: nothing is stored, right hand, Inter, dark', (await settingsKeys()).length === 0 && (await htmlState()).hand === 'right' && (await htmlState()).dark && /Inter/.test((await htmlState()).body), JSON.stringify(await htmlState()));
   await page.click('#navSettings');
-  ok('the cog opens Settings (0.8 sheet): theme swatches, Appearance, the six styles, text size, font, the Left-handed, colour-blind, texture and Plain look switches, and the disclaimer', await page.isVisible('#settingsSheet') && await page.isVisible('#handToggle') && await page.isVisible('#cbToggle') && await page.isVisible('#appThemes [data-family="herd"]')
+  ok('the cog opens Settings (0.8 sheet): theme swatches, Appearance, the six styles, text size, font, the Left-handed, colour-blind, texture and Plain look switches, and the disclaimer', await page.isVisible('#settingsSheet') && await page.isVisible('#handToggle') && await page.isVisible('#cbToggle') && await page.isVisible('#dyslexiaToggle') && await page.isVisible('#themeSummary')
     && await page.isVisible('#appearanceChips') && (await page.$$eval('#styleChips button', bs => bs.map(b => b.textContent).join())) === 'Herd,Material,iOS,Windows,GNOME,KDE'
     && await page.isVisible('#sizeRange') && await page.isVisible('#fontSelect') && await page.isVisible('#texToggle') && await page.$eval('#plainToggle', c => c.disabled === (document.documentElement.dataset.edition === 'plain')) && (EDITION_PLAIN ? /This is the Plain edition/ : /Hides the Herd pilots and art/).test(await text('plainNote'))
     && (await text('settingsNote')) === 'vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look). Nothing you scan, upload or type is ever saved.');
+  // raven575 (2026-11-03): the theme box starts closed, naming the theme in use; one tap shows the 3 quick picks, More themes stays closed
+  ok('the theme box starts closed and names Herd; no swatch shows until it is opened', !(await page.$eval('#themePicker', d => d.open)) && (await text('themeSummaryName')) === 'Herd'
+    && !(await page.isVisible('#appThemes [data-family="herd"]')));
+  await page.click('#themeSummary');
+  ok('one tap opens the quick picks Herd, Signal, Graphite (Herd pressed); More themes stays closed', (await page.$$eval('#appThemes [data-family]', bs => bs.filter(b => b.getBoundingClientRect().height > 0).map(b => b.dataset.family).join())) === 'herd,signal,graphite'
+    && (await page.$eval('#appThemes [data-family="herd"]', b => b.getAttribute('aria-pressed'))) === 'true' && !(await page.$eval('#moreThemes', d => d.open)) && !(await page.isVisible('#moreThemesGrid [data-family="evergreen"]')));
   ok('the font list is the seven fonts, alphabetical, Inter chosen', (await page.$$eval('#fontSelect option', os => os.map(o => o.textContent).join('|'))) === 'Atkinson Hyperlegible|Comic Neue|Inter|Lexend|Macondo|OpenDyslexic|Tinos'
     && (await page.$eval('#fontSelect', s => s.selectedOptions[0].textContent)) === 'Inter');
-  ok('every settings control is at least 44 px tall (the switches are 34 px tracks in a row at least 44 px tall)', (await page.$$eval('#appThemes button, #appearanceChips button, #styleChips button, #fontSelect', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44)
-    && (await page.$$eval('#handToggle, #cbToggle, #texToggle, #sizeRange', els => els.map(e => e.closest('.r5-sw-row, .r5-range').getBoundingClientRect().height))).every(h => h >= 44));
+  ok('every settings control is at least 44 px tall (the switches are 34 px tracks in a row at least 44 px tall)', (await page.$$eval('#themeSummary, #appThemes button, #appearanceChips button, #styleChips button, #fontSelect', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44)
+    && (await page.$$eval('#dyslexiaToggle, #handToggle, #cbToggle, #texToggle, #sizeRange', els => els.map(e => e.closest('.r5-sw-row, .r5-range').getBoundingClientRect().height))).every(h => h >= 44));
+  await page.click('label[for="dyslexiaToggle"]');
+  ok('Dyslexia-friendly font on: OpenDyslexic is the font (code 3 saved) and the font list shows it', (await htmlState()).font === '3' && /OpenDyslexic/.test((await htmlState()).body)
+    && (await page.$eval('#fontSelect', s => s.selectedOptions[0].textContent)) === 'OpenDyslexic' && (await htmlState()).entry === 'hand=0;cb=0;theme=0;font=3;size=0;wipe=0', JSON.stringify(await htmlState()));
+  await page.click('label[for="dyslexiaToggle"]');
+  ok('Dyslexia-friendly font off: back to Inter (code 0)', (await htmlState()).font === '0' && /Inter/.test((await htmlState()).body) && !(await page.$eval('#dyslexiaToggle', c => c.checked)) && (await htmlState()).entry === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0');
   await setTheme(page, 1);
   ok('theme Light: light mode and the entry appears, one key, name=number pairs', !(await htmlState()).dark && (await settingsKeys()).join() === 'vcge_settings' && (await htmlState()).entry === 'hand=0;cb=0;theme=1;font=0;size=0;wipe=0');
   // App themes (raven575's test report, 2026-10-22): Basic, the Autumn colours and, in the branded edition only, a dark and a light per character
@@ -686,8 +697,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     bg: getComputedStyle(document.body).backgroundColor, primary: getComputedStyle(document.getElementById('dockNext')).backgroundColor,
     on: getComputedStyle(document.querySelector('.vcge-step[data-state="now"]')).color, entry: localStorage.getItem('vcge_settings') }));
   const themeGroups = await page.evaluate(() => [...document.querySelectorAll('#appThemes > *, #moreThemesGrid > *')].reduce((a, el) => { if (el.classList.contains('r5-tgroup')) a.push([el.textContent, 0]); else a[a.length - 1][1]++; return a; }, []).map(g => g.join(':')).join('|'));
-  ok(EDITION_PLAIN ? 'the theme swatches are Everyday (5: Herd = Dark + Light) and Seasonal (7), then the card colours (8) under More themes, no characters in plain' : 'the theme swatches are Everyday (5: Herd = Dark + Light) and Seasonal (7), then the card colours (8) and Team vCGE (9 characters, each light and dark) under More themes',
-    themeGroups === (EDITION_PLAIN ? 'Everyday:5|Seasonal:7|Card colours:8' : 'Everyday:5|Seasonal:7|Card colours:8|Team vCGE:9'), themeGroups);
+  ok(EDITION_PLAIN ? 'the theme swatches are 3 quick picks (Herd = Dark + Light, Signal, Graphite), then Everyday (2), Seasonal (7) and the card colours (8) under More themes, no characters in plain' : 'the theme swatches are 3 quick picks (Herd = Dark + Light, Signal, Graphite), then Everyday (2), Seasonal (7), the card colours (8) and Team vCGE (9 characters, each light and dark) under More themes',
+    themeGroups === (EDITION_PLAIN ? 'Quick picks:3|Everyday:2|Seasonal:7|Card colours:8' : 'Quick picks:3|Everyday:2|Seasonal:7|Card colours:8|Team vCGE:9'), themeGroups);
   // The dock's steps and buttons fade their colour (deck.css): read only once no fade is running on the step in view,
   // the primary button or the page (getAnimations() starts any pending fade first, so it can't be read too early)
   const themeSettled = () => page.waitForFunction(() => [document.querySelector('.vcge-step[data-state="now"]'), document.getElementById('dockNext'), document.body]
@@ -696,6 +707,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   const pumpkin = await themeState();
   ok('Pumpkin colours the page, the primary button and the step in view, stays light, and its code 2 is saved', pumpkin.id === 'pumpkin' && !pumpkin.dark && pumpkin.bg === 'rgb(243, 221, 206)'
     && pumpkin.primary === 'rgb(225, 107, 24)' && pumpkin.on === 'rgb(225, 107, 24)' && pumpkin.entry === 'hand=0;cb=0;theme=2;font=0;size=0;wipe=0', JSON.stringify(pumpkin));
+  ok('the closed box names the theme in use (Pumpkin) and More themes opened itself for it', (await text('themeSummaryName')) === 'Pumpkin' && await page.$eval('#moreThemes', d => d.open));
   if (!EDITION_PLAIN) {
     await setTheme(page, 12); await themeSettled();
     const shutout = await themeState();
