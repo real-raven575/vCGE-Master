@@ -61,4 +61,61 @@ export function paintEmblems(doc = document) {
             + '<rect width="100%" height="100%" fill="url(#vcgeTexDots)" mask="url(#vcgeTexMask)"/>';
         doc.body.prepend(tex);
     }
+    if (typeof window !== 'undefined' && doc === window.document) initEmblemField(doc, window);
+}
+
+// ---- Wide windows (raven575 11-04): the deck clips each card's emblem at its own edge, which shows as a hard cut once
+// the window is wider than the deck. There the current card's emblem is drawn whole on a page layer behind the deck
+// instead, and on big screens (monitor and wide tiers) a few small copies of it are scattered far apart in a staggered
+// tile, kept off the deck's column. Same art, colour and opacity as the card's own; the layer takes no taps.
+const FIELD_GAP = 48;          // px kept clear on each side of the deck for the tile
+const TILE_SIZE = 220;         // px, one small emblem
+const TILE_CELL = 640;         // px, one emblem per cell; every other row shifted half a cell
+const svgOpen = (extra = '') => `<svg xmlns="${NS}" viewBox="0 0 200 200" fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"${extra}>`;
+
+/** Keep the page-layer emblem in step with the current card and the window. Returns a sync function (for tests). */
+export function initEmblemField(doc = document, win = window) {
+    const deck = doc.getElementById('deck');
+    if (!deck || doc.querySelector('.vcge-field')) return () => {};
+    const field = doc.createElement('div');
+    field.className = 'vcge-field'; field.setAttribute('aria-hidden', 'true');
+    const one = doc.createElement('div'); one.className = 'vcge-field-one';
+    const tile = doc.createElementNS(NS, 'svg'); tile.setAttribute('class', 'vcge-field-tile'); tile.setAttribute('focusable', 'false');
+    field.append(one, tile);
+    const tex = doc.querySelector('.vcge-tex');
+    if (tex) tex.after(field); else doc.body.prepend(field);
+    let shown = '';
+    const sync = () => {
+        const card = deck.querySelector('.deck-card.is-current') || deck.querySelector('.deck-card:not([hidden])');
+        const e = card && EMBLEMS[card.dataset.card];
+        const d = deck.getBoundingClientRect();
+        const on = !!e && d.width > 0 && d.width < win.innerWidth - 2;
+        doc.documentElement.dataset.emblemField = on ? 'on' : 'off';
+        if (!on) return;
+        const { x, y, s, r } = e.at;
+        one.style.setProperty('--ef-l', `${d.left + d.width * x / 100 - s / 2}px`);
+        one.style.setProperty('--ef-t', `${d.top + d.height * y / 100 - s / 2}px`);
+        one.style.setProperty('--ef-s', `${s}px`); one.style.setProperty('--ef-r', `${r}deg`);
+        const key = `${card.dataset.card}|${Math.round(d.left)}|${Math.round(d.width)}`;
+        if (key === shown) return;
+        shown = key;
+        one.innerHTML = svgOpen(' aria-hidden="true" focusable="false"') + e.art + '</svg>';
+        // Whole small emblems only: one per cell, every other row shifted half a cell, none that would touch the
+        // deck's column (no copy is ever cut by it); the window's own edges may cut the outer ones.
+        const c = TILE_CELL, k = TILE_SIZE, w = win.innerWidth, h = win.innerHeight, band = [d.left - FIELD_GAP, d.right + FIELD_GAP];
+        let marks = '';
+        for (let row = 0; row * c * 0.5 < h + c; row++) {
+            for (let col = -1; col * c < w + c; col++) {
+                const left = col * c + (row % 2 ? c / 2 : 0) + c * 0.1, top = row * c * 0.5 + c * 0.05;
+                if (left + k > band[0] && left < band[1]) continue;
+                marks += `<svg x="${left}" y="${top}" width="${k}" height="${k}" viewBox="0 0 200 200">${e.art}</svg>`;
+            }
+        }
+        tile.innerHTML = `<g fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">${marks}</g>`;
+    };
+    new win.MutationObserver(sync).observe(deck, { subtree: true, attributes: true, attributeFilter: ['class', 'hidden'] });
+    if (win.ResizeObserver) new win.ResizeObserver(sync).observe(deck);
+    win.addEventListener('resize', sync);
+    sync();
+    return sync;
 }
