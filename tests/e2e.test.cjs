@@ -716,13 +716,14 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   // Wide windows (raven575 11-04): the current card's emblem is drawn whole behind the deck instead of cut at its edge,
   // and on big screens a sparse tile of whole small copies stays clear of the deck's column
   const vpWas = page.viewportSize();
-  await page.setViewportSize({ width: 1920, height: 900 }); await page.waitForTimeout(300);
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await page.waitForFunction(() => document.documentElement.dataset.emblemField === 'on' && document.documentElement.dataset.tier === 'monitor' && document.querySelector('.vcge-field-tile svg'), null, { timeout: 5000 }).catch(() => {});
   const wide = await page.evaluate(() => { const d = document.getElementById('deck').getBoundingClientRect(), one = document.querySelector('.vcge-field-one svg'), r = one && one.getBoundingClientRect();
     const marks = [...document.querySelectorAll('.vcge-field-tile svg')].map(m => m.getBoundingClientRect()).filter(m => m.right > 0 && m.left < innerWidth);
     const cardEm = document.querySelector('.deck-card.is-current > .vcge-emblem');
     return { field: document.documentElement.dataset.emblemField, whole: !!r && r.width > 100 && r.left >= 0 && r.right <= innerWidth && r.top >= 0, beyond: !!r && (r.right > d.right || r.left < d.left), card: (document.querySelector('.deck-card.is-current') || {}).dataset?.card, at: r ? [Math.round(r.left), Math.round(r.right), Math.round(d.left), Math.round(d.right)].join() : '',
       marks: marks.length, clear: marks.every(m => m.right < d.left - 40 || m.left > d.right + 40), tileShown: getComputedStyle(document.querySelector('.vcge-field-tile')).display !== 'none',
-      cardCopy: cardEm ? getComputedStyle(cardEm).visibility : 'none', taps: getComputedStyle(document.querySelector('.vcge-field')).pointerEvents }; });
+      cardCopy: cardEm ? getComputedStyle(cardEm).visibility : 'none', width: innerWidth, tier: document.documentElement.dataset.tier, taps: getComputedStyle(document.querySelector('.vcge-field')).pointerEvents }; });
   ok('wide window: the current card\'s emblem shows whole past an edge of the deck (its clipped copy steps aside), and a sparse tile of whole small copies keeps clear of the deck, taking no taps',
     wide.field === 'on' && wide.whole && wide.beyond && wide.cardCopy === 'hidden' && wide.tileShown && wide.marks >= 2 && wide.clear && wide.taps === 'none', JSON.stringify(wide));
   // (the layer must never widen the page: a phone browser zooms out to fit anything past the edge, and the page then

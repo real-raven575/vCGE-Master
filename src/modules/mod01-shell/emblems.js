@@ -114,8 +114,12 @@ export function initEmblemField(doc = document, win = window) {
         tile.innerHTML = `<g fill="none" stroke="currentColor" stroke-width="9" stroke-linecap="round" stroke-linejoin="round">${marks}</g>`;
     };
     new win.MutationObserver(sync).observe(deck, { subtree: true, attributes: true, attributeFilter: ['class', 'hidden'] });
-    if (win.ResizeObserver) new win.ResizeObserver(sync).observe(deck);
+    if (win.ResizeObserver) { const ro = new win.ResizeObserver(sync); ro.observe(deck); ro.observe(doc.documentElement); }
     win.addEventListener('resize', sync);
+    // (as tier.js: an emulated iPhone reported a new window size on the visual viewport, or in the page's own size, before
+    // the window's resize event; CI 11-05 kept the field off after going to 1920)
+    if (win.visualViewport) win.visualViewport.addEventListener('resize', sync);
+    new win.MutationObserver(sync).observe(doc.documentElement, { attributes: true, attributeFilter: ['data-tier'] });
     sync();
     return sync;
 }
