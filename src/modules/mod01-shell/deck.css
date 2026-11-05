@@ -292,7 +292,17 @@ html[data-app-theme] .deck-card textarea, html[data-app-theme] .deck-card select
     background-color: var(--vcge-field-fill); color: var(--vcge-text); border-color: var(--vcge-border);
     -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
 }
+/* Wide windows: the current card's emblem drawn whole on a page layer (emblems.js initEmblemField), and on big screens a
+   sparse staggered tile of it, kept off the deck's column; the card's own clipped copy steps aside */
+.vcge-field { position: fixed; inset: 0; overflow: hidden; z-index: -1; pointer-events: none; color: var(--vcge-accent, #16a34a); display: none; }
+html[data-emblem-field="on"] .vcge-field { display: block; }
+html[data-emblem-field="on"] .deck-card > .vcge-emblem { visibility: hidden; }
+.vcge-field-one { position: absolute; left: var(--ef-l, 0); top: var(--ef-t, 0); width: var(--ef-s, 360px); height: var(--ef-s, 360px); opacity: 0.16; }
+.vcge-field-one svg { display: block; width: 100%; height: 100%; transform: rotate(var(--ef-r, 0deg)); }
+.vcge-field-tile { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0.07; display: none; }
+html[data-tier="monitor"] .vcge-field-tile, html[data-tier="wide"] .vcge-field-tile { display: block; }
 @media (forced-colors: active) { .vcge-tex, .vcge-emblem { display: none; } }
+@media (forced-colors: active) { .vcge-field, html[data-emblem-field="on"] .vcge-field { display: none; } }
 
 /* ---- Plain edition: its sheets keep the plain frame (no grab bar, a 20 px top, a flat square close button) ---- */
 html[data-edition="plain"] .vcge-sheet-panel { border-radius: 1.25rem 1.25rem 0 0; }
