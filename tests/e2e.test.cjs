@@ -725,9 +725,13 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       cardCopy: cardEm ? getComputedStyle(cardEm).visibility : 'none', taps: getComputedStyle(document.querySelector('.vcge-field')).pointerEvents }; });
   ok('wide window: the current card\'s emblem shows whole past an edge of the deck (its clipped copy steps aside), and a sparse tile of whole small copies keeps clear of the deck, taking no taps',
     wide.field === 'on' && wide.whole && wide.beyond && wide.cardCopy === 'hidden' && wide.tileShown && wide.marks >= 2 && wide.clear && wide.taps === 'none', JSON.stringify(wide));
-  await page.setViewportSize({ width: 1280, height: 900 }); await page.waitForTimeout(300);
-  const laptop = await page.evaluate(() => ({ field: document.documentElement.dataset.emblemField, tileShown: getComputedStyle(document.querySelector('.vcge-field-tile')).display !== 'none' }));
-  ok('laptop window: the whole emblem still shows, the small tile does not (only from 1600 px)', laptop.field === 'on' && !laptop.tileShown, JSON.stringify(laptop));
+  // (the layer must never widen the page: a phone browser zooms out to fit anything past the edge, and the page then
+  // stays wide; iPhone CI 11-04 kept the 1920 tier after going to 1280)
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.waitForFunction(() => document.documentElement.dataset.tier === 'laptop', null, { timeout: 5000 }).catch(() => {});
+  const laptop = await page.evaluate(() => ({ field: document.documentElement.dataset.emblemField, tileShown: getComputedStyle(document.querySelector('.vcge-field-tile')).display !== 'none',
+    tier: document.documentElement.dataset.tier, width: innerWidth, page: document.documentElement.scrollWidth }));
+  ok('laptop window: the whole emblem still shows, the small tile does not (only from 1600 px)', laptop.field === 'on' && !laptop.tileShown && laptop.width === 1280 && laptop.page <= 1280, JSON.stringify(laptop));
   if (vpWas) { await page.setViewportSize(vpWas); await page.waitForTimeout(300); }
   await setHand(page, true);
   const headerOrder = () => page.evaluate(() => ['navSettings', 'navVault', 'navWelcome', 'navCapture', 'navShare'].map(id => document.getElementById(id).getBoundingClientRect().left));
