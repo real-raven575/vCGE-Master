@@ -465,55 +465,55 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('misread card: review shows phone numbers without their T / M labels', slips[7].text === '616.555.0142' && slips[8].text === '616.555.0187', slips[7].text + ' | ' + slips[8].text);
   ok('review keeps the labels of a line with several numbers', fm.classifyLines('T 312.555.1111  M 312.555.2222')[0].text === 'T 312.555.1111 M 312.555.2222');
   // The tester's card: the email domain misread by one letter, the web address read correctly.
-  const zafer = fm.classifyLines('Nick Zafer\nOwner & General Manager\nE nzafer@TeamlLogiciT.com\nT 269.492.7400\nw TeamLogicIT.com/KalamazooMI');
-  ok('email domain one OCR slip from the web address takes its spelling (review and fields)', zafer[2].text === 'nzafer@TeamLogicIT.com' && fm.buildFields(zafer).fields.emails[0].value === 'nzafer@TeamLogicIT.com', zafer[2].text);
+  const quill = fm.classifyLines('Dana Quill\nOwner & General Manager\nE dquill@PeaklLogiciT.com\nT 616.555.0140\nw PeakLogicIT.com/KalamazooMI');
+  ok('email domain one OCR slip from the web address takes its spelling (review and fields)', quill[2].text === 'dquill@PeakLogicIT.com' && fm.buildFields(quill).fields.emails[0].value === 'dquill@PeakLogicIT.com', quill[2].text);
   ok('a different email domain is left alone', fm.parseOCRText('Jo Smith\njo@acme.co\nacme.com').emails[0].value === 'jo@acme.co' && fm.parseOCRText('Jo Smith\njo@brightpath.com\nnorthwind.com').emails[0].value === 'jo@brightpath.com' && fm.parseOCRText('Jo Smith\njo@gmail.com\ngmail.co').emails[0].value === 'jo@gmail.com');
   // The same card as the OCR reads its photo: capital I and lowercase l are the same bar in its font, so the OCR's
   // second guesses (MOD04 alts) and the card's state settle them.
   const scanned = [
     { text: 'Portage, Ml 49024', alts: [{ at: 10, chars: ['l', '|', 'I', '\\', 'i'] }] },
-    { text: 'Nick Zafer', alts: [] },
-    { text: 'E nzafer@TeamlLogic\\T.com', alts: [{ at: 13, chars: ['l', 'L'] }, { at: 14, chars: ['L', 'l'] }] },
-    { text: 'w TeamLogiciT.com/Kalamazoom\\', alts: [{ at: 11, chars: ['i', 'I', '!', '|'] }, { at: 27, chars: ['m', 'M'] }, { at: 28, chars: ['\\', 'y', 'l'] }] }
+    { text: 'Dana Quill', alts: [] },
+    { text: 'E dquill@PeaklLogic\\T.com', alts: [{ at: 13, chars: ['l', 'L'] }, { at: 14, chars: ['L', 'l'] }] },
+    { text: 'w PeakLogiciT.com/Kalamazoom\\', alts: [{ at: 11, chars: ['i', 'I', '!', '|'] }, { at: 27, chars: ['m', 'M'] }, { at: 28, chars: ['\\', 'y', 'l'] }] }
   ];
   const scannedFields = fm.buildFields(fm.classifyLines(scanned)).fields;
-  ok('second guesses: TeamLogiciT read with "I" as runner-up becomes TeamLogicIT (company, email, web)', scannedFields.organization === 'TeamLogicIT' && scannedFields.emails[0].value === 'nzafer@TeamLogicIT.com' && scannedFields.websites[0].value === 'TeamLogicIT.com/KalamazooMI', JSON.stringify([scannedFields.organization, scannedFields.emails, scannedFields.websites]));
+  ok('second guesses: PeakLogiciT read with "I" as runner-up becomes PeakLogicIT (company, email, web)', scannedFields.organization === 'PeakLogicIT' && scannedFields.emails[0].value === 'dquill@PeakLogicIT.com' && scannedFields.websites[0].value === 'PeakLogicIT.com/KalamazooMI', JSON.stringify([scannedFields.organization, scannedFields.emails, scannedFields.websites]));
   const noGuesses = fm.buildFields(fm.classifyLines(scanned.map(l => ({ text: l.text })))).fields;
-  ok('without second guesses the OCR pick stands (TeamLogiciT)', noGuesses.organization === 'TeamLogiciT', noGuesses.organization);
+  ok('without second guesses the OCR pick stands (PeakLogiciT)', noGuesses.organization === 'PeakLogiciT', noGuesses.organization);
   ok('second guesses change only web and email addresses', fm.classifyLines([{ text: 'Owner of iTunes Store', alts: [{ at: 9, chars: ['i', 'I'] }] }])[0].text === 'Owner of iTunes Store');
   ok('a second guess without "I" changes nothing', fm.classifyLines([{ text: 'w shopiT.com', alts: [{ at: 6, chars: ['i', 'l'] }] }])[0].text === 'shopiT.com');
   const pathState = (site, place) => fm.buildFields(fm.classifyLines(`Jo Smith\nw ${site}\n${place}`)).fields.websites[0].value;
   ok('a web path ends in the card\'s state code only when its I was read as a bar', pathState('acme.com/Detroitm\\', 'Detroit, MI 48201') === 'acme.com/DetroitMI' && pathState('acme.com/Detroitm\\', 'Austin, TX 73301') === 'acme.com/Detroitm' && pathState('acme.com/email', 'Chicago, IL 60601') === 'acme.com/email', [pathState('acme.com/Detroitm\\', 'Detroit, MI 48201'), pathState('acme.com/Detroitm\\', 'Austin, TX 73301')].join(' | '));
-  // Camera reads of the TeamLogic card (2026-10-16): slash read as a bar, email capitals, title vowels, ZIP vs state
-  const camera = fm.classifyLines([{ text: 'Nick Zafer' }, { text: 'Owner & Ganaral Manager' }, { text: '7950 Moorsbridge Road, Suite 405' },
-    { text: 'Portage, Mi 42024' }, { text: 'E nzafer@TeamlogicIT.com' }, { text: 'W TeamLogicIT.comIKalamazohhy', unsure: ['TeamLogicIT.comIKalamazohhy'] }]);
+  // Camera reads of the PeakLogic card (2026-10-16): slash read as a bar, email capitals, title vowels, ZIP vs state
+  const camera = fm.classifyLines([{ text: 'Dana Quill' }, { text: 'Owner & Ganaral Manager' }, { text: '1200 Maplebridge Road, Suite 405' },
+    { text: 'Portage, Mi 42024' }, { text: 'E dquill@PeaklogicIT.com' }, { text: 'W PeakLogicIT.comIKalamazohhy', unsure: ['PeakLogicIT.comIKalamazohhy'] }]);
   const cameraText = (role) => (camera.find(l => l.role === role) || {}).text;
-  ok('a "/" read as a bar after the web ending is a "/" again', cameraText('website') === 'TeamLogicIT.com/Kalamazohhy' && fm.classifyLines('w acme.comlDetroit')[0].text === 'acme.com/Detroit' && fm.classifyLines('w acme.com/Detroit')[0].text === 'acme.com/Detroit', cameraText('website'));
+  ok('a "/" read as a bar after the web ending is a "/" again', cameraText('website') === 'PeakLogicIT.com/Kalamazohhy' && fm.classifyLines('w acme.comlDetroit')[0].text === 'acme.com/Detroit' && fm.classifyLines('w acme.com/Detroit')[0].text === 'acme.com/Detroit', cameraText('website'));
   ok('a bar before a lowercase word is left alone', fm.classifyLines('w acme.comIdetroit')[0].text !== 'acme.com/detroit');
-  ok('email domain that differs only in capitals takes the web address spelling', cameraText('email') === 'nzafer@TeamLogicIT.com' && fm.parseOCRText('Jo Smith\njo@Acme.com\nacme.com').emails[0].value === 'jo@Acme.com' && fm.buildFields([{ text: 'jo@acmetools.com', role: 'email' }, { text: 'AcmeTools.com', role: 'website' }]).fields.emails[0].value === 'jo@acmetools.com', cameraText('email'));
+  ok('email domain that differs only in capitals takes the web address spelling', cameraText('email') === 'dquill@PeakLogicIT.com' && fm.parseOCRText('Jo Smith\njo@Acme.com\nacme.com').emails[0].value === 'jo@Acme.com' && fm.buildFields([{ text: 'jo@acmetools.com', role: 'email' }, { text: 'AcmeTools.com', role: 'website' }]).fields.emails[0].value === 'jo@acmetools.com', cameraText('email'));
   const titleOf = (t) => fm.classifyLines(`Jo Smith\n${t}`)[1].text;
   ok('job-title vowels read wrong are repaired (Ganaral -> General)', cameraText('jobTitle') === 'Owner & General Manager' && titleOf('SALES DIRACTOR') === 'SALES DIRECTOR', cameraText('jobTitle'));
   ok('a job-title word missing one letter is repaired (Manger -> Manager)', titleOf('Sales Manger') === 'Sales Manager', titleOf('Sales Manger'));
   ok('other title words are left alone (Waiter, Painter, Owners)', titleOf('Head Waiter & Painter Manager') === 'Head Waiter & Painter Manager' && titleOf('Owners Manager') === 'Owners Manager', titleOf('Head Waiter & Painter Manager'));
-  ok('filled values are what the review box shows', JSON.stringify(fm.buildFields(camera).fields.websites) === JSON.stringify([{ type: 'work', value: 'TeamLogicIT.com/Kalamazohhy' }]) && fm.buildFields(camera).fields.jobTitle === 'Owner & General Manager');
+  ok('filled values are what the review box shows', JSON.stringify(fm.buildFields(camera).fields.websites) === JSON.stringify([{ type: 'work', value: 'PeakLogicIT.com/Kalamazohhy' }]) && fm.buildFields(camera).fields.jobTitle === 'Owner & General Manager');
   const zipCheck = (place) => fm.classifyLines(`Jo Smith\n12 Main Street\n${place}`).find(l => l.role === 'cityStateZip').check;
   ok('a ZIP code the state does not use is flagged for checking, not changed', camera.find(l => l.role === 'cityStateZip').check === '42024 is not a Michigan ZIP code. Please check it.' && fm.buildFields(camera).fields.zip === '42024', JSON.stringify(camera.find(l => l.role === 'cityStateZip')));
   ok('a ZIP code that fits its state is not flagged', zipCheck('Portage, MI 49024') === undefined && zipCheck('Boston, MA 02108') === undefined && zipCheck('Austin, TX 73301') === undefined, zipCheck('Boston, MA 02108'));
   ok('a line with words the reader was unsure of is flagged for checking', camera.find(l => l.role === 'website').check === 'The reader was not sure of some letters here. Please check them.');
-  ok('unsure phone numbers and ignored lines are not flagged', fm.classifyLines([{ text: 'Jo Smith' }, { text: 'T 269.492.7400', unsure: ['269.492.7400'] }, { text: 'ya O/', unsure: ['ya'] }]).every(l => !('check' in l)));
+  ok('unsure phone numbers and ignored lines are not flagged', fm.classifyLines([{ text: 'Jo Smith' }, { text: 'T 616.555.0140', unsure: ['616.555.0140'] }, { text: 'ya O/', unsure: ['ya'] }]).every(l => !('check' in l)));
   ok('a short domain is not matched (too easy to confuse)', fm.parseOCRText('Jo Smith\njo@abd.com\nabc.com').emails[0].value === 'jo@abd.com');
-  // The TeamLogic card read from a phone screenshot on the iPad (video review 2026-10-17, finding 53 and 56): the slogan
+  // The PeakLogic card read from a phone screenshot on the iPad (video review 2026-10-17, finding 53 and 56): the slogan
   // was ignored, the street carried the T of the phone line, and the web path came apart from its domain.
-  const shot = fm.classifyLines('N20 weersooen\nYour Technology Advisor\nNick Zafer\nOwner & General Manager\nT 7950 Moorsbridge Road, Suite 405\nPortage, MI 49024\nE nzafer@TeamLogicIT.com\nT 269.492.7400\nM 269.254.5403\nW TeamLogicIT.com KalamazooMl\\');
+  const shot = fm.classifyLines('N20 weersooen\nYour Technology Advisor\nDana Quill\nOwner & General Manager\nT 1200 Maplebridge Road, Suite 405\nPortage, MI 49024\nE dquill@PeakLogicIT.com\nT 616.555.0140\nM 616.555.0143\nW PeakLogicIT.com KalamazooMl\\');
   const shotFields = fm.buildFields(shot).fields;
   ok('screenshot read: slogan goes to Notes, logo noise stays ignored', shot[0].role === 'ignore' && shot[1].role === 'notes' && shotFields.notes === 'Your Technology Advisor', JSON.stringify(shot.slice(0, 2)));
-  ok('screenshot read: a stray label letter in front of the street is dropped', shot[4].role === 'street' && shot[4].text === '7950 Moorsbridge Road, Suite 405' && shotFields.street === '7950 Moorsbridge Road' && shotFields.unitNumber === '405', JSON.stringify(shot[4]));
-  ok('a stray letter before a phone number is still that phone\'s label', fm.classifyLines('Jo Smith\nT 269.492.7400')[1].role === 'phoneWork');
+  ok('screenshot read: a stray label letter in front of the street is dropped', shot[4].role === 'street' && shot[4].text === '1200 Maplebridge Road, Suite 405' && shotFields.street === '1200 Maplebridge Road' && shotFields.unitNumber === '405', JSON.stringify(shot[4]));
+  ok('a stray letter before a phone number is still that phone\'s label', fm.classifyLines('Jo Smith\nT 616.555.0140')[1].role === 'phoneWork');
   const site = (t, place = 'Portage, MI 49024') => fm.classifyLines(`Jo Smith\n${place}\n${t}`).find(l => l.role === 'website').text;
-  ok('screenshot read: the web path split off its domain is joined back and ends in the state code', shot[9].text === 'TeamLogicIT.com/KalamazooMI' && site('W TeamLogicIT.com/ Kalamazoo') === 'TeamLogicIT.com/Kalamazoo' && site('W TeamLogicIT.com /Kalamazoo') === 'TeamLogicIT.com/Kalamazoo' && site('W TeamLogicIT.com KalamazooM\\ |') === 'TeamLogicIT.com/KalamazooMI', [shot[9].text, site('W TeamLogicIT.com KalamazooM\\ |')].join(' | '));
+  ok('screenshot read: the web path split off its domain is joined back and ends in the state code', shot[9].text === 'PeakLogicIT.com/KalamazooMI' && site('W PeakLogicIT.com/ Kalamazoo') === 'PeakLogicIT.com/Kalamazoo' && site('W PeakLogicIT.com /Kalamazoo') === 'PeakLogicIT.com/Kalamazoo' && site('W PeakLogicIT.com KalamazooM\\ |') === 'PeakLogicIT.com/KalamazooMI', [shot[9].text, site('W PeakLogicIT.com KalamazooM\\ |')].join(' | '));
   ok('a lowercase l ends in the state code only after a capital or before a bar', site('W acme.com/KalamazooMl') === 'acme.com/KalamazooMI' && site('W acme.com/email') === 'acme.com/email' && site('W acme.com/Chicagoil', 'Chicago, IL 60601') === 'acme.com/Chicagoil', site('W acme.com/email'));
   const web = t => fm.parseOCRText(t).websites.map(w => w.value).join();
-  ok('a web path read with a space inside keeps its end (bench run 2026-10-18)', web('Nick Zafer\nW TeamLogicIT.com/Kalamazoo MI\nPortage, MI 49024') === 'TeamLogicIT.com/KalamazooMI' && web('Jo\nW TeamLogicIT.com/Kalamazoo Ml\nPortage, MI 49024') === 'TeamLogicIT.com/KalamazooMI' && web('Jo Smith\nnorthwind.com/Seattle WA') === 'northwind.com/SeattleWA' && web('Jo Smith\nW northwind.com/Seattle WA') === 'northwind.com/SeattleWA', [web('Nick Zafer\nW TeamLogicIT.com/Kalamazoo MI\nPortage, MI 49024'), web('Jo Smith\nnorthwind.com/Seattle WA')].join(' | '));
+  ok('a web path read with a space inside keeps its end (bench run 2026-10-18)', web('Dana Quill\nW PeakLogicIT.com/Kalamazoo MI\nPortage, MI 49024') === 'PeakLogicIT.com/KalamazooMI' && web('Jo\nW PeakLogicIT.com/Kalamazoo Ml\nPortage, MI 49024') === 'PeakLogicIT.com/KalamazooMI' && web('Jo Smith\nnorthwind.com/Seattle WA') === 'northwind.com/SeattleWA' && web('Jo Smith\nW northwind.com/Seattle WA') === 'northwind.com/SeattleWA', [web('Dana Quill\nW PeakLogicIT.com/Kalamazoo MI\nPortage, MI 49024'), web('Jo Smith\nnorthwind.com/Seattle WA')].join(' | '));
   ok('words after an unlabelled web path that are not a state code stay out of it', web('Jo Smith\nacme.com/jobs Apply today') === 'acme.com/jobs' && web('Jo Smith\nacme.com/jobs Now') === 'acme.com/jobs', web('Jo Smith\nacme.com/jobs Apply today'));
   const doubled = fm.parseOCRText('Jo Smith\n12 Main Street\nPortage, M\\| 49024');
   ok('a state code whose I was read as two bars ("M\\|") is still MI', doubled.city === 'Portage' && doubled.state === 'MI' && doubled.zip === '49024' && fm.parseOCRText('Jo Smith\n12 Main Street\nChicago, IL 60606').state === 'IL', JSON.stringify([doubled.city, doubled.state, doubled.zip]));
@@ -545,13 +545,13 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('Whole address role splits street and City/State/ZIP', whole.fields.street === '88 Elm Avenue' && whole.fields.city === 'Burlington' && whole.fields.zip === '05401');
   ok('no name line means no invented name', fm.parseOCRText('+1 (555) 201-3344').firstName === '');
 
-  // Video review 2026-10-17 (#53, #54, #94): the TeamLogic card as the iPad read it, and other card shapes
-  const ipad = fm.classifyLines('N20 weersooen\nYour Technology Advisor\nNick Zafer\nOwner & General Manager\nT 7950 Moorsbridge Road, Suite 405\nPortage, MI 49024\nnzafer@TeamLogicIT.com\n269.492.7400\n269.254.5403\nTeamLogicIT.com');
-  ok('MOD05 #54: a street with a stray letter in front ("T 7950 ...") is the street, shown and filled without the letter', ipad[4].role === 'street' && ipad[4].text === '7950 Moorsbridge Road, Suite 405'
-    && fm.buildFields(ipad).fields.street === '7950 Moorsbridge Road' && fm.buildFields(ipad).fields.unitNumber === '405', JSON.stringify(ipad[4]));
-  ok('MOD05 #54: chosen by hand as Street, the stray letter is still dropped; a one-line address too', fm.buildFields([{ text: 'T 7950 Moorsbridge Road', role: 'street' }]).fields.street === '7950 Moorsbridge Road'
+  // Video review 2026-10-17 (#53, #54, #94): the PeakLogic card as the iPad read it, and other card shapes
+  const ipad = fm.classifyLines('N20 weersooen\nYour Technology Advisor\nDana Quill\nOwner & General Manager\nT 1200 Maplebridge Road, Suite 405\nPortage, MI 49024\ndquill@PeakLogicIT.com\n616.555.0140\n616.555.0143\nPeakLogicIT.com');
+  ok('MOD05 #54: a street with a stray letter in front ("T 7950 ...") is the street, shown and filled without the letter', ipad[4].role === 'street' && ipad[4].text === '1200 Maplebridge Road, Suite 405'
+    && fm.buildFields(ipad).fields.street === '1200 Maplebridge Road' && fm.buildFields(ipad).fields.unitNumber === '405', JSON.stringify(ipad[4]));
+  ok('MOD05 #54: chosen by hand as Street, the stray letter is still dropped; a one-line address too', fm.buildFields([{ text: 'T 1200 Maplebridge Road', role: 'street' }]).fields.street === '1200 Maplebridge Road'
     && fm.parseOCRText('Jo Smith\nT 12 Main Street, Springfield, IL 62701').street === '12 Main Street');
-  ok('MOD05 #54: a labelled phone number is never taken as a street', fm.classifyLines('Jo Smith\nT 269.492.7400\nPortage, MI 49024')[1].role === 'phoneWork');
+  ok('MOD05 #54: a labelled phone number is never taken as a street', fm.classifyLines('Jo Smith\nT 616.555.0140\nPortage, MI 49024')[1].role === 'phoneWork');
   ok('MOD05 #53: the slogan goes to Notes, logo debris stays Ignore', ipad[1].role === 'notes' && ipad[0].role === 'ignore' && fm.buildFields(ipad).fields.notes === 'Your Technology Advisor');
   // raven575's first phone run of 0.8 (2026-11-03), made-up card: the reader slipped on the slogan's "Your" ("Yur"), so it
   // passed for a title and beat "Technician" under the name, which was left on Ignore.
@@ -559,7 +559,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('MOD05 0.8 run: the title under the name is the job title, not a slogan above it', slip[2].role === 'jobTitle' && slip[0].role !== 'jobTitle', JSON.stringify(slip.slice(0, 3)));
   ok('MOD05 0.8 run: a slogan whose "Your" was misread goes to Notes, spelled "Your" again', slip[0].role === 'notes' && slip[0].text === 'Your Trusted Advisor' && fm.buildFields(slip).fields.notes === 'Your Trusted Advisor', JSON.stringify(slip[0]));
   ok('MOD05 0.8 run: a title above the name still wins when nothing is under it', fm.classifyLines('Technician\nJordan Example\nE jexample@example.com')[0].role === 'jobTitle');
-  const quoted = fm.classifyLines('"Your Technology Advisor"\nNick Zafer\nOwner & General Manager');
+  const quoted = fm.classifyLines('"Your Technology Advisor"\nDana Quill\nOwner & General Manager');
   ok('MOD05 #53: a quoted phrase is never a job title or company: it goes to Notes', quoted[0].role === 'notes' && quoted[2].role === 'jobTitle', JSON.stringify(quoted));
   const occasion = fm.classifyLines('20th Anniversary\nJo Smith\nSince 1998');
   ok('MOD05 #53: "20th Anniversary" and "Since 1998" go to Notes, not Company', occasion[0].role === 'notes' && occasion[2].role === 'notes' && fm.buildFields(occasion).fields.organization === '', JSON.stringify(occasion));
@@ -576,17 +576,17 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   // Video review #71: phone styles for US and Canadian numbers (memory only)
   const { PHONE_FORMATS, DEFAULT_PHONE_STYLE } = await import(`${R}/modules/mod05-form/formMapper.js`);
   const styled = new ContactFormMapper();
-  const fmt = (style, n = '269.492.7400') => { styled.phoneStyle = style; return styled.formatPhone(n, 'US'); };
+  const fmt = (style, n = '616.555.0140') => { styled.phoneStyle = style; return styled.formatPhone(n, 'US'); };
   ok('MOD05 #71: the three styles raven575 named, with and without +1', PHONE_FORMATS.map(([k]) => k).join() === 'paren,dots,digits'
-    && fmt({ format: 'paren', countryCode: true }) === '+1 (269) 492-7400' && fmt({ format: 'paren', countryCode: false }) === '(269) 492-7400'
-    && fmt({ format: 'dots', countryCode: true }) === '+1 269.492.7400' && fmt({ format: 'dots', countryCode: false }) === '269.492.7400'
-    && fmt({ format: 'digits', countryCode: true }) === '+12694927400' && fmt({ format: 'digits', countryCode: false }) === '2694927400');
-  ok('MOD05 #71: restyling a styled number works both ways, and an extension is kept', fmt({ format: 'dots', countryCode: false }, '+1 (269) 492-7400') === '269.492.7400' && fmt({ format: 'paren', countryCode: true }, '2694927400') === '+1 (269) 492-7400'
-    && fmt({ format: 'dots', countryCode: false }, '269 492 7400 x12') === '269.492.7400 x12');
-  ok('MOD05 #71: the default style is the one shipped before (+1 (269) 492-7400); other countries keep their own format', new ContactFormMapper().formatPhone('2694927400', 'US') === '+1 (269) 492-7400' && DEFAULT_PHONE_STYLE.format === 'paren' && DEFAULT_PHONE_STYLE.countryCode === true
+    && fmt({ format: 'paren', countryCode: true }) === '+1 (616) 555-0140' && fmt({ format: 'paren', countryCode: false }) === '(616) 555-0140'
+    && fmt({ format: 'dots', countryCode: true }) === '+1 616.555.0140' && fmt({ format: 'dots', countryCode: false }) === '616.555.0140'
+    && fmt({ format: 'digits', countryCode: true }) === '+16165550140' && fmt({ format: 'digits', countryCode: false }) === '6165550140');
+  ok('MOD05 #71: restyling a styled number works both ways, and an extension is kept', fmt({ format: 'dots', countryCode: false }, '+1 (616) 555-0140') === '616.555.0140' && fmt({ format: 'paren', countryCode: true }, '6165550140') === '+1 (616) 555-0140'
+    && fmt({ format: 'dots', countryCode: false }, '616 555 0140 x12') === '616.555.0140 x12');
+  ok('MOD05 #71: the default style is the one shipped before (+1 (616) 555-0140); other countries keep their own format', new ContactFormMapper().formatPhone('6165550140', 'US') === '+1 (616) 555-0140' && DEFAULT_PHONE_STYLE.format === 'paren' && DEFAULT_PHONE_STYLE.countryCode === true
     && fmt({ format: 'digits', countryCode: false }, '+44 20 7946 0958x') === '+44 20 7946 0958x' && styled.formatPhone('+44 2079460958', 'UK') === '+44 20 7946 0958');
   styled.phoneStyle = { format: 'dots', countryCode: false };
-  ok('MOD05 #71: a scan fills phones in the chosen style', styled.parseOCRText('Jo Smith\nT 269.492.7400').phones[0].value === '269.492.7400');
+  ok('MOD05 #71: a scan fills phones in the chosen style', styled.parseOCRText('Jo Smith\nT 616.555.0140').phones[0].value === '616.555.0140');
 }
 
 // Icon matching (MOD04 iconMatcher: pure shape maths) and icon clues in the mapper
@@ -1119,51 +1119,51 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     ok('second look: only clearly surer readings win', ocr.secondLookWins(20, { text: 'x', confidence: 60 }) && !ocr.secondLookWins(50, { text: 'x', confidence: 60 }) && !ocr.secondLookWins(10, { text: 'x', confidence: 59 }) && !ocr.secondLookWins(10, { text: '', confidence: 90 }) && !ocr.secondLookWins(10, null));
     ok('second look: the new reading replaces the line from its first unsure word on', ocr.joinSecondLook('E jo@acme.c0m', 'jo@acme.c0m', 'jo@acme.com') === 'E jo@acme.com' && ocr.joinSecondLook('W a.com b', 'a.com', 'a.com/b') === 'W a.com/b' && ocr.joinSecondLook('W a.com', 'zzz', 'q') === null);
     ok('second look: the target starts at the first unsure word and spans to the line\'s end', JSON.stringify(ocr.secondLookTarget(firstRead.lines[0], ['acme.comlKala']).box) === JSON.stringify(box(90, 300, 700, 340)) && ocr.secondLookTarget(firstRead.lines[0], []) === null && ocr.secondLookTarget({ text: 'a b', words: [{ text: 'ab', confidence: 9 }] }, ['ab']) === null);
-    const merged = ocr.mergeReadingAlts('w TeamLogiciT.com/Kalamazoom\\', [{ at: 11, chars: ['i', 'I', '!', '|'] }], 'w TeamLogiclT.com/KalamazooM\\', []);
+    const merged = ocr.mergeReadingAlts('w PeakLogiciT.com/Kalamazoom\\', [{ at: 11, chars: ['i', 'I', '!', '|'] }], 'w PeakLogiclT.com/KalamazooM\\', []);
     ok('second look: where the readings disagree, the first reading\'s letter and its runner-ups are kept as second guesses', JSON.stringify(merged.find(a => a.at === 11)) === JSON.stringify({ at: 11, chars: ['l', 'i', 'I', '!', '|'] }), JSON.stringify(merged));
     const fm = new (await import(`${R}/modules/mod05-form/formMapper.js`)).ContactFormMapper();
-    const straightened = fm.buildFields(fm.classifyLines([{ text: 'Nick Zafer' }, { text: 'Portage, MI 49024' }, { text: 'w TeamLogiclT.com/KalamazooM\\', alts: merged }])).fields;
-    ok('second look + field mapping: the straightened "TeamLogiclT" becomes TeamLogicIT from the first reading\'s "I"', straightened.websites[0].value === 'TeamLogicIT.com/KalamazooMI' && straightened.organization === 'TeamLogicIT', JSON.stringify([straightened.websites, straightened.organization]));
+    const straightened = fm.buildFields(fm.classifyLines([{ text: 'Dana Quill' }, { text: 'Portage, MI 49024' }, { text: 'w PeakLogiclT.com/KalamazooM\\', alts: merged }])).fields;
+    ok('second look + field mapping: the straightened "PeakLogiclT" becomes PeakLogicIT from the first reading\'s "I"', straightened.websites[0].value === 'PeakLogicIT.com/KalamazooMI' && straightened.organization === 'PeakLogicIT', JSON.stringify([straightened.websites, straightened.organization]));
 
     // Garbage check and up to three readings (raven575, 2026-10-20: a light green name read as garbage reached the form)
     const rq = await import(`${R}/modules/mod04-ocr/readingQuality.js`);
     const garbage = ['~: ;\' |_ ,', 'lIlIlI WwWnN', 'Rhtkp Qwxzt', '—_= ~ ^', 'ﬁ{ ,'].filter(text => !rq.isGarbage({ text, confidence: 45 }));
     ok('garbage check: noise, letter-soup and symbol lines are garbage', garbage.length === 0, JSON.stringify(garbage));
-    const real = [['Nick Zafer', 45], ['Al Wu', 40], ['TeamLogicIT', 70], ['Chief Technology Officer', 52], ['nzafer@TeamlLogic\\T.com', 20], ['TeamLogiciT.com/Kalarmazoom\\', 25], ['(269) 492-7400', 15],
-        ['5875 Moorsbridge Rd Ste 3', 48], ['Portage, MI 49024', 44], ['Ngozi Schwartz', 55], ['LLC', 30]].filter(([text, confidence]) => rq.isGarbage({ text, confidence }));
+    const real = [['Dana Quill', 45], ['Al Wu', 40], ['PeakLogicIT', 70], ['Chief Technology Officer', 52], ['dquill@PeaklLogic\\T.com', 20], ['PeakLogiciT.com/Kalarmazoom\\', 25], ['(616) 555-0140', 15],
+        ['1250 Maplebridge Rd Ste 3', 48], ['Portage, MI 49024', 44], ['Ngozi Schwartz', 55], ['LLC', 30]].filter(([text, confidence]) => rq.isGarbage({ text, confidence }));
     ok('garbage check: real names, titles, unsure lines and slipped emails, web addresses and phones are text', real.length === 0, JSON.stringify(real));
-    ok('garbage check: a line the engine was barely sure of is garbage unless it is shaped like a field', rq.isGarbage({ text: 'Ihre Aeh Hes', confidence: 22 }) && !rq.isGarbage({ text: 'Ihre Aeh Hes' }) && !rq.isGarbage({ text: '269 492 7400', confidence: 5 }));
-    const classified = fm.classifyLines([{ text: 'Nick Zafer' }, { text: 'nzafer@teamlogicit.com' }]);
+    ok('garbage check: a line the engine was barely sure of is garbage unless it is shaped like a field', rq.isGarbage({ text: 'Ihre Aeh Hes', confidence: 22 }) && !rq.isGarbage({ text: 'Ihre Aeh Hes' }) && !rq.isGarbage({ text: '616 555 0140', confidence: 5 }));
+    const classified = fm.classifyLines([{ text: 'Dana Quill' }, { text: 'dquill@peaklogicit.com' }]);
     ok('what is missing: nothing when the name and a phone or email are there; name and reach otherwise',
-        rq.missingParts(classified).length === 0 && rq.missingParts(fm.classifyLines([{ text: 'nzafer@teamlogicit.com' }])).join() === 'name'
-        && rq.missingParts(fm.classifyLines([{ text: 'Nick Zafer' }, { text: 'Fax (269) 492-7401' }])).join() === 'reach' && rq.missingParts([]).join() === 'name,reach',
+        rq.missingParts(classified).length === 0 && rq.missingParts(fm.classifyLines([{ text: 'dquill@peaklogicit.com' }])).join() === 'name'
+        && rq.missingParts(fm.classifyLines([{ text: 'Dana Quill' }, { text: 'Fax (616) 555-0141' }])).join() === 'reach' && rq.missingParts([]).join() === 'name,reach',
         JSON.stringify(classified));
     ok('what is missing: said in words', rq.describeMissing(['name']) === 'the name' && rq.describeMissing(['name', 'reach']) === 'the name or a phone number or email');
-    const first = [{ text: 'Rhtkp Qwxzt', confidence: 21 }, { text: 'nzafer@teamlogicit.com', confidence: 80 }, { text: '(269) 492-7400', confidence: 85 }];
+    const first = [{ text: 'Rhtkp Qwxzt', confidence: 21 }, { text: 'dquill@peaklogicit.com', confidence: 80 }, { text: '(616) 555-0140', confidence: 85 }];
     const one = rq.mergeReadings([first]);
     ok('one reading: garbage lines are kept as unreadable, in place, so the review can show them', one.length === 3 && one[0].unreadable && !one[1].unreadable && !('reading' in one[0]) && !('garbage' in one[1]), JSON.stringify(one));
-    const second = [{ text: 'Nick Zafer', confidence: 82 }, { text: 'nzafer@teamlogicit.com', confidence: 70 }, { text: '(269) 492-7400', confidence: 90 }];
+    const second = [{ text: 'Dana Quill', confidence: 82 }, { text: 'dquill@peaklogicit.com', confidence: 70 }, { text: '(616) 555-0140', confidence: 90 }];
     const two = rq.mergeReadings([first, second]);
-    ok('two readings: the second photo fills in the name, the first\'s garbage is dropped, and each line is read once', two.map(l => l.text).join('|') === 'Nick Zafer|nzafer@teamlogicit.com|(269) 492-7400' && two.every(l => !l.unreadable) && two[2].confidence === 90, JSON.stringify(two));
-    const three = rq.mergeReadings([[{ text: 'Nick Zafer', confidence: 50 }], [{ text: 'Nick Zafar', confidence: 58 }], [{ text: 'Nick Zafer', confidence: 52 }]]);
-    ok('three readings: two that agree outvote a surer third, with no "please check"', three.length === 1 && three[0].text === 'Nick Zafer' && three[0].confidence === 52 && !(three[0].unsure || []).length, JSON.stringify(three));
-    const split = rq.mergeReadings([[{ text: 'Nick Zafer', confidence: 50, alts: [] }], [{ text: 'Nick Zafar', confidence: 55, alts: [] }]]);
-    ok('two readings that disagree, neither sure: the surer is kept, marked unsure, with the other\'s letter as a second guess', split.length === 1 && split[0].text === 'Nick Zafar' && split[0].unsure.length === 2
-        && JSON.stringify(split[0].alts.find(a => a.at === 8)) === JSON.stringify({ at: 8, chars: ['a', 'e'] }), JSON.stringify(split));
-    const sureOne = rq.mergeReadings([[{ text: 'Nick Zafer', confidence: 50 }], [{ text: 'Nick Zafar', confidence: 75 }]]);
-    ok('two readings that disagree, one sure: the sure one is kept as it is', sureOne[0].text === 'Nick Zafar' && !(sureOne[0].unsure || []).length, JSON.stringify(sureOne));
+    ok('two readings: the second photo fills in the name, the first\'s garbage is dropped, and each line is read once', two.map(l => l.text).join('|') === 'Dana Quill|dquill@peaklogicit.com|(616) 555-0140' && two.every(l => !l.unreadable) && two[2].confidence === 90, JSON.stringify(two));
+    const three = rq.mergeReadings([[{ text: 'Dana Quill', confidence: 50 }], [{ text: 'Dana Quall', confidence: 58 }], [{ text: 'Dana Quill', confidence: 52 }]]);
+    ok('three readings: two that agree outvote a surer third, with no "please check"', three.length === 1 && three[0].text === 'Dana Quill' && three[0].confidence === 52 && !(three[0].unsure || []).length, JSON.stringify(three));
+    const split = rq.mergeReadings([[{ text: 'Dana Quill', confidence: 50, alts: [] }], [{ text: 'Dana Quall', confidence: 55, alts: [] }]]);
+    ok('two readings that disagree, neither sure: the surer is kept, marked unsure, with the other\'s letter as a second guess', split.length === 1 && split[0].text === 'Dana Quall' && split[0].unsure.length === 2
+        && JSON.stringify(split[0].alts.find(a => a.at === 7)) === JSON.stringify({ at: 7, chars: ['a', 'i'] }), JSON.stringify(split));
+    const sureOne = rq.mergeReadings([[{ text: 'Dana Quill', confidence: 50 }], [{ text: 'Dana Quall', confidence: 75 }]]);
+    ok('two readings that disagree, one sure: the sure one is kept as it is', sureOne[0].text === 'Dana Quall' && !(sureOne[0].unsure || []).length, JSON.stringify(sureOne));
     const stillBad = rq.mergeReadings([[{ text: 'Rhtkp Qwxzt', confidence: 21 }], [{ text: 'Qwrtz Bkkgh', confidence: 18 }, { text: 'jo@acme.com', confidence: 90 }]]);
     ok('garbage in every reading: shown once, from the latest photo, as unreadable; garbage only in an older photo is dropped',
         stillBad.length === 2 && stillBad[0].unreadable && stillBad[0].text === 'Qwrtz Bkkgh' && rq.mergeReadings([[{ text: 'Rhtkp Qwxzt', confidence: 21 }], [{ text: 'jo@acme.com', confidence: 90 }]]).length === 1, JSON.stringify(stillBad));
     ok('photos per card: three at most', rq.MAX_PHOTOS === 3);
     // raven575, 2026-10-22 (base card): a symbol-only logo line was listed, and "Suite 405" came back "Suite 40%"
-    const debris = rq.mergeReadings([[{ text: '. {) ——', confidence: 10 }, { text: 'Nick Zafer', confidence: 80 }, { text: 'A', confidence: 20 }]]);
-    ok('a line with no letter or digit is dropped, not listed; a stray letter is still listed as unreadable', debris.length === 2 && debris[0].text === 'Nick Zafer' && debris[1].unreadable, JSON.stringify(debris));
-    const suite = 'Moorsbridge Road, Suite 40%';
+    const debris = rq.mergeReadings([[{ text: '. {) ——', confidence: 10 }, { text: 'Dana Quill', confidence: 80 }, { text: 'A', confidence: 20 }]]);
+    ok('a line with no letter or digit is dropped, not listed; a stray letter is still listed as unreadable', debris.length === 2 && debris[0].text === 'Dana Quill' && debris[1].unreadable, JSON.stringify(debris));
+    const suite = 'Maplebridge Road, Suite 40%';
     const mended = rq.mergeReadings([[{ text: suite, confidence: 70, alts: [{ at: 26, chars: '5' }], unsure: [] }]])[0];
     const flagged = rq.fixNumberPercent({ text: suite, alts: [{ at: 26, chars: 'x' }], unsure: [] });
     ok('a "%" after a suite number takes the reader\'s digit guess; without one its word is flagged to check',
-        mended.text === 'Moorsbridge Road, Suite 405' && !mended.alts.some(a => a.at === 26) && flagged.text === suite && flagged.unsure.join() === '40%', JSON.stringify({ mended, flagged }));
+        mended.text === 'Maplebridge Road, Suite 405' && !mended.alts.some(a => a.at === 26) && flagged.text === suite && flagged.unsure.join() === '40%', JSON.stringify({ mended, flagged }));
     ok('a "%" after a house number on a street line or after #, too; any other "%" is left alone',
         rq.fixNumberPercent({ text: '795% Main Street', alts: [{ at: 3, chars: '0' }] }).text === '7950 Main Street' && rq.fixNumberPercent({ text: 'Unit #12%' }).unsure.join() === '#12%'
         && rq.fixNumberPercent({ text: '20% off your first visit' }).text === '20% off your first visit' && !rq.fixNumberPercent({ text: '20% off your first visit' }).unsure);
@@ -1964,17 +1964,17 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('vCard folding: folding twice changes nothing', foldVCardLines(folded) === folded);
   ok('the QR text (formatVCard) stays unfolded', !share.formatVCard({ firstName: 'A', lastName: 'B', notes: 'x'.repeat(200) }).includes('\r\n '));
 
-  const contact = { firstName: 'Nick', lastName: 'Zafer', jobTitle: 'Owner & General Manager', organization: 'TeamLogicIT',
-    phones: [{ type: 'work', value: '+1 (269) 492-7400' }, { type: 'mobile', value: '+1 (269) 254-5403' }, { type: 'workFax', value: '555' }],
-    emails: [{ type: 'work', value: 'nzafer@TeamLogicIT.com' }], websites: [{ type: 'work', value: 'TeamLogicIT.com/KalamazooMI' }, { type: 'linkedin', value: 'linkedin.com/in/nz' }],
-    addressType: 'work', street: '7950 Moorsbridge Road', unitType: 'Suite', unitNumber: '405', city: 'Portage', state: 'MI', zip: '49024', country: 'United States' };
+  const contact = { firstName: 'Dana', lastName: 'Quill', jobTitle: 'Owner & General Manager', organization: 'PeakLogicIT',
+    phones: [{ type: 'work', value: '+1 (616) 555-0140' }, { type: 'mobile', value: '+1 (616) 555-0143' }, { type: 'workFax', value: '555' }],
+    emails: [{ type: 'work', value: 'dquill@PeakLogicIT.com' }], websites: [{ type: 'work', value: 'PeakLogicIT.com/KalamazooMI' }, { type: 'linkedin', value: 'linkedin.com/in/dq' }],
+    addressType: 'work', street: '1200 Maplebridge Road', unitType: 'Suite', unitNumber: '405', city: 'Portage', state: 'MI', zip: '49024', country: 'United States' };
   const e = new EgressController();
   e.setPayload(share.formatVCard(contact), contact, { hasDetails: true, qrReal: true });
   ok('MOD08 the payload is the folded vCard', e.currentVCard === foldVCardLines(share.formatVCard(contact)) && e.currentVCard.endsWith('END:VCARD\r\n'));
   ok('MOD08 summary: name, title and company on their own lines, labelled details, two spaces after each colon (#98)', e.contactSummary() === [
-    'Nick Zafer', 'Owner & General Manager', 'TeamLogicIT', 'Work phone:  +1 (269) 492-7400', 'Mobile phone:  +1 (269) 254-5403', 'Work fax:  555',
-    'Work email:  nzafer@TeamLogicIT.com', 'Work website:  TeamLogicIT.com/KalamazooMI', 'LinkedIn:  linkedin.com/in/nz',
-    'Work address:  7950 Moorsbridge Road, Suite 405, Portage, MI 49024, United States'].join('\n'), JSON.stringify(e.contactSummary()));
+    'Dana Quill', 'Owner & General Manager', 'PeakLogicIT', 'Work phone:  +1 (616) 555-0140', 'Mobile phone:  +1 (616) 555-0143', 'Work fax:  555',
+    'Work email:  dquill@PeakLogicIT.com', 'Work website:  PeakLogicIT.com/KalamazooMI', 'LinkedIn:  linkedin.com/in/dq',
+    'Work address:  1200 Maplebridge Road, Suite 405, Portage, MI 49024, United States'].join('\n'), JSON.stringify(e.contactSummary()));
   const withLogo = new EgressController();
   withLogo.setPayload(share.formatVCard({ ...contact, avatarBase64: `data:image/jpeg;base64,/9j/${'Q'.repeat(10000)}` }), contact, { hasDetails: true, qrReal: true });
   const mailBody = decodeURIComponent(withLogo.mailtoUrl().split('&body=')[1]);
@@ -1994,11 +1994,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const shared = [];
   setNavigator({ share: async (data) => { shared.push(data); }, canShare: () => true, clipboard: { writeText: async () => {} } });
   const fileShare = await e.triggerQuickShare();
-  ok('MOD08 file share (iOS): the .vcf goes alone, no text that arrives as a stray ".txt" file (#77)', fileShare.method === 'native_file' && shared[0].files.length === 1 && shared[0].files[0].name === 'Nick Zafer.vcf' && !('text' in shared[0]), JSON.stringify(Object.keys(shared[0])));
+  ok('MOD08 file share (iOS): the .vcf goes alone, no text that arrives as a stray ".txt" file (#77)', fileShare.method === 'native_file' && shared[0].files.length === 1 && shared[0].files[0].name === 'Dana Quill.vcf' && !('text' in shared[0]), JSON.stringify(Object.keys(shared[0])));
   ok('MOD08 the shared .vcf holds the folded vCard', await shared[0].files[0].text() === e.currentVCard);
   setNavigator({ share: async (data) => { shared.push(data); }, canShare: () => false, clipboard: { writeText: async () => {} } });
   const textShare = await e.triggerQuickShare();
-  ok('MOD08 no file sharing (Android Chrome): the readable summary goes as text, never the raw vCard (#76)', textShare.method === 'native_text' && shared[1].text === e.contactSummary() && !shared[1].text.includes('BEGIN:VCARD') && shared[1].title === 'Contact: Nick Zafer', JSON.stringify(shared[1]).slice(0, 120));
+  ok('MOD08 no file sharing (Android Chrome): the readable summary goes as text, never the raw vCard (#76)', textShare.method === 'native_text' && shared[1].text === e.contactSummary() && !shared[1].text.includes('BEGIN:VCARD') && shared[1].title === 'Contact: Dana Quill', JSON.stringify(shared[1]).slice(0, 120));
   await e.copyVCard();
   e.navigate = () => {};
   e.triggerSmsShare();
@@ -2006,7 +2006,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   if (realNavigator) Object.defineProperty(globalThis, 'navigator', realNavigator); else delete globalThis.navigator;
   off();
   const methods = events.map(d => d.method).join();
-  const leaks = ['Nick', 'Zafer', 'TeamLogic', '269', 'nzafer', 'Moorsbridge', '.vcf', '.png'];
+  const leaks = ['Dana', 'Quill', 'PeakLogic', '616', 'dquill', 'Maplebridge', '.vcf', '.png'];
   const { printPageHeight, PRINT_PAGE_IN } = await import(`${R}/modules/mod08-egress/egressController.js`);
   ok('MOD08 print page: 3.5 in for a sheet that fits, taller (rounded up to 0.01 in) for a card that grows', PRINT_PAGE_IN.height === 3.5 && printPageHeight(278) === 3.5 && printPageHeight(0) === 3.5
     && printPageHeight(450) === 5.29 && printPageHeight(451) === 5.3, [printPageHeight(278), printPageHeight(450), printPageHeight(451)].join());

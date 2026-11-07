@@ -45,7 +45,7 @@ export function isFieldShaped(text) {
 }
 
 // A word of 4+ letters doesn't look like a word: no vowel, 5 consonants in a row, or a capital after a small letter 3+
-// times ("TeamLogicIT" has 2 and is a word; "lIlIlI" has 3). Shorter words (Mr, St, LLC, IT) always pass.
+// times ("PeakLogicIT" has 2 and is a word; "lIlIlI" has 3). Shorter words (Mr, St, LLC, IT) always pass.
 function oddWord(word) {
     const letters = word.replace(/[^A-Za-z]/g, '');
     if (letters.length < 4) return false;

@@ -60,7 +60,7 @@ export const OCR_UNSURE_WORD_CONFIDENCE = 50;
 
 // Second look (raven575's yes, 2026-10-18): a line with unsure words is read again as one enlarged strip, straight and
 // with its lean corrected both ways, and the surest reading is kept when it is clearly surer than the first. On a scan
-// whose text leaned backwards, the web line went from "TeamLogic\T.com Kalamazoo" (12) to "...KalamazooM|" (87).
+// whose text leaned backwards, the web line went from "PeakLogic\T.com Kalamazoo" (12) to "...KalamazooM|" (87).
 // Straight cards rarely have unsure lines, and a re-read that is not clearly surer changes nothing.
 export const SECOND_LOOK_PAGE_SEG_MODE = '7';                  // one line of text
 export const SECOND_LOOK_SCALE = 2;
@@ -357,7 +357,7 @@ export function joinSecondLook(text, word, reread) {
  * (`firstText`, `firstAlts`): where the two readings line up letter for letter (a letter kept or swapped for one other),
  * the first reading's letter and its runner-ups join the new letter's runner-ups. When the readings disagree the field
  * mapper still sees both, and picks from the card's context as it does for any second guess (a straightened
- * "TeamLogiclT" with "TeamLogiciT", "I" as runner-up, in the first reading becomes TeamLogicIT).
+ * "PeakLogiclT" with "PeakLogiciT", "I" as runner-up, in the first reading becomes PeakLogicIT).
  */
 export function mergeReadingAlts(firstText, firstAlts, text, alts) {
     const a = String(firstText || ''), b = String(text || '');

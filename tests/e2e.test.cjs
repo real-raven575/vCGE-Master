@@ -1456,7 +1456,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // Logos as uploaded (redesign step 8): a one-colour logo is traced into the card's ink colour; one of many colours
     // is kept as a picture; a white background is removed first. Wide ones get the strip, small ones the badge.
     const logo = (kind) => p11.evaluate((kind) => {
-      const text = '<text x="10" y="70" font-size="60" fill="#0a6">TeamLogic</text>';
+      const text = '<text x="10" y="70" font-size="60" fill="#0a6">PeakLogic</text>';
       if (kind === 'svg') return 'data:image/svg+xml;base64,' + btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="100">${text}</svg>`);
       if (kind === 'viewbox') return 'data:image/svg+xml;base64,' + btoa(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 100">${text.replace('#0a6', '#06a')}</svg>`);
       const c = document.createElement('canvas'); c.width = kind === 'round' ? 300 : 400; c.height = kind === 'round' ? 300 : 100;
@@ -1467,11 +1467,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       x.font = 'bold 60px Arial';
       if (kind === 'rainbow' || kind === 'pastel' || kind === 'whitebg-colour') {
         const colours = kind === 'pastel' ? ['#ffa0a0', '#a0ffa0', '#a0a0ff'] : ['#d00', '#07c', '#fc0'];
-        'TeamLogic'.split('').forEach((ch, i) => { x.fillStyle = colours[i % 3]; x.fillText(ch, 10 + i * 40, 70); });
+        'PeakLogic'.split('').forEach((ch, i) => { x.fillStyle = colours[i % 3]; x.fillText(ch, 10 + i * 40, 70); });
         return c.toDataURL(kind === 'whitebg-colour' ? 'image/jpeg' : 'image/png');
       }
       x.fillStyle = kind === 'light' ? '#f5f5f5' : kind === 'opaque' ? '#fff' : '#123';
-      x.fillText('TeamLogic', 10, 70);
+      x.fillText('PeakLogic', 10, 70);
       // 'whitebg-rough': a heavily compressed photo of a logo (the colour fringes JPEG leaves around dark lettering).
       return kind === 'whitebg-rough' ? c.toDataURL('image/jpeg', 0.4) : c.toDataURL(kind === 'whitebg' ? 'image/jpeg' : 'image/png');
     }, kind);
@@ -1759,7 +1759,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // Phone style (video review #71): the format list and the +1 switch restyle every number on the card at once,
     // and a number typed afterwards follows the style. Memory only: nothing about it is saved.
     await pF.emulateMedia({ reducedMotion: 'no-preference' });
-    ok('fields: the phone style list offers the three styles raven575 named, +1 on by default', (await pF.$$eval('#phoneFormatSelect option', os => os.map(o => o.textContent).join('|'))) === '(269) 492-7400|269.492.7400|2694927400'
+    ok('fields: the phone style list offers the three styles raven575 named, +1 on by default', (await pF.$$eval('#phoneFormatSelect option', os => os.map(o => o.textContent).join('|'))) === '(616) 555-0140|616.555.0140|6165550140'
       && (await pF.$eval('#phoneCountryCode', c => c.checked)) && (await pF.inputValue('#phoneValue0')) === '+1 (202) 555-0101', await pF.inputValue('#phoneValue0'));
     await pF.selectOption('#phoneFormatSelect', 'dots');
     ok('fields: choosing dots restyles every number', JSON.stringify((await rows(pF, 'phone')).map(r => r.value)) === JSON.stringify(['+1 202.555.0101', '+1 202.555.0111']), JSON.stringify(await rows(pF, 'phone')));
@@ -2011,7 +2011,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const c = document.createElement('canvas'); c.width = 1050; c.height = 600; const x = c.getContext('2d');
       x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111';
       x.font = 'bold 52px Arial'; x.fillText('Nora Lindqvist', 60, 90); x.font = '32px Arial'; x.fillText('General Manager', 60, 145);
-      ['7950 Harbor Road', 'Portage, MI 42024', 'nora@harborworks.com', 'T 269.555.0142'].forEach((t, i) => x.fillText(t, 60, 250 + i * 70));
+      ['7950 Harbor Road', 'Portage, MI 42024', 'nora@harborworks.com', 'T 616.555.0142'].forEach((t, i) => x.fillText(t, 60, 250 + i * 70));
       return c.toDataURL('image/png');
     });
     await pZ.setInputFiles('#imageUpload', { name: 'zip.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') }); await pZ.waitForTimeout(300);

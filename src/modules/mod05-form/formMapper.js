@@ -339,7 +339,7 @@ export class ContactFormMapper {
 }
 
 /** Phone styles offered on the Fields card for US and Canadian numbers: [style, example] (video review #71). */
-export const PHONE_FORMATS = Object.freeze([['paren', '(269) 492-7400'], ['dots', '269.492.7400'], ['digits', '2694927400']]);
+export const PHONE_FORMATS = Object.freeze([['paren', '(616) 555-0140'], ['dots', '616.555.0140'], ['digits', '6165550140']]);
 export const DEFAULT_PHONE_STYLE = Object.freeze({ format: 'paren', countryCode: true });
 
 /** Line roles offered in the OCR review screen, in display order: [role, label]. */
@@ -415,7 +415,7 @@ function repairAddressText(text) {
 /**
  * Many card fonts draw a capital I and a lowercase l or i as the same bar. Inside a web or email address, a letter the
  * OCR also read as "I" (MOD04 second guesses: [{ at, chars }]) becomes "I" when it follows a letter and comes before a
- * capital: "TeamLogiciT.com" -> "TeamLogicIT.com". Everywhere else the OCR's pick stands.
+ * capital: "PeakLogiciT.com" -> "PeakLogicIT.com". Everywhere else the OCR's pick stands.
  */
 function applySecondGuesses(text, alts) {
     if (!Array.isArray(alts) || !alts.length) return text;
@@ -451,7 +451,7 @@ function joinWebPath(text) {
 const WEB_PATH_GAP = new RegExp(`(?<=[A-Za-z0-9])(\\.(?:${TLDS}))(?:\\s*\\/\\s+|\\s+\\/?\\s*)(?=[A-Za-z0-9-]{2,}[\\\\|!]*$)`, 'i');
 
 /**
- * Is this line a street? A street read with a stray label letter in front ("T 7950 Moorsbridge Road": the T of the
+ * Is this line a street? A street read with a stray label letter in front ("T 1200 Maplebridge Road": the T of the
  * phone line below) is one too, and loses the letter, as long as no phone number follows the label.
  */
 function isStreet(line, nextToCityLine) {
@@ -471,8 +471,8 @@ const OCCASION = /\b(?:anniversary|since\s+(?:19|20)\d{2}|est(?:\.|ablished)?\s+
 const isQuoted = (text) => /^["'].{2,}["']$/.test(text);
 
 /**
- * US and Canadian numbers in the chosen style: "(269) 492-7400", "269.492.7400" or "2694927400", with or without the
- * country code in front ("+1 (269) 492-7400", "+1 269.492.7400", "+12694927400").
+ * US and Canadian numbers in the chosen style: "(616) 555-0140", "616.555.0140" or "6165550140", with or without the
+ * country code in front ("+1 (616) 555-0140", "+1 616.555.0140", "+16165550140").
  */
 function formatNanp(digits, { format = 'paren', countryCode = true } = {}) {
     const [a, b, c] = [digits.slice(0, 3), digits.slice(3, 6), digits.slice(6)];
@@ -489,7 +489,7 @@ function isTagline(text) {
     return !!quoted || SLOGAN_START.test(inner);
 }
 
-/** The "/" after a web ending read as a bar: "TeamLogicIT.comIKalamazoo" -> "TeamLogicIT.com/Kalamazoo" (bar before a capital). */
+/** The "/" after a web ending read as a bar: "PeakLogicIT.comIKalamazoo" -> "PeakLogicIT.com/Kalamazoo" (bar before a capital). */
 function repairSlash(text) {
     return text.replace(SLASH_AS_BAR, '$1/');
 }
@@ -557,8 +557,8 @@ function reviewText({ text, body, label, role, icon }) {
 const PHONE_ROLES = new Set(Object.values(PHONE_ROLE));
 
 /**
- * OCR slips in an email domain ("TeamlLogiciT.com", "TeamlogicIT.com") are fixed from the web address on the same card
- * ("TeamLogicIT.com"): same ending, a name of 6+ letters, at most 2 letters different. Anything further apart is
+ * OCR slips in an email domain ("PeaklLogiciT.com", "PeaklogicIT.com") are fixed from the web address on the same card
+ * ("PeakLogicIT.com"): same ending, a name of 6+ letters, at most 2 letters different. Anything further apart is
  * taken to be a different domain and left alone. Capitals alone are changed only with `capitals` (the review box).
  */
 function matchEmailToWebsite(email, website, capitals = false) {
@@ -566,7 +566,7 @@ function matchEmailToWebsite(email, website, capitals = false) {
     const siteHost = String(website || '').replace(/^https?:\/\//i, '').replace(/^www\./i, '').split('/')[0];
     if (at < 1 || !siteHost) return email;
     const mailHost = email.slice(at + 1);
-    // Same domain but for capitals ("TeamlogicIT.com"): in the review box, the web address's spelling when it has capitals
+    // Same domain but for capitals ("PeaklogicIT.com"): in the review box, the web address's spelling when it has capitals
     // of its own. Text the user typed (buildFields) keeps its capitals.
     if (mailHost.toLowerCase() === siteHost.toLowerCase()) return capitals && /[A-Z]/.test(siteHost) ? email.slice(0, at + 1) + siteHost : email;
     const split = (host) => { const i = host.lastIndexOf('.'); return [host.slice(0, i).toLowerCase(), host.slice(i + 1).toLowerCase()]; };
@@ -637,7 +637,7 @@ function findWebsite(text, labelled, joinPath = labelled) {
 
 const PATH_TAIL = /^[A-Za-z0-9-]+[\\|!]*$/;
 
-/** All US-style phone numbers in a line, each with a label written just before it ("T 269...  M 269..."). */
+/** All US-style phone numbers in a line, each with a label written just before it ("T 616...  M 616..."). */
 function findPhones(text) {
     const out = [];
     const re = /(?:\b(tel|phone|ph|office|direct|main|work|mobile|mob|cell|fax|home|t|p|o|d|m|c|f|h)\s*[:.\-]?\s*)?(\+?1[\s.\-]*)?(\(?\d{3}\)?[\s.\-]*\d{3}[\s.\-]*\d{4})(\s*(?:x|ext\.?|#)\s*\d{1,6})?/gi;
