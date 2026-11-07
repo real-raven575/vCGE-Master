@@ -173,7 +173,7 @@ async function openVault(page) { if (!(await vaultOpen(page))) { await page.clic
 // Settings (0.8 redo R5): a theme by its fixed code is its swatch plus, for a palette with both versions, the Appearance chip
 async function setTheme(page, code) {
   const sel = await page.evaluate((c) => { const b = [...document.querySelectorAll('#settingsSheet [data-family]')].find(x => x.dataset.light === String(c) || x.dataset.dark === String(c));
-    if (!b) return null; const d = b.closest('details'); if (d) d.open = true;
+    if (!b) return null; for (let d = b.closest('details'); d; d = d.parentElement.closest('details')) d.open = true;
     return { fam: b.dataset.family, mode: b.dataset.light === String(c) ? 'light' : 'dark', both: !!b.dataset.light && !!b.dataset.dark }; }, code);
   await page.click(`#settingsSheet [data-family="${sel.fam}"]`);
   if (sel.both) await page.click(`#appearanceChips [data-v="${sel.mode}"]`);
@@ -574,6 +574,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     : 'OK moves to the Read card, where the photo shimmers while it is read, the label says the reader is being prepared, and the wash is full before the review opens', bar.shown && bar.shimmer === !SHELVED && bar.photo && bar.values.includes(100) && bar.labels.includes('Preparing the reader…') && !(await visible('ocrProgress')) && (await visible('ocrStepText')) && (await page.evaluate(() => document.documentElement.dataset.card)) === 'read', JSON.stringify({ shown: bar.shown, shimmer: bar.shimmer, photo: bar.photo, max: Math.max(...bar.values), labels: [...new Set(bar.labels)] }));
   ok('the reading indicator shows no number (no visible digits, screen readers hear text)', !/\d/.test(await page.$eval('#ocrProgress', el => el.innerText)) && (await page.getAttribute('#ocrProgressBar', 'aria-valuetext')) === 'Reading the card', await page.$eval('#ocrProgress', el => el.innerText));
   ok('after the read the photo under the shimmer is dropped', !(await page.getAttribute('#ocrReadPhoto', 'src')));
+  ok('first scan counts the reader\'s start-up up in percent (a slow first load is seen moving, 0.8 phone run 2026-11-03)', bar.labels.some(l => /^Preparing the reader… \d+%$/.test(l)), [...new Set(bar.labels)].join(' | '));
   ok('first scan says the reader is being prepared, then extracting', bar.labels.indexOf('Preparing the reader…') >= 0 && bar.labels.indexOf('Extracting…', bar.labels.indexOf('Preparing the reader…')) > 0, [...new Set(bar.labels)].join(' | '));
   ok('review step lists the OCR lines with a field picker each', (await page.$$('#ocrLines select')).length >= 8 && (await page.inputValue('#ocrLineRole0')) === 'name', String((await page.$$('#ocrLines select')).length));
   // 0.8 redo R3 (Creative's mock-up): each line is one rounded box with its type chip beside it; the chip is the picker
@@ -670,14 +671,25 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     dark: document.documentElement.classList.contains('dark'), body: getComputedStyle(document.body).fontFamily, entry: localStorage.getItem('vcge_settings') }));
   ok('before any change: nothing is stored, right hand, Inter, dark', (await settingsKeys()).length === 0 && (await htmlState()).hand === 'right' && (await htmlState()).dark && /Inter/.test((await htmlState()).body), JSON.stringify(await htmlState()));
   await page.click('#navSettings');
-  ok('the cog opens Settings (0.8 sheet): theme swatches, Appearance, the six styles, text size, font, the Left-handed, colour-blind, texture and Plain look switches, and the disclaimer', await page.isVisible('#settingsSheet') && await page.isVisible('#handToggle') && await page.isVisible('#cbToggle') && await page.isVisible('#appThemes [data-family="herd"]')
+  ok('the cog opens Settings (0.8 sheet): theme swatches, Appearance, the six styles, text size, font, the Left-handed, colour-blind, texture and Plain look switches, and the disclaimer', await page.isVisible('#settingsSheet') && await page.isVisible('#handToggle') && await page.isVisible('#cbToggle') && await page.isVisible('#dyslexiaToggle') && await page.isVisible('#themeSummary')
     && await page.isVisible('#appearanceChips') && (await page.$$eval('#styleChips button', bs => bs.map(b => b.textContent).join())) === 'Herd,Material,iOS,Windows,GNOME,KDE'
-    && await page.isVisible('#sizeRange') && await page.isVisible('#fontSelect') && await page.isVisible('#texToggle') && await page.$eval('#plainToggle', c => c.disabled) && /separate download|This is the Plain edition/.test(await text('plainNote'))
-    && (await text('settingsNote')) === 'vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time). Nothing you scan, upload or type is ever saved.');
+    && await page.isVisible('#sizeRange') && await page.isVisible('#fontSelect') && await page.isVisible('#texToggle') && await page.$eval('#plainToggle', c => c.disabled === (document.documentElement.dataset.edition === 'plain')) && (EDITION_PLAIN ? /This is the Plain edition/ : /Hides the Herd pilots and art/).test(await text('plainNote'))
+    && (await text('settingsNote')) === 'vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look). Nothing you scan, upload or type is ever saved.');
+  // raven575 (2026-11-03): the theme box starts closed, naming the theme in use; one tap shows the 3 quick picks, More themes stays closed
+  ok('the theme box starts closed and names Herd; no swatch shows until it is opened', !(await page.$eval('#themePicker', d => d.open)) && (await text('themeSummaryName')) === 'Herd'
+    && !(await page.isVisible('#appThemes [data-family="herd"]')));
+  await page.click('#themeSummary');
+  ok('one tap opens the quick picks Herd, Signal, Graphite (Herd pressed); More themes stays closed', (await page.$$eval('#appThemes [data-family]', bs => bs.filter(b => b.getBoundingClientRect().height > 0).map(b => b.dataset.family).join())) === 'herd,signal,graphite'
+    && (await page.$eval('#appThemes [data-family="herd"]', b => b.getAttribute('aria-pressed'))) === 'true' && !(await page.$eval('#moreThemes', d => d.open)) && !(await page.isVisible('#moreThemesGrid [data-family="evergreen"]')));
   ok('the font list is the seven fonts, alphabetical, Inter chosen', (await page.$$eval('#fontSelect option', os => os.map(o => o.textContent).join('|'))) === 'Atkinson Hyperlegible|Comic Neue|Inter|Lexend|Macondo|OpenDyslexic|Tinos'
     && (await page.$eval('#fontSelect', s => s.selectedOptions[0].textContent)) === 'Inter');
-  ok('every settings control is at least 44 px tall (the switches are 34 px tracks in a row at least 44 px tall)', (await page.$$eval('#appThemes button, #appearanceChips button, #styleChips button, #fontSelect', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44)
-    && (await page.$$eval('#handToggle, #cbToggle, #texToggle, #sizeRange', els => els.map(e => e.closest('.r5-sw-row, .r5-range').getBoundingClientRect().height))).every(h => h >= 44));
+  ok('every settings control is at least 44 px tall (the switches are 34 px tracks in a row at least 44 px tall)', (await page.$$eval('#themeSummary, #appThemes button, #appearanceChips button, #styleChips button, #fontSelect', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44)
+    && (await page.$$eval('#dyslexiaToggle, #handToggle, #cbToggle, #texToggle, #sizeRange', els => els.map(e => e.closest('.r5-sw-row, .r5-range').getBoundingClientRect().height))).every(h => h >= 44));
+  await page.click('label[for="dyslexiaToggle"]');
+  ok('Dyslexia-friendly font on: OpenDyslexic is the font (code 3 saved) and the font list shows it', (await htmlState()).font === '3' && /OpenDyslexic/.test((await htmlState()).body)
+    && (await page.$eval('#fontSelect', s => s.selectedOptions[0].textContent)) === 'OpenDyslexic' && (await htmlState()).entry === 'hand=0;cb=0;theme=0;font=3;size=0;wipe=0', JSON.stringify(await htmlState()));
+  await page.click('label[for="dyslexiaToggle"]');
+  ok('Dyslexia-friendly font off: back to Inter (code 0)', (await htmlState()).font === '0' && /Inter/.test((await htmlState()).body) && !(await page.$eval('#dyslexiaToggle', c => c.checked)) && (await htmlState()).entry === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0');
   await setTheme(page, 1);
   ok('theme Light: light mode and the entry appears, one key, name=number pairs', !(await htmlState()).dark && (await settingsKeys()).join() === 'vcge_settings' && (await htmlState()).entry === 'hand=0;cb=0;theme=1;font=0;size=0;wipe=0');
   // App themes (raven575's test report, 2026-10-22): Basic, the Autumn colours and, in the branded edition only, a dark and a light per character
@@ -685,8 +697,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     bg: getComputedStyle(document.body).backgroundColor, primary: getComputedStyle(document.getElementById('dockNext')).backgroundColor,
     on: getComputedStyle(document.querySelector('.vcge-step[data-state="now"]')).color, entry: localStorage.getItem('vcge_settings') }));
   const themeGroups = await page.evaluate(() => [...document.querySelectorAll('#appThemes > *, #moreThemesGrid > *')].reduce((a, el) => { if (el.classList.contains('r5-tgroup')) a.push([el.textContent, 0]); else a[a.length - 1][1]++; return a; }, []).map(g => g.join(':')).join('|'));
-  ok(EDITION_PLAIN ? 'the theme swatches are Everyday (5: Herd = Dark + Light) and Seasonal (7), then the card colours (8) under More themes, no characters in plain' : 'the theme swatches are Everyday (5: Herd = Dark + Light) and Seasonal (7), then the card colours (8) and Team vCGE (9 characters, each light and dark) under More themes',
-    themeGroups === (EDITION_PLAIN ? 'Everyday:5|Seasonal:7|Card colours:8' : 'Everyday:5|Seasonal:7|Card colours:8|Team vCGE:9'), themeGroups);
+  ok(EDITION_PLAIN ? 'the theme swatches are 3 quick picks (Herd = Dark + Light, Signal, Graphite), then Everyday (2), Seasonal (7) and the card colours (8) under More themes, no characters in plain' : 'the theme swatches are 3 quick picks (Herd = Dark + Light, Signal, Graphite), then Everyday (2), Seasonal (7), the card colours (8) and Team vCGE (9 characters, each light and dark) under More themes',
+    themeGroups === (EDITION_PLAIN ? 'Quick picks:3|Everyday:2|Seasonal:7|Card colours:8' : 'Quick picks:3|Everyday:2|Seasonal:7|Card colours:8|Team vCGE:9'), themeGroups);
   // The dock's steps and buttons fade their colour (deck.css): read only once no fade is running on the step in view,
   // the primary button or the page (getAnimations() starts any pending fade first, so it can't be read too early)
   const themeSettled = () => page.waitForFunction(() => [document.querySelector('.vcge-step[data-state="now"]'), document.getElementById('dockNext'), document.body]
@@ -695,6 +707,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   const pumpkin = await themeState();
   ok('Pumpkin colours the page, the primary button and the step in view, stays light, and its code 2 is saved', pumpkin.id === 'pumpkin' && !pumpkin.dark && pumpkin.bg === 'rgb(243, 221, 206)'
     && pumpkin.primary === 'rgb(225, 107, 24)' && pumpkin.on === 'rgb(225, 107, 24)' && pumpkin.entry === 'hand=0;cb=0;theme=2;font=0;size=0;wipe=0', JSON.stringify(pumpkin));
+  ok('the closed box names the theme in use (Pumpkin) and More themes opened itself for it', (await text('themeSummaryName')) === 'Pumpkin' && await page.$eval('#moreThemes', d => d.open));
   if (!EDITION_PLAIN) {
     await setTheme(page, 12); await themeSettled();
     const shutout = await themeState();
@@ -774,7 +787,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     && sys.entry === `hand=0;cb=1;theme=${sys.sysDark ? 0 : 1};font=2;size=0;wipe=0;mode=1`, JSON.stringify(sys));
   await page.click('#appearanceChips [data-v="light"]');
   ok('Appearance Light: Herd light, mode leaves the entry', !(await htmlState()).dark && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2;size=0;wipe=0');
-  ok('Plain look is shown but never live: a disabled switch that says Plain is its own build', await page.$eval('#plainToggle', c => c.disabled && c.checked === (document.documentElement.dataset.edition === 'plain')));
+  ok(EDITION_PLAIN ? 'Plain look: in the Plain download the switch is on and fixed (that build is plain by its html line)' : 'Plain look: in the Herd build the switch is live and off (it is tried on a page of its own, below)',
+    await page.$eval('#plainToggle', c => c.checked === (document.documentElement.dataset.edition === 'plain') && c.disabled === (document.documentElement.dataset.edition === 'plain')));
   // Settings polish from raven575's iPad video: the cog by the title (#13) and a text size that leaves the header alone (#6)
   ok('Settings shows the cog left of its title', (await page.$eval('#settingsTitle use', u => u.getAttribute('href'))).endsWith('#settings')
     && await page.$eval('#settingsTitle', h => h.firstElementChild.tagName.toLowerCase() === 'svg'));
@@ -1455,7 +1469,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // Logos as uploaded (redesign step 8): a one-colour logo is traced into the card's ink colour; one of many colours
     // is kept as a picture; a white background is removed first. Wide ones get the strip, small ones the badge.
     const logo = (kind) => p11.evaluate((kind) => {
-      const text = '<text x="10" y="70" font-size="60" fill="#0a6">TeamLogic</text>';
+      const text = '<text x="10" y="70" font-size="60" fill="#0a6">PeakLogic</text>';
       if (kind === 'svg') return 'data:image/svg+xml;base64,' + btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="100">${text}</svg>`);
       if (kind === 'viewbox') return 'data:image/svg+xml;base64,' + btoa(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 100">${text.replace('#0a6', '#06a')}</svg>`);
       const c = document.createElement('canvas'); c.width = kind === 'round' ? 300 : 400; c.height = kind === 'round' ? 300 : 100;
@@ -1466,11 +1480,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       x.font = 'bold 60px Arial';
       if (kind === 'rainbow' || kind === 'pastel' || kind === 'whitebg-colour') {
         const colours = kind === 'pastel' ? ['#ffa0a0', '#a0ffa0', '#a0a0ff'] : ['#d00', '#07c', '#fc0'];
-        'TeamLogic'.split('').forEach((ch, i) => { x.fillStyle = colours[i % 3]; x.fillText(ch, 10 + i * 40, 70); });
+        'PeakLogic'.split('').forEach((ch, i) => { x.fillStyle = colours[i % 3]; x.fillText(ch, 10 + i * 40, 70); });
         return c.toDataURL(kind === 'whitebg-colour' ? 'image/jpeg' : 'image/png');
       }
       x.fillStyle = kind === 'light' ? '#f5f5f5' : kind === 'opaque' ? '#fff' : '#123';
-      x.fillText('TeamLogic', 10, 70);
+      x.fillText('PeakLogic', 10, 70);
       // 'whitebg-rough': a heavily compressed photo of a logo (the colour fringes JPEG leaves around dark lettering).
       return kind === 'whitebg-rough' ? c.toDataURL('image/jpeg', 0.4) : c.toDataURL(kind === 'whitebg' ? 'image/jpeg' : 'image/png');
     }, kind);
@@ -1675,6 +1689,53 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await ctxS.close();
   });
 
+  // Settings > Plain look (raven575, 2026-11-03): the Herd build switches to the Plain look and back. Switching starts vCGE
+  // fresh; with contacts in memory it asks first. The Plain download keeps its own fixed switch (checked above).
+  if (!EDITION_PLAIN) {
+    const ctxP = await browser.newContext();
+    const pP = await ctxP.newPage();
+    const errorsP = [];
+    pP.on('pageerror', e => errorsP.push(e.message));
+    pP.on('console', m => { if (m.type() === 'error') errorsP.push('console: ' + m.text()); });
+    const plainSamples = ['Sample contact', ...SAMPLES_PLAIN.map(([f, l, o]) => `${f} ${l}, ${o}`)].join('|');
+    const lookNow = () => pP.evaluate(() => { const sw = document.getElementById('plainToggle'), ask = document.getElementById('plainConfirm');
+      return { edition: document.documentElement.dataset.edition || '', look: document.documentElement.dataset.look || '', entry: localStorage.getItem('vcge_settings'),
+        nav: [...document.querySelectorAll('.deck-header button[aria-label], .vcge-dock button[aria-label]')].map(b => b.getAttribute('aria-label')).join('|'),
+        samples: [...document.querySelectorAll('#fakeContactSelect option')].map(o => o.textContent).join('|'), tagline: !!document.getElementById('welcomeTagline'),
+        thanks: (document.getElementById('thankYouText') || {}).textContent || '', on: sw.checked, disabled: sw.disabled, asking: !ask.classList.contains('hidden') }; });
+    const openSettings = async () => { await pP.click('#navSettings'); await pP.waitForSelector('#settingsSheet', { state: 'visible' }); };
+    const flipStartsFresh = async (click) => { await Promise.all([pP.waitForNavigation({ timeout: 10000 }), pP.click(click)]); await pP.waitForTimeout(400); };
+    await pP.goto(ORIGIN); await pP.waitForTimeout(300);
+    const herd = await lookNow();
+    ok('Plain look: the Herd build opens in the Herd look, the switch live and off, nothing saved', herd.edition === '' && herd.look === '' && !herd.on && !herd.disabled && !herd.asking
+      && herd.entry === null && / \((?:Iris|Glyph)\)/.test(herd.nav) && herd.samples === sampleList() && herd.tagline, JSON.stringify(herd));
+    await openSettings();
+    await flipStartsFresh('label[for="plainToggle"]');
+    const plainOn = await lookNow();
+    ok('Plain look on with nothing in memory: no ask, vCGE starts fresh in the Plain look (look=1 saved, no pilot names, the plain samples, no tagline, "Session ended.")',
+      plainOn.edition === 'plain' && plainOn.look === 'plain' && plainOn.entry === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0;look=1' && plainOn.on && !plainOn.disabled
+      && !/ \([A-Z][a-z]+\)/.test(plainOn.nav) && plainOn.samples === plainSamples && !plainOn.tagline && plainOn.thanks === 'Session ended.', JSON.stringify(plainOn));
+    // A contact in memory: the switch asks first; Keep leaves everything as it was
+    await pP.click('#navFields'); await pP.waitForTimeout(500);
+    await pP.selectOption('#fakeContactSelect', '2'); await pP.waitForTimeout(400);
+    await openSettings();
+    await pP.click('label[for="plainToggle"]'); await pP.waitForTimeout(300);
+    const asked = await lookNow();
+    ok('Plain look off with a contact in memory: it asks "clears your current contacts. Are you sure?" and nothing is saved or restarted yet',
+      asked.asking && !asked.on && asked.look === 'plain' && /;look=1$/.test(asked.entry) && /clears your current contacts\. Are you sure\?/.test(await pP.textContent('#plainConfirmText')), JSON.stringify(asked));
+    await pP.click('#plainNoBtn'); await pP.waitForTimeout(200);
+    const kept = await lookNow();
+    ok('Plain look: Keep them puts the switch back on, hides the ask, and stays plain with the contact', !kept.asking && kept.on && kept.look === 'plain' && /;look=1$/.test(kept.entry)
+      && await pP.evaluate(() => !!document.getElementById('firstName') && document.getElementById('firstName').value !== ''), JSON.stringify(kept));
+    await pP.click('label[for="plainToggle"]'); await pP.waitForTimeout(200);
+    await flipStartsFresh('#plainYesBtn');
+    const back = await lookNow();
+    ok('Plain look: Yes, switch starts vCGE fresh in the Herd look again (look leaves the entry, the pilots are back)', back.edition === '' && back.look === '' && !back.on
+      && back.entry === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0' && / \((?:Iris|Glyph)\)/.test(back.nav) && back.samples === sampleList() && back.tagline, JSON.stringify(back));
+    ok('Plain look: no page errors while switching', errorsP.length === 0, errorsP.join(' | '));
+    await ctxP.close();
+  }
+
   // Fields card (MOD05, redesign step 7): the "Sample vCGE pilot contact" list, the pop-in on arrival, "Everything's correct"
   {
     const ctxF = await browser.newContext();
@@ -1758,7 +1819,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // Phone style (video review #71): the format list and the +1 switch restyle every number on the card at once,
     // and a number typed afterwards follows the style. Memory only: nothing about it is saved.
     await pF.emulateMedia({ reducedMotion: 'no-preference' });
-    ok('fields: the phone style list offers the three styles raven575 named, +1 on by default', (await pF.$$eval('#phoneFormatSelect option', os => os.map(o => o.textContent).join('|'))) === '(269) 492-7400|269.492.7400|2694927400'
+    ok('fields: the phone style list offers the three styles raven575 named, +1 on by default', (await pF.$$eval('#phoneFormatSelect option', os => os.map(o => o.textContent).join('|'))) === '(616) 555-0140|616.555.0140|6165550140'
       && (await pF.$eval('#phoneCountryCode', c => c.checked)) && (await pF.inputValue('#phoneValue0')) === '+1 (202) 555-0101', await pF.inputValue('#phoneValue0'));
     await pF.selectOption('#phoneFormatSelect', 'dots');
     ok('fields: choosing dots restyles every number', JSON.stringify((await rows(pF, 'phone')).map(r => r.value)) === JSON.stringify(['+1 202.555.0101', '+1 202.555.0111']), JSON.stringify(await rows(pF, 'phone')));
@@ -2010,7 +2071,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const c = document.createElement('canvas'); c.width = 1050; c.height = 600; const x = c.getContext('2d');
       x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111';
       x.font = 'bold 52px Arial'; x.fillText('Nora Lindqvist', 60, 90); x.font = '32px Arial'; x.fillText('General Manager', 60, 145);
-      ['7950 Harbor Road', 'Portage, MI 42024', 'nora@harborworks.com', 'T 269.555.0142'].forEach((t, i) => x.fillText(t, 60, 250 + i * 70));
+      ['7950 Harbor Road', 'Portage, MI 42024', 'nora@harborworks.com', 'T 616.555.0142'].forEach((t, i) => x.fillText(t, 60, 250 + i * 70));
       return c.toDataURL('image/png');
     });
     await pZ.setInputFiles('#imageUpload', { name: 'zip.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') }); await pZ.waitForTimeout(300);

@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD02: vault store (the hub every module goes through)
- * Created by raven575, Team vCGE (Claude) & Gemini
+ * Created by raven575, Herd of Helpers (claude) & gemini
  *
  * One memory-only store for everything the pipeline holds while a card is being made: the photo, the OCR text, the
  * review lines, the contact, the last scan, the Undo copy, the logo Export hands to the card (wiped with the rest) and

@@ -1,6 +1,6 @@
 /**
  * vCard Generator Engine (vCGE)
- * Copyright (c) 2026 raven575, Team vCGE (Claude) & Gemini
+ * Copyright (c) 2026 raven575, Herd of Helpers (claude) & gemini
  *
  * Repository: https://github.com/real-raven575/vCGE-Master
  * This source code is licensed under the MIT License found in the
@@ -60,7 +60,7 @@ export const OCR_UNSURE_WORD_CONFIDENCE = 50;
 
 // Second look (raven575's yes, 2026-10-18): a line with unsure words is read again as one enlarged strip, straight and
 // with its lean corrected both ways, and the surest reading is kept when it is clearly surer than the first. On a scan
-// whose text leaned backwards, the web line went from "TeamLogic\T.com Kalamazoo" (12) to "...KalamazooM|" (87).
+// whose text leaned backwards, the web line went from "PeakLogic\T.com Kalamazoo" (12) to "...KalamazooM|" (87).
 // Straight cards rarely have unsure lines, and a re-read that is not clearly surer changes nothing.
 export const SECOND_LOOK_PAGE_SEG_MODE = '7';                  // one line of text
 export const SECOND_LOOK_SCALE = 2;
@@ -95,6 +95,18 @@ export class OcrCancelledError extends Error {
         this.name = 'OcrCancelledError';
         this.code = 'OCR_CANCELLED';
     }
+}
+
+// The reader's start-up steps (Tesseract.js logger) and the share of the start each one ends at: the engine (about 4 MB)
+// and the English model (about 3 MB) are the slow ones.
+const START_STEPS = [['loading tesseract core', 0, 0.5], ['initializing tesseract', 0.5, 0.55], ['loading language traineddata', 0.55, 0.95], ['initializing api', 0.95, 1]];
+
+/** How far start-up is (0 to 1) when the engine reports `step` at `progress` (0 to 1); unknown steps give null. */
+export function startProgress(step, progress) {
+    const found = START_STEPS.find(([name]) => name === step);
+    if (!found) return null;
+    const [, from, to] = found, p = Math.min(1, Math.max(0, Number(progress) || 0));
+    return from + (to - from) * p;
 }
 
 /** Thrown when reading a photo took too long; the engine has been restarted and the caller should offer a retry. */
@@ -134,7 +146,7 @@ export class OcrStartFailedError extends Error {
  * Tesseract.js 5 swallows failures of its language/initialize steps inside createWorker, whose promise then never
  * settles, so errors are caught through `errorHandler` and raced against the returned promise.
  */
-async function initOCREngine(timeoutMs) {
+async function initOCREngine(timeoutMs, onStep = () => {}) {
     if (tesseractWorker) return tesseractWorker;
     const started = generation;
     if (typeof Tesseract === 'undefined') throw new OcrUnavailableError('Tesseract.js is not loaded');
@@ -154,6 +166,7 @@ async function initOCREngine(timeoutMs) {
         logger: m => {
             if (m && m.status) {
                 if (m.status === 'initializing api') filesLoaded = true;
+                onStep(m.status, m.progress);
                 console.log(`[${MODULE_ID}] OCR Progress: ${m.status} (${Math.round((m.progress || 0) * 100)}%)`);
             }
         }
@@ -344,7 +357,7 @@ export function joinSecondLook(text, word, reread) {
  * (`firstText`, `firstAlts`): where the two readings line up letter for letter (a letter kept or swapped for one other),
  * the first reading's letter and its runner-ups join the new letter's runner-ups. When the readings disagree the field
  * mapper still sees both, and picks from the card's context as it does for any second guess (a straightened
- * "TeamLogiclT" with "TeamLogiciT", "I" as runner-up, in the first reading becomes TeamLogicIT).
+ * "PeakLogiclT" with "PeakLogiciT", "I" as runner-up, in the first reading becomes PeakLogicIT).
  */
 export function mergeReadingAlts(firstText, firstAlts, text, alts) {
     const a = String(firstText || ''), b = String(text || '');
@@ -492,16 +505,20 @@ async function scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started) {
     let timer;
     const late = new Promise((_, reject) => { timer = setTimeout(() => reject(new OcrUnavailableError(`preparing the photo took longer than ${Math.round(initTimeoutMs / 1000)} s`)), initTimeoutMs); });
     const processedImage = await Promise.race([preProcessImageBuffer(imageSrc), late]).finally(() => clearTimeout(timer));
+    // Each start-up step moves the "Preparing the reader" percentage, so a slow first load (about 7 MB) is seen moving
+    // and not taken for a freeze (raven575's first phone run of 0.8, 2026-11-03).
+    // Only start-up steps: the same logger also reports "recognizing text" while reading, which must not relabel the read.
+    const onStep = (step, progress) => { const f = startProgress(step, progress); if (f !== null && !tesseractWorker) onStatus('starting', f); };
     // The engine stopping in its own start-up step (WebKit, CI run 39702174014) gets one fresh start (raven575, 2026-10-22).
     const startEngine = async () => {
-        try { return await initOCREngine(initTimeoutMs); }
+        try { return await initOCREngine(initTimeoutMs, onStep); }
         catch (error) {
             if (!(error instanceof OcrStartFailedError) || generation !== started) throw error;
             console.warn(`[${MODULE_ID}] ${error.message}; starting a fresh reader once more`);
-            return initOCREngine(initTimeoutMs);
+            return initOCREngine(initTimeoutMs, onStep);
         }
     };
-    if (!tesseractWorker) onStatus('starting');
+    if (!tesseractWorker) onStatus('starting', 0);
     let worker = await startEngine();
     onStatus('reading');
     let result;

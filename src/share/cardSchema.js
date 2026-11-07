@@ -1,7 +1,7 @@
 /**
  * vCGE (vCard Generator Engine) - Contact Schema & Validation (`cardSchema.js`)
  * Project Overseer Authorized Production Build
- * Attributions: Created by raven575, Team vCGE (Claude) & Gemini
+ * Attributions: Created by raven575, Herd of Helpers (claude) & gemini
  */
 import { DEFAULT_COUNTRY } from './contactOptions.js';
 

@@ -128,7 +128,7 @@
                         <button id="welcomeSampleBtn" type="button" class="r2-quiet">Play with sample fields</button>
                         <button id="welcomeCancelBtn" type="button" class="r2-quiet r2-quiet-stop">CANCEL</button>
                     </div>
-                    <p class="r2-fine">This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data: it keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time), and nothing you scan, upload or type is ever saved.</p>
+                    <p class="r2-fine">This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data: it keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look), and nothing you scan, upload or type is ever saved.</p>
                 </div>
             </div>
         </section>
@@ -598,7 +598,7 @@
     </div>
 
     <!-- Settings sheet (0.8 redo R5, Creative's CRTV-0020 mock-up; MOD01): App theme swatches and Appearance, the
-         platform style, text size and font, the Comfort switches, the Cornerstone credit and About. Kept in the one
+         platform style, text size and font, the Accessibility and Comfort switches, the Cornerstone credit and About. Kept in the one
          settings entry (settings.js). -->
     <div id="settingsSheet" class="vcge-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
         <div class="vcge-sheet-panel r5-sheet">
@@ -609,8 +609,12 @@
             <div class="r5-body">
                 <div class="r5-group">
                     <h4 id="appThemesLabel">App theme</h4>
-                    <div id="appThemes" class="r5-themes" role="group" aria-labelledby="appThemesLabel"></div>
-                    <details id="moreThemes" class="r5-more"><summary>More themes</summary><div id="moreThemesGrid" class="r5-themes"></div></details>
+                    <!-- One closed box (raven575, 2026-11-03): it shows the theme in use; a tap opens the quick picks, and More themes holds the rest -->
+                    <details id="themePicker" class="r5-picker">
+                        <summary id="themeSummary" aria-describedby="appThemesLabel"><i id="themeSummarySwatch" aria-hidden="true"></i><span id="themeSummaryName">Herd</span></summary>
+                        <div id="appThemes" class="r5-themes" role="group" aria-labelledby="appThemesLabel"></div>
+                        <details id="moreThemes" class="r5-more"><summary>More themes</summary><div id="moreThemesGrid" class="r5-themes"></div></details>
+                    </details>
                     <h4 id="appearanceLabel">Appearance</h4>
                     <div id="appearanceChips" class="r5-minis" role="group" aria-labelledby="appearanceLabel">
                         <button type="button" class="r5-chip" data-v="system" aria-pressed="false">System</button><button type="button" class="r5-chip" data-v="light" aria-pressed="false">Light</button><button type="button" class="r5-chip" data-v="dark" aria-pressed="false">Dark</button>
@@ -634,23 +638,37 @@
                     </div>
                 </div>
                 <div class="r5-group">
-                    <h4>Comfort</h4>
+                    <h4 id="a11yLabel">Accessibility</h4>
                     <div class="r5-sw-row">
-                        <label class="r5-lbl" for="handToggle"><b>Left-handed</b><small>Moves the top buttons and camera tools</small></label>
-                        <input id="handToggle" type="checkbox" role="switch" class="r5-toggle">
+                        <label class="r5-lbl" for="dyslexiaToggle"><b>Dyslexia-friendly font</b><small id="dyslexiaHint">Uses OpenDyslexic; off goes back to Inter</small></label>
+                        <input id="dyslexiaToggle" type="checkbox" role="switch" class="r5-toggle" aria-describedby="dyslexiaHint">
                     </div>
                     <div class="r5-sw-row">
                         <label class="r5-lbl" for="cbToggle"><b>Colour-blind mode</b><small id="cbHint">Words and marks next to every colour cue</small></label>
                         <input id="cbToggle" type="checkbox" role="switch" class="r5-toggle" aria-describedby="cbHint">
                     </div>
                     <div class="r5-sw-row">
+                        <label class="r5-lbl" for="handToggle"><b>Left-handed</b><small>Moves the top buttons and camera tools</small></label>
+                        <input id="handToggle" type="checkbox" role="switch" class="r5-toggle">
+                    </div>
+                </div>
+                <div class="r5-group">
+                    <h4>Comfort</h4>
+                    <div class="r5-sw-row">
                         <label class="r5-lbl" for="texToggle"><b>Background texture</b><small>A soft dot pattern behind the screens</small></label>
                         <input id="texToggle" type="checkbox" role="switch" class="r5-toggle" checked>
                     </div>
-                    <!-- Plain is its own build (the plain edition): the switch shows where it would be, and is never live here -->
+                    <!-- Plain look: live in the Herd build (starts vCGE fresh in the Plain look); on and fixed in the Plain download -->
                     <div class="r5-sw-row r5-plain-row">
-                        <label class="r5-lbl" for="plainToggle"><b>Plain look</b><small id="plainNote">A separate download: the Plain edition hides the Herd pilots and art</small></label>
-                        <input id="plainToggle" type="checkbox" role="switch" class="r5-toggle" disabled aria-describedby="plainNote">
+                        <label class="r5-lbl" for="plainToggle"><b>Plain look</b><small id="plainNote">Hides the Herd pilots and art. vCGE starts fresh to switch</small></label>
+                        <input id="plainToggle" type="checkbox" role="switch" class="r5-toggle" aria-describedby="plainNote">
+                    </div>
+                    <div id="plainConfirm" class="r5-plain-confirm hidden" role="group" aria-labelledby="plainConfirmText">
+                        <span id="plainConfirmText">Switching starts vCGE fresh and clears your current contacts. Are you sure?</span>
+                        <span class="r5-plain-confirm-btns">
+                            <button id="plainYesBtn" type="button" class="r5-mini">Yes, switch</button>
+                            <button id="plainNoBtn" type="button" class="r5-mini">Keep them</button>
+                        </span>
                     </div>
                 </div>
                 <!-- Project manager credit (branded only) and About (CRTV-0020): the maker mark, the wordmark and the credits -->
@@ -661,7 +679,7 @@
                     <p>vCGE 0.8</p>
                     <p>&copy; 2026 raven575, Herd of Helpers (claude) &amp; gemini</p>
                 </div>
-                <p id="settingsNote" class="r5-foot">vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time). Nothing you scan, upload or type is ever saved.</p>
+                <p id="settingsNote" class="r5-foot">vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look). Nothing you scan, upload or type is ever saved.</p>
             </div>
         </div>
     </div>
