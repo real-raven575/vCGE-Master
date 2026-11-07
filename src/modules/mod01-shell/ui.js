@@ -7,7 +7,7 @@
  * keyboard presses are unchanged. The look itself (44 px buttons, 2 px outlines, the MOD-XX tag) is in ui.css.
  */
 
-import { isPlain, applyEdition } from './edition.js';
+import { isPlain, applyEdition, applySavedLook } from './edition.js';
 import { initShellArt } from './shellArt.js';
 import { initTier } from './tier.js';
 
@@ -59,6 +59,7 @@ export function initTags(doc = document) {
 }
 
 if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+    applySavedLook();        // Settings > Plain look, before anything reads the edition
     applyEdition();
     initTier();
     initTags();
