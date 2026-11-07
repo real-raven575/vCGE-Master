@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD01: app themes (theme step 1, raven575's test report 2026-10-22; approved 2026-10-22 19:01 UTC)
- * Created by raven575, Team vCGE (Claude) & Gemini
+ * Created by raven575, Herd of Helpers (claude) & gemini
  *
  * The colour themes in Settings. Dark and Light are the app's own look and set no colours here. Every other theme is
  * one set of seven colours, put on <html> as CSS variables (--vcge-bg, --vcge-surface, --vcge-text, --vcge-muted,

@@ -1,7 +1,7 @@
 /**
  * vCard Generator Engine (vCGE)
  * Module: vCGE-MOD07 (QR Code & vCard Engine)
- * Attributions: Created by raven575, Team vCGE (Claude) & Gemini
+ * Attributions: Created by raven575, Herd of Helpers (claude) & gemini
  *
  * Scope:
  * - Builds vCard 3.0 payloads (RFC 2425/2426) via the shared formatter, so every module emits identical output.

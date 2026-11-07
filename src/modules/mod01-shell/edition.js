@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD01: the edition switch (notes/plain-edition-plan.md)
- * Created by raven575, Team vCGE (Claude) & Gemini
+ * Created by raven575, Herd of Helpers (claude) & gemini
  *
  * One code base, two editions. The branded edition (the default) carries the logo, the tagline, the pilots' names and
  * MOD tags, and the pilots as sample contacts. The plain edition keeps every feature and option and leaves all of

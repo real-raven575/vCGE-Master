@@ -1,6 +1,6 @@
 /**
  * vCard Generator Engine (vCGE) - Master Integration Controller
- * Created by raven575, Team vCGE (Claude) & Gemini
+ * Created by raven575, Herd of Helpers (claude) & gemini
  *
  * Wires the modules together over the shared event bus:
  *   MOD03 camera / upload -> MOD04 OCR -> MOD05 mapper -> MOD06 card view -> MOD07 vCard + QR
