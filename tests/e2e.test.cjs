@@ -714,6 +714,27 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     tex: (() => { const t = document.querySelector('svg.vcge-tex'); return t ? getComputedStyle(t).pointerEvents + '/' + t.getAttribute('aria-hidden') : 'none'; })() }));
   ok('0.8: each card shows its pilot\'s line emblem behind the content and the dot texture sits behind the deck, none of them taking a tap',
     art.cards === 'welcome:shutout:none,capture:iris:none,read:glyph:none,fields:pidge:none,card:flipside:none,share:airlock:none' && art.tex === 'none/true', JSON.stringify(art));
+  // Wide windows (raven575 11-04): the current card's emblem is drawn whole behind the deck instead of cut at its edge,
+  // and on big screens a sparse tile of whole small copies stays clear of the deck's column
+  const vpWas = page.viewportSize();
+  await page.setViewportSize({ width: 1920, height: 900 });
+  await page.waitForFunction(() => document.documentElement.dataset.emblemField === 'on' && document.documentElement.dataset.tier === 'monitor' && document.querySelector('.vcge-field-tile svg'), null, { timeout: 5000 }).catch(() => {});
+  const wide = await page.evaluate(() => { const d = document.getElementById('deck').getBoundingClientRect(), one = document.querySelector('.vcge-field-one svg'), r = one && one.getBoundingClientRect();
+    const marks = [...document.querySelectorAll('.vcge-field-tile svg')].map(m => m.getBoundingClientRect()).filter(m => m.right > 0 && m.left < innerWidth);
+    const cardEm = document.querySelector('.deck-card.is-current > .vcge-emblem');
+    return { field: document.documentElement.dataset.emblemField, whole: !!r && r.width > 100 && r.left >= 0 && r.right <= innerWidth && r.top >= 0, beyond: !!r && (r.right > d.right || r.left < d.left), card: (document.querySelector('.deck-card.is-current') || {}).dataset?.card, at: r ? [Math.round(r.left), Math.round(r.right), Math.round(d.left), Math.round(d.right)].join() : '',
+      marks: marks.length, clear: marks.every(m => m.right < d.left - 40 || m.left > d.right + 40), tileShown: getComputedStyle(document.querySelector('.vcge-field-tile')).display !== 'none',
+      cardCopy: cardEm ? getComputedStyle(cardEm).visibility : 'none', width: innerWidth, tier: document.documentElement.dataset.tier, taps: getComputedStyle(document.querySelector('.vcge-field')).pointerEvents }; });
+  ok('wide window: the current card\'s emblem shows whole past an edge of the deck (its clipped copy steps aside), and a sparse tile of whole small copies keeps clear of the deck, taking no taps',
+    wide.field === 'on' && wide.whole && wide.beyond && wide.cardCopy === 'hidden' && wide.tileShown && wide.marks >= 2 && wide.clear && wide.taps === 'none', JSON.stringify(wide));
+  // (the layer must never widen the page: a phone browser zooms out to fit anything past the edge, and the page then
+  // stays wide; iPhone CI 11-04 kept the 1920 tier after going to 1280)
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.waitForFunction(() => document.documentElement.dataset.tier === 'laptop', null, { timeout: 5000 }).catch(() => {});
+  const laptop = await page.evaluate(() => ({ field: document.documentElement.dataset.emblemField, tileShown: getComputedStyle(document.querySelector('.vcge-field-tile')).display !== 'none',
+    tier: document.documentElement.dataset.tier, width: innerWidth, page: document.documentElement.scrollWidth }));
+  ok('laptop window: the whole emblem still shows, the small tile does not (only from 1600 px)', laptop.field === 'on' && !laptop.tileShown && laptop.width === 1280 && laptop.page <= 1280, JSON.stringify(laptop));
+  if (vpWas) { await page.setViewportSize(vpWas); await page.waitForTimeout(300); }
   await setHand(page, true);
   const headerOrder = () => page.evaluate(() => ['navSettings', 'navVault', 'navWelcome', 'navCapture', 'navShare'].map(id => document.getElementById(id).getBoundingClientRect().left));
   const [xSettings, xVault, xMark, xCapture, xShare] = await headerOrder();
@@ -2499,7 +2520,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       && shutterRing.round.startsWith('999') && /inset/.test(shutterRing.ring) && shutterRing.clip === 'content-box' && shutterRing.ring.includes(shutterRing.disc), JSON.stringify({ shutter, shutterRing }));
     // A chip zooms the same way the fader did: 2× eases to 2x, 1× back
     await pV.bringToFront();   // (a page not in front may get no taps in Firefox, CI 11-02)
-    await pV.click('#zoomChips [data-zoom="2"]');
+    // A real mouse press at the chip's centre on screen, after checking that nothing covers it there.
+    // (Playwright's own click in Firefox sent no press at all once the picture was zoomed to 2x: the VM lab
+    // saw only a focus event, while a press at the same point reached the chip; 11-03.)
+    const pressChip = async (z) => { const at = await pV.$eval(`#zoomChips [data-zoom="${z}"]`, b => { const r = b.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+      return { x, y, top: document.elementFromPoint(x, y) === b }; }); if (at.top) await pV.mouse.click(at.x, at.y); return at.top; };
+    const chip2Top = await pressChip('2');
     const chipLanded = await pV.waitForFunction(() => document.getElementById('cameraStream').style.transform === 'scale(2)', null, { timeout: 5000 }).then(() => true, () => false);
     const chipPressed = await pV.$$eval('#zoomChips [data-zoom]', bs => bs.map(b => b.getAttribute('aria-pressed')).join());
     // (where the 1× tap lands, for a miss: Firefox CI saw the zoom stay at 2x after it)
@@ -2509,10 +2535,16 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pV.evaluate(() => { const log = window.__chipLog = [], b = document.querySelector('#zoomChips [data-zoom="1"]');
       const note = (where) => (e) => log.push(`${where}:${e.type}${e.pointerType ? '/' + e.pointerType : ''}@${Math.round(e.clientX)},${Math.round(e.clientY)}${e.type === 'click' ? ' d' + e.detail : ''}`);
       ['pointerdown', 'touchstart', 'touchend', 'mousedown', 'mouseup', 'click', 'dblclick', 'focus'].forEach(t => { window.addEventListener(t, note('win'), true); b.addEventListener(t, note('chip')); }); });
-    await pV.click('#zoomChips [data-zoom="1"]');
-    const chipBack = await pV.waitForFunction(() => document.getElementById('cameraStream').style.transform === '' && document.getElementById('zoomDisplay').textContent === '1.0x', null, { timeout: 5000 }).then(() => true, () => false);
+    const chip1Top = await pressChip('1');
+    const chipIsBack = () => pV.waitForFunction(() => document.getElementById('cameraStream').style.transform === '' && document.getElementById('zoomDisplay').textContent === '1.0x', null, { timeout: 5000 }).then(() => true, () => false);
+    let chipBack = await chipIsBack(), chipRetry = '';
+    // One retry, only when no press reached the page at all (raven575's one-time exception, 02:34 UTC 11-04): Playwright's Firefox
+    // drops the first 1× press after the run's first 2× zoom, with no pointer or mouse event (VM labs 9, 10, 13), while a real tap in
+    // Firefox zooms back first time. A press that reached the page and did not zoom back is never retried, so an app bug still fails.
+    if (!chipBack && !(await pV.evaluate(() => (window.__chipLog || []).some(e => /^(win|chip):(pointerdown|mousedown)/.test(e))))) {
+      const again = await pressChip('1'); chipBack = again && await chipIsBack(); chipRetry = ` | retried: no press reached the page (${again ? 'pressed again' : 'chip covered'})`; }
     const chipAfter = chipBack ? '' : await pV.evaluate(() => `transform "${document.getElementById('cameraStream').style.transform}", readout ${document.getElementById('zoomDisplay').textContent}, slider ${document.getElementById('zoomSlider').value}, pressed ${Array.from(document.querySelectorAll('#zoomChips [data-zoom]')).map(b => b.getAttribute('aria-pressed')).join()}, focus ${document.activeElement && (document.activeElement.getAttribute('data-zoom') || document.activeElement.id)}, finder scrolled ${document.getElementById('viewfinderArea').scrollLeft},${document.getElementById('viewfinderArea').scrollTop}, events ${(window.__chipLog || []).join(' ')}, page zoom ${window.visualViewport ? [visualViewport.scale, Math.round(visualViewport.offsetLeft), Math.round(visualViewport.offsetTop)].join(',') : 'n/a'}`);
-    ok('zoom chips: 2× zooms the camera to 2x and shows pressed; 1× takes it back', chipLanded && chipPressed === 'false,false,true' && chipBack && (await pV.$eval('#zoomChips [data-zoom="1"]', b => b.getAttribute('aria-pressed'))) === 'true', `${chipLanded} ${chipPressed} ${chipBack}${chipAfter ? ' | 1× tap at ' + chipHit + ' | after: ' + chipAfter : ''}`);
+    ok('zoom chips: 2× zooms the camera to 2x and shows pressed; 1× takes it back', chip2Top && chip1Top && chipLanded && chipPressed === 'false,false,true' && chipBack && (await pV.$eval('#zoomChips [data-zoom="1"]', b => b.getAttribute('aria-pressed'))) === 'true', `${chip2Top} ${chip1Top} ${chipLanded} ${chipPressed} ${chipBack}${chipRetry}${chipAfter ? ' | 1× tap at ' + chipHit + ' | after: ' + chipAfter : ''}`);
     ok('viewfinder: the shutter sits in the middle 60 percent of the screen height', (shutter.t + shutter.b) / 2 > 844 * 0.2 && (shutter.t + shutter.b) / 2 < 844 * 0.8, String((shutter.t + shutter.b) / 2));
 
     // The fader eases into a change: the readout passes through a value between 1 and 2 before landing on 2.0x
