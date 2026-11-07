@@ -1620,6 +1620,24 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('edition: plain names every dock step instead of its pilot, and the Thank You page says "Session ended."',
     Object.values(ed.PLAIN_NAV).join() === 'Capture,Read,Details,Card,Share,QR' && ed.PLAIN_THANKS === 'Session ended.'
     && (html.match(/id="nav(?:Capture|Read|Fields|Card|Qr|Share)"/g) || []).map(m => m.slice(4, -1)).join() === Object.keys(ed.PLAIN_NAV).join());
+  {
+    // Settings > Plain look (raven575, 2026-11-03): the Herd build reads look=1 from the saved entry before anything draws
+    const rootOf = (dataset = {}) => ({ documentElement: { dataset } });
+    const storeOf = (line) => ({ getItem: (k) => (k === 'vcge_settings' ? line : null) });
+    const herdOn = rootOf(), herdOff = rootOf(), dl = rootOf({ edition: 'plain' }), blocked = rootOf();
+    const on = ed.applySavedLook(herdOn, storeOf('hand=0;cb=0;theme=0;font=0;size=0;wipe=0;look=1'));
+    const off = ed.applySavedLook(herdOff, storeOf('hand=0;cb=0;theme=0;font=0;size=0;wipe=0'));
+    const dlOn = ed.applySavedLook(dl, storeOf('look=1'));
+    const blockedOn = ed.applySavedLook(blocked, { getItem() { throw new Error('blocked'); } });
+    ok('Plain look: look=1 in vcge_settings makes the Herd build plain (data-edition) and marks it as the look (data-look)',
+      on && ed.isPlain(herdOn) && ed.isPlainLook(herdOn) && herdOn.documentElement.dataset.look === 'plain', JSON.stringify(herdOn));
+    ok('Plain look: without look=1, or with storage blocked, the Herd build stays Herd', !off && !ed.isPlain(herdOff) && !ed.isPlainLook(herdOff) && !blockedOn && !ed.isPlain(blocked));
+    ok('Plain look: the Plain download is plain by its html line and is never marked as the look', !dlOn && ed.isPlain(dl) && !ed.isPlainLook(dl));
+    ok('Plain look: only an exact look=1 counts (look=10, xlook=1, a missing entry do not)', ed.savedLookPlain('look=1') && ed.savedLookPlain('hand=1;look=1;tex=1')
+      && !ed.savedLookPlain('look=10') && !ed.savedLookPlain('xlook=1') && !ed.savedLookPlain('look=0') && !ed.savedLookPlain(null) && ed.SETTINGS_KEY === 'vcge_settings');
+    ok('Plain look: ui.js applies the saved look just before the edition, so every plain rule runs as in the Plain download',
+      /applySavedLook\(\);[^\n]*\n\s*applyEdition\(\);/.test(fs.readFileSync(`${R}/modules/mod01-shell/ui.js`, 'utf8')));
+  }
   ok('logo: no icon link points at a host', ![...html.matchAll(/<link[^>]+rel="(?:icon|apple-touch-icon)"[^>]*>/g)].some(m => /https?:/.test(m[0])));
   // Shutout's touches (shellArt.js, the "make it cute" round): the turtle and the plates are pictures only, branded only
   const art = await import(`${R}/modules/mod01-shell/shellArt.js`);
@@ -1712,7 +1730,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const st = await import(`${R}/modules/mod01-shell/settings.js`);
   const ui = await import(`${R}/modules/mod01-shell/ui.js`);
   localStorage.clear();
-  ok('settings: one key, defaults right hand, colour-blind off, dark theme, Inter, normal text size', st.SETTINGS_KEY === 'vcge_settings' && JSON.stringify(st.DEFAULTS) === '{"hand":0,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0}' && st.fontFor(0) === 'Inter' && st.scaleFor(0) === 1);
+  ok('settings: one key, defaults right hand, colour-blind off, dark theme, Inter, normal text size', st.SETTINGS_KEY === 'vcge_settings' && JSON.stringify(st.DEFAULTS) === '{"hand":0,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}' && st.fontFor(0) === 'Inter' && st.scaleFor(0) === 1);
   ok('settings: the wipe after the lock is 7, 10 or 15 minutes, codes 0, 1, 2; 7 is the default and an unknown code is 7', st.WIPE_TIMES.map(t => `${t.code}:${t.minutes}`).join() === '0:7,1:10,2:15'
     && st.wipeMinutesFor(0) === 7 && st.wipeMinutesFor(1) === 10 && st.wipeMinutesFor(2) === 15 && st.wipeMinutesFor(9) === 7);
   {
@@ -1724,23 +1742,26 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('settings: text sizes Small, Normal, Large, Larger, smallest first, each with its own fixed code; an unknown code is Normal', st.TEXT_SIZES.map(t => t.name).join() === 'Small,Normal,Large,Larger'
     && st.TEXT_SIZES.every((t, i) => i === 0 || t.scale > st.TEXT_SIZES[i - 1].scale) && new Set(st.TEXT_SIZES.map(t => t.code)).size === 4 && st.scaleFor(2) === 1.25 && st.scaleFor(9) === 1);
   ok('settings: every Settings font has its own fixed code, Inter 0, no code shared', ui.UI_FONTS.every(n => Number.isInteger(st.FONT_CODES[n])) && new Set(Object.values(st.FONT_CODES)).size === ui.UI_FONTS.length && Object.keys(st.FONT_CODES).length === ui.UI_FONTS.length);
-  ok('settings: a line of name=number pairs reads back', JSON.stringify(st.parseSettings('hand=1;cb=1;theme=1;font=3;size=2;wipe=1')) === '{"hand":1,"cb":1,"theme":1,"font":3,"size":2,"wipe":1,"mode":0,"style":0,"tex":0}');
-  ok('settings: an entry saved before the text size and wipe time existed reads as Normal and 7 minutes', JSON.stringify(st.parseSettings('hand=1;cb=0;theme=0;font=2')) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0}');
+  ok('settings: a line of name=number pairs reads back', JSON.stringify(st.parseSettings('hand=1;cb=1;theme=1;font=3;size=2;wipe=1')) === '{"hand":1,"cb":1,"theme":1,"font":3,"size":2,"wipe":1,"mode":0,"style":0,"tex":0,"look":0}');
+  ok('settings: an entry saved before the text size and wipe time existed reads as Normal and 7 minutes', JSON.stringify(st.parseSettings('hand=1;cb=0;theme=0;font=2')) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}');
   ok('settings: missing or unreadable means the defaults', JSON.stringify(st.parseSettings(null)) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('garbage')) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('')) === JSON.stringify(st.DEFAULTS));
-  ok('settings: an unknown name, an out-of-range or non-numeric value falls back to its default, the rest is kept', JSON.stringify(st.parseSettings('hand=1;name=Maria;cb=7;theme=x;font=99;size=4')) === '{"hand":1,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0}');
+  ok('settings: an unknown name, an out-of-range or non-numeric value falls back to its default, the rest is kept', JSON.stringify(st.parseSettings('hand=1;name=Maria;cb=7;theme=x;font=99;size=4')) === '{"hand":1,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}');
   ok('settings: serialises every name in a fixed order and clamps', st.serializeSettings({ font: 2, hand: 1, size: 3 }) === 'hand=1;cb=0;theme=0;font=2;size=3;wipe=0' && st.serializeSettings({ cb: 5 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0');
+  ok('settings: Plain look is look=1, written only while on (an entry nobody switched reads as before); look=2 is out of range',
+    st.serializeSettings({ look: 1 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0;look=1' && st.serializeSettings({ look: 0 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0'
+    && st.parseSettings('look=2').look === 0 && st.parseSettings('tex=1;look=1').look === 1);
   st.saveSettings({ hand: 1, font: 2 });
   ok('settings: save writes the one key and nothing else', localStorage.getItem('vcge_settings') === 'hand=1;cb=0;theme=0;font=2;size=0;wipe=0' && store.size === 1);
-  ok('settings: load reads it back', JSON.stringify(st.loadSettings()) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0}');
+  ok('settings: load reads it back', JSON.stringify(st.loadSettings()) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}');
   st.clearSettings();
   ok('settings: clear removes it', store.size === 0 && JSON.stringify(st.loadSettings()) === JSON.stringify(st.DEFAULTS));
   localStorage.setItem('vcge_theme_preference', 'light');
-  ok('settings: the old theme key is carried over once and removed', JSON.stringify(st.loadSettings()) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0}' && localStorage.getItem('vcge_theme_preference') === null && store.size === 0);
+  ok('settings: the old theme key is carried over once and removed', JSON.stringify(st.loadSettings()) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}' && localStorage.getItem('vcge_theme_preference') === null && store.size === 0);
   const code = fs.readFileSync(`${R}/modules/mod01-shell/settings.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-  ok('settings: subscribes to SETTINGS_WIPE_REQUESTED, imports only the bus, ui.js and themes.js, no network, cookies or markup', /subscribe\(Events\.SETTINGS_WIPE_REQUESTED/.test(code)
-    && (code.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ui.js'") || l.includes("'./themes.js'")) && !/fetch\(|document\.cookie|sessionStorage|indexedDB|innerHTML|publish\(/.test(code));
+  ok('settings: subscribes to SETTINGS_WIPE_REQUESTED, imports only the bus, ui.js, themes.js and edition.js, no network, cookies or markup', /subscribe\(Events\.SETTINGS_WIPE_REQUESTED/.test(code)
+    && (code.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ui.js'") || l.includes("'./themes.js'") || l.includes("'./edition.js'")) && !/fetch\(|document\.cookie|sessionStorage|indexedDB|innerHTML|publish\(/.test(code));
   ok('settings: the only storage key named in the code is the settings key (plus the old theme key it removes)', [...code.matchAll(/(?:getItem|setItem|removeItem)\((\w+)/g)].every(m => m[1] === 'SETTINGS_KEY' || m[1] === 'OLD_THEME_KEY'));
-  ok('settings: the Settings sheet and the Welcome card carry the one-file disclaimer', fs.readFileSync(`${R}/../index.html`, 'utf8').includes('vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time). Nothing you scan, upload or type is ever saved.')
+  ok('settings: the Settings sheet and the Welcome card carry the one-file disclaimer', fs.readFileSync(`${R}/../index.html`, 'utf8').includes('vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look). Nothing you scan, upload or type is ever saved.')
     && /<section id="cardWelcome"[\s\S]*?remembers none of your sensitive data[\s\S]*?<\/section>/.test(fs.readFileSync(`${R}/../index.html`, 'utf8')) && !fs.existsSync(`${R}/modules/mod01-shell/themeManager.js`));
   // App themes (themes.js, theme step 1): fixed codes, readable colours, branded ones left out of plain
   const th = await import(`${R}/modules/mod01-shell/themes.js`);
@@ -1794,7 +1815,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('settings 0.8: the six styles keep fixed codes (Herd 0, Material 1, iOS 2, Windows 3, GNOME 4, KDE 5); an unknown code is Herd',
     st.STYLES.map(t => `${t.code}:${t.id}`).join() === '0:herd,1:material,2:ios,3:windows,4:gnome,5:kde' && st.styleFor(9).id === 'herd' && st.parseSettings('style=6').style === 0);
   ok('settings 0.8: an entry from 0.7 (no mode, style or tex) reads as the fixed theme, Herd style and the texture on',
-    JSON.stringify(st.parseSettings('hand=0;cb=0;theme=1;font=0;size=0;wipe=0')) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0}'
+    JSON.stringify(st.parseSettings('hand=0;cb=0;theme=1;font=0;size=0;wipe=0')) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}'
     && st.effectiveTheme(st.parseSettings('theme=1'), true) === 1 && st.effectiveTheme(st.parseSettings('theme=0'), false) === 0);
   ok('settings 0.8: Appearance System shows the family\'s light or dark code by the device; a one-version theme stays itself',
     st.effectiveTheme({ theme: 1, mode: 1 }, true) === 0 && st.effectiveTheme({ theme: 0, mode: 1 }, false) === 1
@@ -1822,11 +1843,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
       && /id="auditLog"/.test(vault5) && /id="vaultLockNowBtn"/.test(vault5) && /id="wipeVaultBtn"[^>]*>.*sprite\.svg#trash/.test(vault5)
       && vault5.indexOf('id="wipeVaultBtn"') > vault5.indexOf('id="auditLog"'));
     ok('R5: the trash left the cards (it is the Vault sheet\'s wipe button now)', !/class="vcge-trash"/.test(html5));
-    ok('R5 Settings sheet: theme swatches, Appearance System / Light / Dark, the six styles, the text-size slider, the Comfort switches, a Plain look switch that is never live, the credit and About',
+    ok('R5 Settings sheet: theme swatches, Appearance System / Light / Dark, the six styles, the text-size slider, the Comfort switches, a live Plain look switch with its ask, the credit and About',
       /id="appThemes"/.test(set5) && [...set5.matchAll(/data-v="(\w+)"/g)].map(m => m[1]).join() === 'system,light,dark'
       && [...set5.matchAll(/data-style="(\w+)"/g)].map(m => m[1]).join() === st.STYLES.map(t => t.id).join()
       && /<input id="sizeRange" type="range"/.test(set5) && ['handToggle', 'cbToggle', 'texToggle'].every(id => new RegExp(`<input id="${id}" type="checkbox" role="switch"`).test(set5))
-      && /<input id="plainToggle" type="checkbox" role="switch" class="r5-toggle" disabled/.test(set5) && /separate download/.test(set5)
+      && /<input id="plainToggle" type="checkbox" role="switch" class="r5-toggle" aria-describedby="plainNote">/.test(set5) && /id="plainConfirm" class="r5-plain-confirm hidden"/.test(set5)
       && /class="vcge-pm-credit"/.test(set5) && /id="settingsAbout"/.test(set5));
     ok('R5: the texture switch hides the dot texture, and each of the five other styles has its own look',
       /html\[data-tex="off"\] \.vcge-tex \{ display: none; \}/.test(css5) && ['material', 'ios', 'windows', 'gnome', 'kde'].every(k => css5.includes(`html[data-style="${k}"]`)));

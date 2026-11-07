@@ -673,8 +673,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   await page.click('#navSettings');
   ok('the cog opens Settings (0.8 sheet): theme swatches, Appearance, the six styles, text size, font, the Left-handed, colour-blind, texture and Plain look switches, and the disclaimer', await page.isVisible('#settingsSheet') && await page.isVisible('#handToggle') && await page.isVisible('#cbToggle') && await page.isVisible('#appThemes [data-family="herd"]')
     && await page.isVisible('#appearanceChips') && (await page.$$eval('#styleChips button', bs => bs.map(b => b.textContent).join())) === 'Herd,Material,iOS,Windows,GNOME,KDE'
-    && await page.isVisible('#sizeRange') && await page.isVisible('#fontSelect') && await page.isVisible('#texToggle') && await page.$eval('#plainToggle', c => c.disabled) && /separate download|This is the Plain edition/.test(await text('plainNote'))
-    && (await text('settingsNote')) === 'vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time). Nothing you scan, upload or type is ever saved.');
+    && await page.isVisible('#sizeRange') && await page.isVisible('#fontSelect') && await page.isVisible('#texToggle') && await page.$eval('#plainToggle', c => c.disabled === (document.documentElement.dataset.edition === 'plain')) && (EDITION_PLAIN ? /This is the Plain edition/ : /Hides the Herd pilots and art/).test(await text('plainNote'))
+    && (await text('settingsNote')) === 'vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look). Nothing you scan, upload or type is ever saved.');
   ok('the font list is the seven fonts, alphabetical, Inter chosen', (await page.$$eval('#fontSelect option', os => os.map(o => o.textContent).join('|'))) === 'Atkinson Hyperlegible|Comic Neue|Inter|Lexend|Macondo|OpenDyslexic|Tinos'
     && (await page.$eval('#fontSelect', s => s.selectedOptions[0].textContent)) === 'Inter');
   ok('every settings control is at least 44 px tall (the switches are 34 px tracks in a row at least 44 px tall)', (await page.$$eval('#appThemes button, #appearanceChips button, #styleChips button, #fontSelect', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44)
@@ -775,7 +775,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     && sys.entry === `hand=0;cb=1;theme=${sys.sysDark ? 0 : 1};font=2;size=0;wipe=0;mode=1`, JSON.stringify(sys));
   await page.click('#appearanceChips [data-v="light"]');
   ok('Appearance Light: Herd light, mode leaves the entry', !(await htmlState()).dark && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2;size=0;wipe=0');
-  ok('Plain look is shown but never live: a disabled switch that says Plain is its own build', await page.$eval('#plainToggle', c => c.disabled && c.checked === (document.documentElement.dataset.edition === 'plain')));
+  ok(EDITION_PLAIN ? 'Plain look: in the Plain download the switch is on and fixed (that build is plain by its html line)' : 'Plain look: in the Herd build the switch is live and off (it is tried on a page of its own, below)',
+    await page.$eval('#plainToggle', c => c.checked === (document.documentElement.dataset.edition === 'plain') && c.disabled === (document.documentElement.dataset.edition === 'plain')));
   // Settings polish from raven575's iPad video: the cog by the title (#13) and a text size that leaves the header alone (#6)
   ok('Settings shows the cog left of its title', (await page.$eval('#settingsTitle use', u => u.getAttribute('href'))).endsWith('#settings')
     && await page.$eval('#settingsTitle', h => h.firstElementChild.tagName.toLowerCase() === 'svg'));
@@ -1675,6 +1676,53 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('sample then scan: no page errors', errorsS.length === 0, errorsS.join(' | '));
     await ctxS.close();
   });
+
+  // Settings > Plain look (raven575, 2026-11-03): the Herd build switches to the Plain look and back. Switching starts vCGE
+  // fresh; with contacts in memory it asks first. The Plain download keeps its own fixed switch (checked above).
+  if (!EDITION_PLAIN) {
+    const ctxP = await browser.newContext();
+    const pP = await ctxP.newPage();
+    const errorsP = [];
+    pP.on('pageerror', e => errorsP.push(e.message));
+    pP.on('console', m => { if (m.type() === 'error') errorsP.push('console: ' + m.text()); });
+    const plainSamples = ['Sample contact', ...SAMPLES_PLAIN.map(([f, l, o]) => `${f} ${l}, ${o}`)].join('|');
+    const lookNow = () => pP.evaluate(() => { const sw = document.getElementById('plainToggle'), ask = document.getElementById('plainConfirm');
+      return { edition: document.documentElement.dataset.edition || '', look: document.documentElement.dataset.look || '', entry: localStorage.getItem('vcge_settings'),
+        nav: [...document.querySelectorAll('.deck-header button[aria-label], .vcge-dock button[aria-label]')].map(b => b.getAttribute('aria-label')).join('|'),
+        samples: [...document.querySelectorAll('#fakeContactSelect option')].map(o => o.textContent).join('|'), tagline: !!document.getElementById('welcomeTagline'),
+        thanks: (document.getElementById('thankYouText') || {}).textContent || '', on: sw.checked, disabled: sw.disabled, asking: !ask.classList.contains('hidden') }; });
+    const openSettings = async () => { await pP.click('#navSettings'); await pP.waitForSelector('#settingsSheet', { state: 'visible' }); };
+    const flipStartsFresh = async (click) => { await Promise.all([pP.waitForNavigation({ timeout: 10000 }), pP.click(click)]); await pP.waitForTimeout(400); };
+    await pP.goto(ORIGIN); await pP.waitForTimeout(300);
+    const herd = await lookNow();
+    ok('Plain look: the Herd build opens in the Herd look, the switch live and off, nothing saved', herd.edition === '' && herd.look === '' && !herd.on && !herd.disabled && !herd.asking
+      && herd.entry === null && / \((?:Iris|Glyph)\)/.test(herd.nav) && herd.samples === sampleList() && herd.tagline, JSON.stringify(herd));
+    await openSettings();
+    await flipStartsFresh('label[for="plainToggle"]');
+    const plainOn = await lookNow();
+    ok('Plain look on with nothing in memory: no ask, vCGE starts fresh in the Plain look (look=1 saved, no pilot names, the plain samples, no tagline, "Session ended.")',
+      plainOn.edition === 'plain' && plainOn.look === 'plain' && plainOn.entry === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0;look=1' && plainOn.on && !plainOn.disabled
+      && !/ \([A-Z][a-z]+\)/.test(plainOn.nav) && plainOn.samples === plainSamples && !plainOn.tagline && plainOn.thanks === 'Session ended.', JSON.stringify(plainOn));
+    // A contact in memory: the switch asks first; Keep leaves everything as it was
+    await pP.click('#navFields'); await pP.waitForTimeout(500);
+    await pP.selectOption('#fakeContactSelect', '2'); await pP.waitForTimeout(400);
+    await openSettings();
+    await pP.click('label[for="plainToggle"]'); await pP.waitForTimeout(300);
+    const asked = await lookNow();
+    ok('Plain look off with a contact in memory: it asks "clears your current contacts. Are you sure?" and nothing is saved or restarted yet',
+      asked.asking && !asked.on && asked.look === 'plain' && /;look=1$/.test(asked.entry) && /clears your current contacts\. Are you sure\?/.test(await pP.textContent('#plainConfirmText')), JSON.stringify(asked));
+    await pP.click('#plainNoBtn'); await pP.waitForTimeout(200);
+    const kept = await lookNow();
+    ok('Plain look: Keep them puts the switch back on, hides the ask, and stays plain with the contact', !kept.asking && kept.on && kept.look === 'plain' && /;look=1$/.test(kept.entry)
+      && await pP.evaluate(() => !!document.getElementById('firstName') && document.getElementById('firstName').value !== ''), JSON.stringify(kept));
+    await pP.click('label[for="plainToggle"]'); await pP.waitForTimeout(200);
+    await flipStartsFresh('#plainYesBtn');
+    const back = await lookNow();
+    ok('Plain look: Yes, switch starts vCGE fresh in the Herd look again (look leaves the entry, the pilots are back)', back.edition === '' && back.look === '' && !back.on
+      && back.entry === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0' && / \((?:Iris|Glyph)\)/.test(back.nav) && back.samples === sampleList() && back.tagline, JSON.stringify(back));
+    ok('Plain look: no page errors while switching', errorsP.length === 0, errorsP.join(' | '));
+    await ctxP.close();
+  }
 
   // Fields card (MOD05, redesign step 7): the "Sample vCGE pilot contact" list, the pop-in on arrival, "Everything's correct"
   {

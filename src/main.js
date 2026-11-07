@@ -1154,7 +1154,7 @@ function wireAuditLog() {
 
 function boot() {
     maskSecretInputs();
-    initSettings();          // the one saved entry: hand, colour-blind mode, theme, font
+    initSettings(document, { hasContacts: () => hasWork() || !vaultStore.isEmpty(), restart: startFresh });   // the one saved entry: hand, colour-blind mode, theme, font, look
     // MOD01's deck talks to the other modules only through these hooks (and the CARD_CHANGED signal on the bus).
     useDeck({
         toast: (message) => cardView.showToast(message),

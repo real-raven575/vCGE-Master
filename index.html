@@ -128,7 +128,7 @@
                         <button id="welcomeSampleBtn" type="button" class="r2-quiet">Play with sample fields</button>
                         <button id="welcomeCancelBtn" type="button" class="r2-quiet r2-quiet-stop">CANCEL</button>
                     </div>
-                    <p class="r2-fine">This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data: it keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time), and nothing you scan, upload or type is ever saved.</p>
+                    <p class="r2-fine">This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data: it keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look), and nothing you scan, upload or type is ever saved.</p>
                 </div>
             </div>
         </section>
@@ -647,10 +647,17 @@
                         <label class="r5-lbl" for="texToggle"><b>Background texture</b><small>A soft dot pattern behind the screens</small></label>
                         <input id="texToggle" type="checkbox" role="switch" class="r5-toggle" checked>
                     </div>
-                    <!-- Plain is its own build (the plain edition): the switch shows where it would be, and is never live here -->
+                    <!-- Plain look: live in the Herd build (starts vCGE fresh in the Plain look); on and fixed in the Plain download -->
                     <div class="r5-sw-row r5-plain-row">
-                        <label class="r5-lbl" for="plainToggle"><b>Plain look</b><small id="plainNote">A separate download: the Plain edition hides the Herd pilots and art</small></label>
-                        <input id="plainToggle" type="checkbox" role="switch" class="r5-toggle" disabled aria-describedby="plainNote">
+                        <label class="r5-lbl" for="plainToggle"><b>Plain look</b><small id="plainNote">Hides the Herd pilots and art. vCGE starts fresh to switch</small></label>
+                        <input id="plainToggle" type="checkbox" role="switch" class="r5-toggle" aria-describedby="plainNote">
+                    </div>
+                    <div id="plainConfirm" class="r5-plain-confirm hidden" role="group" aria-labelledby="plainConfirmText">
+                        <span id="plainConfirmText">Switching starts vCGE fresh and clears your current contacts. Are you sure?</span>
+                        <span class="r5-plain-confirm-btns">
+                            <button id="plainYesBtn" type="button" class="r5-mini">Yes, switch</button>
+                            <button id="plainNoBtn" type="button" class="r5-mini">Keep them</button>
+                        </span>
                     </div>
                 </div>
                 <!-- Project manager credit (branded only) and About (CRTV-0020): the maker mark, the wordmark and the credits -->
@@ -661,7 +668,7 @@
                     <p>vCGE 0.8</p>
                     <p>&copy; 2026 raven575, Herd of Helpers (claude) &amp; gemini</p>
                 </div>
-                <p id="settingsNote" class="r5-foot">vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time). Nothing you scan, upload or type is ever saved.</p>
+                <p id="settingsNote" class="r5-foot">vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look). Nothing you scan, upload or type is ever saved.</p>
             </div>
         </div>
     </div>

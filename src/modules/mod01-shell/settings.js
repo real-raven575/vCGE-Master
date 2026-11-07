@@ -35,7 +35,8 @@ import { globalEventBus, Events } from '../../share/eventBus.js';
 import { UI_FONTS, DEFAULT_UI_FONT } from './ui.js';
 import { THEMES, THEME_FAMILIES, themeFor, familyOf, familyCode, applyTheme } from './themes.js';
 
-export const SETTINGS_KEY = 'vcge_settings';
+import { SETTINGS_KEY, isPlainLook } from './edition.js';
+export { SETTINGS_KEY };
 const OLD_THEME_KEY = 'vcge_theme_preference';
 
 // Fixed, never reused: the order the fonts were added, not the alphabetical order shown in Settings.
@@ -55,12 +56,12 @@ export const STYLES = Object.freeze([
     { code: 0, id: 'herd', name: 'Herd' }, { code: 1, id: 'material', name: 'Material' }, { code: 2, id: 'ios', name: 'iOS' },
     { code: 3, id: 'windows', name: 'Windows' }, { code: 4, id: 'gnome', name: 'GNOME' }, { code: 5, id: 'kde', name: 'KDE' }
 ]);
-export const DEFAULTS = Object.freeze({ hand: 0, cb: 0, theme: 0, font: FONT_CODES[DEFAULT_UI_FONT], size: 0, wipe: 0, mode: 0, style: 0, tex: 0 });
+export const DEFAULTS = Object.freeze({ hand: 0, cb: 0, theme: 0, font: FONT_CODES[DEFAULT_UI_FONT], size: 0, wipe: 0, mode: 0, style: 0, tex: 0, look: 0 });
 // The names every entry has carried since step 4; the 0.8 ones (mode, style, tex) are written only once they differ from
 // their defaults, so an entry nobody changed them in reads exactly as before.
 const CORE = ['hand', 'cb', 'theme', 'font', 'size', 'wipe'];
 const RANGE = { hand: 1, cb: 1, theme: Math.max(...THEMES.map(t => t.code)), font: Math.max(...Object.values(FONT_CODES)), size: Math.max(...TEXT_SIZES.map(t => t.code)),
-    wipe: Math.max(...WIPE_TIMES.map(t => t.code)), mode: 1, style: Math.max(...STYLES.map(t => t.code)), tex: 1 };
+    wipe: Math.max(...WIPE_TIMES.map(t => t.code)), mode: 1, style: Math.max(...STYLES.map(t => t.code)), tex: 1, look: 1 };
 
 /** The text-size factor for a code (1 when the code is unknown). */
 export function scaleFor(code) {
@@ -170,7 +171,8 @@ export const SWATCH_GROUPS = Object.freeze([
  * Light / Dark), #styleChips (the six platform styles), #sizeRange (text size), #fontSelect, and the switches #handToggle,
  * #cbToggle and #texToggle. The Vault sheet: #wipeChips (7, 10 or 15 minutes after the lock).
  */
-export function initSettings(doc = document) {
+/** hasContacts: true while anything is held in memory (MOD02's vault); restart: starts vCGE fresh (main.js passes startFresh). */
+export function initSettings(doc = document, { hasContacts = () => false, restart = () => {} } = {}) {
     const $ = (id) => doc.getElementById(id);
     const win = doc.defaultView || (typeof window !== 'undefined' ? window : null);
     const dark = () => systemDark(win);
@@ -270,12 +272,26 @@ export function initSettings(doc = document) {
     $('cbToggle')?.addEventListener('change', (e) => set({ cb: e.target.checked ? 1 : 0 }));
     $('texToggle')?.addEventListener('change', (e) => set({ tex: e.target.checked ? 0 : 1 }));
     font?.addEventListener('change', (e) => set({ font: Number(e.target.value) }));
-    // Plain look: plain is its own build, so the switch is never live; in the plain edition it says that this is it
+    // Plain look: in the Plain download the switch is on and fixed (that build is plain by its html line). In the Herd build it
+    // is live: look=1 is saved and vCGE starts fresh in the Plain look (applySavedLook, edition.js); with contacts in memory it
+    // asks first, because starting fresh clears them.
     const plainSw = $('plainToggle');
     if (plainSw) {
-        plainSw.disabled = true; plainSw.checked = plain;
-        const note = $('plainNote');
-        if (note && plain) note.textContent = 'This is the Plain edition: no Herd pilots or art';
+        const note = $('plainNote'), ask = $('plainConfirm');
+        if (plain && !isPlainLook(doc)) {
+            plainSw.disabled = true; plainSw.checked = true;
+            if (note) note.textContent = 'This is the Plain edition: no Herd pilots or art';
+        } else {
+            plainSw.disabled = false; plainSw.checked = s.look === 1;
+            const switchLook = () => { s = { ...s, look: plainSw.checked ? 1 : 0 }; saveSettings(s); restart(); };
+            const hideAsk = () => ask?.classList.add('hidden');
+            plainSw.addEventListener('change', () => {
+                if (!hasContacts() || !ask) return switchLook();
+                ask.classList.remove('hidden');
+            });
+            $('plainYesBtn')?.addEventListener('click', () => { hideAsk(); switchLook(); });
+            $('plainNoBtn')?.addEventListener('click', () => { hideAsk(); plainSw.checked = s.look === 1; });
+        }
     }
     // Appearance on System follows the device as it changes (nothing is written)
     try {
