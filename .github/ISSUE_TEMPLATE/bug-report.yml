@@ -1,0 +1,33 @@
+name: Bug report
+description: Something in vCGE broke, froze or read a card wrong.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping. **Please never attach a real business card photo or anyone's real name, number or address.** Describe the problem, or use made-up details.
+  - type: input
+    id: version
+    attributes:
+      label: vCGE version
+      description: Shown in Settings (for example 0.8.1).
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device and browser
+      description: For example "Pixel 8, Chrome" or "Windows desktop app".
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened, and what did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to make it happen again
+      placeholder: "1. Open Capture\n2. ..."
