@@ -2060,7 +2060,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('README makes no claims beyond what the app does (no outside audit)', !overclaims.some(w => readme.toLowerCase().includes(w.toLowerCase())), overclaims.filter(w => readme.toLowerCase().includes(w.toLowerCase())).join());
   ok('README keeps the tagline and credits Claude and Gemini', readme.includes('Operation: Never Lose Contact') && readme.includes('Team vCGE (Claude)') && readme.includes('Gemini'));
   const forms = ['bug-report.yml', 'feedback.yml'].map(f => fsR.readFileSync(`${R}/../.github/ISSUE_TEMPLATE/${f}`, 'utf8'));
-  ok('README links feedback to GitHub Issues, and every issue form warns against real card photos or contact data', readme.includes('https://github.com/real-raven575/vCGE-Master/issues/new/choose') && forms.every(f => /never (attach|include) a real business card photo/.test(f)));
+  ok('README links feedback to GitHub Issues, and every issue form warns against real card photos or contact data', /\]\(https:\/\/github\.com\/real-raven575\/vCGE-Master\/issues\/new\/choose\)/.test(readme) && forms.every(f => /never (attach|include) a real business card photo/.test(f)));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
