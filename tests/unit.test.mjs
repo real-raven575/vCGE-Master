@@ -2092,6 +2092,19 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const { printPageHeight, PRINT_PAGE_IN } = await import(`${R}/modules/mod08-egress/egressController.js`);
   ok('MOD08 print page: 3.5 in for a sheet that fits, taller (rounded up to 0.01 in) for a card that grows', PRINT_PAGE_IN.height === 3.5 && printPageHeight(278) === 3.5 && printPageHeight(0) === 3.5
     && printPageHeight(450) === 5.29 && printPageHeight(451) === 5.3, [printPageHeight(278), printPageHeight(450), printPageHeight(451)].join());
+  // raven575 2026-11-10: a PDF with the card and a blank square where the QR goes. The print dialog waits for the pictures.
+  const { picturesReady } = await import(`${R}/modules/mod08-egress/egressController.js`);
+  const decodedLater = (ms) => { const img = { complete: false, naturalWidth: 0, decode: () => new Promise(done => setTimeout(() => { img.complete = true; img.naturalWidth = 600; done(); }, ms)) }; return img; };
+  const sheetOf = (...imgs) => ({ querySelectorAll: (sel) => (sel === 'img' ? imgs : []) });
+  const slow = decodedLater(30);
+  await picturesReady(sheetOf({ complete: true, naturalWidth: 600 }, slow), 1000);
+  ok('MOD08 print: picturesReady waits until a QR picture still decoding is ready', slow.complete && slow.naturalWidth === 600);
+  const broken = { complete: false, naturalWidth: 0, decode: () => Promise.reject(new Error('EncodingError')) };
+  const stuck = { complete: false, naturalWidth: 0, decode: () => new Promise(() => {}) };
+  const t0 = Date.now();
+  const settled = await picturesReady(sheetOf(broken, stuck), 50).then(() => 'resolved', () => 'rejected');
+  ok('MOD08 print: a picture that fails or never loads does not stop printing (resolves after the wait, never rejects)', settled === 'resolved' && Date.now() - t0 < 1000, settled);
+  ok('MOD08 print: no sheet or no pictures resolves at once', (await picturesReady(null).then(() => true)) && (await picturesReady(sheetOf()).then(() => true)));
   ok('MOD08 audit events name what happened: share_file, share_text, clipboard, sms, email', methods === 'share_file,share_text,clipboard,sms,email', methods);
   ok('MOD08 audit events carry signals only: no file name, name, number or address (Commandment 6)', events.every(d => Object.keys(d).every(k => ['module', 'method', 'timestamp', 'themed'].includes(k)))
     // the timestamp is left out of the search: its digits are never contact data, and "269" turned up in one now and then
