@@ -239,7 +239,7 @@ export class ExportQrDialog {
 }
 
 export class PrintChoiceDialog {
-    /** @param {{ onChoose: (themed: boolean, options: { nameFile: boolean }) => void }} hooks */
+    /** @param {{ onChoose: (themed: boolean, options: { nameFile: boolean }) => void|Promise<void> }} hooks */
     constructor(hooks = {}) {
         this.hooks = hooks;
         this.root = null;

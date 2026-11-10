@@ -1095,15 +1095,17 @@ function wireEgress() {
         printChoiceDialog.open();
     });
     printChoiceDialog.init({
-        onChoose: (themed, { nameFile = false } = {}) => {
+        onChoose: async (themed, { nameFile = false } = {}) => {
             expectExternalApp();
             const qr = document.createElement('canvas');
             const drawn = renderExportQr(qr, { themed, size: PRINT_QR_PX });
             const warned = themed && drawn.ok && !drawn.themed;
             if (warned) cardView.showToast('The theme colours are not scannable, so the QR is printed in black and white.');
-            const printed = egressController.triggerPhysicalPrint({ themed, qrCanvas: drawn.ok ? qr : null, nameFile });
-            if (printed && printed.success && !warned) { cardView.showToast('Sent to the print dialog.'); flyFalcon(); }
+            // The sheet takes a PNG copy of the QR at once, so the drawing canvas can be emptied before the wait for it.
+            const printing = egressController.triggerPhysicalPrint({ themed, qrCanvas: drawn.ok ? qr : null, nameFile });
             qr.width = qr.height = 0;
+            const printed = await printing;
+            if (printed && printed.success && !warned) { cardView.showToast('Sent to the print dialog.'); flyFalcon(); }
         }
     });
     $('shareNativeBtn').addEventListener('click', async () => {
