@@ -33,6 +33,7 @@ import { VCGEActiveCamera } from './modules/mod03-camera/camera.js';
 import { CropEditor } from './modules/mod03-camera/cropEditor.js';
 import { executeOCRScan, shutdownOCREngine } from './modules/mod04-ocr/ocrWorker.js';
 import { mergeReadings, missingParts, describeMissing, MAX_PHOTOS } from './modules/mod04-ocr/readingQuality.js';
+import { readCardQr, parseQrPayload, withQrLines } from './modules/mod07-qr/qrReader.js';
 import { readIndicator, readThumb, renderReviewRows, initReadCard, resetBlink, READER_UNAVAILABLE_MESSAGE, READER_STOPPED_MESSAGE } from './modules/mod04-ocr/readCard.js';
 import { ContactFormMapper, LINE_ROLES, PHONE_FORMATS } from './modules/mod05-form/formMapper.js';
 import { PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES } from './share/contactOptions.js';
@@ -785,7 +786,10 @@ async function runOcr() {
     try {
         // The first scan (and the first after a wipe) starts the reader from ~7 MB of bundled files: say so.
         const onStatus = (status, fraction) => readIndicator.status(status, fraction);
+        // A QR code printed on the card is searched for while the reader works (accuracy round 1, 2026-11-10).
+        const qrSearch = readCardQr(photo);
         const { text, lines } = await executeOCRScan(photo, { onStatus });
+        const qr = await qrSearch;
         // Finished early: the wash fills up (and the owl closes its eyes) before the review step opens.
         readIndicator.stop(); readIndicator.set(1); readIndicator.finish();
         await new Promise(res => setTimeout(res, 250));
@@ -796,11 +800,11 @@ async function runOcr() {
         const readings = [...heldReadings(), read];
         const missing = missingParts(formMapper.classifyLines(mergeReadings(readings).filter(l => !l.unreadable)));
         if (missing.length && readings.length < MAX_PHOTOS) {
-            ocrVault.put(READINGS[readings.length - 1], { lines: read, at: Date.now() });
+            ocrVault.put(READINGS[readings.length - 1], { lines: read, qr, at: Date.now() });
             askForAnotherPhoto(missing, readings.length + 1);
             return;
         }
-        openReviewFrom(readings, photo);
+        openReviewFrom(readings, photo, qr);
     } catch (e) {
         if (e && e.code === 'OCR_CANCELLED') {
             // Cancel: back to the photo on the Capture card, ready for OK again or a new one. A wipe already cleared everything.
@@ -859,11 +863,18 @@ function showPhotoCount() {
 const reviewPhoto = () => ($('reviewImage').getAttribute('src') ? cropEditor.getCroppedImage() : null);
 
 // The review step with every reading put together: lines no photo could read are listed as Ignore, with a note.
-function openReviewFrom(readings, photo = null) {
+// The text of the first QR code found on any held photo of this card (it waits with that photo's reading).
+function heldQr() {
+    return READINGS.map(slot => ocrVault.get(slot)).filter(Boolean).map(reading => reading.qr).find(Boolean) || null;
+}
+
+function openReviewFrom(readings, photo = null, qr = null) {
+    const qrText = qr || heldQr();
     forgetReadings();
     const merged = mergeReadings(readings);
     const unreadable = merged.filter(l => l.unreadable).map(l => ({ text: l.text, role: 'ignore', icon: l.icon || null, check: UNREADABLE_LINE_NOTE }));
-    ocrReview = { lines: [...formMapper.classifyLines(merged.filter(l => !l.unreadable)), ...unreadable], fields: null };
+    // A QR code's vCard, MECARD or web address is exact: its lines come first and win their fields (MOD07 qrReader.js).
+    ocrReview = { lines: withQrLines([...formMapper.classifyLines(merged.filter(l => !l.unreadable)), ...unreadable], parseQrPayload(qrText)), fields: null };
     renderOcrLines();
     $('ocrBackBtn').classList.toggle('hidden', !$('reviewImage').getAttribute('src'));
     readThumb.show(photo || reviewPhoto());
