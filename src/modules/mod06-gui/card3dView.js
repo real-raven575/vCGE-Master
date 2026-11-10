@@ -10,6 +10,7 @@
  */
 import { CONTACT_FIELDS, createEmptyContact, normalizeContact } from '../../share/cardSchema.js';
 import { isPlain } from '../mod01-shell/edition.js';
+import { pictureSelect } from '../mod01-shell/pictureSelect.js';
 import {
     NAME_PREFIXES, NAME_SUFFIXES, UNIT_TYPES, ADDRESS_TYPES, PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES, COUNTRIES, REGIONS,
     regionLabels, splitStreetUnit, websiteTypeFor
@@ -165,9 +166,27 @@ const LOGO_SIZE_CLASSES = LOGO_SIZES.map(([k]) => `logo-size-${k}`);
 // picture look cut out. Auto is the card's own choice (a plate only where the logo would vanish).
 export const LOGO_BACKS = [['auto', 'Auto', null], ['white', 'Mostly white', '#f8fafc'], ['light', 'Light gray', '#e2e8f0'],
     ['dark', 'Dark gray', '#334155'], ['charcoal', 'Charcoal', '#1e293b']];
-// A texture laid over the card colour in its ink colour, at a strength from 5 to 35 per cent (cardStyles.css).
-export const CARD_FINISHES = [['flat', 'Flat finish'], ['gradient', 'Soft gradient'], ['linen', 'Linen'], ['dots', 'Dots'], ['stripes', 'Stripes']];
-export const DEFAULT_FINISH_STRENGTH = 15;
+// The card's finish (raven575, 2026-11-10): a texture over the card colour (cardStyles.css), each with the strength it
+// starts at (per cent, 5 to 100) and a hint for the picture picker. Paper grain is the start, at 70% with an 8% blur.
+// [key, name, starting strength, hint]
+export const CARD_FINISHES = [
+    ['paper', 'Paper grain', 70, 'Fine grain with fibres, like card stock'],
+    ['cotton', 'Cotton paper', 60, 'Soft and cloudy, like rag paper'],
+    ['watercolour', 'Watercolour paper', 50, 'Gently bumpy, like cold-press paper'],
+    ['thatch', 'Light thatch', 12, 'Faint crossed lines'],
+    ['linen', 'Linen', 15, 'A fine woven grid'],
+    ['gradient', 'Soft gradient', 15, 'Light at the top, shade at the bottom'],
+    ['glow', 'Corner glow', 25, 'A soft light from the top corner'],
+    ['dots', 'Dots', 15, 'Small even dots'],
+    ['stripes', 'Stripes', 15, 'Wide diagonal stripes'],
+    ['flat', 'Flat colour', 0, 'No texture']
+];
+export const DEFAULT_FINISH = 'paper';
+export const DEFAULT_FINISH_STRENGTH = 70;
+export const DEFAULT_FINISH_BLUR = 8;          // per cent: each 1% softens the texture by 0.1 px
+export const finishStartStrength = (key) => (CARD_FINISHES.find(f => f[0] === key) || [])[2] || DEFAULT_FINISH_STRENGTH;
+// A card colour's name on the Card screen: "Slate Blue stock", so it never reads like an app theme of the same name.
+export const stockName = (t) => `${t.label} stock`;
 
 // Ready-made logos to match each palette, hand-drawn (no stock art), in their own colours.
 const grains = () => [0, 1, 2, 3, 4].map(i => { const y = 14 + i * 8;
@@ -270,8 +289,10 @@ export class CardView {
         this.sampleLogoToken = 0;
         this.logoSize = DEFAULT_LOGO_SIZE;
         this.logoBack = null;       // the colour behind the logo the person picked, else null (Auto)
-        this.finish = 'flat';
+        this.finish = DEFAULT_FINISH;
         this.finishStrength = DEFAULT_FINISH_STRENGTH;
+        this.finishBlur = DEFAULT_FINISH_BLUR;
+        this.pickers = {};
     }
 
     init() {
@@ -280,7 +301,7 @@ export class CardView {
         this.attachListeners();
         this.applyTheme(this.themeKey);
         this.applyLogoSize(this.logoSize);
-        this.applyFinish(this.finish, this.finishStrength);
+        this.applyFinish(this.finish, this.finishStrength, this.finishBlur);
         this.setAngle(0);
         this.reportFace();
     }
@@ -448,9 +469,11 @@ export class CardView {
         $('cardFontSelect').replaceChildren(...CARD_FONTS.map(([v, label]) => new Option(label, v)));
         $('cardSizeSelect').replaceChildren(...CARD_SIZES.map(([v, label]) => new Option(label, v)));
         $('logoSizeSelect').replaceChildren(...LOGO_SIZES.map(([v, label]) => new Option(label, v)));
-        $('cardFinishSelect').replaceChildren(...CARD_FINISHES.map(([v, label]) => new Option(label, v)));
+        $('cardFinishSelect').replaceChildren(...CARD_FINISHES.map(([v, label, , hint]) => { const o = new Option(label, v); o.dataset.hint = hint; return o; }));
+        LOGO_SIZES.forEach(([v], i) => { const o = $('logoSizeSelect').options[i]; if (o) o.dataset.hint = ['A little smaller', 'The usual size', 'Bigger and bolder'][i]; });
         this.buildLogoPresets();
         this.buildLogoBacks();
+        this.buildPickers();
         Object.keys(LISTS).forEach(key => this.renderList(key, []));
         this.setContact(createEmptyContact());
     }
@@ -629,6 +652,7 @@ export class CardView {
         this.themeKey = themeKeyOf(themeKey);
         const t = THEMES[this.themeKey];
         $('currentPaletteLabel').textContent = t.label;
+        this.pickers.finish?.rebuild();
         const swatches = $('paletteListContainer');
         if (swatches) swatches.querySelectorAll('button[data-theme]').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.theme === this.themeKey)));
         const flipper = $('card3DFlipper');
@@ -642,6 +666,7 @@ export class CardView {
     applyLogoSize(size) {
         this.logoSize = LOGO_SIZES.some(([k]) => k === size) ? size : DEFAULT_LOGO_SIZE;
         $('logoSizeSelect').value = this.logoSize;
+        this.pickers.logoSize?.refresh();
         $('cardFront').classList.remove(...LOGO_SIZE_CLASSES);
         $('cardFront').classList.add(`logo-size-${this.logoSize}`);
     }
@@ -656,16 +681,59 @@ export class CardView {
         this.render(this.getContact());
     }
 
-    /** The card's finish (one of CARD_FINISHES, else flat) and its strength in per cent (5 to 35). */
-    applyFinish(finish, strength = this.finishStrength) {
-        this.finish = CARD_FINISHES.some(([k]) => k === finish) ? finish : 'flat';
-        this.finishStrength = Math.min(35, Math.max(5, Math.round(Number(strength)) || DEFAULT_FINISH_STRENGTH));
+    /** The card's finish (one of CARD_FINISHES, else Paper grain), its strength in per cent (5 to 100; a new finish
+     *  starts at its own) and its blur in per cent (0 to 20; 1% is 0.1 px). Flat has neither slider. */
+    applyFinish(finish, strength, blur = this.finishBlur) {
+        const known = CARD_FINISHES.some(([k]) => k === finish) ? finish : DEFAULT_FINISH;
+        if (strength === undefined) strength = known === this.finish ? this.finishStrength : finishStartStrength(known);
+        this.finish = known;
+        this.finishStrength = Math.min(100, Math.max(5, Math.round(Number(strength)) || finishStartStrength(known)));
+        const b = Math.round(Number(blur));
+        this.finishBlur = Number.isFinite(b) ? Math.min(20, Math.max(0, b)) : DEFAULT_FINISH_BLUR;
         const flipper = $('card3DFlipper');
         flipper.dataset.finish = this.finish;
         flipper.style.setProperty('--finish-a', String(this.finishStrength / 100));
+        flipper.style.setProperty('--finish-blur', `${this.finishBlur / 10}px`);
         $('cardFinishSelect').value = this.finish;
+        const flat = this.finish === 'flat';
         $('cardFinishStrength').value = String(this.finishStrength);
-        $('cardFinishStrength').disabled = this.finish === 'flat';
+        $('cardFinishStrength').disabled = flat;
+        $('cardFinishStrength').setAttribute('aria-valuetext', `${this.finishStrength} per cent`);
+        const out = $('cardFinishStrengthOut'); if (out) out.textContent = flat ? '' : `${this.finishStrength}%`;
+        const blurIn = $('cardFinishBlur');
+        if (blurIn) { blurIn.value = String(this.finishBlur); blurIn.disabled = flat; blurIn.setAttribute('aria-valuetext', `${this.finishBlur} per cent`); }
+        const blurOut = $('cardFinishBlurOut'); if (blurOut) blurOut.textContent = flat ? '' : `${this.finishBlur}%`;
+        this.pickers.finish?.refresh();
+    }
+
+    /** The picture drop-downs (pictureSelect, MOD01): each row shows what it picks. Finish: a little card in the card's
+     *  own colour with that texture; logo size: three squares; ready-made logo: the logo itself. */
+    buildPickers() {
+        const finishSample = (value, el) => {
+            const t = THEMES[this.themeKey], c = document.createElement('span');
+            c.className = 'finish-sample'; c.dataset.finish = value;
+            c.style.setProperty('--card-bg', t.card); c.style.setProperty('--card-ink', t.ink);
+            c.style.setProperty('--finish-a', String((value === this.finish ? this.finishStrength : finishStartStrength(value)) / 100));
+            c.style.setProperty('--finish-blur', `${this.finishBlur / 10}px`);
+            el.append(c);
+        };
+        const sizeSample = (value, el) => {
+            const n = { sm: 10, md: 14, lg: 20 }[value] || 14;
+            const sq = document.createElement('i');
+            sq.className = 'vcge-pick-square'; sq.style.width = sq.style.height = `${n}px`;
+            el.append(sq);
+        };
+        const logoSample = (value, el) => {
+            if (!value) { el.textContent = '\u2795'; return; }
+            const [kind, key] = String(value).split(':');
+            const pilot = kind === 'pilot' ? PRESETS.find(p => p.firstName === key) : null;
+            const url = pilot ? pilot.logo : (kind === 'theme' && THEME_LOGO_ART[key] ? themeLogoUrl(key) : null);
+            if (!url) return;
+            const img = document.createElement('img'); img.alt = ''; img.src = url; el.append(img);
+        };
+        this.pickers.finish = pictureSelect($('cardFinishSelect'), { render: finishSample });
+        this.pickers.logoSize = pictureSelect($('logoSizeSelect'), { render: sizeSample });
+        this.pickers.logoPreset = pictureSelect($('logoPresetSelect'), { render: logoSample });
     }
 
     /** The ready-made logos: the Team vCGE characters (branded edition only) and one to match each palette. */
@@ -1043,7 +1111,7 @@ export class CardView {
             btn.dataset.theme = key;
             // A round swatch (0.8 mock-up): the card colour into its accent; the name is read out and shown on hover.
             btn.className = 'r4-swatch';
-            btn.title = t.label;
+            btn.title = stockName(t);
             btn.setAttribute('aria-pressed', String(key === this.themeKey));
             btn.style.background = `linear-gradient(135deg, ${t.card} 45%, ${t.accent})`;
             const label = document.createElement('span');
@@ -1053,7 +1121,7 @@ export class CardView {
             btn.addEventListener('click', () => {
                 this.applyTheme(key);
                 this.changed();
-                this.showToast(`Applied palette: ${t.label}`);
+                this.showToast(`Card colour: ${stockName(t)}`);
             });
             container.appendChild(btn);
         });
@@ -1086,7 +1154,8 @@ export class CardView {
         $('logoBgPicker').addEventListener('input', (e) => { this.applyLogoBack(e.target.value); this.changed(); });
         $('cardFinishSelect').addEventListener('change', (e) => { this.applyFinish(e.target.value); this.changed(); });
         $('cardFinishStrength').addEventListener('input', (e) => { this.applyFinish(this.finish, e.target.value); this.changed(); });
-        $('logoPresetSelect').addEventListener('change', (e) => { const v = e.target.value; e.target.value = ''; if (v) this.useLogoPreset(v); });
+        $('cardFinishBlur')?.addEventListener('input', (e) => { this.applyFinish(this.finish, this.finishStrength, e.target.value); this.changed(); });
+        $('logoPresetSelect').addEventListener('change', (e) => { const v = e.target.value; e.target.value = ''; this.pickers.logoPreset?.refresh(); if (v) this.useLogoPreset(v); });
         $('cardIconsBtn').addEventListener('click', () => {
             this.applyIcons(!this.cardIcons);
             this.changed();
