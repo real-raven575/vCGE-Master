@@ -2146,6 +2146,9 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     f.firstName === 'Jane' && f.lastName === 'Rivera' && f.organization === 'Northwind Studio, LLC' && f.jobTitle === 'Studio Manager' && f.city === 'Seattle' && f.state === 'WA' && f.zip === '98101'
     && f.emails.some(e => e.value === 'jane@northwind.example') && f.phones.length === 3 && f.phones.some(p => /fax/i.test(p.type)), JSON.stringify(f));
   ok('QR read: with no decoder, or nothing to read, the search quietly finds nothing', (await qr.readCardQr('data:image/png;base64,x', null)) === null && (await qr.readCardQr('', () => ({ data: 'x' }))) === null);
+  const grown = qr.grownCorners([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }], 0.2);
+  ok('QR read: the cover over the code grows about its centre to take in the quiet zone', JSON.stringify(grown) === JSON.stringify([{ x: -1, y: -1 }, { x: 11, y: -1 }, { x: 11, y: 11 }, { x: -1, y: 11 }]), JSON.stringify(grown));
+  ok('QR read: with no corners the photo goes to the reader unchanged', (await qr.withoutQr('data:image/png;base64,x', null)) === 'data:image/png;base64,x');
   const fsQ = await import('node:fs');
   const html = fsQ.readFileSync(`${R}/../index.html`, 'utf8');
   ok('QR read: the bundled jsQR loads from the app\'s own files, after the QR maker', /<script src="src\/vendor\/qrcode-generator\/qrcode\.js"><\/script>\s*<script src="src\/vendor\/jsqr\/jsQR\.js"><\/script>/.test(html) && fsQ.existsSync(`${R}/vendor/jsqr/jsQR.js`) && fsQ.existsSync(`${R}/vendor/jsqr/LICENSE`));

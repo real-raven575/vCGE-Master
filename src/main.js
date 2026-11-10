@@ -33,7 +33,7 @@ import { VCGEActiveCamera } from './modules/mod03-camera/camera.js';
 import { CropEditor } from './modules/mod03-camera/cropEditor.js';
 import { executeOCRScan, shutdownOCREngine } from './modules/mod04-ocr/ocrWorker.js';
 import { mergeReadings, missingParts, describeMissing, MAX_PHOTOS } from './modules/mod04-ocr/readingQuality.js';
-import { readCardQr, parseQrPayload, withQrLines } from './modules/mod07-qr/qrReader.js';
+import { readCardQr, withoutQr, parseQrPayload, withQrLines } from './modules/mod07-qr/qrReader.js';
 import { readIndicator, readThumb, renderReviewRows, initReadCard, resetBlink, READER_UNAVAILABLE_MESSAGE, READER_STOPPED_MESSAGE } from './modules/mod04-ocr/readCard.js';
 import { ContactFormMapper, LINE_ROLES, PHONE_FORMATS } from './modules/mod05-form/formMapper.js';
 import { PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES } from './share/contactOptions.js';
@@ -786,10 +786,11 @@ async function runOcr() {
     try {
         // The first scan (and the first after a wipe) starts the reader from ~7 MB of bundled files: say so.
         const onStatus = (status, fraction) => readIndicator.status(status, fraction);
-        // A QR code printed on the card is searched for while the reader works (accuracy round 1, 2026-11-10).
-        const qrSearch = readCardQr(photo);
-        const { text, lines } = await executeOCRScan(photo, { onStatus });
-        const qr = await qrSearch;
+        // A QR code printed on the card is read first (accuracy round 1, 2026-11-10) and painted over for the text
+        // reader, whose junk readings of its squares would otherwise turn the card down.
+        const found = await readCardQr(photo);
+        const qr = found ? found.data : null;
+        const { text, lines } = await executeOCRScan(found && found.corners ? await withoutQr(photo, found.corners) : photo, { onStatus });
         // Finished early: the wash fills up (and the owl closes its eyes) before the review step opens.
         readIndicator.stop(); readIndicator.set(1); readIndicator.finish();
         await new Promise(res => setTimeout(res, 250));

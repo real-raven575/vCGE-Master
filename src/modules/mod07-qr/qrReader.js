@@ -188,8 +188,9 @@ export function withQrLines(lines, contact) {
 }
 
 /**
- * The text of a QR code in a photo (a data URL), or null when there is none, the decoder is missing or anything fails.
- * Never throws: a card without a QR code is the usual case.
+ * The QR code in a photo (a data URL): { data, corners } with its text and its four corners in the photo's own pixels,
+ * or null when there is none, the decoder is missing or anything fails. Never throws: a card without a QR code is the
+ * usual case.
  */
 export async function readCardQr(dataUrl, decode = (typeof window !== 'undefined' ? window.jsQR : null)) {
     if (!dataUrl || typeof decode !== 'function') return null;
@@ -204,9 +205,45 @@ export async function readCardQr(dataUrl, decode = (typeof window !== 'undefined
         const ctx = canvas.getContext('2d', { willReadFrequently: true });
         ctx.drawImage(img, 0, 0, w, h);
         const found = decode(ctx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: 'attemptBoth' });
-        return found && found.data ? found.data : null;
+        if (!found || !found.data) return null;
+        const l = found.location || {};
+        const corners = [l.topLeftCorner, l.topRightCorner, l.bottomRightCorner, l.bottomLeftCorner].every(Boolean)
+            ? [l.topLeftCorner, l.topRightCorner, l.bottomRightCorner, l.bottomLeftCorner].map(p => ({ x: p.x / scale, y: p.y / scale })) : null;
+        return { data: found.data, corners };
     } catch (e) {
         console.warn('[vCGE-MOD07] QR search skipped:', e && e.message);
         return null;
+    }
+}
+
+/** `corners` grown about their centre by `by` (0.15 = 15% wider each way), to cover the code's quiet zone. */
+export function grownCorners(corners, by = 0.15) {
+    const cx = corners.reduce((n, p) => n + p.x, 0) / corners.length, cy = corners.reduce((n, p) => n + p.y, 0) / corners.length;
+    return corners.map(p => ({ x: cx + (p.x - cx) * (1 + by), y: cy + (p.y - cy) * (1 + by) }));
+}
+
+/**
+ * The photo with the QR code painted over in white, so the text reader does not read its squares as junk (a QR code's
+ * squares dragged a test card's confidence to 48 and the card was turned down). The original photo is unchanged.
+ */
+export async function withoutQr(dataUrl, corners) {
+    if (!dataUrl || !corners) return dataUrl;
+    try {
+        const img = new Image();
+        img.src = dataUrl;
+        await img.decode();
+        const canvas = document.createElement('canvas');
+        canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        grownCorners(corners).forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+        ctx.closePath();
+        ctx.fill();
+        return canvas.toDataURL('image/png');
+    } catch (e) {
+        console.warn('[vCGE-MOD07] QR cover skipped:', e && e.message);
+        return dataUrl;
     }
 }
