@@ -132,7 +132,8 @@ export function pictureSelect(select, { render = null } = {}) {
         else if (e.key === 'Home') go(0);
         else if (e.key === 'End') go(all.length - 1);
         else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); if (at >= 0) choose(all[at].dataset.value); }
-        else if (e.key === 'Escape') { e.preventDefault(); close(); }
+        // stopPropagation: the sheet around it (deck.js) closes on Escape too; this Escape is the list's alone
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
         else if (e.key === 'Tab') close(false);
     });
     select.addEventListener('change', refresh);

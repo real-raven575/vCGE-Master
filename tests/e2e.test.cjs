@@ -781,6 +781,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   // Colour vision: a picture drop-down; Red-weak moves good and stop to blue and orange, keeps words and marks, saves cb=2
   await page.click('.r5-cvd-row .vcge-pick-btn');
   const cvdRows = await page.$$eval('.r5-cvd-row [role="option"]', os => os.map(o => `${o.querySelector('b').textContent}:${Math.round(o.getBoundingClientRect().height) >= 52}`).join('|'));
+  await page.keyboard.press('Escape'); await page.waitForTimeout(200);
+  ok('picture drop-down: Escape closes only the list, never the Settings sheet around it (Checkers, 2026-11-10)',
+    await page.$eval('.r5-cvd-row .vcge-pick-list', l => l.hidden) && await page.isVisible('#settingsSheet') && (await page.evaluate(() => document.activeElement && document.activeElement.classList.contains('vcge-pick-btn'))));
+  await page.click('.r5-cvd-row .vcge-pick-btn');
   await page.click('.r5-cvd-row [role="option"][data-value="2"]');
   const cvd = await page.evaluate(() => ({ cvd: document.documentElement.dataset.cvd, cb: document.documentElement.dataset.cb, good: document.documentElement.style.getPropertyValue('--vcge-good'), entry: localStorage.getItem('vcge_settings') }));
   ok('colour vision: five choices with a picture each, big enough for a finger; Red-weak saves cb=2, keeps words and marks and moves "good" to blue',
