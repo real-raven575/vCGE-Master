@@ -322,6 +322,19 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   browser.newContext = async (opts = {}) => { const c = await plainContext({ ...deviceOptions, ...opts }); await c.addInitScript(pressStartNow); await c.addInitScript(keepReaderLog); await editionRoute(c);
     c.on('page', p => { p.once('crash', () => { pageCrashed = true; }); showsScreenFirst(p); }); opened.push(c); return c; };
   const newContext = (options) => browser.newContext(options);
+  // Print / PDF: window.print is replaced by a stand-in that notes, for each print, whether the QR picture on the sheet
+  // was already decoded (raven575 2026-11-10: a PDF with the card and a blank square where the QR goes). The dialog
+  // opens after the sheet's pictures are ready, so a test waits for the next print before reading what it shows.
+  const stubPrint = (pg) => pg.evaluate(() => { window.__prints = []; window.print = () => {
+    const img = document.querySelector('#printSheet .print-qr img');
+    window.__prints.push({ qr: !!img, decoded: !!(img && img.complete && img.naturalWidth > 0) });
+  }; });
+  const printWith = async (pg, button) => {
+    const before = await pg.evaluate(() => window.__prints.length);
+    await pg.click('#printCardBtn'); await pg.click(button);
+    await pg.waitForFunction(n => window.__prints.length > n, before, { timeout: 5000 });
+    return pg.evaluate(() => window.__prints[window.__prints.length - 1]);
+  };
   // raven575, 2026-10-22: Playwright's WebKit sometimes loses a whole page process while it reads a card ("Target
   // crashed", the F4 block on 2026-10-21); no code in the page can catch that. A block that reads cards then runs once
   // more on fresh pages, said in the log and counted in the summary. A FAIL from the crashed try still counts; a second
@@ -1556,8 +1569,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // Print: the strip does not fit on a 2 in card, so the printed card shows the logo in the badge, with every line in.
     await upload('dark', 'logo.png');
     await p11.fill('#street', '745 Fifth Avenue'); await p11.fill('#city', 'New York');
-    await p11.evaluate(() => { window.print = () => {}; });
-    await p11.click('#printCardBtn'); await p11.click('#printBwBtn');
+    await stubPrint(p11);
+    await printWith(p11, '#printBwBtn');
     await p11.emulateMedia({ media: 'print' });
     const printed = await p11.evaluate(() => {
       const card = document.querySelector('#printSheet .print-card'), r = card.getBoundingClientRect();
@@ -1926,12 +1939,13 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     }
 
     // Print / Save as PDF (step 10): Themed or Black & White, then one 6 x 3.5 in page with the front at business-card size and the QR beside it
-    await p9.evaluate(() => { window.print = () => {}; });
+    await stubPrint(p9);
     await p9.click('#printCardBtn');
     ok('Print / PDF asks only Themed or Black & White', await p9.isVisible('#printChoiceSheet') && await p9.isVisible('#printThemedBtn') && await p9.isVisible('#printBwBtn') && (await p9.evaluate(() => document.activeElement && document.activeElement.id)) === 'printThemedBtn');
     await p9.keyboard.press('Escape');
     ok('Esc cancels the print choice (a sheet: a swipe would too) and nothing is printed', !(await p9.isVisible('#printChoiceSheet')) && (await p9.evaluate(() => document.getElementById('printSheet').children.length)) === 0);
-    await p9.click('#printCardBtn'); await p9.click('#printThemedBtn');
+    const themedPrint = await printWith(p9, '#printThemedBtn');
+    ok('Airlock: the print dialog opens only once the QR picture is decoded (no blank square in the PDF)', themedPrint.qr && themedPrint.decoded, JSON.stringify(themedPrint));
     const printFalcon = await p9.evaluate(() => ({ toast: document.getElementById('toastMessage').textContent, hidden: document.getElementById('toastFalcon').classList.contains('hidden') }));
     ok(SHELVED ? 'Airlock E2: after a print the toast says so (0.8 shelf: no falcon)' : 'Airlock E2: after a print the toast says so and the falcon is on it', printFalcon.toast === 'Sent to the print dialog.' && printFalcon.hidden === SHELVED, JSON.stringify(printFalcon));
     const sheet = await p9.evaluate(() => {
@@ -1965,7 +1979,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     }
     await p9.evaluate(() => window.dispatchEvent(new Event('afterprint')));
     ok('print copies stay until the next print (afterprint can fire before the PDF is drawn)', (await p9.evaluate(() => document.getElementById('printSheet').children.length)) === 2);
-    await p9.click('#printCardBtn'); await p9.click('#printBwBtn');
+    await printWith(p9, '#printBwBtn');
     await p9.emulateMedia({ media: 'print' });
     const bw = await p9.evaluate(() => {
       const c = document.querySelector('#printSheet .print-card'), q = document.querySelector('#printSheet .print-qr img');
@@ -1983,7 +1997,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('Black & White QR is pure black on pure white', qrColours.length === 2 && qrColours.includes('0,0,0') && qrColours.includes('255,255,255'), JSON.stringify(qrColours));
     // A card taller than 2 in (here: larger text) grows instead of clipping, and the page grows with it: still one page
     await p9.evaluate(() => { document.documentElement.style.fontSize = '24px'; });
-    await p9.click('#printCardBtn'); await p9.click('#printBwBtn');
+    ok('Airlock: the Black & White print waits for its QR picture too', (await printWith(p9, '#printBwBtn')).decoded);
     await p9.emulateMedia({ media: 'print' });
     const tall = await p9.evaluate(() => {
       const c = document.querySelector('#printSheet .print-card'), r = c.getBoundingClientRect();
@@ -2004,7 +2018,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       ok('the tall card prints as one 6 in wide page of the height the controller set', tallPages === 1 && tallBox && tallBox[1] === '432' && Math.abs(boxIn - setIn) < 0.01, `${tallPages} pages, box ${tallBox && tallBox.slice(1)}, set ${setIn} in`);
     }
     await p9.evaluate(() => { document.documentElement.style.fontSize = ''; });
-    await p9.click('#printCardBtn'); await p9.click('#printBwBtn');
+    await printWith(p9, '#printBwBtn');
     if (ENGINE === 'chromium') {
       const backPdf = (await p9.pdf({ preferCSSPageSize: true, printBackground: true })).toString('latin1');
       ok('a normal card prints on the 6 x 3.5 in page again', (/\/MediaBox\s*\[\s*0\s+0\s+(\d+)\s+(\d+)/.exec(backPdf) || []).slice(1).join() === '432,252');
@@ -2012,17 +2026,19 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // PDF name (raven575 2026-10-18): opt-in each print. Unticked, the title (and so the PDF name) stays the app's;
     // ticked, the title is the contact's file name only until printing ends or the next tap
     const appTitle = await p9.title();
+    const printsBefore = await p9.evaluate(() => window.__prints.length);
+    const printed9 = (n) => p9.waitForFunction(k => window.__prints.length >= k, printsBefore + n, { timeout: 5000 });
     await p9.click('#printCardBtn');
     const boxOff = await p9.isChecked('#printNameFile');
-    await p9.click('#printBwBtn');
+    await p9.click('#printBwBtn'); await printed9(1);
     ok('PDF name: the "Name the PDF after the contact" box starts unticked, and unticked the title stays the app\'s', !boxOff && (await p9.title()) === appTitle && appTitle === 'vCard Generator Engine (vCGE)', appTitle);
-    await p9.click('#printCardBtn'); await p9.check('#printNameFile'); await p9.click('#printBwBtn');
+    await p9.click('#printCardBtn'); await p9.check('#printNameFile'); await p9.click('#printBwBtn'); await printed9(2);
     const named = await p9.title();
     await p9.evaluate(() => window.dispatchEvent(new Event('afterprint')));
     ok('PDF name: ticked, the title is the contact\'s file name while printing, then goes back on afterprint', named === 'Maria Gonzalez' && (await p9.title()) === appTitle, `${named} / ${await p9.title()}`);
     await p9.click('#printCardBtn');
     const boxAgain = await p9.isChecked('#printNameFile');
-    await p9.check('#printNameFile'); await p9.click('#printThemedBtn');
+    await p9.check('#printNameFile'); await p9.click('#printThemedBtn'); await printed9(3);
     const namedAgain = await p9.title();
     await p9.mouse.click(5, 5);
     ok('PDF name: the box is unticked again on the next print, and a tap also puts the title back', !boxAgain && namedAgain === 'Maria Gonzalez' && (await p9.title()) === appTitle, `${boxAgain} ${namedAgain} / ${await p9.title()}`);
