@@ -2,8 +2,8 @@
  * vCGE-MOD01: browser gate
  * Created by raven575, Herd of Helpers (claude) & gemini
  *
- * A classic script loaded by index.html right after netLock.js, before every other script. It only checks features:
- * nothing is sent, stored or fetched. It is written in ES5 so that even very old browsers (Internet Explorer 11)
+ * A classic script loaded by index.html right after netLock.js, before every other script. It only checks features (and
+ * reads the splash switch from vcge_settings): nothing is sent, stored or fetched. It is written in ES5 so that even very old browsers (Internet Explorer 11)
  * can run it and show a clear page instead of a blank one.
  *
  * Block: when a protection vCGE relies on is missing, the app never starts and the "cannot run in this browser" page
@@ -121,7 +121,16 @@
         else load();
     }
 
+    // Settings > Comfort > Opening splash (raven575, 2026-11-11): splash=1 in vcge_settings is Off. Read here, before the page
+    // is drawn, so a switched-off splash never shows for a moment. It only reads the one entry; nothing is written.
+    function splashOff(env) {
+        var line = null;
+        try { line = env.localStorage ? env.localStorage.getItem('vcge_settings') : null; } catch (e) { return false; }
+        return typeof line === 'string' && (';' + line + ';').indexOf(';splash=1;') !== -1;
+    }
+
     function run(env) {
+        if (splashOff(env)) env.document.documentElement.setAttribute('data-splash', 'off');
         var blocked = blockReasons(env);
         if (blocked.length) { showUnsupported(env, blocked); return; }
         // An engine that cannot read vCGE's code (a SyntaxError while its scripts load) must not leave a blank page.
@@ -142,7 +151,7 @@
 
     if (typeof module === 'object' && module.exports) {
         module.exports = { blockReasons: blockReasons, warnReasons: warnReasons, WARNINGS: WARNINGS, UNSUPPORTED_PAGE: UNSUPPORTED_PAGE,
-            APP_ENTRY: APP_ENTRY, appEntry: appEntry, startApp: startApp };
+            APP_ENTRY: APP_ENTRY, appEntry: appEntry, startApp: startApp, splashOff: splashOff };
     } else {
         run(window);
     }

@@ -687,7 +687,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   ok('the cog opens Settings (0.8 sheet): theme swatches, Appearance, the six styles, text size, font, the Left-handed, colour-blind, texture and Plain look switches, and the disclaimer', await page.isVisible('#settingsSheet') && await page.isVisible('#handToggle') && await page.isVisible('#cbToggle') && await page.isVisible('#dyslexiaToggle') && await page.isVisible('#themeSummary')
     && await page.isVisible('#appearanceChips') && (await page.$$eval('#styleChips button', bs => bs.map(b => b.textContent).join())) === 'Herd,Material,iOS,Windows,GNOME,KDE'
     && await page.isVisible('#sizeRange') && await page.isVisible('#fontSelect') && await page.isVisible('#texToggle') && await page.$eval('#plainToggle', c => c.disabled === (document.documentElement.dataset.edition === 'plain')) && (EDITION_PLAIN ? /This is the Plain edition/ : /Hides the Herd pilots and art/).test(await text('plainNote'))
-    && (await text('settingsNote')) === 'vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look). Nothing you scan, upload or type is ever saved.');
+    && (await text('settingsNote')) === 'vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look, the opening splash, and whether you have seen the tour). Nothing you scan, upload or type is ever saved.');
   // raven575 (2026-11-03): the theme box starts closed, naming the theme in use; one tap shows the 3 quick picks, More themes stays closed
   ok('the theme box starts closed and names Herd; no swatch shows until it is opened', !(await page.$eval('#themePicker', d => d.open)) && (await text('themeSummaryName')) === 'Herd'
     && !(await page.isVisible('#appThemes [data-family="herd"]')));
@@ -3212,7 +3212,32 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       await p.goto(ORIGIN); await p.waitForTimeout(400);
       return p;
     };
+    // First-run tour (raven575, 2026-11-11): on the very first start it opens by itself once the splash has gone, on the
+    // Welcome card; Skip closes it and tour=1 in vcge_settings keeps it from opening by itself again (Take a Tour still works)
+    const SEEN = 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0;tour=1';
     let pH = await openH();
+    const early = await pH.evaluate(() => ({ layer: !!document.getElementById('welcomeLayer'), entry: localStorage.getItem('vcge_settings') }));
+    const autoTour = await pH.waitForSelector('#tourTip', { state: 'visible', timeout: 6000 }).then(() => true, () => false);
+    const tourFirst = await pH.evaluate(() => ({ step: (document.getElementById('tourStep') || {}).textContent, skip: !!document.getElementById('tourSkipBtn'),
+      splashGone: getComputedStyle(document.getElementById('vcgeSplash')).visibility === 'hidden' || getComputedStyle(document.getElementById('vcgeSplash')).opacity === '0',
+      art: (() => { const a = document.querySelector('#tourTip .vcge-tour-art'); return a ? { pilot: a.dataset.pilot, kind: a.dataset.art, hidden: a.getAttribute('aria-hidden'), h: a.getBoundingClientRect().height,
+        svgH: a.querySelector('svg') ? a.querySelector('svg').getBoundingClientRect().height : 0, round: a.querySelector('svg g') ? getComputedStyle(a.querySelector('svg g path')).strokeLinecap : '' } : null; })() }));
+    ok('first-run tour: not before the splash goes, then opens by itself on step 1 with Skip tour', !early.layer && early.entry === null && autoTour && tourFirst.step === 'Step 1 of 6' && tourFirst.skip && tourFirst.splashGone, JSON.stringify({ early, tourFirst }));
+    if (!EDITION_PLAIN) ok('tour art: step 1 shows Creative\'s Iris drawing, hidden from screen readers, up to 160 px, its styles from tour-art.css (round line ends)',
+      !!tourFirst.art && tourFirst.art.pilot === 'iris' && tourFirst.art.kind === 'svg' && tourFirst.art.hidden === 'true' && tourFirst.art.h >= 60 && tourFirst.art.h <= 160
+      && tourFirst.art.svgH >= 60 && tourFirst.art.round === 'round', JSON.stringify(tourFirst.art));
+    else ok('plain edition: the tour shows no pilot art', tourFirst.art === null, JSON.stringify(tourFirst.art));
+    await pH.click('#tourSkipBtn');
+    const skipped = await pH.waitForSelector('#welcomeLayer', { state: 'detached', timeout: 5000 }).then(() => true, () => false);
+    ok('first-run tour: Skip closes it and remembers it in the one entry (tour=1), nothing else', skipped
+      && (await pH.evaluate(() => [localStorage.getItem('vcge_settings'), Object.keys(localStorage).join(), sessionStorage.length])).join('|') === `${SEEN}|vcge_settings|0`);
+    { const oldH = pH; pH = await openH(); await oldH.close(); }
+    await pH.waitForTimeout(2600);
+    ok('first-run tour: the next start does not open it by itself; Take a Tour still does', !(await pH.$('#welcomeLayer'))
+      && await pH.evaluate(() => document.getElementById('cardWelcome').classList.contains('is-current'))
+      && await pH.evaluate(() => { document.getElementById('welcomeTourBtn').click(); return !!document.getElementById('tourTip'); }));
+    await pH.keyboard.press('Escape');
+    { const oldH = pH; pH = await openH(); await oldH.close(); }
     const state = () => pH.evaluate(() => ({
       card: document.documentElement.dataset.card, layer: !!document.getElementById('welcomeLayer'),
       welcomeCurrent: document.getElementById('cardWelcome').classList.contains('is-current'),
@@ -3221,7 +3246,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       focus: document.activeElement && document.activeElement.id,
       title: (document.getElementById('welcomeTitle') || {}).textContent, tagline: (document.getElementById('welcomeTagline') || {}).textContent
     }));
-    const stored = () => pH.evaluate(() => localStorage.length + sessionStorage.length + document.cookie.length);
+    // Nothing is stored beyond the first-run tour's tour=1 (checked above)
+    const stored = () => pH.evaluate((seen) => localStorage.length - (localStorage.getItem('vcge_settings') === seen ? 1 : 0) + sessionStorage.length + document.cookie.length, SEEN);
     const first = await state();
     ok('welcome: the deck opens on the Welcome card', first.welcomeCurrent && first.card === 'welcome' && !first.thanks && !first.vault, JSON.stringify(first));
     if (!EDITION_PLAIN) {
@@ -3269,7 +3295,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // own session storage is checked before it closes, so nothing a reload would have kept goes unchecked.
     const lastTab = await stored();
     const oldH = pH; pH = await openH(); await oldH.close();
-    ok('welcome: shows again on the next start (nothing remembers it was seen)', lastTab === 0 && (await state()).welcomeCurrent && (await stored()) === 0, String(lastTab));
+    ok('welcome: shows again on the next start (nothing remembers the Welcome card was seen)', lastTab === 0 && (await state()).welcomeCurrent && (await stored()) === 0, String(lastTab));
     await pH.click('#welcomePinBtn');
     ok('welcome: Set Up PIN/BIO Lock Now opens the Vault page', (await state()).vault && await pH.isVisible('#pinSwitch'));
     await pH.keyboard.press('Escape');
@@ -3368,6 +3394,29 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('welcome: nothing stored, no outside requests, no page errors', (await stored()) === 0 && externalH.length === 0 && errorsH.length === 0,
       externalH.concat(errorsH).join(' | '));
     await ctxH.close();
+  }
+
+  // Opening splash switch (raven575, 2026-11-11): the splash hides no loading, so Settings > Comfort > Opening splash turns it
+  // off (splash=1 in vcge_settings); the gate reads it before the page is drawn, so it never shows for a moment
+  {
+    const ctxS = await browser.newContext();
+    const pS1 = await ctxS.newPage();
+    await pS1.goto(ORIGIN); await pS1.waitForTimeout(400);
+    const onByDefault = await pS1.evaluate(() => ({ attr: document.documentElement.dataset.splash, display: getComputedStyle(document.getElementById('vcgeSplash')).display,
+      toggle: document.getElementById('splashToggle').checked }));
+    ok('splash: on by default (shown, switch On)', onByDefault.attr === undefined && onByDefault.display !== 'none' && onByDefault.toggle, JSON.stringify(onByDefault));
+    await pS1.evaluate(() => { const t = document.getElementById('splashToggle'); t.checked = false; t.dispatchEvent(new Event('change', { bubbles: true })); });
+    const offNow = await pS1.evaluate(() => ({ attr: document.documentElement.dataset.splash, entry: localStorage.getItem('vcge_settings') }));
+    ok('splash: switching it Off saves splash=1 in the one entry', offNow.attr === 'off' && offNow.entry === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0;splash=1', JSON.stringify(offNow));
+    const pS2 = await ctxS.newPage();
+    let firstLook = null;
+    pS2.on('domcontentloaded', async () => { firstLook = await pS2.evaluate(() => ({ attr: document.documentElement.dataset.splash, display: getComputedStyle(document.getElementById('vcgeSplash')).display })).catch(e => String(e)); });
+    await pS2.goto(ORIGIN); await pS2.waitForTimeout(500);
+    ok('splash: Off on the next start hides it from the first paint, and the switch reads Off', !!firstLook && firstLook.attr === 'off' && firstLook.display === 'none'
+      && !(await pS2.evaluate(() => document.getElementById('splashToggle').checked)), JSON.stringify(firstLook));
+    await pS2.evaluate(() => { const t = document.getElementById('splashToggle'); t.checked = true; t.dispatchEvent(new Event('change', { bubbles: true })); });
+    ok('splash: back On takes splash=1 out of the entry', await pS2.evaluate(() => document.documentElement.dataset.splash === undefined && localStorage.getItem('vcge_settings') === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0'));
+    await ctxS.close();
   }
 
   // MOD01 shared look: MOD-XX tags in Sixtyfour on every panel, 44 px buttons with 2 px outlines, the near-miss rim for taps

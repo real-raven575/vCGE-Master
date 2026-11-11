@@ -5,28 +5,32 @@
  * The first card of the deck, every time vCGE opens (0.8 redo R2, Creative's CRTV-0020 mock-up; the markup is in
  * index.html): Shutout waving, "Scan a card. Keep the contact.", the privacy line, the tagline and "Made by". The primary
  * button, "Scan a card", is the dock's. Quiet buttons under the privacy line: Take a Tour, Set Up PIN/BIO Lock Now, Play
- * with sample fields and CANCEL. Nothing is stored (no "seen it" flag anywhere), so it greets every new session. It touches no contact data and sends nothing on the bus. CANCEL wipes the session (through the
+ * with sample fields and CANCEL. It greets every new session. On the very first start (raven575, 2026-11-11) the tour opens by
+ * itself once the splash is gone, if the person is still on this card and has not moved on; finishing or skipping it saves tour=1 in vcge_settings,
+ * so it never opens by itself again (Take a Tour still replays it). It touches no contact data and sends nothing on the bus. CANCEL wipes the session (through the
  * deck's cancel hook, which main.js points at the Vault's wipe) and shows the Thank You page.
  * The tour spotlights one card at a time and moves the deck as it goes; a sideways swipe anywhere goes to the next or the
  * previous step. It stays under the lock screen and every pop-up, and leaves their keys alone. No sound, no flashing;
  * the fade is off under reduced motion.
  */
 import { isPlain } from './edition.js';
-import { go, openSheet, closeSheet, sheetOpen, cardEl, requestCancel, requestStartOver, SWIPE_PX } from './deck.js';
+import { go, current, openSheet, closeSheet, sheetOpen, cardEl, requestCancel, requestStartOver, SWIPE_PX } from './deck.js';
+import { tourSeen, rememberTourSeen } from './settings.js';
+import { tourArtEl } from './tourArt.js';
 
 // A step lights its card, or one part of it (spot) when that part is in view: on Capture, the viewfinder and the shutter row.
 export const TOUR_STEPS = [
-    { card: 'capture', spot: '#capCamera', title: 'Scan a business card',
+    { card: 'capture', spot: '#capCamera', pilot: 'iris', title: 'Scan a business card',
         body: 'Point the camera at a card and tap the shutter, or tap Photo to choose one. vCGE reads it right here on this device. The photo never leaves.' },
-    { card: 'fields', title: 'Check the details',
+    { card: 'fields', pilot: 'pidge', title: 'Check the details',
         body: 'First you straighten the photo and check each line it read. Nothing fills these fields until you say so. You can also type or fix anything here.' },
-    { card: 'card', title: 'Your 3D card',
+    { card: 'card', pilot: 'flipside', title: 'Your 3D card',
         body: 'Pick colors and a font. Flip the card to see its QR code. A phone camera can scan it to save the contact.' },
-    { card: 'share', title: 'Share when you choose',
+    { card: 'share', pilot: 'airlock', title: 'Share when you choose',
         body: 'Save a .vcf file, show the QR, email, text or print. Nothing leaves vCGE until you press one of these.' },
-    { sheet: 'vaultPage', title: 'Your card stays private',
+    { sheet: 'vaultPage', pilot: 'ghost', title: 'Your card stays private',
         body: 'Nothing is saved. Step away and the card locks, then wipes. Set a 4-digit PIN to unlock it fast. Wipe and start over, at the bottom of this sheet, clears everything now.' },
-    { header: true, title: 'You’re ready',
+    { header: true, pilot: 'cornerstone', title: 'You’re ready',
         body: 'The steps at the bottom jump to any screen. The lock at the top shows the time left before your card locks, and the cog opens Settings. That’s the tour.' }
 ];
 
@@ -72,6 +76,7 @@ export function renderWelcomeCard() {
     on('welcomeCancelBtn', cancelSession);
     on('welcomeSampleBtn', () => go('fields'));
     host.dataset.wired = '1';    // the buttons answer from here on
+    scheduleFirstRunTour();
     const thanks = document.getElementById('thankYouPage');
     if (thanks) {
         document.getElementById('thankYouStartOverBtn').addEventListener('click', () => requestStartOver());
@@ -113,6 +118,30 @@ async function closeWindow() {
 
 export function tourOpen() { return !!layer; }
 
+// The opening splash's length (ui.css: it fades from 1.8 s for 0.42 s; 0.7 s under reduced motion), so the first-run tour
+// opens as it goes, never under it.
+export const SPLASH_END_MS = 2250, SPLASH_END_REDUCED_MS = 750, NO_SPLASH_MS = 300;
+export function firstRunDelay(splashOff, reducedMotion) {
+    return splashOff ? NO_SPLASH_MS : reducedMotion ? SPLASH_END_REDUCED_MS : SPLASH_END_MS;
+}
+/** True when the tour should open by itself: never seen, still on the Welcome card, nothing else open over it. */
+export function shouldAutoTour({ seen, card, busy }) { return !seen && card === 'welcome' && !busy; }
+
+function scheduleFirstRunTour() {
+    if (tourSeen()) return;
+    const root = document.documentElement;
+    const reduced = !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    // Someone who moves on before the splash is gone (Scan a card, a swipe) is not stopped: the tour waits for the next start
+    let moved = false;
+    const watch = new MutationObserver(() => { if (root.dataset.card && root.dataset.card !== 'welcome') moved = true; });
+    watch.observe(root, { attributes: true, attributeFilter: ['data-card'] });
+    setTimeout(() => {
+        watch.disconnect();
+        const busy = moved || !!document.querySelector('.vcge-sheet:not(.hidden), .vcge-modal:not(.hidden), #thankYouPage:not(.hidden)') || !!layer;
+        if (shouldAutoTour({ seen: tourSeen(), card: current(), busy })) startTour();
+    }, firstRunDelay(root.dataset.splash === 'off', reduced));
+}
+
 // Ends the tour (Esc, its close button, and Back in main.js) and goes to Capture.
 export function closeTour() { close(); }
 
@@ -129,6 +158,7 @@ function close() {
     layer.remove();
     layer = null;
     stepIndex = -1;
+    if (!tourSeen()) rememberTourSeen();    // finished or skipped: it will not open by itself again
     if (sheetOpen('vaultPage')) closeSheet('vaultPage');
     go('capture');
 }
@@ -181,6 +211,7 @@ function goTo(i) {
     const dots = el('div', { className: 'vcge-tour-dots', 'aria-hidden': 'true' },
         ...TOUR_STEPS.map((_, k) => el('i', { className: k === i ? 'on' : '' })));
     const tip = el('div', { id: 'tourTip', className: 'vcge-tour-tip', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'tourTitle', 'aria-describedby': 'tourBody' },
+        ...[tourArtEl(step.pilot, document, isPlain())].filter(Boolean),
         dots,
         el('p', { id: 'tourStep', className: 'vcge-tour-step' }, `Step ${i + 1} of ${TOUR_STEPS.length}`),
         el('h3', { id: 'tourTitle' }, step.title),

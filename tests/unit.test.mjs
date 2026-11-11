@@ -1516,6 +1516,10 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 {
   const fs = await import('node:fs');
   const gate = require(`${R}/modules/mod01-shell/browserGate.js`);
+  const ls = (line, boom) => ({ localStorage: { getItem: () => { if (boom) throw new Error('blocked'); return line; } } });
+  ok('gate: reads the splash switch (splash=1 is Off) from vcge_settings, and only that; blocked storage keeps the splash',
+    gate.splashOff(ls('hand=0;cb=0;theme=0;font=0;size=0;wipe=0;splash=1')) && gate.splashOff(ls('splash=1')) && !gate.splashOff(ls('splash=10'))
+    && !gate.splashOff(ls('hand=0;splash=0')) && !gate.splashOff(ls(null)) && !gate.splashOff(ls('x', true)) && !gate.splashOff({}));
   const lockedFetch = () => {}; lockedFetch[Symbol.for('vcge.netLock')] = true;
   const env = (over = {}) => Object.assign({
     document: { createElement: () => ({ noModule: false }) }, SecurityPolicyViolationEvent: function () {}, isSecureContext: true,
@@ -1604,7 +1608,35 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('welcome: a tall area puts the card above it, or over it as a last resort', welcome.placeTip({ left: 16, top: 600, right: 374, bottom: 830 }, 358, 220, 390, 844).side === 'above'
     && welcome.placeTip({ left: 16, top: 0, right: 374, bottom: 844 }, 358, 220, 390, 844).side === 'over');
   const code = fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-  ok('welcome: stores nothing and publishes nothing (no storage, cookies or bus)', !/localStorage|sessionStorage|indexedDB|document\.cookie|globalEventBus|innerHTML/.test(code));
+  ok('welcome: touches no storage itself (the tour flag goes through settings.js), publishes nothing', !/localStorage|sessionStorage|indexedDB|document\.cookie|globalEventBus|innerHTML/.test(code)
+    && /rememberTourSeen\(\)/.test(code));
+  // First-run tour (raven575, 2026-11-11): opens by itself only on the very first start, after the splash, on the Welcome card
+  ok('first-run tour: opens only when never seen, still on the Welcome card and nothing open over it',
+    welcome.shouldAutoTour({ seen: false, card: 'welcome', busy: false }) && !welcome.shouldAutoTour({ seen: true, card: 'welcome', busy: false })
+    && !welcome.shouldAutoTour({ seen: false, card: 'capture', busy: false }) && !welcome.shouldAutoTour({ seen: false, card: 'welcome', busy: true }));
+  ok('first-run tour: waits for the splash to go (2.25 s; 0.75 s under reduced motion; 0.3 s with the splash off)',
+    welcome.firstRunDelay(false, false) === 2250 && welcome.firstRunDelay(false, true) === 750 && welcome.firstRunDelay(true, false) === 300 && welcome.firstRunDelay(true, true) === 300);
+  ok('first-run tour: finishing or skipping (every way the tour closes) remembers it once', /if \(!tourSeen\(\)\) rememberTourSeen\(\);/.test(code));
+  const art = await import(`${R}/modules/mod01-shell/tourArt.js`);
+  ok('tour art: each of the six steps names a pilot with a slot (Iris, Pidge, Flipside, Airlock, Ghost, Cornerstone; CRTV-0059)',
+    welcome.TOUR_STEPS.map(s => s.pilot).join() === 'iris,pidge,flipside,airlock,ghost,cornerstone' && welcome.TOUR_STEPS.every(s => art.TOUR_ART[s.pilot] && art.TOUR_ART[s.pilot].emoji));
+  ok('tour art: every pilot has Creative\'s drawing, and each passes the safety check (no text, title, style, script or outside link)',
+    Object.values(art.TOUR_ART).every(a => art.safeSvg(a.svg) && !/<(text|title)\b|\sstyle=|https?:\/\/(?!www\.w3\.org\/2000\/svg")/.test(a.svg)));
+  { const allIds = Object.values(art.TOUR_ART).flatMap(a => [...a.svg.matchAll(/\sid="([^"]+)"/g)].map(m => m[1]));
+    const css = fs.readFileSync(`${R}/modules/mod01-shell/tour-art.css`, 'utf8');
+    ok('tour art: no two drawings share an id; the sway lives in tour-art.css and stops under reduced motion', new Set(allIds).size === allIds.length
+      && /@media \(prefers-reduced-motion:reduce\)/.test(css) && !/url\(|@import/.test(css)); }
+  ok('tour art: a plain drawing is let in; scripts, handlers, outside links, foreignObject, animation and <style> are not',
+    art.safeSvg('<svg viewBox="0 0 10 10"><defs><linearGradient id="g"/></defs><circle r="4" fill="url(#g)"/><use href="#g"/></svg>')
+    && !art.safeSvg('<svg><script>x</script></svg>') && !art.safeSvg('<svg onload="x()"></svg>') && !art.safeSvg('<svg><image href="https://x.test/a.png"/></svg>')
+    && !art.safeSvg('<svg><foreignObject/></svg>') && !art.safeSvg('<svg><animate/></svg>') && !art.safeSvg('<svg><style>*{}</style></svg>')
+    && !art.safeSvg('<svg><rect fill="url(https://x.test/p)"/></svg>') && !art.safeSvg('<div></div>') && !art.safeSvg(''));
+  const fakeDoc = { createElement: () => ({ dataset: {}, setAttribute(k, v) { this[k] = v; }, className: '', textContent: '', innerHTML: '' }) };
+  const slot = art.tourArtEl('iris', fakeDoc, false);
+  ok('tour art: the slot holds the drawing, hidden from screen readers; none in plain or for no pilot',
+    slot.innerHTML.startsWith('<svg') && slot.dataset.art === 'svg' && slot['aria-hidden'] === 'true' && art.tourArtEl('iris', fakeDoc, true) === null && art.tourArtEl(undefined, fakeDoc, false) === null);
+  const artCode = fs.readFileSync(`${R}/modules/mod01-shell/tourArt.js`, 'utf8');
+  ok('tour art: fetches and stores nothing', !/fetch\(|XMLHttpRequest|localStorage|sessionStorage|indexedDB|https?:\/\//.test(artCode.replace(/\/\*[\s\S]*?\*\//g, '')));
 }
 
 // MOD01 shared look (ui.js / ui.css): breakpoints, the near-miss rim, bundled fonts and icons with their licences
@@ -1658,7 +1690,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const welcomeHtml = html.slice(html.indexOf('<section id="cardWelcome"'), html.indexOf('</section>', html.indexOf('<section id="cardWelcome"')));
   const r2Css = fs.readFileSync(`${R}/modules/mod01-shell/screens-r2.css`, 'utf8');
   ok('logo: the Welcome card shows Shutout and the tagline, both left out in plain; "Made by" and the maker mark show in both; the Thank You logo is the bundled file',
-    /<svg id="welcomeArt" class="r2-art" viewBox="0 0 200 150" role="img" aria-label="Shutout the Box Turtle waving">/.test(welcomeHtml)
+    /<svg id="welcomeArt" class="r2-art" xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="0 0 160 160" role="img" aria-label="Shutout the Box Turtle waving">/.test(welcomeHtml)
     && /<p id="welcomeTagline" class="r2-tag">Operation: Never Lose Contact<\/p>/.test(welcomeHtml)
     && /if \(isPlain\(\)\) \['welcomeArt', 'welcomeTagline'\]\.forEach\(id => \{ const n = document\.getElementById\(id\); if \(n\) n\.remove\(\); \}\);/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8'))
     && /html\[data-edition="plain"\] #welcomeArt, html\[data-edition="plain"\] #welcomeTagline \{ display: none; \}/.test(r2Css)
@@ -1805,7 +1837,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const st = await import(`${R}/modules/mod01-shell/settings.js`);
   const ui = await import(`${R}/modules/mod01-shell/ui.js`);
   localStorage.clear();
-  ok('settings: one key, defaults right hand, colour-blind off, dark theme, Inter, normal text size', st.SETTINGS_KEY === 'vcge_settings' && JSON.stringify(st.DEFAULTS) === '{"hand":0,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}' && st.fontFor(0) === 'Inter' && st.scaleFor(0) === 1);
+  ok('settings: one key, defaults right hand, colour-blind off, dark theme, Inter, normal text size', st.SETTINGS_KEY === 'vcge_settings' && JSON.stringify(st.DEFAULTS) === '{"hand":0,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0}' && st.fontFor(0) === 'Inter' && st.scaleFor(0) === 1);
   ok('settings: the wipe after the lock is 7, 10 or 15 minutes, codes 0, 1, 2; 7 is the default and an unknown code is 7', st.WIPE_TIMES.map(t => `${t.code}:${t.minutes}`).join() === '0:7,1:10,2:15'
     && st.wipeMinutesFor(0) === 7 && st.wipeMinutesFor(1) === 10 && st.wipeMinutesFor(2) === 15 && st.wipeMinutesFor(9) === 7);
   {
@@ -1817,14 +1849,27 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('settings: text sizes Small, Normal, Large, Larger, smallest first, each with its own fixed code; an unknown code is Normal', st.TEXT_SIZES.map(t => t.name).join() === 'Small,Normal,Large,Larger'
     && st.TEXT_SIZES.every((t, i) => i === 0 || t.scale > st.TEXT_SIZES[i - 1].scale) && new Set(st.TEXT_SIZES.map(t => t.code)).size === 4 && st.scaleFor(2) === 1.25 && st.scaleFor(9) === 1);
   ok('settings: every Settings font has its own fixed code, Inter 0, no code shared', ui.UI_FONTS.every(n => Number.isInteger(st.FONT_CODES[n])) && new Set(Object.values(st.FONT_CODES)).size === ui.UI_FONTS.length && Object.keys(st.FONT_CODES).length === ui.UI_FONTS.length);
-  ok('settings: a line of name=number pairs reads back', JSON.stringify(st.parseSettings('hand=1;cb=1;theme=1;font=3;size=2;wipe=1')) === '{"hand":1,"cb":1,"theme":1,"font":3,"size":2,"wipe":1,"mode":0,"style":0,"tex":0,"look":0}');
-  ok('settings: an entry saved before the text size and wipe time existed reads as Normal and 7 minutes', JSON.stringify(st.parseSettings('hand=1;cb=0;theme=0;font=2')) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}');
+  ok('settings: a line of name=number pairs reads back', JSON.stringify(st.parseSettings('hand=1;cb=1;theme=1;font=3;size=2;wipe=1')) === '{"hand":1,"cb":1,"theme":1,"font":3,"size":2,"wipe":1,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0}');
+  ok('settings: an entry saved before the text size and wipe time existed reads as Normal and 7 minutes', JSON.stringify(st.parseSettings('hand=1;cb=0;theme=0;font=2')) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0}');
   ok('settings: missing or unreadable means the defaults', JSON.stringify(st.parseSettings(null)) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('garbage')) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('')) === JSON.stringify(st.DEFAULTS));
-  ok('settings: an unknown name, an out-of-range or non-numeric value falls back to its default, the rest is kept', JSON.stringify(st.parseSettings('hand=1;name=Maria;cb=9;theme=x;font=99;size=4')) === '{"hand":1,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}');
+  ok('settings: an unknown name, an out-of-range or non-numeric value falls back to its default, the rest is kept', JSON.stringify(st.parseSettings('hand=1;name=Maria;cb=9;theme=x;font=99;size=4')) === '{"hand":1,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0}');
   ok('settings: serialises every name in a fixed order and clamps', st.serializeSettings({ font: 2, hand: 1, size: 3 }) === 'hand=1;cb=0;theme=0;font=2;size=3;wipe=0' && st.serializeSettings({ cb: 6 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0');
   ok('settings: Plain look is look=1, written only while on (an entry nobody switched reads as before); look=2 is out of range',
     st.serializeSettings({ look: 1 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0;look=1' && st.serializeSettings({ look: 0 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0'
     && st.parseSettings('look=2').look === 0 && st.parseSettings('tex=1;look=1').look === 1);
+  ok('settings: tour=1 (first-run tour seen) and splash=1 (opening splash Off) are written only once set; 2 is out of range',
+    st.serializeSettings({ tour: 1, splash: 1 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0;tour=1;splash=1' && st.serializeSettings({ tour: 0, splash: 0 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0'
+    && st.parseSettings('tour=2;splash=2').tour === 0 && st.parseSettings('tour=2;splash=2').splash === 0);
+  {
+    const mem = new Map([['vcge_settings', 'hand=1;cb=0;theme=0;font=0;size=0;wipe=0']]);
+    const store2 = { getItem: (k) => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)), removeItem: (k) => mem.delete(k) };
+    const before = st.tourSeen(store2);
+    st.rememberTourSeen(store2);
+    ok('settings: the tour flag is kept with the other choices in the one entry', !before && st.tourSeen(store2) && mem.get('vcge_settings') === 'hand=1;cb=0;theme=0;font=0;size=0;wipe=0;tour=1' && mem.size === 1);
+    const root = { dataset: {}, classList: { toggle() {} }, style: { setProperty() {}, removeProperty() {} } };
+    st.applySettings({ splash: 1 }, root); const off = root.dataset.splash; st.applySettings({ splash: 0 }, root);
+    ok('settings: splash Off puts html[data-splash="off"], On takes it away', off === 'off' && root.dataset.splash === undefined);
+  }
   st.saveSettings({ hand: 1, font: 2 });
   ok('settings: colour vision (raven575, 2026-11-10) keeps cb as one number, 2 to 5, and each choice has a name and hint',
     st.parseSettings('cb=5').cb === 5 && st.parseSettings('cb=2').cb === 2 && st.COLOUR_VISION.map(v => v.code).join() === '0,2,3,4,5'
@@ -1834,16 +1879,16 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
       !/^import /m.test(ps) && !/fetch\(|localStorage|sessionStorage|indexedDB|innerHTML|document\.cookie/.test(ps)
       && /'listbox'/.test(ps) && /'option'/.test(ps) && ['ArrowDown', 'ArrowUp', 'Home', 'End', 'Escape', 'Enter'].every(k => ps.includes(`'${k}'`))); }
   ok('settings: save writes the one key and nothing else', localStorage.getItem('vcge_settings') === 'hand=1;cb=0;theme=0;font=2;size=0;wipe=0' && store.size === 1);
-  ok('settings: load reads it back', JSON.stringify(st.loadSettings()) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}');
+  ok('settings: load reads it back', JSON.stringify(st.loadSettings()) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0}');
   st.clearSettings();
   ok('settings: clear removes it', store.size === 0 && JSON.stringify(st.loadSettings()) === JSON.stringify(st.DEFAULTS));
   localStorage.setItem('vcge_theme_preference', 'light');
-  ok('settings: the old theme key is carried over once and removed', JSON.stringify(st.loadSettings()) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}' && localStorage.getItem('vcge_theme_preference') === null && store.size === 0);
+  ok('settings: the old theme key is carried over once and removed', JSON.stringify(st.loadSettings()) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0}' && localStorage.getItem('vcge_theme_preference') === null && store.size === 0);
   const code = fs.readFileSync(`${R}/modules/mod01-shell/settings.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
   ok('settings: subscribes to SETTINGS_WIPE_REQUESTED, imports only the bus, ui.js, themes.js, edition.js and pictureSelect.js, no network, cookies or markup', /subscribe\(Events\.SETTINGS_WIPE_REQUESTED/.test(code)
     && (code.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ui.js'") || l.includes("'./themes.js'") || l.includes("'./edition.js'") || l.includes("'./pictureSelect.js'")) && !/fetch\(|document\.cookie|sessionStorage|indexedDB|innerHTML|publish\(/.test(code));
   ok('settings: the only storage key named in the code is the settings key (plus the old theme key it removes)', [...code.matchAll(/(?:getItem|setItem|removeItem)\((\w+)/g)].every(m => m[1] === 'SETTINGS_KEY' || m[1] === 'OLD_THEME_KEY'));
-  ok('settings: the Settings sheet and the Welcome card carry the one-file disclaimer', fs.readFileSync(`${R}/../index.html`, 'utf8').includes('vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look). Nothing you scan, upload or type is ever saved.')
+  ok('settings: the Settings sheet and the Welcome card carry the one-file disclaimer', fs.readFileSync(`${R}/../index.html`, 'utf8').includes('vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look, the opening splash, and whether you have seen the tour). Nothing you scan, upload or type is ever saved.')
     && /<section id="cardWelcome"[\s\S]*?remembers none of your sensitive data[\s\S]*?<\/section>/.test(fs.readFileSync(`${R}/../index.html`, 'utf8')) && !fs.existsSync(`${R}/modules/mod01-shell/themeManager.js`));
   // App themes (themes.js, theme step 1): fixed codes, readable colours, branded ones left out of plain
   const th = await import(`${R}/modules/mod01-shell/themes.js`);
@@ -1897,7 +1942,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('settings 0.8: the six styles keep fixed codes (Herd 0, Material 1, iOS 2, Windows 3, GNOME 4, KDE 5); an unknown code is Herd',
     st.STYLES.map(t => `${t.code}:${t.id}`).join() === '0:herd,1:material,2:ios,3:windows,4:gnome,5:kde' && st.styleFor(9).id === 'herd' && st.parseSettings('style=6').style === 0);
   ok('settings 0.8: an entry from 0.7 (no mode, style or tex) reads as the fixed theme, Herd style and the texture on',
-    JSON.stringify(st.parseSettings('hand=0;cb=0;theme=1;font=0;size=0;wipe=0')) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}'
+    JSON.stringify(st.parseSettings('hand=0;cb=0;theme=1;font=0;size=0;wipe=0')) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0}'
     && st.effectiveTheme(st.parseSettings('theme=1'), true) === 1 && st.effectiveTheme(st.parseSettings('theme=0'), false) === 0);
   ok('settings 0.8: Appearance System shows the family\'s light or dark code by the device; a one-version theme stays itself',
     st.effectiveTheme({ theme: 1, mode: 1 }, true) === 0 && st.effectiveTheme({ theme: 0, mode: 1 }, false) === 1
