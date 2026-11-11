@@ -59,6 +59,12 @@ shell(`am start -W -n ${PKG}/.MainActivity`);
 const welcome = await waitFor(/Hello there|cannot run|isn.t supported/i, 90000);
 shot('1-welcome');
 ok('app opens on Welcome ("Hello there")', welcome && /Hello there/i.test(welcome.text + welcome.desc), welcome ? welcome.text + welcome.desc : 'nothing within 90 s');
+if (!welcome) {
+  // What Android does see, for the log: the on-screen nodes and the app's WebView and crash lines.
+  const seen = screen();
+  console.log('on screen:', seen.nodes.map(n => `[${n.pkg}] ${n.text || n.desc || '-'}`).slice(0, 60).join(' | '));
+  console.log(shell('logcat -d').split('\n').filter(l => /chromium|Console|vcge|Tauri|wry|WebView|ERR_|AndroidRuntime/i.test(l)).slice(-80).join('\n'));
+}
 ok('browser gate passed (no "cannot run" page)', !screen().find(/cannot run in this browser/i));
 
 // 3. Paces: Skip the tour if it is up, then "Scan a card" moves to step 2 (Capture).
