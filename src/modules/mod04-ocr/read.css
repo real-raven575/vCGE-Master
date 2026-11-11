@@ -80,23 +80,13 @@ html:not([data-edition="plain"]) .read-ok.is-ok::before, html:not([data-edition=
 
 /* ---- Glyph the owl (cute round O1 and O3) --------------------------------------------------------------------- */
 html[data-edition="plain"] .owl-art { display: none; }
-.read-owl { width: 2rem; height: 2rem; flex: none; }
+.read-owl { width: 3rem; height: 3rem; flex: none; }
 .more-owl { width: 2.75rem; height: 2.5rem; flex: none; }
-.owl-body { fill: #a16207; }
-.dark .owl-body { fill: #ca8a04; }
-.owl-eye { fill: #ffffff; stroke: #713f12; stroke-width: 0.8; }
-.owl-pupils { fill: #0f172a; }
-.owl-closed { fill: none; stroke: #0f172a; stroke-width: 1.4; stroke-linecap: round; display: none; }
-.owl-beak { fill: #f59e0b; }
-.owl-belly { fill: none; stroke: #fde68a; stroke-width: 1.2; stroke-linecap: round; }
-.owl-tilt { transform: rotate(-12deg); transform-origin: 16px 18px; }
-.owl-glass { fill: none; stroke: #475569; stroke-width: 1.6; stroke-linecap: round; }
-.dark .owl-glass { stroke: #cbd5e1; }
-.owl-glass circle { fill: rgb(186 230 253 / 0.45); }
-/* The eyes follow the wash (--read-progress, 0 to 1, set by readIndicator) and close happily when the read is done.
-   Only when motion is welcome: under reduce motion the owl is one still picture from start to end. */
+/* Creative's movable Glyph (movable-v1): the pupils follow the wash (--read-progress, 0 to 1, set by readCard.js), about
+   4 units each way inside the eye whites, and the eyes close happily when the read is done. Only when motion is welcome:
+   under reduce motion Glyph is one still picture from start to end. .glyph-eyes-closed is drawn with visibility="hidden". */
 @media (prefers-reduced-motion: no-preference) {
-    .read-owl .owl-pupils { transform: translateX(calc((var(--read-progress, 0) - 0.5) * 3px)); transition: transform 0.4s steps(10); }
-    #ocrProgress.is-done .read-owl .owl-eye, #ocrProgress.is-done .read-owl .owl-pupils { display: none; }
-    #ocrProgress.is-done .read-owl .owl-closed { display: inline; }
+    .read-owl .glyph-pupils { transform: translateX(calc((var(--read-progress, 0) - 0.5) * 8px)); transition: transform 0.4s steps(10); }
+    #ocrProgress.is-done .read-owl .glyph-pupils { visibility: hidden; }
+    #ocrProgress.is-done .read-owl .glyph-eyes-closed { visibility: visible; }
 }

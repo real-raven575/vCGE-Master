@@ -14,3 +14,13 @@
 .o-05-vault-ghost *{stroke-linecap:round;stroke-linejoin:round}.m-05-vault-ghost{transform-box:fill-box;transform-origin:50% 50%;animation:s-05-vault-ghost 4.5s ease-in-out infinite}@keyframes s-05-vault-ghost{0%,100%{transform:rotate(0)}50%{transform:rotate(-7deg)}}@media (prefers-reduced-motion:reduce){.m-05-vault-ghost{animation:none}}
 /* 06-ready-cornerstone.svg */
 .o-06-ready-cornerstone *{stroke-linecap:round;stroke-linejoin:round}.m-06-ready-cornerstone{transform-box:fill-box;transform-origin:80% 100%;animation:s-06-ready-cornerstone 4.5s ease-in-out infinite}@keyframes s-06-ready-cornerstone{0%,100%{transform:rotate(0)}50%{transform:rotate(-7deg)}}@media (prefers-reduced-motion:reduce){.m-06-ready-cornerstone{animation:none}}
+/* airlock-share-failed.svg */
+.o-airlock-share-failed *{stroke-linecap:round;stroke-linejoin:round}
+/* ghost-pin-wrong.svg */
+.o-ghost-pin-wrong *{stroke-linecap:round;stroke-linejoin:round}
+/* glyph-cant-read.svg */
+.o-glyph-cant-read *{stroke-linecap:round;stroke-linejoin:round}
+/* iris-camera-busy.svg */
+.o-iris-camera-busy *{stroke-linecap:round;stroke-linejoin:round}
+/* shutout-cannot-run.svg */
+.o-shutout-cannot-run *{stroke-linecap:round;stroke-linejoin:round}

@@ -1631,6 +1631,22 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     && !art.safeSvg('<svg><script>x</script></svg>') && !art.safeSvg('<svg onload="x()"></svg>') && !art.safeSvg('<svg><image href="https://x.test/a.png"/></svg>')
     && !art.safeSvg('<svg><foreignObject/></svg>') && !art.safeSvg('<svg><animate/></svg>') && !art.safeSvg('<svg><style>*{}</style></svg>')
     && !art.safeSvg('<svg><rect fill="url(https://x.test/p)"/></svg>') && !art.safeSvg('<div></div>') && !art.safeSvg(''));
+  { const svgs = await import(`${R}/modules/mod01-shell/tourArtSvgs.js`);
+    ok('helper art: Creative\'s five helper drawings are built in and each passes the safety check',
+      Object.keys(svgs.HELPER_SVGS).sort().join() === 'airlock-share-failed,ghost-pin-wrong,glyph-cant-read,iris-camera-busy,shutout-cannot-run'
+      && Object.values(svgs.HELPER_SVGS).every(m => art.safeSvg(m) && !/<(text|title)\b|\sstyle=/.test(m))); }
+  { const svgs = await import(`${R}/modules/mod01-shell/tourArtSvgs.js`);
+    const m = svgs.MOVABLE_SVGS;
+    ok('movable art: Creative\'s Ghost and Glyph (movable-v1) pass the safety check and name their moving parts by class, not id',
+      Object.keys(m).sort().join() === 'ghost-lock-guard,glyph-reading-along' && Object.values(m).every(x => art.safeSvg(x) && !/<(text|title)\b|\sstyle=/.test(x))
+      && ['ghost-eyes', 'ghost-wink', 'ghost-brows', 'ghost-shades', 'ghost-paw-right', 'ghost-paw-left'].every(c => m['ghost-lock-guard'].includes(`class="${c}"`))
+      && ['glyph-pupils', 'glyph-eyes-closed'].every(c => m['glyph-reading-along'].includes(`class="${c}"`))
+      && Object.values(m).every(x => [...x.matchAll(/\sid="([^"]+)"/g)].every(([, id]) => id.startsWith('c-')))); }
+  { const html = fs.readFileSync(`${R}/../index.html`, 'utf8');
+    ok('old pilot drawings are gone (raven575 2026-11-11, SWAP): Iris, Ghost and Glyph are Creative\'s (Ghost and the reading Glyph movable); no toast falcon',
+      /id="capIris"[\s\S]{0,900}?class="o-01-scan-iris"/.test(html) && /id="vaultGhost"[^>]*>[\s\S]{0,3000}?class="ghost-eyes"/.test(html)
+      && /id="ocrMorePhotoOwl"[^>]*>[\s\S]{0,1200}?class="o-glyph-cant-read"/.test(html) && /id="ocrReadOwl"[^>]*>[\s\S]{0,2500}?class="glyph-pupils"/.test(html) && !html.includes('id="toastFalcon"')
+      && !/class="(owl-body|vg-head|falcon-body)"/.test(html)); }
   const fakeDoc = { createElement: () => ({ dataset: {}, setAttribute(k, v) { this[k] = v; }, className: '', textContent: '', innerHTML: '' }) };
   const slot = art.tourArtEl('iris', fakeDoc, false);
   ok('tour art: the slot holds the drawing, hidden from screen readers; none in plain or for no pilot',
