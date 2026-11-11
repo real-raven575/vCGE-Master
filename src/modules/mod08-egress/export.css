@@ -131,3 +131,5 @@ button.share-ready { display: inline-flex; align-items: center; gap: 0.6rem; }
 }
 /* The hatch doors and the falcon are Airlock's branding: the plain edition leaves them out */
 html[data-edition="plain"] .hatch, html[data-edition="plain"] .toast-falcon { display: none; }
+/* Export QR picture drop-downs (MOD01 pictureSelect): square QR pictures, big enough to see each look */
+.export-qr-group .vcge-pick-prev { width: 3rem; height: 3rem; background: transparent; }

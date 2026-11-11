@@ -722,28 +722,70 @@
                     <p id="exportQrNote" class="export-qr-note" aria-live="polite"></p>
                 </div>
                 <div class="export-qr-options">
-                    <div class="export-qr-group" role="radiogroup" aria-labelledby="qrColourLabel">
-                        <span id="qrColourLabel">Colours</span>
-                        <div class="export-qr-choices">
-                            <label><input type="radio" name="qrColour" value="themed" checked>Themed</label>
-                            <label><input type="radio" name="qrColour" value="bw">Black &amp; White</label>
-                            <label><input type="radio" name="qrColour" value="navy">Navy</label>
-                            <label><input type="radio" name="qrColour" value="forest">Forest</label>
-                            <label><input type="radio" name="qrColour" value="plum">Plum</label>
-                            <label><input type="radio" name="qrColour" value="cocoa">Cocoa</label>
-                        </div>
+                    <div class="export-qr-group">
+                        <label id="qrColourLabel" for="qrColourSelect">Colours</label>
+                        <select id="qrColourSelect" class="vcge-select export-qr-select" aria-label="Colours">
+                            <optgroup label="From the card">
+                                <option value="themed" data-hint="Tinted from the card colour" selected>Card theme</option>
+                            </optgroup>
+                            <optgroup label="High contrast pairs">
+                                <option value="cream-navy" data-hint="Contrast 15 to 1">Cream &amp; Navy</option>
+                                <option value="mint-plum" data-hint="Contrast 13 to 1">Mint &amp; Plum</option>
+                                <option value="peach-teal" data-hint="Contrast 10 to 1">Peach &amp; Deep Teal</option>
+                                <option value="sky-maroon" data-hint="Contrast 11 to 1">Sky &amp; Maroon</option>
+                                <option value="lavender-forest" data-hint="Contrast 10 to 1">Lavender &amp; Forest</option>
+                                <option value="lemon-indigo" data-hint="Contrast 15 to 1">Lemon &amp; Indigo</option>
+                                <option value="blush-pine" data-hint="Contrast 11 to 1">Blush &amp; Pine</option>
+                                <option value="ice-burgundy" data-hint="Contrast 12 to 1">Ice &amp; Burgundy</option>
+                                <option value="sand-cobalt" data-hint="Contrast 12 to 1">Sand &amp; Cobalt</option>
+                                <option value="lilac-olive" data-hint="Contrast 10 to 1">Lilac &amp; Olive</option>
+                            </optgroup>
+                            <optgroup label="Classic">
+                                <option value="bw" data-hint="Contrast 21 to 1">Black &amp; White</option>
+                                <option value="navy" data-hint="Tinted navy">Navy</option>
+                                <option value="forest" data-hint="Tinted forest green">Forest</option>
+                                <option value="plum" data-hint="Tinted plum">Plum</option>
+                                <option value="cocoa" data-hint="Tinted cocoa">Cocoa</option>
+                            </optgroup>
+                        </select>
                     </div>
-                    <div class="export-qr-group" role="radiogroup" aria-labelledby="qrDotsLabel">
-                        <span id="qrDotsLabel">Dots</span>
-                        <div class="export-qr-choices">
-                            <label><input type="radio" name="qrDots" value="square" checked>Square</label>
-                            <label><input type="radio" name="qrDots" value="round">Round</label>
-                            <label><input type="radio" name="qrDots" value="diamond">Diamond</label>
-                        </div>
+                    <div class="export-qr-group">
+                        <label id="qrDotsLabel" for="qrDotsSelect">Dot shape</label>
+                        <select id="qrDotsSelect" class="vcge-select export-qr-select" aria-label="Dot shape">
+                            <option value="square" data-hint="Classic, scans everywhere" selected>Square</option>
+                            <option value="rounded" data-hint="Soft corners">Rounded</option>
+                            <option value="round" data-hint="Round dots">Dots</option>
+                            <option value="diamond" data-hint="Turned squares">Diamond</option>
+                            <option value="bars" data-hint="Dots joined into up-down bars">Bars</option>
+                        </select>
+                    </div>
+                    <div class="export-qr-group">
+                        <label id="qrEyesLabel" for="qrEyesSelect">Corner squares</label>
+                        <select id="qrEyesSelect" class="vcge-select export-qr-select" aria-label="Corner squares">
+                            <option value="square" data-hint="Classic corners" selected>Square</option>
+                            <option value="rounded" data-hint="Soft corners">Rounded</option>
+                            <option value="circle" data-hint="Round corners">Circle</option>
+                        </select>
+                    </div>
+                    <div class="export-qr-group">
+                        <label id="qrDotSizeLabel" for="qrDotSizeSelect">Dot size</label>
+                        <select id="qrDotSizeSelect" class="vcge-select export-qr-select" aria-label="Dot size">
+                            <option value="1" data-hint="Dots touch" selected>Full</option>
+                            <option value="0.9" data-hint="90 percent">Large</option>
+                            <option value="0.8" data-hint="80 percent, the smallest that still scans well">Medium</option>
+                        </select>
+                    </div>
+                    <div class="export-qr-group">
+                        <label id="qrPrintSizeLabel" for="qrPrintSizeSelect">Size on Print / PDF</label>
+                        <select id="qrPrintSizeSelect" class="vcge-select export-qr-select" aria-label="Size on Print / PDF">
+                            <option value="2.5" data-hint="2.5 cm wide">Small</option>
+                            <option value="3.5" data-hint="3.5 cm wide" selected>Medium</option>
+                            <option value="5" data-hint="5 cm wide">Large</option>
+                        </select>
                     </div>
                     <div class="export-qr-group">
                         <label id="qrFrameLabel" for="qrFrameSelect">Frame</label>
-                        <select id="qrFrameSelect" class="vcge-select export-qr-select">
+                        <select id="qrFrameSelect" class="vcge-select export-qr-select" aria-label="Frame">
                             <option value="none" selected>None</option>
                             <option value="square">Square</option>
                             <option value="rounded">Rounded</option>

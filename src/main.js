@@ -42,7 +42,8 @@ import { initFieldsCard, SAMPLE_PROMPT, PLAIN_SAMPLE_PROMPT, unplacedLines, show
 import { CardView, PRESETS, PLAIN_PRESETS, THEMES, themeKeyOf, prepareLogo } from './modules/mod06-gui/card3dView.js';
 import { vcgeQREngine } from './modules/mod07-qr/qrGenerator.js';
 import { egressController, PRINT_QR_PX } from './modules/mod08-egress/egressController.js';
-import { exportQrDialog, printChoiceDialog } from './modules/mod08-egress/exportDialogs.js';
+import { pictureSelect } from './modules/mod01-shell/pictureSelect.js';
+import { exportQrDialog, printChoiceDialog, renderOptions, LOOK_SELECTS } from './modules/mod08-egress/exportDialogs.js';
 import { wireHatches, wireFalcon, flyFalcon, showReadyLights } from './modules/mod08-egress/airlockTouches.js';
 import { VaultStore, READINGS } from './modules/mod02-vault/vaultStore.js';
 
@@ -488,7 +489,7 @@ function clearCapturedImages() {
     forgetReadings();
     cardView.forgetUndo();
     egressController.clearPrintSheet();
-    exportQrDialog.reset();       // an uploaded QR logo and the preview
+    exportQrDialog.reset({ keepLook: false });   // an uploaded QR logo, the preview and the chosen look
     printChoiceDialog.close();
     vaultStore.clear('logo');
     camera.closeCamera();
@@ -1060,12 +1061,12 @@ function wireIntake() {
 // ---- Egress (MOD08 only) ---------------------------------------------------------------------------------------
 
 // The QR for an export, drawn by MOD07 from the current contact in the chosen style. Returns what was drawn.
-function renderExportQr(canvas, { themed = true, ink = null, dots = 'square', frame = 'none', logo = null, size = 320 } = {}) {
+function renderExportQr(canvas, { themed = true, ink = null, pair = null, dots = 'square', eyes = 'square', dotSize = 1, frame = 'none', logo = null, size = 320, sample = null } = {}) {
     const contact = cardView.getContact();
-    if (!vcgeQREngine.hasDetails(contact)) return { ok: false, themed: false };
-    const text = vcgeQREngine.generateVCard30({ ...contact, avatarBase64: null });
+    if (!sample && !vcgeQREngine.hasDetails(contact)) return { ok: false, themed: false };
+    const text = sample || vcgeQREngine.generateVCard30({ ...contact, avatarBase64: null });
     const theme = ink ? { card: ink } : themed ? THEMES[themeKeyOf(contact.themePalette)] : null;
-    const ok = vcgeQREngine.renderQRCode(canvas, text, { size, theme, dots, frame, logo });
+    const ok = vcgeQREngine.renderQRCode(canvas, text, { size, theme, pair, dots, eyes, dotSize, frame, logo });
     return { ok, themed: !!(ok && vcgeQREngine.lastRender && vcgeQREngine.lastRender.themed) };
 }
 
@@ -1092,6 +1093,19 @@ function wireEgress() {
         delivered: () => flyFalcon({ parcel: true }),
         beforeExternal: expectExternalApp
     });
+    // The look's picture drop-downs: each row shows a small code in the current look with that one choice changed.
+    // The pictures use a short sample code, not the contact, so they stay quick to draw.
+    const QR_THUMB_PX = 96;
+    for (const [key, id] of Object.entries(LOOK_SELECTS)) {
+        pictureSelect($(id), { render: (value, box) => {
+            const look = { ...exportQrDialog.choices, [key]: key === 'dotSize' || key === 'printCm' ? Number(value) : value };
+            const canvas = document.createElement('canvas');
+            canvas.className = 'export-qr-thumb';
+            if (!renderExportQr(canvas, { ...renderOptions(look), size: QR_THUMB_PX, sample: 'vCGE' }).ok) return;
+            if (key === 'printCm') canvas.style.width = canvas.style.height = `${Math.round(look.printCm / 5 * 100)}%`;   // bigger print, bigger picture
+            box.append(canvas);
+        } });
+    }
     // "Also use this logo on my card": Export wrote the Vault's logo slot; the card view reads it through its own handle.
     egressController.setVault(vaultStore.handle('mod08'));
     const cardVault = vaultStore.handle('mod06');
