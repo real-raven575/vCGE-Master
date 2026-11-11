@@ -178,6 +178,9 @@ jobs:
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/emulator" >> "$GITHUB_PATH"
           echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+          # One place for the virtual phone, so avdmanager writes it where the emulator looks.
+          mkdir -p "$HOME/.android/avd"
+          echo "ANDROID_AVD_HOME=$HOME/.android/avd" >> "$GITHUB_ENV"
 
       # The emulator boots while the app builds.
       - name: Start Android 14 emulator
@@ -189,6 +192,7 @@ jobs:
           IMAGE="system-images;android-34;google_apis;x86_64"
           yes | sdkmanager --install emulator "$IMAGE" platform-tools > /dev/null
           echo no | avdmanager create avd -n vcge -k "$IMAGE" -d pixel_6
+          emulator -list-avds | grep -qx vcge
           nohup emulator -avd vcge -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect \
             -camera-back emulated > "$RUNNER_TEMP/emulator.log" 2>&1 &
 
@@ -226,8 +230,11 @@ jobs:
       - name: Wait for the emulator
         timeout-minutes: 10
         run: |
-          adb wait-for-device
-          until [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1" ]; do sleep 3; done
+          # Stops at once if the emulator has quit, with its log, instead of waiting out the timeout.
+          until [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" = "1" ]; do
+            pgrep -f "qemu-system|emulator -avd" > /dev/null || { tail -50 "$RUNNER_TEMP/emulator.log"; exit 1; }
+            sleep 3
+          done
           adb shell settings put global window_animation_scale 0
           adb shell settings put global transition_animation_scale 0
           adb shell settings put global animator_duration_scale 0
