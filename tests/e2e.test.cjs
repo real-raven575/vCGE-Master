@@ -1985,6 +1985,14 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('printed card is 3.5 in wide and at least 2 in tall, with the QR to its right at the default 3.5 cm', size.card[0] === 336 && size.card[1] >= 192 && size.qr[0] === 132 && size.qr[1] === 132 && size.qrRight, JSON.stringify(size));
     ok('printed card cuts nothing off: every line sits inside the card (raven575 2026-10-18)', size.cut.length === 0, JSON.stringify(size.cut));
     ok('themed print keeps the card\'s own colours', size.bg === size.cardBg && size.bg !== 'rgb(255, 255, 255)', JSON.stringify(size));
+    // raven575 2026-11-11 (CRTV-0061): the PDF came out flat; the Themed print keeps the texture, its strength and blur, and the light
+    const finish = await p9.evaluate(() => {
+      const c = document.querySelector('#printSheet .print-card'), f = document.getElementById('card3DFlipper'), b = getComputedStyle(c, '::before');
+      return { finish: c.dataset.finish, card: f.dataset.finish, a: [c.style.getPropertyValue('--finish-a'), f.style.getPropertyValue('--finish-a')], blur: [c.style.getPropertyValue('--finish-blur'), f.style.getPropertyValue('--finish-blur')],
+        display: b.display, image: b.backgroundImage.slice(0, 22), opacity: b.opacity, filter: b.filter, blend: b.mixBlendMode, light: getComputedStyle(c).backgroundImage.startsWith('radial-gradient') };
+    });
+    ok('Airlock: Themed print keeps the card\'s finish (Paper grain at its strength and blur, the soft light), not a flat colour', finish.finish === finish.card && finish.finish === 'paper' && finish.a[0] === finish.a[1] && finish.blur[0] === finish.blur[1]
+      && finish.display !== 'none' && finish.image.startsWith('url("data:image/svg') && finish.opacity === finish.a[1] && finish.filter === `blur(${finish.blur[1]})` && finish.blend === 'overlay' && finish.light, JSON.stringify(finish));
     // Chrome's print preview sized the one-screen-tall body to the window, so a short card printed 4 sheets (raven575 2026-10-21)
     const printBody = await p9.evaluate(() => ({ body: document.body.getBoundingClientRect().height, sheet: document.getElementById('printSheet').getBoundingClientRect().height, view: innerHeight }));
     ok('in print the page is only as tall as the print sheet, not the window (no blank sheets after the card)', Math.abs(printBody.body - printBody.sheet) < 1 && printBody.body < printBody.view, JSON.stringify(printBody));
@@ -2002,10 +2010,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p9.emulateMedia({ media: 'print' });
     const bw = await p9.evaluate(() => {
       const c = document.querySelector('#printSheet .print-card'), q = document.querySelector('#printSheet .print-qr img');
-      return { bg: getComputedStyle(c).backgroundColor, ink: getComputedStyle(c).color, bw: c.classList.contains('print-bw'), src: q.src.slice(0, 21) };
+      return { bg: getComputedStyle(c).backgroundColor, ink: getComputedStyle(c).color, bw: c.classList.contains('print-bw'), src: q.src.slice(0, 21), texture: getComputedStyle(c, '::before').display };
     });
     await p9.emulateMedia({ media: null });
-    ok('Black & White print: white card, dark ink, a PNG QR', bw.bw && bw.bg === 'rgb(255, 255, 255)' && bw.ink === 'rgb(15, 23, 42)' && bw.src === 'data:image/png;base64', JSON.stringify(bw));
+    ok('Black & White print: white card, dark ink, a PNG QR, no texture', bw.bw && bw.bg === 'rgb(255, 255, 255)' && bw.ink === 'rgb(15, 23, 42)' && bw.src === 'data:image/png;base64' && bw.texture === 'none', JSON.stringify(bw));
     // The B&W QR on the sheet is black on white; the themed one above was tinted
     const qrColours = await p9.evaluate(async () => {
       const img = document.querySelector('#printSheet .print-qr img'); await img.decode();
