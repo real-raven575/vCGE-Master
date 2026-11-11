@@ -854,7 +854,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 
 // QR engine (ESM, delegates to shared formatter)
 {
-  const { VCGEQREngine, qrPalette } = await import(`${R}/modules/mod07-qr/qrGenerator.js`);
+  const { VCGEQREngine, qrPalette, pairPalette, QR_PAIRS, QR_PAIR_MIN_CONTRAST, QR_EYES, QR_DOT_SIZES } = await import(`${R}/modules/mod07-qr/qrGenerator.js`);
   const q = new VCGEQREngine();
   const contact = { firstName: 'Jane', lastName: 'Doe', organization: 'Smith, Jones', birthday: '1990-01-02' };
   ok('MOD07 output identical to shared formatter', q.generateVCard30(contact) === share.formatVCard(contact));
@@ -863,7 +863,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   // Render with the bundled qrcode-generator onto an in-memory canvas, then decode with jsQR.
   const jsQR = require('jsqr');
   globalThis.qrcode = require('../src/vendor/qrcode-generator/qrcode.js');
-  // A tiny canvas: fillRect, arc + fill (round dots, circle frame) and drawImage (a grey block) paint real colours
+  // A tiny canvas: fillRect, arc or roundRect + fill (round dots, rounded and bar dots as plain boxes, circle frame)
+  // and drawImage (a grey block) paint real colours
   // into an RGBA buffer, so jsQR decodes the same pixels a browser would. stroke draws nothing: a frame sits
   // outside the quiet zone and must not matter to the decoder.
   const makeCanvas = () => {
@@ -874,14 +875,14 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     const inRect = (x, y, [rx, ry, rw, rh]) => x >= rx && y >= ry && x < rx + rw && y < ry + rh;
     const put = (x, y, [r, g, b]) => { if (x < 0 || y < 0 || x >= c.width || y >= c.height) return; if (band && (!inRect(x, y, band[0]) || inRect(x, y, band[1]))) return; const o = (y * c.width + x) * 4; c._px[o] = r; c._px[o + 1] = g; c._px[o + 2] = b; c._px[o + 3] = 255; };
     const ensure = () => { if (!c._px || c._px.length !== c.width * c.height * 4) c._px = new Uint8ClampedArray(c.width * c.height * 4); };
-    let path = [];
+    let path = [], boxes = [];
     const ctx = {
       fillStyle: '#000000', strokeStyle: '#000000', lineWidth: 1, font: '', textAlign: '',
       fillRect(x, y, w, h) { ensure(); const col = rgb(this.fillStyle); for (let j = Math.round(y); j < Math.round(y + h); j++) for (let i = Math.round(x); i < Math.round(x + w); i++) put(i, j, col); },
-      beginPath() { path = []; rects = []; },
+      beginPath() { path = []; rects = []; boxes = []; },
       arc(cx, cy, r) { path.push({ cx, cy, r }); },
-      rect(x, y, w, h) { rects.push([x, y, w, h]); }, roundRect() {}, stroke() {}, save() {}, restore() { band = null; }, clip() { if (rects.length === 2) band = rects.slice(); }, moveTo() {}, lineTo() {}, closePath() {},
-      fill() { ensure(); const col = rgb(this.fillStyle); for (const { cx, cy, r } of path) for (let j = Math.floor(cy - r); j <= Math.ceil(cy + r); j++) for (let i = Math.floor(cx - r); i <= Math.ceil(cx + r); i++) if ((i + 0.5 - cx) ** 2 + (j + 0.5 - cy) ** 2 <= r * r) put(i, j, col); },
+      rect(x, y, w, h) { rects.push([x, y, w, h]); }, roundRect(x, y, w, h) { boxes.push([x, y, w, h]); }, stroke() {}, save() {}, restore() { band = null; }, clip() { if (rects.length === 2) band = rects.slice(); }, moveTo() {}, lineTo() {}, closePath() {},
+      fill() { ensure(); const col = rgb(this.fillStyle); for (const [x, y, w, h] of boxes) this.fillRect(x, y, w, h); for (const { cx, cy, r } of path) for (let j = Math.floor(cy - r); j <= Math.ceil(cy + r); j++) for (let i = Math.floor(cx - r); i <= Math.ceil(cx + r); i++) if ((i + 0.5 - cx) ** 2 + (j + 0.5 - cy) ** 2 <= r * r) put(i, j, col); },
       drawImage(img, x, y, w, h) { const keep = this.fillStyle; this.fillStyle = '#777777'; this.fillRect(x, y, w, h); this.fillStyle = keep; },
       fillText() {}
     };
@@ -940,6 +941,29 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('MOD07 logo option is offered when the contact fits at level H', q.logoOption(text).ok === true && q.fits(text, 'H') === true);
   const big = 'x'.repeat(1700); // fits at level M (2953 bytes max) but not at level H (1273 bytes max)
   ok('MOD07 logo option is greyed out with a reason when the contact no longer fits at level H', q.fits(big, 'M') === true && q.fits(big, 'H') === false && q.logoOption(big).ok === false && /Too much/.test(q.logoOption(big).reason));
+  // raven575 2026-11-10: many more colours, always a pale colour under a dark one from across the wheel, plus shapes and sizes
+  const pairIds = Object.keys(QR_PAIRS);
+  ok('MOD07 ten named colour pairs, each dark on light at 7:1 or better', pairIds.length === 10 && QR_PAIR_MIN_CONTRAST === 7
+    && pairIds.every(id => { const p = pairPalette(id); return p.ok && p.ratio >= 7 && p.dark === QR_PAIRS[id].dark; }),
+    JSON.stringify(Object.fromEntries(pairIds.map(id => [id, pairPalette(id).ratio.toFixed(1)]))));
+  const faint = pairPalette({ light: '#fffbd1', dark: '#c99a06' });
+  ok('MOD07 a faint pair (Lemon & Gold, 2.5:1) is refused with the reason and falls back to black on white', faint.ok === false && /too faint/.test(faint.reason) && faint.dark === '#000000' && faint.light === '#ffffff');
+  const inverted = pairPalette({ light: '#14213d', dark: '#fff8e1' });
+  ok('MOD07 light dots on a dark background are refused even at high contrast', inverted.ok === false && /dark background/.test(inverted.reason));
+  ok('MOD07 an unknown pair id is refused', pairPalette('neon-pink').ok === false);
+  const pairsDecode = pairIds.every(id => { const cv = makeCanvas(); return q.renderQRCode(cv, text, { size: 320, pair: id }) && q.lastRender.themed && q.lastRender.dark === QR_PAIRS[id].dark && decodes(cv) === text; });
+  ok('MOD07 every named pair draws in its own colours and decodes to the exact vCard', pairsDecode);
+  const faintCv = makeCanvas(); q.renderQRCode(faintCv, text, { size: 320, pair: 'neon-pink' });
+  ok('MOD07 a refused pair draws black on white and reports themed=false, so the pop-up can say so', q.lastRender.themed === false && q.lastRender.dark === '#000000' && q.lastRender.pair.ok === false && decodes(faintCv) === text);
+  // Diamond dots are a drawn path this mock canvas cannot paint, so they are checked in the browser (e2e) instead.
+  const shapesDecode = ['square', 'rounded', 'round', 'bars'].every(dots => QR_DOT_SIZES.every(dotSize => QR_EYES.every(eyes => {
+    const cv = makeCanvas(); return q.renderQRCode(cv, text, { size: 320, dots, dotSize, eyes, pair: 'cream-navy' }) && q.lastRender.dots === dots && q.lastRender.dotSize === dotSize && q.lastRender.eyes === eyes && decodes(cv) === text; })));
+  ok('MOD07 square, rounded, round and bar dots at 100, 90 and 80 percent, with square, rounded and circle corners, all decode', shapesDecode);
+  ok('MOD07 dots never shrink below 80 percent: an unknown size draws full dots', QR_DOT_SIZES.every(k => k >= 0.8) && q.renderQRCode(makeCanvas(), text, { dotSize: 0.5 }) && q.lastRender.dotSize === 1);
+  const middle = makeCanvas(); q.renderQRCode(middle, text, { size: 320, eyes: 'circle', dotSize: 0.8 });
+  const unit = Math.floor(320 / (q.lastRender.modules + 8)), at = (x, y) => middle._px[(y * middle.width + x) * 4];
+  ok('MOD07 the corner squares keep a solid dark middle at every dot size', at(Math.round((4 + 3.5) * unit), Math.round((4 + 3.5) * unit)) === 0);
+  ok('MOD07 an unknown dots, corners or frame value falls back to square, square and none', q.renderQRCode(makeCanvas(), text, { eyes: 'star' }) && q.lastRender.eyes === 'square');
   ok('MOD07 an unknown dots or frame value falls back to square and none', q.renderQRCode(makeCanvas(), text, { dots: 'hex', frame: 'oval' }) && q.lastRender.dots === 'square' && q.lastRender.frame === 'none');
   q.renderPlaceholder(makeCanvas(), 320);
   ok('MOD07 the placeholder clears lastRender, so nothing claims a themed code is on screen', q.lastRender === null);
@@ -2005,8 +2029,9 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 // MOD08 Export (Airlock), redesign step 10: file names from the contact, the QR pop-up's choices, the logo through the Vault
 {
   const { EgressController, safeFileName, FILE_NAME_MAX } = await import(`${R}/modules/mod08-egress/egressController.js`);
-  const { cleanChoices, defaultChoices, previewNote, QR_FRAMES, QR_DOTS } = await import(`${R}/modules/mod08-egress/exportDialogs.js`);
-  const { QR_FRAMES: MOD07_FRAMES, QR_DOTS: MOD07_DOTS } = await import(`${R}/modules/mod07-qr/qrGenerator.js`);
+  const { cleanChoices, defaultChoices, previewNote, renderOptions, QR_FRAMES, QR_DOTS, QR_EYES, QR_DOT_SIZES, QR_PAIR_NAMES, QR_COLOURS, QR_PRINT_CM } = await import(`${R}/modules/mod08-egress/exportDialogs.js`);
+  const M7 = await import(`${R}/modules/mod07-qr/qrGenerator.js`);
+  const { QR_FRAMES: MOD07_FRAMES, QR_DOTS: MOD07_DOTS } = M7;
   ok('MOD08 safe file names keep spaces and drop what Windows, macOS and Linux forbid', safeFileName('Jane Doe') === 'Jane Doe' && safeFileName(' Smith / Jones: "Co" <*?> |x| ') === 'Smith Jones Co x' && safeFileName('a\u0000b\u001fc') === 'abc');
   ok('MOD08 leading and trailing dots and spaces go; an empty name gives the fallback', safeFileName('.. hidden ..') === 'hidden' && safeFileName('   ') === 'Contact' && safeFileName('///', 'Card') === 'Card');
   ok('MOD08 very long names are cut', safeFileName('x'.repeat(200)).length === FILE_NAME_MAX);
@@ -2032,12 +2057,30 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   store.clear('logo');
   ok('MOD08 Export still has no standing read of the contact through its handle', (() => { try { store.handle('mod08').get('contact'); return false; } catch (err) { return err.message.startsWith('VAULT_DENIED'); } })());
   // The pop-up's choices: themed, square, no frame, no logo by default; anything unknown falls back
-  ok('MOD08 QR pop-up defaults: Themed, square dots, no frame, no logo, not on the card', JSON.stringify(defaultChoices()) === '{"colour":"themed","dots":"square","frame":"none","logo":"none","useOnCard":false}');
-  ok('MOD08 QR pop-up: every frame and dot style MOD07 draws is offered', QR_FRAMES.join() === 'none,square,rounded,circle,stripes,checkers,polka' && QR_DOTS.join() === 'square,round,diamond' && QR_FRAMES.join() === MOD07_FRAMES.join() && QR_DOTS.join() === MOD07_DOTS.join());
+  ok('MOD08 QR pop-up defaults: Themed, square dots, no frame, no logo, not on the card', JSON.stringify(defaultChoices()) === '{"colour":"themed","dots":"square","eyes":"square","dotSize":1,"frame":"none","printCm":3.5,"logo":"none","useOnCard":false}');
+  ok('MOD08 QR pop-up: every frame and dot style MOD07 draws is offered', QR_FRAMES.join() === 'none,square,rounded,circle,stripes,checkers,polka' && QR_DOTS.join() === 'square,rounded,round,diamond,bars' && QR_FRAMES.join() === MOD07_FRAMES.join() && QR_DOTS.join() === MOD07_DOTS.join());
+  ok('MOD08 QR pop-up: every corner style, dot size and colour pair MOD07 draws is offered, with the same names',
+    QR_EYES.join() === M7.QR_EYES.join() && QR_DOT_SIZES.join() === M7.QR_DOT_SIZES.join()
+    && Object.keys(QR_PAIR_NAMES).join() === Object.keys(M7.QR_PAIRS).join() && Object.entries(QR_PAIR_NAMES).every(([id, name]) => M7.QR_PAIRS[id].name === name)
+    && Object.keys(QR_PAIR_NAMES).every(id => QR_COLOURS.includes(id)));
+  ok('MOD08 QR pop-up: a pair choice reaches MOD07 as a pair (not a theme or ink), with the shape and sizes',
+    JSON.stringify(renderOptions({ ...defaultChoices(), colour: 'mint-plum', dots: 'bars', eyes: 'circle', dotSize: 0.9 })) === '{"themed":false,"ink":null,"pair":"mint-plum","dots":"bars","eyes":"circle","dotSize":0.9,"frame":"none"}'
+    && renderOptions(defaultChoices()).themed === true && renderOptions({ ...defaultChoices(), colour: 'navy' }).ink === '#1e3a8a');
+  {
+    const html = (await import('node:fs')).readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+    const optionsOf = (id) => { const m = html.match(new RegExp(`<select id="${id}"[\\s\\S]*?</select>`)); return m ? [...m[0].matchAll(/<option value="([^"]+)"(?: data-hint="([^"]*)")?/g)].map(x => ({ value: x[1], hint: x[2] || '' })) : []; };
+    const values = (id) => optionsOf(id).map(o => o.value).join();
+    ok('MOD08 Export QR drop-downs offer exactly the lists (colours, dots, corners, dot size, frame, print size)',
+      values('qrColourSelect').split(',').sort().join() === [...QR_COLOURS].sort().join() && values('qrDotsSelect') === QR_DOTS.join() && values('qrEyesSelect') === QR_EYES.join()
+      && values('qrDotSizeSelect') === QR_DOT_SIZES.join() && values('qrFrameSelect') === QR_FRAMES.join() && values('qrPrintSizeSelect') === QR_PRINT_CM.join(), values('qrColourSelect'));
+    const hints = optionsOf('qrColourSelect').filter(o => QR_PAIR_NAMES[o.value]);
+    ok('MOD08 each colour pair\'s "Contrast N to 1" line matches what MOD07 measures', hints.length === 10 && hints.every(o => o.hint === `Contrast ${Math.round(M7.pairPalette(o.value).ratio)} to 1`), JSON.stringify(hints.map(o => [o.value, o.hint, M7.pairPalette(o.value).ratio.toFixed(2)])));
+  }
+  ok('MOD08 print sizes 2.5, 3.5 and 5 cm; an unknown size or dot size falls back', QR_PRINT_CM.join() === '2.5,3.5,5' && cleanChoices({ printCm: 9, dotSize: 0.5 }).printCm === 3.5 && cleanChoices({ dotSize: '0.8' }).dotSize === 0.8);
   const { readyLights, readyLightsText } = await import(`${R}/modules/mod08-egress/airlockTouches.js`);
   ok('MOD08 runway lights: none for an empty card, then a name, a way to reach them and a scannable code', readyLights({}, false).join() === 'false,false,false' && readyLights({ organization: 'B' }, true).join() === 'true,false,true' && readyLights({ firstName: ' ', emails: [{ value: 'a@b.c' }] }, false).join() === 'false,true,false');
   ok('MOD08 runway lights read the same in words', readyLightsText([false, false, false]) === 'Lit: none yet.' && readyLightsText([true, true, true]) === 'Lit: a name, a way to reach them, a scannable QR code.' && readyLightsText([true, false, true]) === 'Lit: a name, a scannable QR code.');
-  ok('MOD08 QR pop-up: unknown choices fall back to the defaults, known ones stay', JSON.stringify(cleanChoices({ colour: 'neon', dots: 'round', frame: 'circle', logo: 'upload', useOnCard: 'yes' })) === '{"colour":"themed","dots":"round","frame":"circle","logo":"upload","useOnCard":false}');
+  ok('MOD08 QR pop-up: unknown choices fall back to the defaults, known ones stay', JSON.stringify(cleanChoices({ colour: 'neon', dots: 'round', frame: 'circle', logo: 'upload', useOnCard: 'yes' })) === '{"colour":"themed","dots":"round","eyes":"square","dotSize":1,"printCm":3.5,"frame":"circle","logo":"upload","useOnCard":false}');
   ok('MOD08 QR pop-up note: a code that does not fit, a theme that is not scannable, or nothing to say', /Too much contact data/.test(previewNote({ ok: false, themed: false }, defaultChoices()))
     && /Black & White is used/.test(previewNote({ ok: true, themed: false }, defaultChoices())) && previewNote({ ok: true, themed: true }, defaultChoices()) === '' && previewNote({ ok: true, themed: false }, { ...defaultChoices(), colour: 'bw' }) === '');
 }

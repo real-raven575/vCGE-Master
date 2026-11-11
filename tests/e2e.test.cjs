@@ -4061,9 +4061,15 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       .then(q => { if (!q) return null; const r = jsQR(Uint8ClampedArray.from(q.data), q.w, q.h); return r && r.data; });
     const coloursOf = (id) => pA.evaluate((id) => { const c = document.getElementById(id), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; const seen = new Set(); for (let i = 0; i < d.length; i += 4) seen.add(`${d[i]},${d[i + 1]},${d[i + 2]}`); return [...seen]; }, id);
     const tA = (id) => pA.$eval('#' + id, el => el.textContent.trim());
-    // Each style choice is a 1 px hidden radio inside a 44 px label (export.css): tap the label as a person does, then report whether it took
-    const pickFrame = async (value) => { await pA.selectOption('#qrFrameSelect', value); return (await pA.inputValue('#qrFrameSelect')) === value; };
-    const tapChoice = async (name, value) => { const input = `input[name="${name}"][value="${value}"]`; await pA.click(`label:has(> ${input})`); return pA.isChecked(input); };
+    // The look is picture drop-downs (MOD01 pictureSelect): tap the button, then the row, as a person does, then report whether it took.
+    // The centre logo is still a 1 px hidden radio inside a 44 px label (export.css).
+    const pick = async (id, value) => { await pA.click(`#${id} + .vcge-pick .vcge-pick-btn`); await pA.click(`#${id} + .vcge-pick [role="option"][data-value="${value}"]`); return (await pA.inputValue('#' + id)) === value; };
+    const pickFrame = (value) => pick('qrFrameSelect', value);
+    const tapChoice = async (name, value) => {
+      const select = { qrColour: 'qrColourSelect', qrDots: 'qrDotsSelect' }[name];
+      if (select) return pick(select, value);
+      const input = `input[name="${name}"][value="${value}"]`; await pA.click(`label:has(> ${input})`); return pA.isChecked(input);
+    };
 
     // An empty card: the Share card says so instead of opening the pop-up or printing
     await pA.click('#navShare'); await pA.waitForTimeout(400);
@@ -4151,14 +4157,34 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     for (const colour of ['navy', 'forest', 'plum', 'cocoa']) { const picked = await tapChoice('qrColour', colour); await pA.waitForTimeout(150); const cs = await coloursOf('exportQrPreview'); inks.push(picked && (await decodeCanvas('exportQrPreview')) === expected && !cs.includes('0,0,0') && (await tA('exportQrNote')) === '' ? 'ok' : colour); }
     const diamondPicked = await tapChoice('qrDots', 'diamond'); await pA.waitForTimeout(150);
     ok('more colours (Navy, Forest, Plum, Cocoa, tinted and contrast-checked) and Diamond dots still decode', inks.every(c => c === 'ok') && diamondPicked && (await decodeCanvas('exportQrPreview')) === expected, inks.join());
-    const bigger = await pA.evaluate(() => ({ preview: document.getElementById('exportQrPreview').getBoundingClientRect().width, label: document.querySelector('label:has(> input[name="qrColour"])').getBoundingClientRect().height, select: document.getElementById('qrFrameSelect').getBoundingClientRect().height }));
-    ok('the style options are larger: a bigger preview, 48 px buttons and dropdown', bigger.label >= 48 && bigger.select >= 48 && bigger.preview > 200, JSON.stringify(bigger));
+    const bigger = await pA.evaluate(() => ({ preview: document.getElementById('exportQrPreview').getBoundingClientRect().width, label: document.querySelector('label:has(> input[name="qrLogo"])').getBoundingClientRect().height, select: document.querySelector('#qrFrameSelect + .vcge-pick .vcge-pick-btn').getBoundingClientRect().height }));
+    ok('the style options are larger: a bigger preview, 48 px buttons and drop-downs', bigger.label >= 48 && bigger.select >= 48 && bigger.preview > 200, JSON.stringify(bigger));
+    // raven575 2026-11-10: many more high-contrast colours, shapes and sizes, in picture drop-downs big enough for fingers
+    await pickFrame('none'); await pick('qrDotsSelect', 'square');   // square dots: exactly the pair's two colours, no smoothed edges
+    const pairs = [];
+    for (const colour of ['cream-navy', 'mint-plum', 'peach-teal', 'sky-maroon', 'lavender-forest', 'lemon-indigo', 'blush-pine', 'ice-burgundy', 'sand-cobalt', 'lilac-olive']) {
+      const picked = await pick('qrColourSelect', colour); await pA.waitForTimeout(120); const cs = await coloursOf('exportQrPreview');
+      pairs.push(picked && cs.length === 2 && !cs.includes('0,0,0') && (await decodeCanvas('exportQrPreview')) === expected && (await tA('exportQrNote')) === '' ? 'ok' : colour);
+    }
+    ok('Checkers: all ten high-contrast colour pairs draw in their own two colours and decode in the browser', pairs.every(c => c === 'ok'), pairs.join());
+    const looks = [];
+    for (const dots of ['square', 'rounded', 'round', 'diamond', 'bars']) for (const eyes of ['square', 'rounded', 'circle']) for (const size of ['1', '0.8']) {
+      const picked = await pick('qrDotsSelect', dots) && await pick('qrEyesSelect', eyes) && await pick('qrDotSizeSelect', size); await pA.waitForTimeout(80);
+      looks.push(picked && (await decodeCanvas('exportQrPreview')) === expected ? 'ok' : `${dots}/${eyes}/${size}`);
+    }
+    ok('Checkers: every dot shape with every corner style, at full and 80 percent dot size, decodes in the browser', looks.every(c => c === 'ok'), looks.filter(c => c !== 'ok').join());
+    await pA.click('#qrColourSelect + .vcge-pick .vcge-pick-btn');
+    const rows = await pA.evaluate(() => [...document.querySelectorAll('#qrColourSelect + .vcge-pick [role="option"]')].map(li => ({ h: li.getBoundingClientRect().height, pic: !!li.querySelector('.vcge-pick-prev canvas'), hint: (li.querySelector('small') || {}).textContent || '' })));
+    ok('Checkers: the colour drop-down shows a QR picture and the contrast on every row, each row at least 48 px tall', rows.length === 16 && rows.every(r => r.h >= 48 && r.pic) && rows.filter(r => /^Contrast \d+ to 1$/.test(r.hint)).length === 11, JSON.stringify(rows.slice(0, 3)));
+    await pA.click('#qrColourSelect + .vcge-pick .vcge-pick-btn');   // a second tap closes the list
+    await pick('qrDotsSelect', 'diamond'); await pick('qrEyesSelect', 'square'); await pick('qrDotSizeSelect', '1'); await pick('qrColourSelect', 'cocoa');
     ok('the note is empty when there is nothing to say', (await tA('exportQrNote')) === '');
     // Esc (a Shell sheet: a sideways swipe or the X do the same) cancels; the next opening starts fresh
     await pA.keyboard.press('Escape');
     ok('Esc cancels the pop-up', !(await pA.isVisible('#exportQrSheet')));
     await pA.click('#exportQrBtn'); await pA.waitForSelector('#exportQrSheet', { state: 'visible' }); await pA.waitForTimeout(200);
-    ok('the pop-up opens fresh: Themed, square, no frame, no logo', await pA.isChecked('input[name="qrColour"][value="themed"]') && await pA.isChecked('input[name="qrDots"][value="square"]') && (await pA.inputValue('#qrFrameSelect')) === 'none' && await pA.isChecked('input[name="qrLogo"][value="none"]'));
+    ok('the pop-up keeps the chosen look (Cocoa, diamond dots) for the next export and for Print / PDF, but the logo starts at Nothing', (await pA.inputValue('#qrColourSelect')) === 'cocoa' && (await pA.inputValue('#qrDotsSelect')) === 'diamond' && (await pA.inputValue('#qrFrameSelect')) === 'none' && await pA.isChecked('input[name="qrLogo"][value="none"]')
+      && (await pA.textContent('#qrColourSelect + .vcge-pick .vcge-pick-btn b')) === 'Cocoa');
 
     // Upload a logo for the centre: made ready on the device (traced into a drawing), drawn as an image; the code still decodes around it
     const logoPng = await pA.evaluate(() => { const c = document.createElement('canvas'); c.width = 320; c.height = 80; const x = c.getContext('2d'); x.fillStyle = '#1d4ed8'; x.font = 'bold 56px Arial'; x.fillText('ACME', 20, 62); return c.toDataURL('image/png'); });
