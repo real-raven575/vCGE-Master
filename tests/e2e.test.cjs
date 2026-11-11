@@ -2247,6 +2247,28 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await ctxS.close();
   });
 
+  // Cancel during the QR search (WebKit CI 2026-11-11): the QR code is searched for before the reader starts, and a
+  // reader started after Cancel held the next read until it timed out. Now nothing starts after Cancel.
+  await rerunIfPageCrashed('Cancel during the QR search', async () => {
+    const ctxC = await browser.newContext();
+    const pC = await ctxC.newPage();
+    const started = [];
+    pC.on('console', m => { if (m.text().includes('OCR extraction pipeline')) started.push(m.text()); });
+    await pC.goto(ORIGIN); await pC.waitForTimeout(300);
+    // The first picture decode (the QR search's) waits 1.5 s, so Cancel lands while the code is being looked for
+    await pC.evaluate(() => { const real = HTMLImageElement.prototype.decode; let first = true;
+      HTMLImageElement.prototype.decode = function () { if (first && String(this.src).startsWith('data:')) { first = false; return new Promise(r => setTimeout(r, 1500)).then(() => real.call(this)); } return real.call(this); }; });
+    await pC.setInputFiles('#imageUpload', await renderCardImage(pC)); await pC.waitForTimeout(300);
+    await pC.click('#runOcrBtn');
+    await pC.click('#ocrStopBtn');
+    await pC.waitForTimeout(2500);
+    ok('Cancel during the QR search: the reader never starts, and the photo is back on the Capture card', started.length === 0 && (await pC.evaluate(() => document.documentElement.dataset.card)) === 'capture' && !(await pC.isDisabled('#runOcrBtn')), JSON.stringify(started));
+    await pC.click('#runOcrBtn');
+    await readEnds(pC);
+    ok('Cancel during the QR search: OK afterwards reads the card', (await pC.$$('#ocrLines select')).length >= 8);
+    await ctxC.close();
+  });
+
   // Cancel pressed just as the reader finishes (the wash fills, the review is a moment away) still cancels: it used to
   // be ignored and the review opened anyway (Shutout's local run, 2026-10-19)
   {

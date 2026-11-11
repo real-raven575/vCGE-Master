@@ -789,6 +789,9 @@ async function runOcr() {
         // A QR code printed on the card is read first (accuracy round 1, 2026-11-10) and painted over for the text
         // reader, whose junk readings of its squares would otherwise turn the card down.
         const found = await readCardQr(photo);
+        // Cancel (or a wipe) during the QR search: the reader must not start afterwards (WebKit CI 2026-11-11: a reader
+        // started after Cancel was left holding the next read until it timed out).
+        if (ocrStoppedByUser || $('cropReviewModal').classList.contains('hidden')) throw Object.assign(new Error('Reading cancelled during the QR search'), { code: 'OCR_CANCELLED' });
         const qr = found ? found.data : null;
         const { text, lines } = await executeOCRScan(found && found.corners ? await withoutQr(photo, found.corners) : photo, { onStatus });
         // Finished early: the wash fills up (and the owl closes its eyes) before the review step opens.
