@@ -80,7 +80,8 @@ if (scan) {
 await sleep(5000);
 ok('app is still running', pid() !== '');
 const log = shell('logcat -d -b crash,main');
-ok('no Java crash', !new RegExp(`FATAL EXCEPTION[\\s\\S]{0,400}${PKG.replace(/\./g, '\\.')}`).test(log));
+// A Java crash: a FATAL EXCEPTION block that names the app within its first lines.
+ok('no Java crash', !log.split('FATAL EXCEPTION').slice(1).some(block => block.slice(0, 400).includes(PKG)));
 ok('no Rust panic', !/panicked at/.test(log));
 writeFileSync(path.join(OUT, 'logcat.txt'), log.split('\n').filter(l => /vcge|Tauri|wry|chromium|AndroidRuntime/i.test(l)).join('\n'));
 shot('4-end');

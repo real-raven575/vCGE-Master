@@ -86,7 +86,7 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
 {
   const v = JSON.parse(read('package.json')).version;
   ok('Version: tauri.conf.json matches package.json', JSON.parse(read('src-tauri/tauri.conf.json')).version === v);
-  ok('Version: Cargo.toml matches package.json', new RegExp(`^version = "${v.replace(/\./g, '\\.')}"`, 'm').test(read('src-tauri/Cargo.toml')));
+  ok('Version: Cargo.toml matches package.json', read('src-tauri/Cargo.toml').split(/\r?\n/).includes(`version = "${v}"`));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
