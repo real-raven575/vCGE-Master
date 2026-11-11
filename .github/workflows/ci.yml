@@ -1,4 +1,5 @@
-# vCGE CI: web tests, plus desktop builds and tests on Linux, macOS and Windows.
+# vCGE CI: web tests, plus the app wrappers: desktop builds and tests on Linux, macOS and Windows, and the Android app
+# built and run on an emulator.
 # Actions are pinned to full commit SHAs (tag in the trailing comment) so a moved tag cannot change what runs.
 name: CI
 
@@ -36,6 +37,9 @@ jobs:
 
       - name: Unit tests
         run: npm test
+
+      - name: App wrapper checks (no internet, permissions, Tauri lock)
+        run: npm run test:wrappers
 
       - name: Install Chromium for Playwright
         run: npx playwright install --with-deps chromium
@@ -139,10 +143,115 @@ jobs:
           cargo install tauri-driver --version 2.0.6 --locked
           VCGE_APP="$PWD/src-tauri/target/release/vcge" npm run test:tauri
 
+      - name: Wrapper smoke test (installers made, release app opens and stays open)
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a npm run test:desktop-smoke; else npm run test:desktop-smoke; fi
+
       - name: Upload installers
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: vcge-${{ matrix.os }}
           path: src-tauri/target/release/bundle/
           if-no-files-found: error
+          retention-days: 14
+
+  # Android wrapper: the same web build inside a Tauri Android app (src-tauri/gen/android). Built as a release APK for
+  # phones (arm64, armv7) and the emulator (x86_64), then installed on an Android 14 emulator and run through its paces
+  # (tests/android-smoke.mjs). The APK is signed with a throwaway key made for this run only, so it installs for testing;
+  # a beta APK people can update in place needs one lasting key, kept in GitHub Actions secrets, never in the repo.
+  android:
+    name: Android (build + emulator)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Android SDK paths, JDK 21
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
+          echo "NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
+          echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/emulator" >> "$GITHUB_PATH"
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+
+      # The emulator boots while the app builds.
+      - name: Start Android 14 emulator
+        timeout-minutes: 15
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          IMAGE="system-images;android-34;google_apis;x86_64"
+          yes | sdkmanager --install emulator "$IMAGE" platform-tools > /dev/null
+          echo no | avdmanager create avd -n vcge -k "$IMAGE" -d pixel_6
+          nohup emulator -avd vcge -no-window -no-audio -no-boot-anim -no-snapshot -gpu swiftshader_indirect \
+            -camera-back emulated > "$RUNNER_TEMP/emulator.log" 2>&1 &
+
+      - name: Rust toolchain + Android targets
+        run: |
+          rustup toolchain install stable --profile minimal && rustup default stable
+          rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android
+
+      - uses: Swatinem/rust-cache@98c8021b550208e191a6a3145459bfc9fb29c4c0 # v2.8.0
+        with:
+          workspaces: src-tauri
+          key: android
+
+      - run: npm ci
+
+      - name: Build release APK
+        run: npx tauri android build --apk --target aarch64 --target armv7 --target x86_64
+
+      - name: Sign with a throwaway test key (made for this run, then gone)
+        run: |
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          echo "$BT" >> "$GITHUB_PATH"
+          IN=src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk
+          export KS_PASS=$(openssl rand -hex 24)
+          keytool -genkeypair -keystore "$RUNNER_TEMP/test.jks" -storepass "$KS_PASS" -keypass "$KS_PASS" -alias test \
+            -keyalg RSA -keysize 2048 -validity 30 -dname "CN=vCGE CI test build" > /dev/null
+          mkdir -p apk
+          "$BT/zipalign" -f -p 4 "$IN" "$RUNNER_TEMP/aligned.apk"
+          VERSION=$(node -p "require('./package.json').version")
+          "$BT/apksigner" sign --ks "$RUNNER_TEMP/test.jks" --ks-pass env:KS_PASS --out "apk/vcge-$VERSION-android-test.apk" "$RUNNER_TEMP/aligned.apk"
+          rm -f "$RUNNER_TEMP/test.jks"
+          "$BT/apksigner" verify "apk/vcge-$VERSION-android-test.apk"
+          ls -l apk
+
+      - name: Wait for the emulator
+        timeout-minutes: 10
+        run: |
+          adb wait-for-device
+          until [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1" ]; do sleep 3; done
+          adb shell settings put global window_animation_scale 0
+          adb shell settings put global transition_animation_scale 0
+          adb shell settings put global animator_duration_scale 0
+
+      - name: Android e2e (install, open, Welcome to Capture, no internet, no crash)
+        run: npm run test:android -- apk/*.apk android-smoke
+
+      - name: Emulator log
+        if: failure()
+        run: tail -100 "$RUNNER_TEMP/emulator.log" || true
+
+      - name: Upload APK
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: vcge-android
+          path: apk/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload Android screenshots
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: vcge-android-screens
+          path: android-smoke/
+          if-no-files-found: ignore
           retention-days: 14

@@ -14,7 +14,10 @@
     "build:css": "tailwindcss -c tailwind.config.js -i src/styles/tailwind.input.css -o src/styles/tailwind.css --minify",
     "vendor": "node scripts/vendor.mjs",
     "test:tauri": "bash tests/run-tauri-e2e.sh",
-    "test:icons": "node tests/icons.e2e.test.cjs"
+    "test:icons": "node tests/icons.e2e.test.cjs",
+    "test:wrappers": "node tests/wrappers.test.mjs",
+    "test:desktop-smoke": "node tests/desktop-smoke.mjs",
+    "test:android": "node tests/android-smoke.mjs"
   },
   "devDependencies": {
     "@fontsource-variable/sixtyfour": "5.3.0",

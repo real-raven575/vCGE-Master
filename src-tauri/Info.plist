@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- macOS wrapper: merged into vCGE.app's Info.plist by the Tauri bundler. Without a camera reason, macOS stops the app
+     the moment it opens the camera. vCGE uses the camera only to read a business card, on this Mac. -->
+<plist version="1.0">
+<dict>
+	<key>NSCameraUsageDescription</key>
+	<string>vCGE uses the camera to read a business card. The photo stays on this Mac and is never sent anywhere.</string>
+</dict>
+</plist>
