@@ -13,7 +13,8 @@
 /* ---- Card ------------------------------------------------------------------------------------------------------- */
 /* The card first, centred, at most 340 px wide, with the mock-up's soft drop shadow and 18 px corners */
 #cardCard .r4-stage { max-width: 340px; margin: 6px auto 10px; }
-#cardCard .r4-stage .card-face { border-radius: 18px; box-shadow: 0 24px 40px -22px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08) inset; }
+#cardCard .r4-stage .card-face { border-radius: 18px; /* lifted like a card on a desk (raven575, 2026-11-10): contact, near and far shadows, a bright top edge */
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.14), 0 6px 10px -6px rgba(0, 0, 0, 0.35), 0 26px 38px -24px rgba(0, 0, 0, 0.55), 0 1px 0 rgba(255, 255, 255, 0.22) inset, 0 0 0 1px rgba(255, 255, 255, 0.08) inset; }
 #cardCard .r4-stage #cardFront { min-height: 0; padding: 18px 20px; }
 #cardCard .r4-stage #cardBack { padding: 18px 20px; }
 .r4-flipnote { text-align: center; font-size: 0.8rem; color: var(--sh-muted); margin: 0 0 14px; }
@@ -122,3 +123,18 @@ html[data-edition="plain"] .r4-chev { display: block; }
 /* The deck clips only sideways (the 280 ms slide), so the plane can rise behind the head; browsers without
    overflow: clip keep the deck's full clip and the plane's lower half */
 @supports (overflow: clip) { #deck { overflow-x: clip; overflow-y: visible; } }
+
+/* Card design (raven575, 2026-11-10): the heading over the card colours says it changes this card only; Paper and Logo
+   are two labelled groups under one opener, each control a full-width row big enough for a finger. */
+.r4-design-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 4px 16px 10px; color: var(--sh-ink); }
+.r4-design-head svg { width: 18px; height: 18px; flex: none; color: var(--sh-accent); }
+.r4-design-head b { font-weight: 700; }
+.r4-design-head small { flex-basis: 100%; font-size: 0.78rem; color: var(--sh-muted); }
+.r4-look-groups { display: grid; gap: 14px; padding: 0 16px 16px; }
+@container (min-width: 560px) { .r4-look-groups { grid-template-columns: 1fr 1fr; } }
+.r4-look-group { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+.r4-look-group h4 { margin: 0; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; color: var(--sh-muted); }
+.r4-look-group .r4-strength { display: grid; grid-template-columns: 5.5em minmax(0, 1fr) 3em; align-items: center; min-height: 44px; }
+.r4-look-group .r4-strength input[type="range"] { width: 100%; min-height: 32px; }
+.r4-look-group .r4-strength output { text-align: right; font-variant-numeric: tabular-nums; color: var(--sh-muted); }
+.r4-look-group .r4-strength:has(input:disabled) { opacity: 0.5; }

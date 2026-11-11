@@ -1468,6 +1468,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     px(card.LOGO_INSET) > 16 * (1 - Math.SQRT1_2) && px(card.LOGO_INSET_STRIP) > 12 * (1 - Math.SQRT1_2), `${card.LOGO_INSET} ${card.LOGO_INSET_STRIP}`);
   const families = card.CARD_FONTS.map(([cls]) => (new RegExp(`\\.${cls} \\{ font-family: '?([^',;]+)`).exec(css6) || [])[1]);
   ok('#85 eleven card typefaces, the original Sans, Serif and Mono first, each with its own rule', card.CARD_FONTS.length === 11 && card.CARD_FONTS.slice(0, 3).map(([c]) => c).join() === 'font-sans,font-serif,font-mono' && families.every(Boolean), JSON.stringify(families));
+  ok('finishes (raven575, 2026-11-10): Paper grain first and the start at 70% with an 8% blur; Cotton, Watercolour and Light thatch added; two gradients kept; Flat last; each with a hint and a texture rule',
+    card.CARD_FINISHES.map(f => f[0]).join() === 'paper,cotton,watercolour,thatch,linen,gradient,glow,dots,stripes,flat'
+    && card.DEFAULT_FINISH === 'paper' && card.DEFAULT_FINISH_STRENGTH === 70 && card.DEFAULT_FINISH_BLUR === 8 && card.finishStartStrength('dots') === 15
+    && card.CARD_FINISHES.every(f => f[3]) && card.CARD_FINISHES.filter(f => f[0] !== 'flat').every(([k]) => css6.includes(`[data-finish="${k}"] .card-face, .finish-sample[data-finish="${k}"]`))
+    && /--tex-paper-grain: url\("data:image\/svg\+xml,/.test(css6) && card.stockName({ label: 'Slate Blue' }) === 'Slate Blue stock');
   const bundled = families.filter(f => !/^(system-ui|Georgia)$/.test(f));
   ok('#85 every bundled card typeface has its @font-face (here or in the app\'s font setting), no font host', bundled.length === 9 && bundled.every(f => new RegExp(`@font-face \\{ font-family: '${f}';[^}]*url\\('\\.\\./\\.\\./vendor/fonts/`).test(css6 + uiCss)) && !/https?:/.test(css6), bundled.join(','));
   ok('#85 four text sizes, medium by default, each scale defined', card.CARD_SIZES.map(([k]) => k).join() === 'sm,md,lg,xl' && card.DEFAULT_CARD_SIZE === 'md' && ['sm', 'lg', 'xl'].every(k => css6.includes(`.card-face.card-size-${k} { --card-scale:`)) && /@media screen \{\s*\.card-face \.text-2xl/.test(css6));
@@ -1791,12 +1796,19 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('settings: a line of name=number pairs reads back', JSON.stringify(st.parseSettings('hand=1;cb=1;theme=1;font=3;size=2;wipe=1')) === '{"hand":1,"cb":1,"theme":1,"font":3,"size":2,"wipe":1,"mode":0,"style":0,"tex":0,"look":0}');
   ok('settings: an entry saved before the text size and wipe time existed reads as Normal and 7 minutes', JSON.stringify(st.parseSettings('hand=1;cb=0;theme=0;font=2')) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}');
   ok('settings: missing or unreadable means the defaults', JSON.stringify(st.parseSettings(null)) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('garbage')) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('')) === JSON.stringify(st.DEFAULTS));
-  ok('settings: an unknown name, an out-of-range or non-numeric value falls back to its default, the rest is kept', JSON.stringify(st.parseSettings('hand=1;name=Maria;cb=7;theme=x;font=99;size=4')) === '{"hand":1,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}');
-  ok('settings: serialises every name in a fixed order and clamps', st.serializeSettings({ font: 2, hand: 1, size: 3 }) === 'hand=1;cb=0;theme=0;font=2;size=3;wipe=0' && st.serializeSettings({ cb: 5 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0');
+  ok('settings: an unknown name, an out-of-range or non-numeric value falls back to its default, the rest is kept', JSON.stringify(st.parseSettings('hand=1;name=Maria;cb=9;theme=x;font=99;size=4')) === '{"hand":1,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}');
+  ok('settings: serialises every name in a fixed order and clamps', st.serializeSettings({ font: 2, hand: 1, size: 3 }) === 'hand=1;cb=0;theme=0;font=2;size=3;wipe=0' && st.serializeSettings({ cb: 6 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0');
   ok('settings: Plain look is look=1, written only while on (an entry nobody switched reads as before); look=2 is out of range',
     st.serializeSettings({ look: 1 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0;look=1' && st.serializeSettings({ look: 0 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0'
     && st.parseSettings('look=2').look === 0 && st.parseSettings('tex=1;look=1').look === 1);
   st.saveSettings({ hand: 1, font: 2 });
+  ok('settings: colour vision (raven575, 2026-11-10) keeps cb as one number, 2 to 5, and each choice has a name and hint',
+    st.parseSettings('cb=5').cb === 5 && st.parseSettings('cb=2').cb === 2 && st.COLOUR_VISION.map(v => v.code).join() === '0,2,3,4,5'
+    && st.COLOUR_VISION.every(v => v.name && v.hint) && st.visionFor(3).id === 'deutan' && st.visionFor(1).id === 'typical');
+  { const ps = fs.readFileSync(`${R}/modules/mod01-shell/pictureSelect.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    ok('picture drop-down: imports nothing, stores nothing, no network or innerHTML; a listbox the keyboard can drive',
+      !/^import /m.test(ps) && !/fetch\(|localStorage|sessionStorage|indexedDB|innerHTML|document\.cookie/.test(ps)
+      && /'listbox'/.test(ps) && /'option'/.test(ps) && ['ArrowDown', 'ArrowUp', 'Home', 'End', 'Escape', 'Enter'].every(k => ps.includes(`'${k}'`))); }
   ok('settings: save writes the one key and nothing else', localStorage.getItem('vcge_settings') === 'hand=1;cb=0;theme=0;font=2;size=0;wipe=0' && store.size === 1);
   ok('settings: load reads it back', JSON.stringify(st.loadSettings()) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}');
   st.clearSettings();
@@ -1804,8 +1816,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   localStorage.setItem('vcge_theme_preference', 'light');
   ok('settings: the old theme key is carried over once and removed', JSON.stringify(st.loadSettings()) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}' && localStorage.getItem('vcge_theme_preference') === null && store.size === 0);
   const code = fs.readFileSync(`${R}/modules/mod01-shell/settings.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-  ok('settings: subscribes to SETTINGS_WIPE_REQUESTED, imports only the bus, ui.js, themes.js and edition.js, no network, cookies or markup', /subscribe\(Events\.SETTINGS_WIPE_REQUESTED/.test(code)
-    && (code.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ui.js'") || l.includes("'./themes.js'") || l.includes("'./edition.js'")) && !/fetch\(|document\.cookie|sessionStorage|indexedDB|innerHTML|publish\(/.test(code));
+  ok('settings: subscribes to SETTINGS_WIPE_REQUESTED, imports only the bus, ui.js, themes.js, edition.js and pictureSelect.js, no network, cookies or markup', /subscribe\(Events\.SETTINGS_WIPE_REQUESTED/.test(code)
+    && (code.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ui.js'") || l.includes("'./themes.js'") || l.includes("'./edition.js'") || l.includes("'./pictureSelect.js'")) && !/fetch\(|document\.cookie|sessionStorage|indexedDB|innerHTML|publish\(/.test(code));
   ok('settings: the only storage key named in the code is the settings key (plus the old theme key it removes)', [...code.matchAll(/(?:getItem|setItem|removeItem)\((\w+)/g)].every(m => m[1] === 'SETTINGS_KEY' || m[1] === 'OLD_THEME_KEY'));
   ok('settings: the Settings sheet and the Welcome card carry the one-file disclaimer', fs.readFileSync(`${R}/../index.html`, 'utf8').includes('vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look). Nothing you scan, upload or type is ever saved.')
     && /<section id="cardWelcome"[\s\S]*?remembers none of your sensitive data[\s\S]*?<\/section>/.test(fs.readFileSync(`${R}/../index.html`, 'utf8')) && !fs.existsSync(`${R}/modules/mod01-shell/themeManager.js`));
@@ -1900,7 +1912,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
       /<details id="themePicker" class="r5-picker">\s*<summary id="themeSummary"[^>]*><i id="themeSummarySwatch"[^>]*><\/i><span id="themeSummaryName">Herd<\/span><\/summary>\s*<div id="appThemes"[^>]*><\/div>\s*<details id="moreThemes"/.test(set5)
       && !/id="themePicker"[^>]* open/.test(set5));
     ok('Settings: the quick picks are Herd, Signal, Graphite; every other palette is under More themes, none twice', st.QUICK_THEMES.join() === 'herd,signal,graphite'
-      && st.SWATCH_GROUPS.map(g => `${g.label}:${g.more}`).join() === 'Quick picks:false,Everyday:true,Seasonal:true,Card colours:true,Team vCGE:true'
+      && st.SWATCH_GROUPS.map(g => `${g.label}:${g.more}`).join() === 'Quick picks:false,Everyday:true,Seasonal:true,Autumn:true,Team vCGE:true'
       && st.swatchFamilies(th.THEME_FAMILIES, 'Quick').map(f => f.id).join() === 'herd,signal,graphite'
       && st.swatchFamilies(th.THEME_FAMILIES, 'Everyday').map(f => f.id).join() === 'autumn,evergreen'
       && st.SWATCH_GROUPS.flatMap(g => st.swatchFamilies(th.THEME_FAMILIES, g.group)).length === th.THEME_FAMILIES.length);

@@ -710,8 +710,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     bg: getComputedStyle(document.body).backgroundColor, primary: getComputedStyle(document.getElementById('dockNext')).backgroundColor,
     on: getComputedStyle(document.querySelector('.vcge-step[data-state="now"]')).color, entry: localStorage.getItem('vcge_settings') }));
   const themeGroups = await page.evaluate(() => [...document.querySelectorAll('#appThemes > *, #moreThemesGrid > *')].reduce((a, el) => { if (el.classList.contains('r5-tgroup')) a.push([el.textContent, 0]); else a[a.length - 1][1]++; return a; }, []).map(g => g.join(':')).join('|'));
-  ok(EDITION_PLAIN ? 'the theme swatches are 3 quick picks (Herd = Dark + Light, Signal, Graphite), then Everyday (2), Seasonal (7) and the card colours (8) under More themes, no characters in plain' : 'the theme swatches are 3 quick picks (Herd = Dark + Light, Signal, Graphite), then Everyday (2), Seasonal (7), the card colours (8) and Team vCGE (9 characters, each light and dark) under More themes',
-    themeGroups === (EDITION_PLAIN ? 'Quick picks:3|Everyday:2|Seasonal:7|Card colours:8' : 'Quick picks:3|Everyday:2|Seasonal:7|Card colours:8|Team vCGE:9'), themeGroups);
+  ok(EDITION_PLAIN ? 'the theme swatches are 3 quick picks (Herd = Dark + Light, Signal, Graphite), then Everyday (2), Seasonal (7) and Autumn (8) under More themes, no characters in plain' : 'the theme swatches are 3 quick picks (Herd = Dark + Light, Signal, Graphite), then Everyday (2), Seasonal (7), Autumn (8) and Team vCGE (9 characters, each light and dark) under More themes',
+    themeGroups === (EDITION_PLAIN ? 'Quick picks:3|Everyday:2|Seasonal:7|Autumn:8' : 'Quick picks:3|Everyday:2|Seasonal:7|Autumn:8|Team vCGE:9'), themeGroups);
   // The dock's steps and buttons fade their colour (deck.css): read only once no fade is running on the step in view,
   // the primary button or the page (getAnimations() starts any pending fade first, so it can't be read too early)
   const themeSettled = () => page.waitForFunction(() => [document.querySelector('.vcge-step[data-state="now"]'), document.getElementById('dockNext'), document.body]
@@ -773,6 +773,25 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   await page.check('#cbToggle'); await themeSettled();
   ok('colour-blind mode sets html[data-cb="1"] (MOD02 reads it) and the step in view is marked in blue with its label underlined', (await htmlState()).cb === '1' && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=0;size=0;wipe=0'
     && await page.$eval('.vcge-step[data-state="now"]', b => getComputedStyle(b).color === 'rgb(37, 99, 235)' && /underline/.test(getComputedStyle(b.querySelector('span')).textDecorationLine)));
+  // The switch knob carries no mark on or off; the word beside it says On or Off (raven575, 2026-11-10)
+  const knob = await page.$eval('#cbToggle', el => getComputedStyle(el, '::after').content);
+  const words = await page.$$eval('#settingsSheet .r5-onoff', ws => ws.map(w => `${w._for.id}:${w.textContent}`).join());
+  ok('switches: the knob stays plain when on (no tick), and the word beside each switch says On or Off',
+    (knob === '""' || knob === 'none' || knob === 'normal') && /cbToggle:On/.test(words) && /handToggle:Off/.test(words), JSON.stringify({ knob, words }));
+  // Colour vision: a picture drop-down; Red-weak moves good and stop to blue and orange, keeps words and marks, saves cb=2
+  await page.click('.r5-cvd-row .vcge-pick-btn');
+  const cvdRows = await page.$$eval('.r5-cvd-row [role="option"]', os => os.map(o => `${o.querySelector('b').textContent}:${Math.round(o.getBoundingClientRect().height) >= 52}`).join('|'));
+  await page.keyboard.press('Escape'); await page.waitForTimeout(200);
+  ok('picture drop-down: Escape closes only the list, never the Settings sheet around it (Checkers, 2026-11-10)',
+    await page.$eval('.r5-cvd-row .vcge-pick-list', l => l.hidden) && await page.isVisible('#settingsSheet') && (await page.evaluate(() => document.activeElement && document.activeElement.classList.contains('vcge-pick-btn'))));
+  await page.click('.r5-cvd-row .vcge-pick-btn');
+  await page.click('.r5-cvd-row [role="option"][data-value="2"]');
+  const cvd = await page.evaluate(() => ({ cvd: document.documentElement.dataset.cvd, cb: document.documentElement.dataset.cb, good: document.documentElement.style.getPropertyValue('--vcge-good'), entry: localStorage.getItem('vcge_settings') }));
+  ok('colour vision: five choices with a picture each, big enough for a finger; Red-weak saves cb=2, keeps words and marks and moves "good" to blue',
+    cvdRows === 'Typical:true|Red-weak (protan):true|Green-weak (deutan):true|Blue-weak (tritan):true|No colour:true' && cvd.cvd === 'protan' && cvd.cb === '1' && /^#(1d4ed8|8ab4ff)$/.test(cvd.good) && /cb=2;/.test(cvd.entry), JSON.stringify({ cvdRows, cvd }));
+  await page.selectOption('#cvdSelect', '0');
+  ok('colour vision: Typical goes back to plain colour-blind mode (cb=1)', !(await page.evaluate(() => document.documentElement.dataset.cvd)) && /cb=1;/.test((await htmlState()).entry));
+  ok('App look says it changes the app, never the card, and points to Card design', (await page.textContent('#appThemesLabel')).trim() === 'App look' && /Your card keeps its own design/.test(await page.textContent('#appLookNote')) && await page.isVisible('#cardDesignLink'));
   await page.selectOption('#fontSelect', { label: 'Lexend' });
   ok('the UI font follows the drop-down (Lexend) and its fixed code is saved', /Lexend/.test((await htmlState()).body) && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2;size=0;wipe=0');
   // 0.8 redo R5: the six platform styles, the texture switch and Appearance System, in the same one entry
@@ -3584,7 +3603,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       && cardLayout.sw.filter(b => b.pressed === 'true').length === 1 && cardLayout.sw[6].pressed === 'true' && cardLayout.toolsBelow && !cardLayout.oldRow, JSON.stringify(cardLayout));
     await p6.click('#paletteListContainer [data-theme="pumpkin"]');
     ok('0.8 card: the picked swatch is the pressed one', (await p6.$$eval('#paletteListContainer button[aria-pressed="true"]', bs => bs.map(b => b.dataset.theme).join())) === 'pumpkin');
-    ok('card: Pumpkin colours the whole face, front and back, with dark ink; the back too', (await face()).bg === rgb('#e8792b') && (await face()).ink === rgb('#2a1407') && (await p6.$eval('#cardBack', el => getComputedStyle(el).backgroundColor)) === rgb('#e8792b') && (await p6.textContent('#toastMessage')) === 'Applied palette: Pumpkin', JSON.stringify(await face()));
+    ok('card: Pumpkin colours the whole face, front and back, with dark ink; the back too', (await face()).bg === rgb('#e8792b') && (await face()).ink === rgb('#2a1407') && (await p6.$eval('#cardBack', el => getComputedStyle(el).backgroundColor)) === rgb('#e8792b') && (await p6.textContent('#toastMessage')) === 'Card colour: Pumpkin stock', JSON.stringify(await face()));
     ok('card: the initials badge is the accent with the card colour on it', (await p6.$eval('#previewAvatar', el => [el.style.background, el.style.color].join('|'))) === `${rgb('#7a3309')}|${rgb('#e8792b')}`, await p6.$eval('#previewAvatar', el => el.style.background));
     // Every phone, email and site, each with its label; the third of a kind is left off the printed card
     await p6.click('#navFields'); await p6.waitForTimeout(500);
@@ -3778,7 +3797,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('sample: Undo after Clear brings the sample back without its logo (removed before) and with its theme', (await p6.inputValue('#firstName')) === s1First && (await p6.textContent('#currentPaletteLabel')) === 'Twilight' && !(await p6.$(LOGO6)));
     // The logo's look and the card's finish (raven575 test report, 2026-10-22)
     await p6.click('#navCard'); await p6.waitForTimeout(300);
-    ok('card: the logo and finish controls start folded under "Logo & finish", so the card stays in view on a phone', !(await p6.$eval('#cardLookPanel', d => d.open)) && !(await p6.isVisible('#logoSizeSelect')) && (await p6.textContent('#cardLookPanel summary')).trim() === 'Logo & finish');
+    ok('card: the paper and logo controls start folded under "Paper & logo", so the card stays in view on a phone', !(await p6.$eval('#cardLookPanel', d => d.open)) && !(await p6.isVisible('#cardLookPanel .vcge-pick-btn')) && (await p6.textContent('#cardLookPanel summary')).trim() === 'Paper & logo');
+    ok('card: Card design says it changes this card only, over the card colours', (await p6.textContent('#cardDesignNote')).trim() === 'Changes this card only. The app keeps its look.' && await p6.isVisible('#cardDesignHead'));
     // (the guide fades in: WebKit runs no transitions on a page that is not in front, CI 11-02)
     await p6.bringToFront();
     await p6.click('#cardLookPanel summary'); await p6.waitForTimeout(400);
@@ -3815,19 +3835,32 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       dark.bg === 'rgb(51, 65, 85)' && wheel.bg === 'rgb(255, 136, 0)' && wheel.on && wheel.pressed === 0 && auto.bg !== 'rgb(255, 136, 0)' && auto.pressed === 'true', JSON.stringify({ dark, wheel, auto }));
     const swatches = await p6.$$eval('#logoBgGroup button', bs => bs.map(b => b.getAttribute('aria-label')).join('|'));
     ok('logo: the quick picks are Auto, Mostly white, Light gray, Dark gray and Charcoal, each named for screen readers (no pure white or black)', swatches === 'Auto|Mostly white|Light gray|Dark gray|Charcoal', swatches);
-    const finish = () => p6.evaluate(() => { const st = getComputedStyle(document.getElementById('cardFront'), '::before'); return { image: st.backgroundImage.slice(0, 22), opacity: st.opacity, z: st.zIndex, off: document.getElementById('cardFinishStrength').disabled }; });
-    const flat = await finish();
-    await p6.selectOption('#cardFinishSelect', 'dots');
+    const finish = () => p6.evaluate(() => { const st = getComputedStyle(document.getElementById('cardFront'), '::before'); return { image: st.backgroundImage.slice(0, 22), opacity: st.opacity, z: st.zIndex, blur: st.filter, blend: st.mixBlendMode, off: document.getElementById('cardFinishStrength').disabled, blurOff: document.getElementById('cardFinishBlur').disabled }; });
+    const paper = await finish();
+    ok('card: Paper grain is the start (raven575, 2026-11-10): inline SVG noise laid on with overlay at 70% and an 8% soft blur (0.8 px), behind the text',
+      paper.image.startsWith('url("data:image/svg+xm') && paper.opacity === '0.7' && paper.blur === 'blur(0.8px)' && paper.blend === 'overlay' && paper.z === '-1' && !paper.off && !paper.blurOff, JSON.stringify(paper));
+    // The picture drop-down: a tap opens rows, each with its own sample in the card's colour; picking one sets the select
+    await p6.click('#cardLookPanel .r4-look-group:first-of-type .vcge-pick-btn');
+    const rows = await p6.$$eval('#cardLookPanel .r4-look-group:first-of-type [role="option"]', os => os.map(o => ({ name: o.querySelector('b').textContent, h: Math.round(o.getBoundingClientRect().height), sample: !!o.querySelector('.finish-sample') })));
+    ok('card: the paper picker lists ten finishes with a picture each, every row at least 52 px tall for a finger',
+      rows.map(r => r.name).join('|') === 'Paper grain|Cotton paper|Watercolour paper|Light thatch|Linen|Soft gradient|Corner glow|Dots|Stripes|Flat colour' && rows.every(r => r.h >= 52 && r.sample), JSON.stringify(rows));
+    await p6.click('#cardLookPanel [role="option"][data-value="dots"]');
     const dots = await finish();
     await p6.fill('#cardFinishStrength', '30');
     const strong = await finish();
+    await p6.fill('#cardFinishBlur', '20');
+    const soft = await finish();
     // Behind the text by construction: the texture is stacked below the face's own content (z-index -1) inside the face
     // (isolation), so it can never cover a line. (Hit-testing cannot see a pseudo-element, and on a phone the open
     // controls push the card under other layers.)
     const textOnTop = await p6.$eval('#cardFront', el => getComputedStyle(el).isolation === 'isolate');
-    ok('card: a finish lays a texture over the card colour (Dots at 15%, the slider takes it to 30%), behind the text; Flat has none and no slider',
-      flat.image === 'none' && flat.off && dots.image.startsWith('radial-gradient') && dots.opacity === '0.15' && !dots.off && strong.opacity === '0.3' && dots.z === '-1' && textOnTop, JSON.stringify({ flat, dots, strong, textOnTop }));
+    ok('card: Dots starts at its own 15%, the Strength slider takes it to 30% and Soft blur to 2 px, behind the text',
+      (await p6.inputValue('#cardFinishSelect')) === 'dots' && dots.image.startsWith('radial-gradient') && dots.opacity === '0.15' && strong.opacity === '0.3' && soft.blur === 'blur(2px)' && dots.z === '-1' && textOnTop, JSON.stringify({ dots, strong, soft, textOnTop }));
     await p6.selectOption('#cardFinishSelect', 'flat');
+    const flat = await finish();
+    ok('card: Flat colour has no texture and both sliders are off', flat.image === 'none' && flat.off && flat.blurOff
+      && (await p6.textContent('#cardLookPanel .r4-look-group:first-of-type .vcge-pick-btn b')) === 'Flat colour', JSON.stringify(flat));
+    await p6.selectOption('#cardFinishSelect', 'paper');
     await p6.click('#removeAvatarBtn'); await p6.click('#removeLogoYes');
     ok('card: no page errors, nothing fetched from outside, no missing files', errors6.length === 0 && external6.length === 0 && missing6.length === 0, errors6.concat(external6, missing6).join(' | '));
     await ctx6.close();
