@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD02: hold-to-wipe (redesign step 3)
- * Created by raven575, Team vCGE (Claude) & Gemini
+ * Created by raven575, Herd of Helpers (claude) & gemini
  *
  * The red trash button on every card (and the Vault page's wipe button) opens one question: "Are you sure you want to
  * wipe everything and start over?" with a box, "Also delete my saved settings", unticked by default; ticking it asks

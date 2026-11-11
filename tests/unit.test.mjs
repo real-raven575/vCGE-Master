@@ -465,55 +465,55 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('misread card: review shows phone numbers without their T / M labels', slips[7].text === '616.555.0142' && slips[8].text === '616.555.0187', slips[7].text + ' | ' + slips[8].text);
   ok('review keeps the labels of a line with several numbers', fm.classifyLines('T 312.555.1111  M 312.555.2222')[0].text === 'T 312.555.1111 M 312.555.2222');
   // The tester's card: the email domain misread by one letter, the web address read correctly.
-  const zafer = fm.classifyLines('Nick Zafer\nOwner & General Manager\nE nzafer@TeamlLogiciT.com\nT 269.492.7400\nw TeamLogicIT.com/KalamazooMI');
-  ok('email domain one OCR slip from the web address takes its spelling (review and fields)', zafer[2].text === 'nzafer@TeamLogicIT.com' && fm.buildFields(zafer).fields.emails[0].value === 'nzafer@TeamLogicIT.com', zafer[2].text);
+  const quill = fm.classifyLines('Dana Quill\nOwner & General Manager\nE dquill@PeaklLogiciT.com\nT 616.555.0140\nw PeakLogicIT.com/KalamazooMI');
+  ok('email domain one OCR slip from the web address takes its spelling (review and fields)', quill[2].text === 'dquill@PeakLogicIT.com' && fm.buildFields(quill).fields.emails[0].value === 'dquill@PeakLogicIT.com', quill[2].text);
   ok('a different email domain is left alone', fm.parseOCRText('Jo Smith\njo@acme.co\nacme.com').emails[0].value === 'jo@acme.co' && fm.parseOCRText('Jo Smith\njo@brightpath.com\nnorthwind.com').emails[0].value === 'jo@brightpath.com' && fm.parseOCRText('Jo Smith\njo@gmail.com\ngmail.co').emails[0].value === 'jo@gmail.com');
   // The same card as the OCR reads its photo: capital I and lowercase l are the same bar in its font, so the OCR's
   // second guesses (MOD04 alts) and the card's state settle them.
   const scanned = [
     { text: 'Portage, Ml 49024', alts: [{ at: 10, chars: ['l', '|', 'I', '\\', 'i'] }] },
-    { text: 'Nick Zafer', alts: [] },
-    { text: 'E nzafer@TeamlLogic\\T.com', alts: [{ at: 13, chars: ['l', 'L'] }, { at: 14, chars: ['L', 'l'] }] },
-    { text: 'w TeamLogiciT.com/Kalamazoom\\', alts: [{ at: 11, chars: ['i', 'I', '!', '|'] }, { at: 27, chars: ['m', 'M'] }, { at: 28, chars: ['\\', 'y', 'l'] }] }
+    { text: 'Dana Quill', alts: [] },
+    { text: 'E dquill@PeaklLogic\\T.com', alts: [{ at: 13, chars: ['l', 'L'] }, { at: 14, chars: ['L', 'l'] }] },
+    { text: 'w PeakLogiciT.com/Kalamazoom\\', alts: [{ at: 11, chars: ['i', 'I', '!', '|'] }, { at: 27, chars: ['m', 'M'] }, { at: 28, chars: ['\\', 'y', 'l'] }] }
   ];
   const scannedFields = fm.buildFields(fm.classifyLines(scanned)).fields;
-  ok('second guesses: TeamLogiciT read with "I" as runner-up becomes TeamLogicIT (company, email, web)', scannedFields.organization === 'TeamLogicIT' && scannedFields.emails[0].value === 'nzafer@TeamLogicIT.com' && scannedFields.websites[0].value === 'TeamLogicIT.com/KalamazooMI', JSON.stringify([scannedFields.organization, scannedFields.emails, scannedFields.websites]));
+  ok('second guesses: PeakLogiciT read with "I" as runner-up becomes PeakLogicIT (company, email, web)', scannedFields.organization === 'PeakLogicIT' && scannedFields.emails[0].value === 'dquill@PeakLogicIT.com' && scannedFields.websites[0].value === 'PeakLogicIT.com/KalamazooMI', JSON.stringify([scannedFields.organization, scannedFields.emails, scannedFields.websites]));
   const noGuesses = fm.buildFields(fm.classifyLines(scanned.map(l => ({ text: l.text })))).fields;
-  ok('without second guesses the OCR pick stands (TeamLogiciT)', noGuesses.organization === 'TeamLogiciT', noGuesses.organization);
+  ok('without second guesses the OCR pick stands (PeakLogiciT)', noGuesses.organization === 'PeakLogiciT', noGuesses.organization);
   ok('second guesses change only web and email addresses', fm.classifyLines([{ text: 'Owner of iTunes Store', alts: [{ at: 9, chars: ['i', 'I'] }] }])[0].text === 'Owner of iTunes Store');
   ok('a second guess without "I" changes nothing', fm.classifyLines([{ text: 'w shopiT.com', alts: [{ at: 6, chars: ['i', 'l'] }] }])[0].text === 'shopiT.com');
   const pathState = (site, place) => fm.buildFields(fm.classifyLines(`Jo Smith\nw ${site}\n${place}`)).fields.websites[0].value;
   ok('a web path ends in the card\'s state code only when its I was read as a bar', pathState('acme.com/Detroitm\\', 'Detroit, MI 48201') === 'acme.com/DetroitMI' && pathState('acme.com/Detroitm\\', 'Austin, TX 73301') === 'acme.com/Detroitm' && pathState('acme.com/email', 'Chicago, IL 60601') === 'acme.com/email', [pathState('acme.com/Detroitm\\', 'Detroit, MI 48201'), pathState('acme.com/Detroitm\\', 'Austin, TX 73301')].join(' | '));
-  // Camera reads of the TeamLogic card (2026-10-16): slash read as a bar, email capitals, title vowels, ZIP vs state
-  const camera = fm.classifyLines([{ text: 'Nick Zafer' }, { text: 'Owner & Ganaral Manager' }, { text: '7950 Moorsbridge Road, Suite 405' },
-    { text: 'Portage, Mi 42024' }, { text: 'E nzafer@TeamlogicIT.com' }, { text: 'W TeamLogicIT.comIKalamazohhy', unsure: ['TeamLogicIT.comIKalamazohhy'] }]);
+  // Camera reads of the PeakLogic card (2026-10-16): slash read as a bar, email capitals, title vowels, ZIP vs state
+  const camera = fm.classifyLines([{ text: 'Dana Quill' }, { text: 'Owner & Ganaral Manager' }, { text: '1200 Maplebridge Road, Suite 405' },
+    { text: 'Portage, Mi 42024' }, { text: 'E dquill@PeaklogicIT.com' }, { text: 'W PeakLogicIT.comIKalamazohhy', unsure: ['PeakLogicIT.comIKalamazohhy'] }]);
   const cameraText = (role) => (camera.find(l => l.role === role) || {}).text;
-  ok('a "/" read as a bar after the web ending is a "/" again', cameraText('website') === 'TeamLogicIT.com/Kalamazohhy' && fm.classifyLines('w acme.comlDetroit')[0].text === 'acme.com/Detroit' && fm.classifyLines('w acme.com/Detroit')[0].text === 'acme.com/Detroit', cameraText('website'));
+  ok('a "/" read as a bar after the web ending is a "/" again', cameraText('website') === 'PeakLogicIT.com/Kalamazohhy' && fm.classifyLines('w acme.comlDetroit')[0].text === 'acme.com/Detroit' && fm.classifyLines('w acme.com/Detroit')[0].text === 'acme.com/Detroit', cameraText('website'));
   ok('a bar before a lowercase word is left alone', fm.classifyLines('w acme.comIdetroit')[0].text !== 'acme.com/detroit');
-  ok('email domain that differs only in capitals takes the web address spelling', cameraText('email') === 'nzafer@TeamLogicIT.com' && fm.parseOCRText('Jo Smith\njo@Acme.com\nacme.com').emails[0].value === 'jo@Acme.com' && fm.buildFields([{ text: 'jo@acmetools.com', role: 'email' }, { text: 'AcmeTools.com', role: 'website' }]).fields.emails[0].value === 'jo@acmetools.com', cameraText('email'));
+  ok('email domain that differs only in capitals takes the web address spelling', cameraText('email') === 'dquill@PeakLogicIT.com' && fm.parseOCRText('Jo Smith\njo@Acme.com\nacme.com').emails[0].value === 'jo@Acme.com' && fm.buildFields([{ text: 'jo@acmetools.com', role: 'email' }, { text: 'AcmeTools.com', role: 'website' }]).fields.emails[0].value === 'jo@acmetools.com', cameraText('email'));
   const titleOf = (t) => fm.classifyLines(`Jo Smith\n${t}`)[1].text;
   ok('job-title vowels read wrong are repaired (Ganaral -> General)', cameraText('jobTitle') === 'Owner & General Manager' && titleOf('SALES DIRACTOR') === 'SALES DIRECTOR', cameraText('jobTitle'));
   ok('a job-title word missing one letter is repaired (Manger -> Manager)', titleOf('Sales Manger') === 'Sales Manager', titleOf('Sales Manger'));
   ok('other title words are left alone (Waiter, Painter, Owners)', titleOf('Head Waiter & Painter Manager') === 'Head Waiter & Painter Manager' && titleOf('Owners Manager') === 'Owners Manager', titleOf('Head Waiter & Painter Manager'));
-  ok('filled values are what the review box shows', JSON.stringify(fm.buildFields(camera).fields.websites) === JSON.stringify([{ type: 'work', value: 'TeamLogicIT.com/Kalamazohhy' }]) && fm.buildFields(camera).fields.jobTitle === 'Owner & General Manager');
+  ok('filled values are what the review box shows', JSON.stringify(fm.buildFields(camera).fields.websites) === JSON.stringify([{ type: 'work', value: 'PeakLogicIT.com/Kalamazohhy' }]) && fm.buildFields(camera).fields.jobTitle === 'Owner & General Manager');
   const zipCheck = (place) => fm.classifyLines(`Jo Smith\n12 Main Street\n${place}`).find(l => l.role === 'cityStateZip').check;
   ok('a ZIP code the state does not use is flagged for checking, not changed', camera.find(l => l.role === 'cityStateZip').check === '42024 is not a Michigan ZIP code. Please check it.' && fm.buildFields(camera).fields.zip === '42024', JSON.stringify(camera.find(l => l.role === 'cityStateZip')));
   ok('a ZIP code that fits its state is not flagged', zipCheck('Portage, MI 49024') === undefined && zipCheck('Boston, MA 02108') === undefined && zipCheck('Austin, TX 73301') === undefined, zipCheck('Boston, MA 02108'));
   ok('a line with words the reader was unsure of is flagged for checking', camera.find(l => l.role === 'website').check === 'The reader was not sure of some letters here. Please check them.');
-  ok('unsure phone numbers and ignored lines are not flagged', fm.classifyLines([{ text: 'Jo Smith' }, { text: 'T 269.492.7400', unsure: ['269.492.7400'] }, { text: 'ya O/', unsure: ['ya'] }]).every(l => !('check' in l)));
+  ok('unsure phone numbers and ignored lines are not flagged', fm.classifyLines([{ text: 'Jo Smith' }, { text: 'T 616.555.0140', unsure: ['616.555.0140'] }, { text: 'ya O/', unsure: ['ya'] }]).every(l => !('check' in l)));
   ok('a short domain is not matched (too easy to confuse)', fm.parseOCRText('Jo Smith\njo@abd.com\nabc.com').emails[0].value === 'jo@abd.com');
-  // The TeamLogic card read from a phone screenshot on the iPad (video review 2026-10-17, finding 53 and 56): the slogan
+  // The PeakLogic card read from a phone screenshot on the iPad (video review 2026-10-17, finding 53 and 56): the slogan
   // was ignored, the street carried the T of the phone line, and the web path came apart from its domain.
-  const shot = fm.classifyLines('N20 weersooen\nYour Technology Advisor\nNick Zafer\nOwner & General Manager\nT 7950 Moorsbridge Road, Suite 405\nPortage, MI 49024\nE nzafer@TeamLogicIT.com\nT 269.492.7400\nM 269.254.5403\nW TeamLogicIT.com KalamazooMl\\');
+  const shot = fm.classifyLines('N20 weersooen\nYour Technology Advisor\nDana Quill\nOwner & General Manager\nT 1200 Maplebridge Road, Suite 405\nPortage, MI 49024\nE dquill@PeakLogicIT.com\nT 616.555.0140\nM 616.555.0143\nW PeakLogicIT.com KalamazooMl\\');
   const shotFields = fm.buildFields(shot).fields;
   ok('screenshot read: slogan goes to Notes, logo noise stays ignored', shot[0].role === 'ignore' && shot[1].role === 'notes' && shotFields.notes === 'Your Technology Advisor', JSON.stringify(shot.slice(0, 2)));
-  ok('screenshot read: a stray label letter in front of the street is dropped', shot[4].role === 'street' && shot[4].text === '7950 Moorsbridge Road, Suite 405' && shotFields.street === '7950 Moorsbridge Road' && shotFields.unitNumber === '405', JSON.stringify(shot[4]));
-  ok('a stray letter before a phone number is still that phone\'s label', fm.classifyLines('Jo Smith\nT 269.492.7400')[1].role === 'phoneWork');
+  ok('screenshot read: a stray label letter in front of the street is dropped', shot[4].role === 'street' && shot[4].text === '1200 Maplebridge Road, Suite 405' && shotFields.street === '1200 Maplebridge Road' && shotFields.unitNumber === '405', JSON.stringify(shot[4]));
+  ok('a stray letter before a phone number is still that phone\'s label', fm.classifyLines('Jo Smith\nT 616.555.0140')[1].role === 'phoneWork');
   const site = (t, place = 'Portage, MI 49024') => fm.classifyLines(`Jo Smith\n${place}\n${t}`).find(l => l.role === 'website').text;
-  ok('screenshot read: the web path split off its domain is joined back and ends in the state code', shot[9].text === 'TeamLogicIT.com/KalamazooMI' && site('W TeamLogicIT.com/ Kalamazoo') === 'TeamLogicIT.com/Kalamazoo' && site('W TeamLogicIT.com /Kalamazoo') === 'TeamLogicIT.com/Kalamazoo' && site('W TeamLogicIT.com KalamazooM\\ |') === 'TeamLogicIT.com/KalamazooMI', [shot[9].text, site('W TeamLogicIT.com KalamazooM\\ |')].join(' | '));
+  ok('screenshot read: the web path split off its domain is joined back and ends in the state code', shot[9].text === 'PeakLogicIT.com/KalamazooMI' && site('W PeakLogicIT.com/ Kalamazoo') === 'PeakLogicIT.com/Kalamazoo' && site('W PeakLogicIT.com /Kalamazoo') === 'PeakLogicIT.com/Kalamazoo' && site('W PeakLogicIT.com KalamazooM\\ |') === 'PeakLogicIT.com/KalamazooMI', [shot[9].text, site('W PeakLogicIT.com KalamazooM\\ |')].join(' | '));
   ok('a lowercase l ends in the state code only after a capital or before a bar', site('W acme.com/KalamazooMl') === 'acme.com/KalamazooMI' && site('W acme.com/email') === 'acme.com/email' && site('W acme.com/Chicagoil', 'Chicago, IL 60601') === 'acme.com/Chicagoil', site('W acme.com/email'));
   const web = t => fm.parseOCRText(t).websites.map(w => w.value).join();
-  ok('a web path read with a space inside keeps its end (bench run 2026-10-18)', web('Nick Zafer\nW TeamLogicIT.com/Kalamazoo MI\nPortage, MI 49024') === 'TeamLogicIT.com/KalamazooMI' && web('Jo\nW TeamLogicIT.com/Kalamazoo Ml\nPortage, MI 49024') === 'TeamLogicIT.com/KalamazooMI' && web('Jo Smith\nnorthwind.com/Seattle WA') === 'northwind.com/SeattleWA' && web('Jo Smith\nW northwind.com/Seattle WA') === 'northwind.com/SeattleWA', [web('Nick Zafer\nW TeamLogicIT.com/Kalamazoo MI\nPortage, MI 49024'), web('Jo Smith\nnorthwind.com/Seattle WA')].join(' | '));
+  ok('a web path read with a space inside keeps its end (bench run 2026-10-18)', web('Dana Quill\nW PeakLogicIT.com/Kalamazoo MI\nPortage, MI 49024') === 'PeakLogicIT.com/KalamazooMI' && web('Jo\nW PeakLogicIT.com/Kalamazoo Ml\nPortage, MI 49024') === 'PeakLogicIT.com/KalamazooMI' && web('Jo Smith\nnorthwind.com/Seattle WA') === 'northwind.com/SeattleWA' && web('Jo Smith\nW northwind.com/Seattle WA') === 'northwind.com/SeattleWA', [web('Dana Quill\nW PeakLogicIT.com/Kalamazoo MI\nPortage, MI 49024'), web('Jo Smith\nnorthwind.com/Seattle WA')].join(' | '));
   ok('words after an unlabelled web path that are not a state code stay out of it', web('Jo Smith\nacme.com/jobs Apply today') === 'acme.com/jobs' && web('Jo Smith\nacme.com/jobs Now') === 'acme.com/jobs', web('Jo Smith\nacme.com/jobs Apply today'));
   const doubled = fm.parseOCRText('Jo Smith\n12 Main Street\nPortage, M\\| 49024');
   ok('a state code whose I was read as two bars ("M\\|") is still MI', doubled.city === 'Portage' && doubled.state === 'MI' && doubled.zip === '49024' && fm.parseOCRText('Jo Smith\n12 Main Street\nChicago, IL 60606').state === 'IL', JSON.stringify([doubled.city, doubled.state, doubled.zip]));
@@ -545,15 +545,21 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('Whole address role splits street and City/State/ZIP', whole.fields.street === '88 Elm Avenue' && whole.fields.city === 'Burlington' && whole.fields.zip === '05401');
   ok('no name line means no invented name', fm.parseOCRText('+1 (555) 201-3344').firstName === '');
 
-  // Video review 2026-10-17 (#53, #54, #94): the TeamLogic card as the iPad read it, and other card shapes
-  const ipad = fm.classifyLines('N20 weersooen\nYour Technology Advisor\nNick Zafer\nOwner & General Manager\nT 7950 Moorsbridge Road, Suite 405\nPortage, MI 49024\nnzafer@TeamLogicIT.com\n269.492.7400\n269.254.5403\nTeamLogicIT.com');
-  ok('MOD05 #54: a street with a stray letter in front ("T 7950 ...") is the street, shown and filled without the letter', ipad[4].role === 'street' && ipad[4].text === '7950 Moorsbridge Road, Suite 405'
-    && fm.buildFields(ipad).fields.street === '7950 Moorsbridge Road' && fm.buildFields(ipad).fields.unitNumber === '405', JSON.stringify(ipad[4]));
-  ok('MOD05 #54: chosen by hand as Street, the stray letter is still dropped; a one-line address too', fm.buildFields([{ text: 'T 7950 Moorsbridge Road', role: 'street' }]).fields.street === '7950 Moorsbridge Road'
+  // Video review 2026-10-17 (#53, #54, #94): the PeakLogic card as the iPad read it, and other card shapes
+  const ipad = fm.classifyLines('N20 weersooen\nYour Technology Advisor\nDana Quill\nOwner & General Manager\nT 1200 Maplebridge Road, Suite 405\nPortage, MI 49024\ndquill@PeakLogicIT.com\n616.555.0140\n616.555.0143\nPeakLogicIT.com');
+  ok('MOD05 #54: a street with a stray letter in front ("T 7950 ...") is the street, shown and filled without the letter', ipad[4].role === 'street' && ipad[4].text === '1200 Maplebridge Road, Suite 405'
+    && fm.buildFields(ipad).fields.street === '1200 Maplebridge Road' && fm.buildFields(ipad).fields.unitNumber === '405', JSON.stringify(ipad[4]));
+  ok('MOD05 #54: chosen by hand as Street, the stray letter is still dropped; a one-line address too', fm.buildFields([{ text: 'T 1200 Maplebridge Road', role: 'street' }]).fields.street === '1200 Maplebridge Road'
     && fm.parseOCRText('Jo Smith\nT 12 Main Street, Springfield, IL 62701').street === '12 Main Street');
-  ok('MOD05 #54: a labelled phone number is never taken as a street', fm.classifyLines('Jo Smith\nT 269.492.7400\nPortage, MI 49024')[1].role === 'phoneWork');
+  ok('MOD05 #54: a labelled phone number is never taken as a street', fm.classifyLines('Jo Smith\nT 616.555.0140\nPortage, MI 49024')[1].role === 'phoneWork');
   ok('MOD05 #53: the slogan goes to Notes, logo debris stays Ignore', ipad[1].role === 'notes' && ipad[0].role === 'ignore' && fm.buildFields(ipad).fields.notes === 'Your Technology Advisor');
-  const quoted = fm.classifyLines('"Your Technology Advisor"\nNick Zafer\nOwner & General Manager');
+  // raven575's first phone run of 0.8 (2026-11-03), made-up card: the reader slipped on the slogan's "Your" ("Yur"), so it
+  // passed for a title and beat "Technician" under the name, which was left on Ignore.
+  const slip = fm.classifyLines('Yur Trusted Advisor\nJordan Example\nTechnician\n100 Sample Road, Suite 12\nSpringfield, OH 45501\nE jexample@example.com\nT 555.010.0199');
+  ok('MOD05 0.8 run: the title under the name is the job title, not a slogan above it', slip[2].role === 'jobTitle' && slip[0].role !== 'jobTitle', JSON.stringify(slip.slice(0, 3)));
+  ok('MOD05 0.8 run: a slogan whose "Your" was misread goes to Notes, spelled "Your" again', slip[0].role === 'notes' && slip[0].text === 'Your Trusted Advisor' && fm.buildFields(slip).fields.notes === 'Your Trusted Advisor', JSON.stringify(slip[0]));
+  ok('MOD05 0.8 run: a title above the name still wins when nothing is under it', fm.classifyLines('Technician\nJordan Example\nE jexample@example.com')[0].role === 'jobTitle');
+  const quoted = fm.classifyLines('"Your Technology Advisor"\nDana Quill\nOwner & General Manager');
   ok('MOD05 #53: a quoted phrase is never a job title or company: it goes to Notes', quoted[0].role === 'notes' && quoted[2].role === 'jobTitle', JSON.stringify(quoted));
   const occasion = fm.classifyLines('20th Anniversary\nJo Smith\nSince 1998');
   ok('MOD05 #53: "20th Anniversary" and "Since 1998" go to Notes, not Company', occasion[0].role === 'notes' && occasion[2].role === 'notes' && fm.buildFields(occasion).fields.organization === '', JSON.stringify(occasion));
@@ -570,17 +576,17 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   // Video review #71: phone styles for US and Canadian numbers (memory only)
   const { PHONE_FORMATS, DEFAULT_PHONE_STYLE } = await import(`${R}/modules/mod05-form/formMapper.js`);
   const styled = new ContactFormMapper();
-  const fmt = (style, n = '269.492.7400') => { styled.phoneStyle = style; return styled.formatPhone(n, 'US'); };
+  const fmt = (style, n = '616.555.0140') => { styled.phoneStyle = style; return styled.formatPhone(n, 'US'); };
   ok('MOD05 #71: the three styles raven575 named, with and without +1', PHONE_FORMATS.map(([k]) => k).join() === 'paren,dots,digits'
-    && fmt({ format: 'paren', countryCode: true }) === '+1 (269) 492-7400' && fmt({ format: 'paren', countryCode: false }) === '(269) 492-7400'
-    && fmt({ format: 'dots', countryCode: true }) === '+1 269.492.7400' && fmt({ format: 'dots', countryCode: false }) === '269.492.7400'
-    && fmt({ format: 'digits', countryCode: true }) === '+12694927400' && fmt({ format: 'digits', countryCode: false }) === '2694927400');
-  ok('MOD05 #71: restyling a styled number works both ways, and an extension is kept', fmt({ format: 'dots', countryCode: false }, '+1 (269) 492-7400') === '269.492.7400' && fmt({ format: 'paren', countryCode: true }, '2694927400') === '+1 (269) 492-7400'
-    && fmt({ format: 'dots', countryCode: false }, '269 492 7400 x12') === '269.492.7400 x12');
-  ok('MOD05 #71: the default style is the one shipped before (+1 (269) 492-7400); other countries keep their own format', new ContactFormMapper().formatPhone('2694927400', 'US') === '+1 (269) 492-7400' && DEFAULT_PHONE_STYLE.format === 'paren' && DEFAULT_PHONE_STYLE.countryCode === true
+    && fmt({ format: 'paren', countryCode: true }) === '+1 (616) 555-0140' && fmt({ format: 'paren', countryCode: false }) === '(616) 555-0140'
+    && fmt({ format: 'dots', countryCode: true }) === '+1 616.555.0140' && fmt({ format: 'dots', countryCode: false }) === '616.555.0140'
+    && fmt({ format: 'digits', countryCode: true }) === '+16165550140' && fmt({ format: 'digits', countryCode: false }) === '6165550140');
+  ok('MOD05 #71: restyling a styled number works both ways, and an extension is kept', fmt({ format: 'dots', countryCode: false }, '+1 (616) 555-0140') === '616.555.0140' && fmt({ format: 'paren', countryCode: true }, '6165550140') === '+1 (616) 555-0140'
+    && fmt({ format: 'dots', countryCode: false }, '616 555 0140 x12') === '616.555.0140 x12');
+  ok('MOD05 #71: the default style is the one shipped before (+1 (616) 555-0140); other countries keep their own format', new ContactFormMapper().formatPhone('6165550140', 'US') === '+1 (616) 555-0140' && DEFAULT_PHONE_STYLE.format === 'paren' && DEFAULT_PHONE_STYLE.countryCode === true
     && fmt({ format: 'digits', countryCode: false }, '+44 20 7946 0958x') === '+44 20 7946 0958x' && styled.formatPhone('+44 2079460958', 'UK') === '+44 20 7946 0958');
   styled.phoneStyle = { format: 'dots', countryCode: false };
-  ok('MOD05 #71: a scan fills phones in the chosen style', styled.parseOCRText('Jo Smith\nT 269.492.7400').phones[0].value === '269.492.7400');
+  ok('MOD05 #71: a scan fills phones in the chosen style', styled.parseOCRText('Jo Smith\nT 616.555.0140').phones[0].value === '616.555.0140');
 }
 
 // Icon matching (MOD04 iconMatcher: pure shape maths) and icon clues in the mapper
@@ -785,7 +791,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 
 // Snap to card: the on-device edge finder (MOD03)
 {
-  const { findCardQuad, convexHull, orderCorners } = await import(`${R}/modules/mod03-camera/cardFinder.js`);
+  const { findCardQuad, convexHull, orderCorners, isCutCorner } = await import(`${R}/modules/mod03-camera/cardFinder.js`);
   // A white 1050 x 600 card, rotated and sheared on a grey background, with dark "text" rows on it (the e2e crooked card)
   const deg = Math.PI / 180;
   const mul = (a, b) => [a[0] * b[0] + a[2] * b[1], a[1] * b[0] + a[3] * b[1], a[0] * b[2] + a[2] * b[3], a[1] * b[2] + a[3] * b[3], a[0] * b[4] + a[2] * b[5] + a[4], a[1] * b[4] + a[3] * b[5] + a[5]];
@@ -819,13 +825,36 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const farCorners = [[0, 0], [1050, 0], [1050, 600], [0, 600]].map(([x, y]) => apply(far, x, y));
   const farQuad = findCardQuad(render(1600, 1200, 110, 255, true, far));
   ok('finder: a far-away card covering about 4% of the photo is found, every corner "good" on the edge bench (within 2% of the diagonal)', !!farQuad && farQuad.every((p, i) => Math.hypot(p.x - farCorners[i][0], p.y - farCorners[i][1]) < 0.02 * Math.hypot(1600, 1200)), JSON.stringify(farQuad));
+  // A grey-white card on a beige counter of the SAME brightness (raven575's first phone run of 0.8, 2026-11-03, made-up
+  // card): the counter darkens towards the bottom, a black strip runs along the photo's bottom edge, and a green band
+  // cuts the card's bottom-right corner. Shade alone sees no card; colour does, and the cut corner comes from the rectangle.
+  const counter = (() => {
+    const W = 1200, H = 1000, data = new Uint8ClampedArray(W * H * 4), inv = invert(m);
+    const toCard = (x, y) => { const [u, v] = apply(inv, x * 1.3 + 0.5, y * 1.3 - 120); return [u, v]; };
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const shade = 1.08 - 0.35 * (y / H) + ((x * 7 + y * 13) % 11 - 5) / 200;   // light from the top, speckled counter
+      let rgb = [184 * shade, 175 * shade, 156 * shade];
+      const [u, v] = toCard(x, y);
+      if (u >= 0 && u < 1050 && v >= 0 && v < 600) {
+        rgb = u + 0.9 * v > 1150 ? [110, 160, 135] : [178, 177, 182];   // green band across the bottom-right corner, else card paper
+        if (v > 60 && v < 420 && u > 60 && u < 650 && Math.floor(v / 50) % 2 === 0 && Math.floor(u / 12) % 3 !== 2) rgb = [60, 60, 64];
+      }
+      if (y > H - 40) rgb = [26, 26, 24];
+      const o = (y * W + x) * 4; data[o] = rgb[0]; data[o + 1] = rgb[1]; data[o + 2] = rgb[2]; data[o + 3] = 255;
+    }
+    const truth = [[0, 0], [1050, 0], [1050, 600], [0, 600]].map(([u, v]) => { const [x, y] = apply(m, u, v); return [(x - 0.5) / 1.3, (y + 120) / 1.3]; });
+    return { image: { data, width: W, height: H }, truth };
+  })();
+  const beige = findCardQuad(counter.image);
+  ok('finder: a white card on a beige counter of the same brightness is found by colour, every corner within 2% of the diagonal (cut corner included)', !!beige && beige.every((p, i) => Math.hypot(p.x - counter.truth[i][0], p.y - counter.truth[i][1]) < 0.02 * Math.hypot(1200, 1000)), JSON.stringify({ beige, truth: counter.truth }));
+  ok('finder: a corner far inside the rectangle while the other three sit on theirs counts as cut; a trapezoid does not', isCutCorner([2, 1, 160, 3], 2, [[0, 0], [550, 0], [550, 330], [0, 330]]) && !isCutCorner([20, 25, 30, 22], 2, [[0, 0], [550, 0], [550, 330], [0, 330]]));
   ok('convex hull drops inner points and keeps the corners', convexHull([[0, 0], [10, 0], [10, 10], [0, 10], [5, 5], [2, 3]]).length === 4);
   ok('corners are ordered top-left, top-right, bottom-right, bottom-left', orderCorners([{ x: 9, y: 9 }, { x: 0, y: 10 }, { x: 10, y: 0 }, { x: 1, y: 1 }]).map(p => `${p.x},${p.y}`).join(' ') === '1,1 10,0 9,9 0,10');
 }
 
 // QR engine (ESM, delegates to shared formatter)
 {
-  const { VCGEQREngine, qrPalette } = await import(`${R}/modules/mod07-qr/qrGenerator.js`);
+  const { VCGEQREngine, qrPalette, pairPalette, QR_PAIRS, QR_PAIR_MIN_CONTRAST, QR_EYES, QR_DOT_SIZES } = await import(`${R}/modules/mod07-qr/qrGenerator.js`);
   const q = new VCGEQREngine();
   const contact = { firstName: 'Jane', lastName: 'Doe', organization: 'Smith, Jones', birthday: '1990-01-02' };
   ok('MOD07 output identical to shared formatter', q.generateVCard30(contact) === share.formatVCard(contact));
@@ -834,7 +863,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   // Render with the bundled qrcode-generator onto an in-memory canvas, then decode with jsQR.
   const jsQR = require('jsqr');
   globalThis.qrcode = require('../src/vendor/qrcode-generator/qrcode.js');
-  // A tiny canvas: fillRect, arc + fill (round dots, circle frame) and drawImage (a grey block) paint real colours
+  // A tiny canvas: fillRect, arc or roundRect + fill (round dots, rounded and bar dots as plain boxes, circle frame)
+  // and drawImage (a grey block) paint real colours
   // into an RGBA buffer, so jsQR decodes the same pixels a browser would. stroke draws nothing: a frame sits
   // outside the quiet zone and must not matter to the decoder.
   const makeCanvas = () => {
@@ -845,14 +875,14 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     const inRect = (x, y, [rx, ry, rw, rh]) => x >= rx && y >= ry && x < rx + rw && y < ry + rh;
     const put = (x, y, [r, g, b]) => { if (x < 0 || y < 0 || x >= c.width || y >= c.height) return; if (band && (!inRect(x, y, band[0]) || inRect(x, y, band[1]))) return; const o = (y * c.width + x) * 4; c._px[o] = r; c._px[o + 1] = g; c._px[o + 2] = b; c._px[o + 3] = 255; };
     const ensure = () => { if (!c._px || c._px.length !== c.width * c.height * 4) c._px = new Uint8ClampedArray(c.width * c.height * 4); };
-    let path = [];
+    let path = [], boxes = [];
     const ctx = {
       fillStyle: '#000000', strokeStyle: '#000000', lineWidth: 1, font: '', textAlign: '',
       fillRect(x, y, w, h) { ensure(); const col = rgb(this.fillStyle); for (let j = Math.round(y); j < Math.round(y + h); j++) for (let i = Math.round(x); i < Math.round(x + w); i++) put(i, j, col); },
-      beginPath() { path = []; rects = []; },
+      beginPath() { path = []; rects = []; boxes = []; },
       arc(cx, cy, r) { path.push({ cx, cy, r }); },
-      rect(x, y, w, h) { rects.push([x, y, w, h]); }, roundRect() {}, stroke() {}, save() {}, restore() { band = null; }, clip() { if (rects.length === 2) band = rects.slice(); }, moveTo() {}, lineTo() {}, closePath() {},
-      fill() { ensure(); const col = rgb(this.fillStyle); for (const { cx, cy, r } of path) for (let j = Math.floor(cy - r); j <= Math.ceil(cy + r); j++) for (let i = Math.floor(cx - r); i <= Math.ceil(cx + r); i++) if ((i + 0.5 - cx) ** 2 + (j + 0.5 - cy) ** 2 <= r * r) put(i, j, col); },
+      rect(x, y, w, h) { rects.push([x, y, w, h]); }, roundRect(x, y, w, h) { boxes.push([x, y, w, h]); }, stroke() {}, save() {}, restore() { band = null; }, clip() { if (rects.length === 2) band = rects.slice(); }, moveTo() {}, lineTo() {}, closePath() {},
+      fill() { ensure(); const col = rgb(this.fillStyle); for (const [x, y, w, h] of boxes) this.fillRect(x, y, w, h); for (const { cx, cy, r } of path) for (let j = Math.floor(cy - r); j <= Math.ceil(cy + r); j++) for (let i = Math.floor(cx - r); i <= Math.ceil(cx + r); i++) if ((i + 0.5 - cx) ** 2 + (j + 0.5 - cy) ** 2 <= r * r) put(i, j, col); },
       drawImage(img, x, y, w, h) { const keep = this.fillStyle; this.fillStyle = '#777777'; this.fillRect(x, y, w, h); this.fillStyle = keep; },
       fillText() {}
     };
@@ -911,6 +941,29 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('MOD07 logo option is offered when the contact fits at level H', q.logoOption(text).ok === true && q.fits(text, 'H') === true);
   const big = 'x'.repeat(1700); // fits at level M (2953 bytes max) but not at level H (1273 bytes max)
   ok('MOD07 logo option is greyed out with a reason when the contact no longer fits at level H', q.fits(big, 'M') === true && q.fits(big, 'H') === false && q.logoOption(big).ok === false && /Too much/.test(q.logoOption(big).reason));
+  // raven575 2026-11-10: many more colours, always a pale colour under a dark one from across the wheel, plus shapes and sizes
+  const pairIds = Object.keys(QR_PAIRS);
+  ok('MOD07 ten named colour pairs, each dark on light at 7:1 or better', pairIds.length === 10 && QR_PAIR_MIN_CONTRAST === 7
+    && pairIds.every(id => { const p = pairPalette(id); return p.ok && p.ratio >= 7 && p.dark === QR_PAIRS[id].dark; }),
+    JSON.stringify(Object.fromEntries(pairIds.map(id => [id, pairPalette(id).ratio.toFixed(1)]))));
+  const faint = pairPalette({ light: '#fffbd1', dark: '#c99a06' });
+  ok('MOD07 a faint pair (Lemon & Gold, 2.5:1) is refused with the reason and falls back to black on white', faint.ok === false && /too faint/.test(faint.reason) && faint.dark === '#000000' && faint.light === '#ffffff');
+  const inverted = pairPalette({ light: '#14213d', dark: '#fff8e1' });
+  ok('MOD07 light dots on a dark background are refused even at high contrast', inverted.ok === false && /dark background/.test(inverted.reason));
+  ok('MOD07 an unknown pair id is refused', pairPalette('neon-pink').ok === false);
+  const pairsDecode = pairIds.every(id => { const cv = makeCanvas(); return q.renderQRCode(cv, text, { size: 320, pair: id }) && q.lastRender.themed && q.lastRender.dark === QR_PAIRS[id].dark && decodes(cv) === text; });
+  ok('MOD07 every named pair draws in its own colours and decodes to the exact vCard', pairsDecode);
+  const faintCv = makeCanvas(); q.renderQRCode(faintCv, text, { size: 320, pair: 'neon-pink' });
+  ok('MOD07 a refused pair draws black on white and reports themed=false, so the pop-up can say so', q.lastRender.themed === false && q.lastRender.dark === '#000000' && q.lastRender.pair.ok === false && decodes(faintCv) === text);
+  // Diamond dots are a drawn path this mock canvas cannot paint, so they are checked in the browser (e2e) instead.
+  const shapesDecode = ['square', 'rounded', 'round', 'bars'].every(dots => QR_DOT_SIZES.every(dotSize => QR_EYES.every(eyes => {
+    const cv = makeCanvas(); return q.renderQRCode(cv, text, { size: 320, dots, dotSize, eyes, pair: 'cream-navy' }) && q.lastRender.dots === dots && q.lastRender.dotSize === dotSize && q.lastRender.eyes === eyes && decodes(cv) === text; })));
+  ok('MOD07 square, rounded, round and bar dots at 100, 90 and 80 percent, with square, rounded and circle corners, all decode', shapesDecode);
+  ok('MOD07 dots never shrink below 80 percent: an unknown size draws full dots', QR_DOT_SIZES.every(k => k >= 0.8) && q.renderQRCode(makeCanvas(), text, { dotSize: 0.5 }) && q.lastRender.dotSize === 1);
+  const middle = makeCanvas(); q.renderQRCode(middle, text, { size: 320, eyes: 'circle', dotSize: 0.8 });
+  const unit = Math.floor(320 / (q.lastRender.modules + 8)), at = (x, y) => middle._px[(y * middle.width + x) * 4];
+  ok('MOD07 the corner squares keep a solid dark middle at every dot size', at(Math.round((4 + 3.5) * unit), Math.round((4 + 3.5) * unit)) === 0);
+  ok('MOD07 an unknown dots, corners or frame value falls back to square, square and none', q.renderQRCode(makeCanvas(), text, { eyes: 'star' }) && q.lastRender.eyes === 'square');
   ok('MOD07 an unknown dots or frame value falls back to square and none', q.renderQRCode(makeCanvas(), text, { dots: 'hex', frame: 'oval' }) && q.lastRender.dots === 'square' && q.lastRender.frame === 'none');
   q.renderPlaceholder(makeCanvas(), 320);
   ok('MOD07 the placeholder clears lastRender, so nothing claims a themed code is on screen', q.lastRender === null);
@@ -944,6 +997,9 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   globalThis.Image = class { set src(v) { this.width = 10; this.height = 10; setTimeout(() => this.onload && this.onload(), 0); } };
   const origLog = console.log, origErr = console.error; console.log = () => {}; console.error = () => {};
   const ocr = await import(`${R}/modules/mod04-ocr/ocrWorker.js`);
+  // raven575's first phone run of 0.8 (2026-11-03): "Preparing the reader…" sat still through the first ~7 MB load and read as a freeze
+  ok('MOD04 0.8 run: start-up steps move forward from 0 to 1', ocr.startProgress('loading tesseract core', 0) === 0 && ocr.startProgress('loading tesseract core', 1) === 0.5 && ocr.startProgress('loading language traineddata', 0.5) === 0.75 && ocr.startProgress('initializing api', 1) === 1);
+  ok('MOD04 0.8 run: the read\'s own progress ("recognizing text") is not a start-up step', ocr.startProgress('recognizing text', 0.4) === null);
   let evt = null; share.globalEventBus.subscribe(share.Events.OCR_TEXT_EXTRACTED, e => evt = e);
   const failure = (p) => p.then(() => null, e => e);
 
@@ -1087,51 +1143,97 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     ok('second look: only clearly surer readings win', ocr.secondLookWins(20, { text: 'x', confidence: 60 }) && !ocr.secondLookWins(50, { text: 'x', confidence: 60 }) && !ocr.secondLookWins(10, { text: 'x', confidence: 59 }) && !ocr.secondLookWins(10, { text: '', confidence: 90 }) && !ocr.secondLookWins(10, null));
     ok('second look: the new reading replaces the line from its first unsure word on', ocr.joinSecondLook('E jo@acme.c0m', 'jo@acme.c0m', 'jo@acme.com') === 'E jo@acme.com' && ocr.joinSecondLook('W a.com b', 'a.com', 'a.com/b') === 'W a.com/b' && ocr.joinSecondLook('W a.com', 'zzz', 'q') === null);
     ok('second look: the target starts at the first unsure word and spans to the line\'s end', JSON.stringify(ocr.secondLookTarget(firstRead.lines[0], ['acme.comlKala']).box) === JSON.stringify(box(90, 300, 700, 340)) && ocr.secondLookTarget(firstRead.lines[0], []) === null && ocr.secondLookTarget({ text: 'a b', words: [{ text: 'ab', confidence: 9 }] }, ['ab']) === null);
-    const merged = ocr.mergeReadingAlts('w TeamLogiciT.com/Kalamazoom\\', [{ at: 11, chars: ['i', 'I', '!', '|'] }], 'w TeamLogiclT.com/KalamazooM\\', []);
+    const merged = ocr.mergeReadingAlts('w PeakLogiciT.com/Kalamazoom\\', [{ at: 11, chars: ['i', 'I', '!', '|'] }], 'w PeakLogiclT.com/KalamazooM\\', []);
     ok('second look: where the readings disagree, the first reading\'s letter and its runner-ups are kept as second guesses', JSON.stringify(merged.find(a => a.at === 11)) === JSON.stringify({ at: 11, chars: ['l', 'i', 'I', '!', '|'] }), JSON.stringify(merged));
     const fm = new (await import(`${R}/modules/mod05-form/formMapper.js`)).ContactFormMapper();
-    const straightened = fm.buildFields(fm.classifyLines([{ text: 'Nick Zafer' }, { text: 'Portage, MI 49024' }, { text: 'w TeamLogiclT.com/KalamazooM\\', alts: merged }])).fields;
-    ok('second look + field mapping: the straightened "TeamLogiclT" becomes TeamLogicIT from the first reading\'s "I"', straightened.websites[0].value === 'TeamLogicIT.com/KalamazooMI' && straightened.organization === 'TeamLogicIT', JSON.stringify([straightened.websites, straightened.organization]));
+    const straightened = fm.buildFields(fm.classifyLines([{ text: 'Dana Quill' }, { text: 'Portage, MI 49024' }, { text: 'w PeakLogiclT.com/KalamazooM\\', alts: merged }])).fields;
+    ok('second look + field mapping: the straightened "PeakLogiclT" becomes PeakLogicIT from the first reading\'s "I"', straightened.websites[0].value === 'PeakLogicIT.com/KalamazooMI' && straightened.organization === 'PeakLogicIT', JSON.stringify([straightened.websites, straightened.organization]));
+
+    // Digits look (raven575's yes, 2026-11-10, accuracy round 1): the phone number in a line is read again allowing only
+    // phone characters, and replaces the first reading when it makes a whole number the first reading did not
+    {
+      const phoneRead = { text: 'Jane Doe\nT (616) S55-O140', confidence: 80, words: words(6, 90), lines: [
+        { text: 'Jane Doe', bbox: box(40, 40, 400, 90), words: [{ text: 'Jane', confidence: 95, bbox: box(40, 40, 200, 90), symbols: sym('Jane') }, { text: 'Doe', confidence: 92, bbox: box(220, 40, 400, 90), symbols: sym('Doe') }] },
+        { text: 'T (616) S55-O140', bbox: box(40, 300, 600, 340), words: [{ text: 'T', confidence: 95, bbox: box(40, 300, 60, 340), symbols: sym('T') }, { text: '(616)', confidence: 80, bbox: box(80, 300, 200, 340), symbols: sym('(616)') }, { text: 'S55-O140', confidence: 70, bbox: box(210, 300, 600, 340), symbols: sym('S55-O140') }] }] };
+      // A digits-only strip as Tesseract gives it: the word scored 0, its digits in the 90s
+      const digitStrip = (text, each) => ({ text, confidence: 0, words: [{ text, confidence: 0, symbols: text.split('').map(t => ({ text: t, confidence: each })) }] });
+      const reads2 = (...strips) => { let n = 0; return () => (n++ === 0 ? phoneRead : strips[Math.min(n - 2, strips.length - 1)]); };
+      globalThis.Image = class { constructor() { this.naturalWidth = this.width = 900; this.naturalHeight = this.height = 520; } set src(v) { setTimeout(() => this.onload && this.onload(), 0); } decode() { return Promise.resolve(); } };
+      globalThis.document.createElement = () => ({ width: 0, height: 0, getContext: () => ({ drawImage() {}, getImageData: () => ({ data: new Uint8ClampedArray(4) }), putImageData() {}, fillRect() {}, setTransform() {} }), toDataURL: () => 'data:image/png;base64,strip' });
+      psms = [];
+      result = reads2(digitStrip('(616)555-0140', 96));
+      const fixed = await ocr.executeOCRScan('data:image/png;base64,x');
+      const phone = fixed.lines.find(l => l.text.startsWith('T '));
+      ok('digits look: a phone number read with S and O for digits is read again in digits only and fixed', phone && phone.text === 'T (616)555-0140' && phone.unsure.length === 0, JSON.stringify(fixed.lines));
+      ok('digits look: reads one line with only phone characters allowed, then the engine goes back to sparse text with no character list', psms.join() === '7,11' && params.tessedit_char_whitelist === '', JSON.stringify({ psms, params }));
+      ok('digits look: the name line is left alone and nothing extra is returned', fixed.lines.find(l => l.text === 'Jane Doe') && fixed.lines.every(l => !('digits' in l) && !('look' in l)), JSON.stringify(fixed.lines));
+
+      result = reads2(digitStrip('(616)555-014', 96));
+      const short = await ocr.executeOCRScan('data:image/png;base64,x');
+      ok('digits look: a digits reading that is not a whole number changes nothing', short.lines.find(l => l.text.startsWith('T ')).text === 'T (616) S55-O140', JSON.stringify(short.lines));
+      globalThis.Image = savedImage; globalThis.document.createElement = savedCreate;
+    }
+    ok('digits look: look-alike letters become digits', ocr.asDigits('(6l6) S55-O14O') === '(616) 555-0140' && ocr.asDigits('Sales') === '5a1e5');
+    ok('digits look: whole phone numbers are 10 digits, 11 starting with 1, or + and 8-15 digits', ocr.isPhoneDigits('(616) 555-0140') && ocr.isPhoneDigits('1-616-555-0140') && ocr.isPhoneDigits('+44 20 7946 0958') && ocr.isPhoneDigits('616.555.0140 x204')
+      && !ocr.isPhoneDigits('616 555 014') && !ocr.isPhoneDigits('2-616-555-0140') && !ocr.isPhoneDigits('(616) S55-0140') && !ocr.isPhoneDigits(''));
+    {
+      const w = (text, confidence, x0) => ({ text, confidence, bbox: box(x0, 0, x0 + 50, 20) });
+      const line = (...ws) => ({ bbox: box(0, 0, 900, 20), words: ws });
+      const t = ocr.digitsLookTarget(line(w('M', 95, 0), w('269.38O.6655', 70, 60), w('ext', 90, 300)));
+      ok('digits look: the target is the run of phone words, with the words around it kept', t && t.text === '269.38O.6655' && t.box.x0 === 60 && t.box.x1 === 110 && t.before.length === 1 && t.after.length === 1, JSON.stringify(t));
+      ok('digits look: a sure number already in digits, a ZIP, a street and a name are not read again',
+        ocr.digitsLookTarget(line(w('(616)', 95, 0), w('555-0140', 96, 60))) === null && ocr.digitsLookTarget(line(w('Portage,', 90, 0), w('MI', 90, 60), w('49024', 90, 120))) === null
+        && ocr.digitsLookTarget(line(w('1200', 90, 0), w('Maplebridge', 90, 60))) === null && ocr.digitsLookTarget(line(w('Bob', 90, 0), w('Lee', 90, 60))) === null);
+      ok('digits look: a sure number with a dropped digit is read again', ocr.digitsLookTarget(line(w('(616)', 96, 0), w('55-0158', 96, 60))) !== null);
+      const target = { text: '(616) S55-O140', confidence: 70 };
+      ok('digits look: only whole numbers win; a sure number needs a clearly surer reading of the same length',
+        ocr.digitsLookWins(target, { text: '(616) 555-0140', confidence: 65 }) && !ocr.digitsLookWins(target, { text: '(616) 555-014', confidence: 99 }) && !ocr.digitsLookWins(target, { text: '(616) 555-0140', confidence: 55 })
+        && !ocr.digitsLookWins({ text: '(616) 555-0140', confidence: 80 }, { text: '(616) 556-0140', confidence: 85 }) && ocr.digitsLookWins({ text: '(616) 555-0140', confidence: 80 }, { text: '(616) 556-0140', confidence: 95 })
+        && !ocr.digitsLookWins({ text: '(616) 555-0140', confidence: 80 }, { text: '(616) 555-01400', confidence: 99 }) && !ocr.digitsLookWins(target, null));
+      ok('digits look: the new digits replace just the run', ocr.joinDigitsLook('M 269.38O.6655 ext', ['269.38O.6655'], '269.380.6655') === 'M 269.380.6655 ext' && ocr.joinDigitsLook('T a b', ['x'], 'y') === null);
+      const dw = ocr.digitWords({ words: [{ text: '555', confidence: 0, symbols: [{ text: '5', confidence: 24 }, { text: '5', confidence: 99 }, { text: '5', confidence: 99 }] }, { text: ' ', confidence: 0 }] });
+      ok('digits look: words keep every digit (no echo clean-up) and score by their digits', dw.length === 1 && dw[0].text === '555' && Math.round(dw[0].confidence) === 74, JSON.stringify(dw));
+    }
 
     // Garbage check and up to three readings (raven575, 2026-10-20: a light green name read as garbage reached the form)
     const rq = await import(`${R}/modules/mod04-ocr/readingQuality.js`);
     const garbage = ['~: ;\' |_ ,', 'lIlIlI WwWnN', 'Rhtkp Qwxzt', '—_= ~ ^', 'ﬁ{ ,'].filter(text => !rq.isGarbage({ text, confidence: 45 }));
     ok('garbage check: noise, letter-soup and symbol lines are garbage', garbage.length === 0, JSON.stringify(garbage));
-    const real = [['Nick Zafer', 45], ['Al Wu', 40], ['TeamLogicIT', 70], ['Chief Technology Officer', 52], ['nzafer@TeamlLogic\\T.com', 20], ['TeamLogiciT.com/Kalarmazoom\\', 25], ['(269) 492-7400', 15],
-        ['5875 Moorsbridge Rd Ste 3', 48], ['Portage, MI 49024', 44], ['Ngozi Schwartz', 55], ['LLC', 30]].filter(([text, confidence]) => rq.isGarbage({ text, confidence }));
+    const real = [['Dana Quill', 45], ['Al Wu', 40], ['PeakLogicIT', 70], ['Chief Technology Officer', 52], ['dquill@PeaklLogic\\T.com', 20], ['PeakLogiciT.com/Kalarmazoom\\', 25], ['(616) 555-0140', 15],
+        ['1250 Maplebridge Rd Ste 3', 48], ['Portage, MI 49024', 44], ['Ngozi Schwartz', 55], ['LLC', 30]].filter(([text, confidence]) => rq.isGarbage({ text, confidence }));
     ok('garbage check: real names, titles, unsure lines and slipped emails, web addresses and phones are text', real.length === 0, JSON.stringify(real));
-    ok('garbage check: a line the engine was barely sure of is garbage unless it is shaped like a field', rq.isGarbage({ text: 'Ihre Aeh Hes', confidence: 22 }) && !rq.isGarbage({ text: 'Ihre Aeh Hes' }) && !rq.isGarbage({ text: '269 492 7400', confidence: 5 }));
-    const classified = fm.classifyLines([{ text: 'Nick Zafer' }, { text: 'nzafer@teamlogicit.com' }]);
+    ok('garbage check: a line the engine was barely sure of is garbage unless it is shaped like a field', rq.isGarbage({ text: 'Ihre Aeh Hes', confidence: 22 }) && !rq.isGarbage({ text: 'Ihre Aeh Hes' }) && !rq.isGarbage({ text: '616 555 0140', confidence: 5 }));
+    const classified = fm.classifyLines([{ text: 'Dana Quill' }, { text: 'dquill@peaklogicit.com' }]);
     ok('what is missing: nothing when the name and a phone or email are there; name and reach otherwise',
-        rq.missingParts(classified).length === 0 && rq.missingParts(fm.classifyLines([{ text: 'nzafer@teamlogicit.com' }])).join() === 'name'
-        && rq.missingParts(fm.classifyLines([{ text: 'Nick Zafer' }, { text: 'Fax (269) 492-7401' }])).join() === 'reach' && rq.missingParts([]).join() === 'name,reach',
+        rq.missingParts(classified).length === 0 && rq.missingParts(fm.classifyLines([{ text: 'dquill@peaklogicit.com' }])).join() === 'name'
+        && rq.missingParts(fm.classifyLines([{ text: 'Dana Quill' }, { text: 'Fax (616) 555-0141' }])).join() === 'reach' && rq.missingParts([]).join() === 'name,reach',
         JSON.stringify(classified));
     ok('what is missing: said in words', rq.describeMissing(['name']) === 'the name' && rq.describeMissing(['name', 'reach']) === 'the name or a phone number or email');
-    const first = [{ text: 'Rhtkp Qwxzt', confidence: 21 }, { text: 'nzafer@teamlogicit.com', confidence: 80 }, { text: '(269) 492-7400', confidence: 85 }];
+    const first = [{ text: 'Rhtkp Qwxzt', confidence: 21 }, { text: 'dquill@peaklogicit.com', confidence: 80 }, { text: '(616) 555-0140', confidence: 85 }];
     const one = rq.mergeReadings([first]);
     ok('one reading: garbage lines are kept as unreadable, in place, so the review can show them', one.length === 3 && one[0].unreadable && !one[1].unreadable && !('reading' in one[0]) && !('garbage' in one[1]), JSON.stringify(one));
-    const second = [{ text: 'Nick Zafer', confidence: 82 }, { text: 'nzafer@teamlogicit.com', confidence: 70 }, { text: '(269) 492-7400', confidence: 90 }];
+    const second = [{ text: 'Dana Quill', confidence: 82 }, { text: 'dquill@peaklogicit.com', confidence: 70 }, { text: '(616) 555-0140', confidence: 90 }];
     const two = rq.mergeReadings([first, second]);
-    ok('two readings: the second photo fills in the name, the first\'s garbage is dropped, and each line is read once', two.map(l => l.text).join('|') === 'Nick Zafer|nzafer@teamlogicit.com|(269) 492-7400' && two.every(l => !l.unreadable) && two[2].confidence === 90, JSON.stringify(two));
-    const three = rq.mergeReadings([[{ text: 'Nick Zafer', confidence: 50 }], [{ text: 'Nick Zafar', confidence: 58 }], [{ text: 'Nick Zafer', confidence: 52 }]]);
-    ok('three readings: two that agree outvote a surer third, with no "please check"', three.length === 1 && three[0].text === 'Nick Zafer' && three[0].confidence === 52 && !(three[0].unsure || []).length, JSON.stringify(three));
-    const split = rq.mergeReadings([[{ text: 'Nick Zafer', confidence: 50, alts: [] }], [{ text: 'Nick Zafar', confidence: 55, alts: [] }]]);
-    ok('two readings that disagree, neither sure: the surer is kept, marked unsure, with the other\'s letter as a second guess', split.length === 1 && split[0].text === 'Nick Zafar' && split[0].unsure.length === 2
-        && JSON.stringify(split[0].alts.find(a => a.at === 8)) === JSON.stringify({ at: 8, chars: ['a', 'e'] }), JSON.stringify(split));
-    const sureOne = rq.mergeReadings([[{ text: 'Nick Zafer', confidence: 50 }], [{ text: 'Nick Zafar', confidence: 75 }]]);
-    ok('two readings that disagree, one sure: the sure one is kept as it is', sureOne[0].text === 'Nick Zafar' && !(sureOne[0].unsure || []).length, JSON.stringify(sureOne));
+    ok('two readings: the second photo fills in the name, the first\'s garbage is dropped, and each line is read once', two.map(l => l.text).join('|') === 'Dana Quill|dquill@peaklogicit.com|(616) 555-0140' && two.every(l => !l.unreadable) && two[2].confidence === 90, JSON.stringify(two));
+    const three = rq.mergeReadings([[{ text: 'Dana Quill', confidence: 50 }], [{ text: 'Dana Quall', confidence: 58 }], [{ text: 'Dana Quill', confidence: 52 }]]);
+    ok('three readings: two that agree outvote a surer third, with no "please check"', three.length === 1 && three[0].text === 'Dana Quill' && three[0].confidence === 52 && !(three[0].unsure || []).length, JSON.stringify(three));
+    const split = rq.mergeReadings([[{ text: 'Dana Quill', confidence: 50, alts: [] }], [{ text: 'Dana Quall', confidence: 55, alts: [] }]]);
+    ok('two readings that disagree, neither sure: the surer is kept, marked unsure, with the other\'s letter as a second guess', split.length === 1 && split[0].text === 'Dana Quall' && split[0].unsure.length === 2
+        && JSON.stringify(split[0].alts.find(a => a.at === 7)) === JSON.stringify({ at: 7, chars: ['a', 'i'] }), JSON.stringify(split));
+    const sureOne = rq.mergeReadings([[{ text: 'Dana Quill', confidence: 50 }], [{ text: 'Dana Quall', confidence: 75 }]]);
+    ok('two readings that disagree, one sure: the sure one is kept as it is', sureOne[0].text === 'Dana Quall' && !(sureOne[0].unsure || []).length, JSON.stringify(sureOne));
     const stillBad = rq.mergeReadings([[{ text: 'Rhtkp Qwxzt', confidence: 21 }], [{ text: 'Qwrtz Bkkgh', confidence: 18 }, { text: 'jo@acme.com', confidence: 90 }]]);
     ok('garbage in every reading: shown once, from the latest photo, as unreadable; garbage only in an older photo is dropped',
         stillBad.length === 2 && stillBad[0].unreadable && stillBad[0].text === 'Qwrtz Bkkgh' && rq.mergeReadings([[{ text: 'Rhtkp Qwxzt', confidence: 21 }], [{ text: 'jo@acme.com', confidence: 90 }]]).length === 1, JSON.stringify(stillBad));
     ok('photos per card: three at most', rq.MAX_PHOTOS === 3);
     // raven575, 2026-10-22 (base card): a symbol-only logo line was listed, and "Suite 405" came back "Suite 40%"
-    const debris = rq.mergeReadings([[{ text: '. {) ——', confidence: 10 }, { text: 'Nick Zafer', confidence: 80 }, { text: 'A', confidence: 20 }]]);
-    ok('a line with no letter or digit is dropped, not listed; a stray letter is still listed as unreadable', debris.length === 2 && debris[0].text === 'Nick Zafer' && debris[1].unreadable, JSON.stringify(debris));
-    const suite = 'Moorsbridge Road, Suite 40%';
+    const debris = rq.mergeReadings([[{ text: '. {) ——', confidence: 10 }, { text: 'Dana Quill', confidence: 80 }, { text: 'A', confidence: 20 }]]);
+    ok('a line with no letter or digit is dropped, not listed; a stray letter is still listed as unreadable', debris.length === 2 && debris[0].text === 'Dana Quill' && debris[1].unreadable, JSON.stringify(debris));
+    const suite = 'Maplebridge Road, Suite 40%';
     const mended = rq.mergeReadings([[{ text: suite, confidence: 70, alts: [{ at: 26, chars: '5' }], unsure: [] }]])[0];
     const flagged = rq.fixNumberPercent({ text: suite, alts: [{ at: 26, chars: 'x' }], unsure: [] });
     ok('a "%" after a suite number takes the reader\'s digit guess; without one its word is flagged to check',
-        mended.text === 'Moorsbridge Road, Suite 405' && !mended.alts.some(a => a.at === 26) && flagged.text === suite && flagged.unsure.join() === '40%', JSON.stringify({ mended, flagged }));
+        mended.text === 'Maplebridge Road, Suite 405' && !mended.alts.some(a => a.at === 26) && flagged.text === suite && flagged.unsure.join() === '40%', JSON.stringify({ mended, flagged }));
     ok('a "%" after a house number on a street line or after #, too; any other "%" is left alone',
         rq.fixNumberPercent({ text: '795% Main Street', alts: [{ at: 3, chars: '0' }] }).text === '7950 Main Street' && rq.fixNumberPercent({ text: 'Unit #12%' }).unsure.join() === '#12%'
         && rq.fixNumberPercent({ text: '20% off your first visit' }).text === '20% off your first visit' && !rq.fixNumberPercent({ text: '20% off your first visit' }).unsure);
@@ -1197,6 +1299,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 
   // The Read card (readCard.js): stepped fades, the Looks right timings, the lane
   const read = await import(`${R}/modules/mod04-ocr/readCard.js`);
+  ok('MOD04 0.8 run: the start-up label shows how far it is', read.startLabel(0.75) === 'Preparing the reader… 75%' && read.startLabel(0) === 'Preparing the reader…' && read.startLabel(null) === 'Preparing the reader…');
   ok('read card: motion stepped at 26 fps, blink-out and Looks right fade are quick (under 300 ms each)', read.STEP_FPS === 26 && read.BLINK_MS > 0 && read.BLINK_MS < 300 && read.CHECK_FADE_MS > 0 && read.CHECK_FADE_MS < 300 && read.CHECK_NOTE_AT > 0 && read.CHECK_NOTE_AT < 1);
   ok('read card: ease in and out starts at 0, passes 0.5 halfway, lands at 1', read.easeInOut(0) === 0 && read.easeInOut(0.5) === 0.5 && read.easeInOut(1) === 1 && read.easeInOut(0.25) < 0.25 && read.easeInOut(0.75) > 0.75);
   const steps = [0, 10, 40, 80, 120, 220, 500].map(t => read.fadeAt(1, 0, t, 220));
@@ -1389,6 +1492,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     px(card.LOGO_INSET) > 16 * (1 - Math.SQRT1_2) && px(card.LOGO_INSET_STRIP) > 12 * (1 - Math.SQRT1_2), `${card.LOGO_INSET} ${card.LOGO_INSET_STRIP}`);
   const families = card.CARD_FONTS.map(([cls]) => (new RegExp(`\\.${cls} \\{ font-family: '?([^',;]+)`).exec(css6) || [])[1]);
   ok('#85 eleven card typefaces, the original Sans, Serif and Mono first, each with its own rule', card.CARD_FONTS.length === 11 && card.CARD_FONTS.slice(0, 3).map(([c]) => c).join() === 'font-sans,font-serif,font-mono' && families.every(Boolean), JSON.stringify(families));
+  ok('finishes (raven575, 2026-11-10): Paper grain first and the start at 70% with an 8% blur; Cotton, Watercolour and Light thatch added; two gradients kept; Flat last; each with a hint and a texture rule',
+    card.CARD_FINISHES.map(f => f[0]).join() === 'paper,cotton,watercolour,thatch,linen,gradient,glow,dots,stripes,flat'
+    && card.DEFAULT_FINISH === 'paper' && card.DEFAULT_FINISH_STRENGTH === 70 && card.DEFAULT_FINISH_BLUR === 8 && card.finishStartStrength('dots') === 15
+    && card.CARD_FINISHES.every(f => f[3]) && card.CARD_FINISHES.filter(f => f[0] !== 'flat').every(([k]) => css6.includes(`[data-finish="${k}"] .card-face, .finish-sample[data-finish="${k}"]`))
+    && /--tex-paper-grain: url\("data:image\/svg\+xml,/.test(css6) && card.stockName({ label: 'Slate Blue' }) === 'Slate Blue stock');
   const bundled = families.filter(f => !/^(system-ui|Georgia)$/.test(f));
   ok('#85 every bundled card typeface has its @font-face (here or in the app\'s font setting), no font host', bundled.length === 9 && bundled.every(f => new RegExp(`@font-face \\{ font-family: '${f}';[^}]*url\\('\\.\\./\\.\\./vendor/fonts/`).test(css6 + uiCss)) && !/https?:/.test(css6), bundled.join(','));
   ok('#85 four text sizes, medium by default, each scale defined', card.CARD_SIZES.map(([k]) => k).join() === 'sm,md,lg,xl' && card.DEFAULT_CARD_SIZE === 'md' && ['sm', 'lg', 'xl'].every(k => css6.includes(`.card-face.card-size-${k} { --card-scale:`)) && /@media screen \{\s*\.card-face \.text-2xl/.test(css6));
@@ -1587,6 +1695,24 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('edition: plain names every dock step instead of its pilot, and the Thank You page says "Session ended."',
     Object.values(ed.PLAIN_NAV).join() === 'Capture,Read,Details,Card,Share,QR' && ed.PLAIN_THANKS === 'Session ended.'
     && (html.match(/id="nav(?:Capture|Read|Fields|Card|Qr|Share)"/g) || []).map(m => m.slice(4, -1)).join() === Object.keys(ed.PLAIN_NAV).join());
+  {
+    // Settings > Plain look (raven575, 2026-11-03): the Herd build reads look=1 from the saved entry before anything draws
+    const rootOf = (dataset = {}) => ({ documentElement: { dataset } });
+    const storeOf = (line) => ({ getItem: (k) => (k === 'vcge_settings' ? line : null) });
+    const herdOn = rootOf(), herdOff = rootOf(), dl = rootOf({ edition: 'plain' }), blocked = rootOf();
+    const on = ed.applySavedLook(herdOn, storeOf('hand=0;cb=0;theme=0;font=0;size=0;wipe=0;look=1'));
+    const off = ed.applySavedLook(herdOff, storeOf('hand=0;cb=0;theme=0;font=0;size=0;wipe=0'));
+    const dlOn = ed.applySavedLook(dl, storeOf('look=1'));
+    const blockedOn = ed.applySavedLook(blocked, { getItem() { throw new Error('blocked'); } });
+    ok('Plain look: look=1 in vcge_settings makes the Herd build plain (data-edition) and marks it as the look (data-look)',
+      on && ed.isPlain(herdOn) && ed.isPlainLook(herdOn) && herdOn.documentElement.dataset.look === 'plain', JSON.stringify(herdOn));
+    ok('Plain look: without look=1, or with storage blocked, the Herd build stays Herd', !off && !ed.isPlain(herdOff) && !ed.isPlainLook(herdOff) && !blockedOn && !ed.isPlain(blocked));
+    ok('Plain look: the Plain download is plain by its html line and is never marked as the look', !dlOn && ed.isPlain(dl) && !ed.isPlainLook(dl));
+    ok('Plain look: only an exact look=1 counts (look=10, xlook=1, a missing entry do not)', ed.savedLookPlain('look=1') && ed.savedLookPlain('hand=1;look=1;tex=1')
+      && !ed.savedLookPlain('look=10') && !ed.savedLookPlain('xlook=1') && !ed.savedLookPlain('look=0') && !ed.savedLookPlain(null) && ed.SETTINGS_KEY === 'vcge_settings');
+    ok('Plain look: ui.js applies the saved look just before the edition, so every plain rule runs as in the Plain download',
+      /applySavedLook\(\);[^\n]*\n\s*applyEdition\(\);/.test(fs.readFileSync(`${R}/modules/mod01-shell/ui.js`, 'utf8')));
+  }
   ok('logo: no icon link points at a host', ![...html.matchAll(/<link[^>]+rel="(?:icon|apple-touch-icon)"[^>]*>/g)].some(m => /https?:/.test(m[0])));
   // Shutout's touches (shellArt.js, the "make it cute" round): the turtle and the plates are pictures only, branded only
   const art = await import(`${R}/modules/mod01-shell/shellArt.js`);
@@ -1679,7 +1805,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const st = await import(`${R}/modules/mod01-shell/settings.js`);
   const ui = await import(`${R}/modules/mod01-shell/ui.js`);
   localStorage.clear();
-  ok('settings: one key, defaults right hand, colour-blind off, dark theme, Inter, normal text size', st.SETTINGS_KEY === 'vcge_settings' && JSON.stringify(st.DEFAULTS) === '{"hand":0,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0}' && st.fontFor(0) === 'Inter' && st.scaleFor(0) === 1);
+  ok('settings: one key, defaults right hand, colour-blind off, dark theme, Inter, normal text size', st.SETTINGS_KEY === 'vcge_settings' && JSON.stringify(st.DEFAULTS) === '{"hand":0,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}' && st.fontFor(0) === 'Inter' && st.scaleFor(0) === 1);
   ok('settings: the wipe after the lock is 7, 10 or 15 minutes, codes 0, 1, 2; 7 is the default and an unknown code is 7', st.WIPE_TIMES.map(t => `${t.code}:${t.minutes}`).join() === '0:7,1:10,2:15'
     && st.wipeMinutesFor(0) === 7 && st.wipeMinutesFor(1) === 10 && st.wipeMinutesFor(2) === 15 && st.wipeMinutesFor(9) === 7);
   {
@@ -1691,23 +1817,33 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('settings: text sizes Small, Normal, Large, Larger, smallest first, each with its own fixed code; an unknown code is Normal', st.TEXT_SIZES.map(t => t.name).join() === 'Small,Normal,Large,Larger'
     && st.TEXT_SIZES.every((t, i) => i === 0 || t.scale > st.TEXT_SIZES[i - 1].scale) && new Set(st.TEXT_SIZES.map(t => t.code)).size === 4 && st.scaleFor(2) === 1.25 && st.scaleFor(9) === 1);
   ok('settings: every Settings font has its own fixed code, Inter 0, no code shared', ui.UI_FONTS.every(n => Number.isInteger(st.FONT_CODES[n])) && new Set(Object.values(st.FONT_CODES)).size === ui.UI_FONTS.length && Object.keys(st.FONT_CODES).length === ui.UI_FONTS.length);
-  ok('settings: a line of name=number pairs reads back', JSON.stringify(st.parseSettings('hand=1;cb=1;theme=1;font=3;size=2;wipe=1')) === '{"hand":1,"cb":1,"theme":1,"font":3,"size":2,"wipe":1,"mode":0,"style":0,"tex":0}');
-  ok('settings: an entry saved before the text size and wipe time existed reads as Normal and 7 minutes', JSON.stringify(st.parseSettings('hand=1;cb=0;theme=0;font=2')) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0}');
+  ok('settings: a line of name=number pairs reads back', JSON.stringify(st.parseSettings('hand=1;cb=1;theme=1;font=3;size=2;wipe=1')) === '{"hand":1,"cb":1,"theme":1,"font":3,"size":2,"wipe":1,"mode":0,"style":0,"tex":0,"look":0}');
+  ok('settings: an entry saved before the text size and wipe time existed reads as Normal and 7 minutes', JSON.stringify(st.parseSettings('hand=1;cb=0;theme=0;font=2')) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}');
   ok('settings: missing or unreadable means the defaults', JSON.stringify(st.parseSettings(null)) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('garbage')) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('')) === JSON.stringify(st.DEFAULTS));
-  ok('settings: an unknown name, an out-of-range or non-numeric value falls back to its default, the rest is kept', JSON.stringify(st.parseSettings('hand=1;name=Maria;cb=7;theme=x;font=99;size=4')) === '{"hand":1,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0}');
-  ok('settings: serialises every name in a fixed order and clamps', st.serializeSettings({ font: 2, hand: 1, size: 3 }) === 'hand=1;cb=0;theme=0;font=2;size=3;wipe=0' && st.serializeSettings({ cb: 5 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0');
+  ok('settings: an unknown name, an out-of-range or non-numeric value falls back to its default, the rest is kept', JSON.stringify(st.parseSettings('hand=1;name=Maria;cb=9;theme=x;font=99;size=4')) === '{"hand":1,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}');
+  ok('settings: serialises every name in a fixed order and clamps', st.serializeSettings({ font: 2, hand: 1, size: 3 }) === 'hand=1;cb=0;theme=0;font=2;size=3;wipe=0' && st.serializeSettings({ cb: 6 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0');
+  ok('settings: Plain look is look=1, written only while on (an entry nobody switched reads as before); look=2 is out of range',
+    st.serializeSettings({ look: 1 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0;look=1' && st.serializeSettings({ look: 0 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0'
+    && st.parseSettings('look=2').look === 0 && st.parseSettings('tex=1;look=1').look === 1);
   st.saveSettings({ hand: 1, font: 2 });
+  ok('settings: colour vision (raven575, 2026-11-10) keeps cb as one number, 2 to 5, and each choice has a name and hint',
+    st.parseSettings('cb=5').cb === 5 && st.parseSettings('cb=2').cb === 2 && st.COLOUR_VISION.map(v => v.code).join() === '0,2,3,4,5'
+    && st.COLOUR_VISION.every(v => v.name && v.hint) && st.visionFor(3).id === 'deutan' && st.visionFor(1).id === 'typical');
+  { const ps = fs.readFileSync(`${R}/modules/mod01-shell/pictureSelect.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+    ok('picture drop-down: imports nothing, stores nothing, no network or innerHTML; a listbox the keyboard can drive',
+      !/^import /m.test(ps) && !/fetch\(|localStorage|sessionStorage|indexedDB|innerHTML|document\.cookie/.test(ps)
+      && /'listbox'/.test(ps) && /'option'/.test(ps) && ['ArrowDown', 'ArrowUp', 'Home', 'End', 'Escape', 'Enter'].every(k => ps.includes(`'${k}'`))); }
   ok('settings: save writes the one key and nothing else', localStorage.getItem('vcge_settings') === 'hand=1;cb=0;theme=0;font=2;size=0;wipe=0' && store.size === 1);
-  ok('settings: load reads it back', JSON.stringify(st.loadSettings()) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0}');
+  ok('settings: load reads it back', JSON.stringify(st.loadSettings()) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}');
   st.clearSettings();
   ok('settings: clear removes it', store.size === 0 && JSON.stringify(st.loadSettings()) === JSON.stringify(st.DEFAULTS));
   localStorage.setItem('vcge_theme_preference', 'light');
-  ok('settings: the old theme key is carried over once and removed', JSON.stringify(st.loadSettings()) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0}' && localStorage.getItem('vcge_theme_preference') === null && store.size === 0);
+  ok('settings: the old theme key is carried over once and removed', JSON.stringify(st.loadSettings()) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}' && localStorage.getItem('vcge_theme_preference') === null && store.size === 0);
   const code = fs.readFileSync(`${R}/modules/mod01-shell/settings.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-  ok('settings: subscribes to SETTINGS_WIPE_REQUESTED, imports only the bus, ui.js and themes.js, no network, cookies or markup', /subscribe\(Events\.SETTINGS_WIPE_REQUESTED/.test(code)
-    && (code.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ui.js'") || l.includes("'./themes.js'")) && !/fetch\(|document\.cookie|sessionStorage|indexedDB|innerHTML|publish\(/.test(code));
+  ok('settings: subscribes to SETTINGS_WIPE_REQUESTED, imports only the bus, ui.js, themes.js, edition.js and pictureSelect.js, no network, cookies or markup', /subscribe\(Events\.SETTINGS_WIPE_REQUESTED/.test(code)
+    && (code.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ui.js'") || l.includes("'./themes.js'") || l.includes("'./edition.js'") || l.includes("'./pictureSelect.js'")) && !/fetch\(|document\.cookie|sessionStorage|indexedDB|innerHTML|publish\(/.test(code));
   ok('settings: the only storage key named in the code is the settings key (plus the old theme key it removes)', [...code.matchAll(/(?:getItem|setItem|removeItem)\((\w+)/g)].every(m => m[1] === 'SETTINGS_KEY' || m[1] === 'OLD_THEME_KEY'));
-  ok('settings: the Settings sheet and the Welcome card carry the one-file disclaimer', fs.readFileSync(`${R}/../index.html`, 'utf8').includes('vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time). Nothing you scan, upload or type is ever saved.')
+  ok('settings: the Settings sheet and the Welcome card carry the one-file disclaimer', fs.readFileSync(`${R}/../index.html`, 'utf8').includes('vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look). Nothing you scan, upload or type is ever saved.')
     && /<section id="cardWelcome"[\s\S]*?remembers none of your sensitive data[\s\S]*?<\/section>/.test(fs.readFileSync(`${R}/../index.html`, 'utf8')) && !fs.existsSync(`${R}/modules/mod01-shell/themeManager.js`));
   // App themes (themes.js, theme step 1): fixed codes, readable colours, branded ones left out of plain
   const th = await import(`${R}/modules/mod01-shell/themes.js`);
@@ -1718,6 +1854,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     return ratio(v.text, v.surface) < 4.5 || ratio(v.text, v.bg) < 4.5 || ratio(v.muted, v.surface) < 4.5 || ratio(v.onAccent, v.accent) < 4.5 || ratio(v.accent, v.surface) < 3; });
   ok('themes: every colour theme reads at 4.5:1 (text and muted text on its surface, text on its page, the lit icon\'s text) and its accent at 3:1', weak.length === 0, weak.map(t => t.id).join());
   const card3d = await import(`${R}/modules/mod06-gui/card3dView.js`);
+  ok('MOD06 0.8 run: the card\'s address line ends with the state and ZIP', card3d.cardAddressLine({ street: '100 Sample Road', city: 'Springfield', state: 'OH', zip: '45501' }, 'Suite 12') === '100 Sample Road, Suite 12, Springfield, OH 45501');
+  ok('MOD06: an address without a state still shows its ZIP, and an empty one stays empty', card3d.cardAddressLine({ city: 'Springfield', zip: '45501' }) === 'Springfield, 45501' && card3d.cardAddressLine({}) === '');
   ok('themes: Dark 0 and Light 1 as before, then the eight Autumn palettes, then a dark and a light for each of the nine characters, then Creative\'s 0.8 palettes from 28; codes fixed and unique',
     th.THEMES.map(t => t.code).join() === [...Array(50).keys()].join() && th.THEMES[0].id === 'dark' && th.THEMES[1].id === 'light'
     && th.THEMES.filter(t => t.group === 'Autumn').map(t => t.id).join() === Object.keys(card3d.THEMES).join()
@@ -1759,7 +1897,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('settings 0.8: the six styles keep fixed codes (Herd 0, Material 1, iOS 2, Windows 3, GNOME 4, KDE 5); an unknown code is Herd',
     st.STYLES.map(t => `${t.code}:${t.id}`).join() === '0:herd,1:material,2:ios,3:windows,4:gnome,5:kde' && st.styleFor(9).id === 'herd' && st.parseSettings('style=6').style === 0);
   ok('settings 0.8: an entry from 0.7 (no mode, style or tex) reads as the fixed theme, Herd style and the texture on',
-    JSON.stringify(st.parseSettings('hand=0;cb=0;theme=1;font=0;size=0;wipe=0')) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0}'
+    JSON.stringify(st.parseSettings('hand=0;cb=0;theme=1;font=0;size=0;wipe=0')) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}'
     && st.effectiveTheme(st.parseSettings('theme=1'), true) === 1 && st.effectiveTheme(st.parseSettings('theme=0'), false) === 0);
   ok('settings 0.8: Appearance System shows the family\'s light or dark code by the device; a one-version theme stays itself',
     st.effectiveTheme({ theme: 1, mode: 1 }, true) === 0 && st.effectiveTheme({ theme: 0, mode: 1 }, false) === 1
@@ -1787,12 +1925,27 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
       && /id="auditLog"/.test(vault5) && /id="vaultLockNowBtn"/.test(vault5) && /id="wipeVaultBtn"[^>]*>.*sprite\.svg#trash/.test(vault5)
       && vault5.indexOf('id="wipeVaultBtn"') > vault5.indexOf('id="auditLog"'));
     ok('R5: the trash left the cards (it is the Vault sheet\'s wipe button now)', !/class="vcge-trash"/.test(html5));
-    ok('R5 Settings sheet: theme swatches, Appearance System / Light / Dark, the six styles, the text-size slider, the Comfort switches, a Plain look switch that is never live, the credit and About',
+    ok('R5 Settings sheet: theme swatches, Appearance System / Light / Dark, the six styles, the text-size slider, the Comfort switches, a live Plain look switch with its ask, the credit and About',
       /id="appThemes"/.test(set5) && [...set5.matchAll(/data-v="(\w+)"/g)].map(m => m[1]).join() === 'system,light,dark'
       && [...set5.matchAll(/data-style="(\w+)"/g)].map(m => m[1]).join() === st.STYLES.map(t => t.id).join()
       && /<input id="sizeRange" type="range"/.test(set5) && ['handToggle', 'cbToggle', 'texToggle'].every(id => new RegExp(`<input id="${id}" type="checkbox" role="switch"`).test(set5))
-      && /<input id="plainToggle" type="checkbox" role="switch" class="r5-toggle" disabled/.test(set5) && /separate download/.test(set5)
+      && /<input id="plainToggle" type="checkbox" role="switch" class="r5-toggle" aria-describedby="plainNote">/.test(set5) && /id="plainConfirm" class="r5-plain-confirm hidden"/.test(set5)
       && /class="vcge-pm-credit"/.test(set5) && /id="settingsAbout"/.test(set5));
+    // raven575 (2026-11-03): the theme box starts closed with 3 quick picks; the Dyslexia, Colour-blind and Left-handed switches are one Accessibility group
+    ok('Settings: the theme box is one closed details (summary shows the theme in use) holding the swatches and More themes',
+      /<details id="themePicker" class="r5-picker">\s*<summary id="themeSummary"[^>]*><i id="themeSummarySwatch"[^>]*><\/i><span id="themeSummaryName">Herd<\/span><\/summary>\s*<div id="appThemes"[^>]*><\/div>\s*<details id="moreThemes"/.test(set5)
+      && !/id="themePicker"[^>]* open/.test(set5));
+    ok('Settings: the quick picks are Herd, Signal, Graphite; every other palette is under More themes, none twice', st.QUICK_THEMES.join() === 'herd,signal,graphite'
+      && st.SWATCH_GROUPS.map(g => `${g.label}:${g.more}`).join() === 'Quick picks:false,Everyday:true,Seasonal:true,Autumn:true,Team vCGE:true'
+      && st.swatchFamilies(th.THEME_FAMILIES, 'Quick').map(f => f.id).join() === 'herd,signal,graphite'
+      && st.swatchFamilies(th.THEME_FAMILIES, 'Everyday').map(f => f.id).join() === 'autumn,evergreen'
+      && st.SWATCH_GROUPS.flatMap(g => st.swatchFamilies(th.THEME_FAMILIES, g.group)).length === th.THEME_FAMILIES.length);
+    const a11y = set5.indexOf('id="a11yLabel">Accessibility</h4>'), comfort = set5.indexOf('<h4>Comfort</h4>');
+    ok('Settings: Accessibility holds Dyslexia-friendly font, Colour-blind mode and Left-handed, in that order, before Comfort (texture and Plain look)', a11y > 0 && comfort > a11y
+      && ['dyslexiaToggle', 'cbToggle', 'handToggle'].map(id => set5.indexOf(`<input id="${id}" type="checkbox" role="switch"`)).every((i, n, a) => i > a11y && i < comfort && (n === 0 || i > a[n - 1]))
+      && ['texToggle', 'plainToggle'].every(id => set5.indexOf(`<input id="${id}"`) > comfort));
+    ok('Settings: the dyslexia switch sets the font code only (OpenDyslexic on, Inter off), so nothing new is stored', st.DYSLEXIA_FONT === st.FONT_CODES['OpenDyslexic'] && st.dyslexiaFont(true) === 3 && st.dyslexiaFont(false) === 0
+      && st.serializeSettings({ font: st.dyslexiaFont(true) }) === 'hand=0;cb=0;theme=0;font=3;size=0;wipe=0');
     ok('R5: the texture switch hides the dot texture, and each of the five other styles has its own look',
       /html\[data-tex="off"\] \.vcge-tex \{ display: none; \}/.test(css5) && ['material', 'ios', 'windows', 'gnome', 'kde'].every(k => css5.includes(`html[data-style="${k}"]`)));
     ok('R5: the Vault and Settings sheets carry Ghost\'s and Shutout\'s emblems', Object.entries(em.SHEET_EMBLEMS).map(([id, e]) => `${id}:${e.pilot}`).join() === 'vaultPage:ghost,settingsSheet:shutout'
@@ -1876,8 +2029,9 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 // MOD08 Export (Airlock), redesign step 10: file names from the contact, the QR pop-up's choices, the logo through the Vault
 {
   const { EgressController, safeFileName, FILE_NAME_MAX } = await import(`${R}/modules/mod08-egress/egressController.js`);
-  const { cleanChoices, defaultChoices, previewNote, QR_FRAMES, QR_DOTS } = await import(`${R}/modules/mod08-egress/exportDialogs.js`);
-  const { QR_FRAMES: MOD07_FRAMES, QR_DOTS: MOD07_DOTS } = await import(`${R}/modules/mod07-qr/qrGenerator.js`);
+  const { cleanChoices, defaultChoices, previewNote, renderOptions, QR_FRAMES, QR_DOTS, QR_EYES, QR_DOT_SIZES, QR_PAIR_NAMES, QR_COLOURS, QR_PRINT_CM } = await import(`${R}/modules/mod08-egress/exportDialogs.js`);
+  const M7 = await import(`${R}/modules/mod07-qr/qrGenerator.js`);
+  const { QR_FRAMES: MOD07_FRAMES, QR_DOTS: MOD07_DOTS } = M7;
   ok('MOD08 safe file names keep spaces and drop what Windows, macOS and Linux forbid', safeFileName('Jane Doe') === 'Jane Doe' && safeFileName(' Smith / Jones: "Co" <*?> |x| ') === 'Smith Jones Co x' && safeFileName('a\u0000b\u001fc') === 'abc');
   ok('MOD08 leading and trailing dots and spaces go; an empty name gives the fallback', safeFileName('.. hidden ..') === 'hidden' && safeFileName('   ') === 'Contact' && safeFileName('///', 'Card') === 'Card');
   ok('MOD08 very long names are cut', safeFileName('x'.repeat(200)).length === FILE_NAME_MAX);
@@ -1903,12 +2057,30 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   store.clear('logo');
   ok('MOD08 Export still has no standing read of the contact through its handle', (() => { try { store.handle('mod08').get('contact'); return false; } catch (err) { return err.message.startsWith('VAULT_DENIED'); } })());
   // The pop-up's choices: themed, square, no frame, no logo by default; anything unknown falls back
-  ok('MOD08 QR pop-up defaults: Themed, square dots, no frame, no logo, not on the card', JSON.stringify(defaultChoices()) === '{"colour":"themed","dots":"square","frame":"none","logo":"none","useOnCard":false}');
-  ok('MOD08 QR pop-up: every frame and dot style MOD07 draws is offered', QR_FRAMES.join() === 'none,square,rounded,circle,stripes,checkers,polka' && QR_DOTS.join() === 'square,round,diamond' && QR_FRAMES.join() === MOD07_FRAMES.join() && QR_DOTS.join() === MOD07_DOTS.join());
+  ok('MOD08 QR pop-up defaults: Themed, square dots, no frame, no logo, not on the card', JSON.stringify(defaultChoices()) === '{"colour":"themed","dots":"square","eyes":"square","dotSize":1,"frame":"none","printCm":3.5,"logo":"none","useOnCard":false}');
+  ok('MOD08 QR pop-up: every frame and dot style MOD07 draws is offered', QR_FRAMES.join() === 'none,square,rounded,circle,stripes,checkers,polka' && QR_DOTS.join() === 'square,rounded,round,diamond,bars' && QR_FRAMES.join() === MOD07_FRAMES.join() && QR_DOTS.join() === MOD07_DOTS.join());
+  ok('MOD08 QR pop-up: every corner style, dot size and colour pair MOD07 draws is offered, with the same names',
+    QR_EYES.join() === M7.QR_EYES.join() && QR_DOT_SIZES.join() === M7.QR_DOT_SIZES.join()
+    && Object.keys(QR_PAIR_NAMES).join() === Object.keys(M7.QR_PAIRS).join() && Object.entries(QR_PAIR_NAMES).every(([id, name]) => M7.QR_PAIRS[id].name === name)
+    && Object.keys(QR_PAIR_NAMES).every(id => QR_COLOURS.includes(id)));
+  ok('MOD08 QR pop-up: a pair choice reaches MOD07 as a pair (not a theme or ink), with the shape and sizes',
+    JSON.stringify(renderOptions({ ...defaultChoices(), colour: 'mint-plum', dots: 'bars', eyes: 'circle', dotSize: 0.9 })) === '{"themed":false,"ink":null,"pair":"mint-plum","dots":"bars","eyes":"circle","dotSize":0.9,"frame":"none"}'
+    && renderOptions(defaultChoices()).themed === true && renderOptions({ ...defaultChoices(), colour: 'navy' }).ink === '#1e3a8a');
+  {
+    const html = (await import('node:fs')).readFileSync(new URL('../index.html', import.meta.url), 'utf8');
+    const optionsOf = (id) => { const m = html.match(new RegExp(`<select id="${id}"[\\s\\S]*?</select>`)); return m ? [...m[0].matchAll(/<option value="([^"]+)"(?: data-hint="([^"]*)")?/g)].map(x => ({ value: x[1], hint: x[2] || '' })) : []; };
+    const values = (id) => optionsOf(id).map(o => o.value).join();
+    ok('MOD08 Export QR drop-downs offer exactly the lists (colours, dots, corners, dot size, frame, print size)',
+      values('qrColourSelect').split(',').sort().join() === [...QR_COLOURS].sort().join() && values('qrDotsSelect') === QR_DOTS.join() && values('qrEyesSelect') === QR_EYES.join()
+      && values('qrDotSizeSelect') === QR_DOT_SIZES.join() && values('qrFrameSelect') === QR_FRAMES.join() && values('qrPrintSizeSelect') === QR_PRINT_CM.join(), values('qrColourSelect'));
+    const hints = optionsOf('qrColourSelect').filter(o => QR_PAIR_NAMES[o.value]);
+    ok('MOD08 each colour pair\'s "Contrast N to 1" line matches what MOD07 measures', hints.length === 10 && hints.every(o => o.hint === `Contrast ${Math.round(M7.pairPalette(o.value).ratio)} to 1`), JSON.stringify(hints.map(o => [o.value, o.hint, M7.pairPalette(o.value).ratio.toFixed(2)])));
+  }
+  ok('MOD08 print sizes 2.5, 3.5 and 5 cm; an unknown size or dot size falls back', QR_PRINT_CM.join() === '2.5,3.5,5' && cleanChoices({ printCm: 9, dotSize: 0.5 }).printCm === 3.5 && cleanChoices({ dotSize: '0.8' }).dotSize === 0.8);
   const { readyLights, readyLightsText } = await import(`${R}/modules/mod08-egress/airlockTouches.js`);
   ok('MOD08 runway lights: none for an empty card, then a name, a way to reach them and a scannable code', readyLights({}, false).join() === 'false,false,false' && readyLights({ organization: 'B' }, true).join() === 'true,false,true' && readyLights({ firstName: ' ', emails: [{ value: 'a@b.c' }] }, false).join() === 'false,true,false');
   ok('MOD08 runway lights read the same in words', readyLightsText([false, false, false]) === 'Lit: none yet.' && readyLightsText([true, true, true]) === 'Lit: a name, a way to reach them, a scannable QR code.' && readyLightsText([true, false, true]) === 'Lit: a name, a scannable QR code.');
-  ok('MOD08 QR pop-up: unknown choices fall back to the defaults, known ones stay', JSON.stringify(cleanChoices({ colour: 'neon', dots: 'round', frame: 'circle', logo: 'upload', useOnCard: 'yes' })) === '{"colour":"themed","dots":"round","frame":"circle","logo":"upload","useOnCard":false}');
+  ok('MOD08 QR pop-up: unknown choices fall back to the defaults, known ones stay', JSON.stringify(cleanChoices({ colour: 'neon', dots: 'round', frame: 'circle', logo: 'upload', useOnCard: 'yes' })) === '{"colour":"themed","dots":"round","eyes":"square","dotSize":1,"printCm":3.5,"frame":"circle","logo":"upload","useOnCard":false}');
   ok('MOD08 QR pop-up note: a code that does not fit, a theme that is not scannable, or nothing to say', /Too much contact data/.test(previewNote({ ok: false, themed: false }, defaultChoices()))
     && /Black & White is used/.test(previewNote({ ok: true, themed: false }, defaultChoices())) && previewNote({ ok: true, themed: true }, defaultChoices()) === '' && previewNote({ ok: true, themed: false }, { ...defaultChoices(), colour: 'bw' }) === '');
 }
@@ -1929,17 +2101,17 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('vCard folding: folding twice changes nothing', foldVCardLines(folded) === folded);
   ok('the QR text (formatVCard) stays unfolded', !share.formatVCard({ firstName: 'A', lastName: 'B', notes: 'x'.repeat(200) }).includes('\r\n '));
 
-  const contact = { firstName: 'Nick', lastName: 'Zafer', jobTitle: 'Owner & General Manager', organization: 'TeamLogicIT',
-    phones: [{ type: 'work', value: '+1 (269) 492-7400' }, { type: 'mobile', value: '+1 (269) 254-5403' }, { type: 'workFax', value: '555' }],
-    emails: [{ type: 'work', value: 'nzafer@TeamLogicIT.com' }], websites: [{ type: 'work', value: 'TeamLogicIT.com/KalamazooMI' }, { type: 'linkedin', value: 'linkedin.com/in/nz' }],
-    addressType: 'work', street: '7950 Moorsbridge Road', unitType: 'Suite', unitNumber: '405', city: 'Portage', state: 'MI', zip: '49024', country: 'United States' };
+  const contact = { firstName: 'Dana', lastName: 'Quill', jobTitle: 'Owner & General Manager', organization: 'PeakLogicIT',
+    phones: [{ type: 'work', value: '+1 (616) 555-0140' }, { type: 'mobile', value: '+1 (616) 555-0143' }, { type: 'workFax', value: '555' }],
+    emails: [{ type: 'work', value: 'dquill@PeakLogicIT.com' }], websites: [{ type: 'work', value: 'PeakLogicIT.com/KalamazooMI' }, { type: 'linkedin', value: 'linkedin.com/in/dq' }],
+    addressType: 'work', street: '1200 Maplebridge Road', unitType: 'Suite', unitNumber: '405', city: 'Portage', state: 'MI', zip: '49024', country: 'United States' };
   const e = new EgressController();
   e.setPayload(share.formatVCard(contact), contact, { hasDetails: true, qrReal: true });
   ok('MOD08 the payload is the folded vCard', e.currentVCard === foldVCardLines(share.formatVCard(contact)) && e.currentVCard.endsWith('END:VCARD\r\n'));
   ok('MOD08 summary: name, title and company on their own lines, labelled details, two spaces after each colon (#98)', e.contactSummary() === [
-    'Nick Zafer', 'Owner & General Manager', 'TeamLogicIT', 'Work phone:  +1 (269) 492-7400', 'Mobile phone:  +1 (269) 254-5403', 'Work fax:  555',
-    'Work email:  nzafer@TeamLogicIT.com', 'Work website:  TeamLogicIT.com/KalamazooMI', 'LinkedIn:  linkedin.com/in/nz',
-    'Work address:  7950 Moorsbridge Road, Suite 405, Portage, MI 49024, United States'].join('\n'), JSON.stringify(e.contactSummary()));
+    'Dana Quill', 'Owner & General Manager', 'PeakLogicIT', 'Work phone:  +1 (616) 555-0140', 'Mobile phone:  +1 (616) 555-0143', 'Work fax:  555',
+    'Work email:  dquill@PeakLogicIT.com', 'Work website:  PeakLogicIT.com/KalamazooMI', 'LinkedIn:  linkedin.com/in/dq',
+    'Work address:  1200 Maplebridge Road, Suite 405, Portage, MI 49024, United States'].join('\n'), JSON.stringify(e.contactSummary()));
   const withLogo = new EgressController();
   withLogo.setPayload(share.formatVCard({ ...contact, avatarBase64: `data:image/jpeg;base64,/9j/${'Q'.repeat(10000)}` }), contact, { hasDetails: true, qrReal: true });
   const mailBody = decodeURIComponent(withLogo.mailtoUrl().split('&body=')[1]);
@@ -1959,11 +2131,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const shared = [];
   setNavigator({ share: async (data) => { shared.push(data); }, canShare: () => true, clipboard: { writeText: async () => {} } });
   const fileShare = await e.triggerQuickShare();
-  ok('MOD08 file share (iOS): the .vcf goes alone, no text that arrives as a stray ".txt" file (#77)', fileShare.method === 'native_file' && shared[0].files.length === 1 && shared[0].files[0].name === 'Nick Zafer.vcf' && !('text' in shared[0]), JSON.stringify(Object.keys(shared[0])));
+  ok('MOD08 file share (iOS): the .vcf goes alone, no text that arrives as a stray ".txt" file (#77)', fileShare.method === 'native_file' && shared[0].files.length === 1 && shared[0].files[0].name === 'Dana Quill.vcf' && !('text' in shared[0]), JSON.stringify(Object.keys(shared[0])));
   ok('MOD08 the shared .vcf holds the folded vCard', await shared[0].files[0].text() === e.currentVCard);
   setNavigator({ share: async (data) => { shared.push(data); }, canShare: () => false, clipboard: { writeText: async () => {} } });
   const textShare = await e.triggerQuickShare();
-  ok('MOD08 no file sharing (Android Chrome): the readable summary goes as text, never the raw vCard (#76)', textShare.method === 'native_text' && shared[1].text === e.contactSummary() && !shared[1].text.includes('BEGIN:VCARD') && shared[1].title === 'Contact: Nick Zafer', JSON.stringify(shared[1]).slice(0, 120));
+  ok('MOD08 no file sharing (Android Chrome): the readable summary goes as text, never the raw vCard (#76)', textShare.method === 'native_text' && shared[1].text === e.contactSummary() && !shared[1].text.includes('BEGIN:VCARD') && shared[1].title === 'Contact: Dana Quill', JSON.stringify(shared[1]).slice(0, 120));
   await e.copyVCard();
   e.navigate = () => {};
   e.triggerSmsShare();
@@ -1971,14 +2143,83 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   if (realNavigator) Object.defineProperty(globalThis, 'navigator', realNavigator); else delete globalThis.navigator;
   off();
   const methods = events.map(d => d.method).join();
-  const leaks = ['Nick', 'Zafer', 'TeamLogic', '269', 'nzafer', 'Moorsbridge', '.vcf', '.png'];
+  const leaks = ['Dana', 'Quill', 'PeakLogic', '616', 'dquill', 'Maplebridge', '.vcf', '.png'];
   const { printPageHeight, PRINT_PAGE_IN } = await import(`${R}/modules/mod08-egress/egressController.js`);
   ok('MOD08 print page: 3.5 in for a sheet that fits, taller (rounded up to 0.01 in) for a card that grows', PRINT_PAGE_IN.height === 3.5 && printPageHeight(278) === 3.5 && printPageHeight(0) === 3.5
     && printPageHeight(450) === 5.29 && printPageHeight(451) === 5.3, [printPageHeight(278), printPageHeight(450), printPageHeight(451)].join());
+  // raven575 2026-11-10: a PDF with the card and a blank square where the QR goes. The print dialog waits for the pictures.
+  const { picturesReady } = await import(`${R}/modules/mod08-egress/egressController.js`);
+  const decodedLater = (ms) => { const img = { complete: false, naturalWidth: 0, decode: () => new Promise(done => setTimeout(() => { img.complete = true; img.naturalWidth = 600; done(); }, ms)) }; return img; };
+  const sheetOf = (...imgs) => ({ querySelectorAll: (sel) => (sel === 'img' ? imgs : []) });
+  const slow = decodedLater(30);
+  await picturesReady(sheetOf({ complete: true, naturalWidth: 600 }, slow), 1000);
+  ok('MOD08 print: picturesReady waits until a QR picture still decoding is ready', slow.complete && slow.naturalWidth === 600);
+  const broken = { complete: false, naturalWidth: 0, decode: () => Promise.reject(new Error('EncodingError')) };
+  const stuck = { complete: false, naturalWidth: 0, decode: () => new Promise(() => {}) };
+  const t0 = Date.now();
+  const settled = await picturesReady(sheetOf(broken, stuck), 50).then(() => 'resolved', () => 'rejected');
+  ok('MOD08 print: a picture that fails or never loads does not stop printing (resolves after the wait, never rejects)', settled === 'resolved' && Date.now() - t0 < 1000, settled);
+  ok('MOD08 print: no sheet or no pictures resolves at once', (await picturesReady(null).then(() => true)) && (await picturesReady(sheetOf()).then(() => true)));
   ok('MOD08 audit events name what happened: share_file, share_text, clipboard, sms, email', methods === 'share_file,share_text,clipboard,sms,email', methods);
   ok('MOD08 audit events carry signals only: no file name, name, number or address (Commandment 6)', events.every(d => Object.keys(d).every(k => ['module', 'method', 'timestamp', 'themed'].includes(k)))
     // the timestamp is left out of the search: its digits are never contact data, and "269" turned up in one now and then
     && !leaks.some(w => JSON.stringify(events.map(({ timestamp, ...signal }) => signal)).includes(w)), JSON.stringify(events));
+}
+
+{
+  // README front door (MKTG-0015): plain claims only, and a feedback route to GitHub Issues
+  const fsR = await import('node:fs');
+  const readme = fsR.readFileSync(`${R}/../README.md`, 'utf8');
+  const overclaims = ['zero-trust', 'high-security', 'audited egress', 'TTL zero-fill', 'local contact management'];
+  ok('README makes no claims beyond what the app does (no outside audit)', !overclaims.some(w => readme.toLowerCase().includes(w.toLowerCase())), overclaims.filter(w => readme.toLowerCase().includes(w.toLowerCase())).join());
+  ok('README keeps the tagline and credits Claude and Gemini', readme.includes('Operation: Never Lose Contact') && readme.includes('Team vCGE (Claude)') && readme.includes('Gemini'));
+  const forms = ['bug-report.yml', 'feedback.yml'].map(f => fsR.readFileSync(`${R}/../.github/ISSUE_TEMPLATE/${f}`, 'utf8'));
+  ok('README links feedback to GitHub Issues, and every issue form warns against real card photos or contact data', /\]\(https:\/\/github\.com\/real-raven575\/vCGE-Master\/issues\/new\/choose\)/.test(readme) && forms.every(f => /never (attach|include) a real business card photo/.test(f)));
+}
+
+{
+  // Printed QR code on a card (accuracy round 1, raven575's yes 2026-11-10): its vCard, MECARD or web address is exact
+  // data, so it fills its fields first and the reader's lines for the same fields are set to Ignore. Made-up data only.
+  const qr = await import(`${R}/modules/mod07-qr/qrReader.js`);
+  const vcard = 'BEGIN:VCARD\r\nVERSION:3.0\r\nN:Rivera;Jane;Q;Dr.;\r\nFN:Dr. Jane Q Rivera\r\nORG:Northwind Studio\\, LLC;Design\r\nTITLE:Studio Manager\r\n'
+    + 'TEL;TYPE=WORK,VOICE:+1 206 555 0142\r\nTEL;TYPE=CELL:206.555.0199\r\nitem1.EMAIL;TYPE=INTERNET:jane@northwind.example\r\nURL:https://northwind.example/jane\r\n'
+    + 'ADR;TYPE=WORK:;;1200 Maplebridge Rd\\, Ste 3;Seattle;WA;98101;USA\r\nNOTE:a long note that is fol\r\n ded here\r\nEND:VCARD';
+  const c = qr.parseQrPayload(vcard);
+  ok('QR read: a vCard gives name, company (escaped comma kept), title, typed phones, email, web and address',
+    c && c.name === 'Dr. Jane Q Rivera' && c.organization === 'Northwind Studio, LLC' && c.jobTitle === 'Studio Manager'
+    && JSON.stringify(c.phones) === JSON.stringify([{ role: 'phoneWork', value: '+1 206 555 0142' }, { role: 'phoneMobile', value: '206.555.0199' }])
+    && c.emails.join() === 'jane@northwind.example' && c.websites.join() === 'https://northwind.example/jane' && c.street === '1200 Maplebridge Rd, Ste 3' && c.cityStateZip === 'Seattle, WA 98101', JSON.stringify(c));
+  const n = qr.parseQrPayload('BEGIN:VCARD\nVERSION:3.0\nN:Takahashi;Kai;;;\nTEL;TYPE=FAX:+44 20 7946 0958\nADR:;;12 Long Lane;London;;EC1A 9ZZ;United Kingdom\nEND:VCARD');
+  ok('QR read: with no FN the name comes from N; a fax and an address outside the US/Canada are kept whole',
+    n && n.name === 'Kai Takahashi' && n.phones[0].role === 'phoneFax' && n.address === '12 Long Lane, London, EC1A 9ZZ, United Kingdom' && !n.street, JSON.stringify(n));
+  const m = qr.parseQrPayload('MECARD:N:Doe,Jane;TEL:6165550140;EMAIL:jane@example.com;URL:http://example.com;ORG:Acme\\; Co;;');
+  ok('QR read: a MECARD gives name (last,first), phone, email, web and company', m && m.name === 'Jane Doe' && m.phones[0].value === '6165550140' && m.emails[0] === 'jane@example.com' && m.websites[0] === 'http://example.com' && m.organization === 'Acme; Co', JSON.stringify(m));
+  ok('QR read: a bare web address is a website; plain text, wifi and empty codes give nothing',
+    qr.parseQrPayload('https://example.com/jane').websites[0] === 'https://example.com/jane' && qr.parseQrPayload('www.example.com').websites.length === 1
+    && qr.parseQrPayload('hello there') === null && qr.parseQrPayload('WIFI:S:x;T:WPA;P:y;;') === null && qr.parseQrPayload('') === null && qr.parseQrPayload('BEGIN:VCARD\nVERSION:3.0\nEND:VCARD') === null);
+  const read = [
+    { text: 'Jane Rivera', role: 'name' }, { text: 'Studio Manger', role: 'jobTitle' }, { text: 'T 206.555.0142', role: 'phoneWork' },
+    { text: 'F 206.555.0100', role: 'phoneFax' }, { text: 'E: Jane@Northwind.example', role: 'email' }, { text: 'www.northwind.example/jane', role: 'website' },
+    { text: '1200 Maplebridge Rd', role: 'street' }, { text: 'Seattle, WA 98101', role: 'cityStateZip' }, { text: 'Design that lasts', role: 'notes' }];
+  const out = qr.withQrLines(read, c);
+  const ignored = out.filter(l => l.role === 'ignore' && l.check === qr.QR_DUPLICATE_NOTE).map(l => l.text);
+  ok('QR read: the code\'s lines come first with their roles set', out.slice(0, 3).map(l => l.role).join() === 'name,jobTitle,organization' && out[0].text === 'Dr. Jane Q Rivera' && out.filter(l => l.qr).length === 9, JSON.stringify(out.slice(0, 10)));
+  ok('QR read: the reader\'s name, title, address and the same phone, email and web lines are set to Ignore with a note',
+    JSON.stringify(ignored) === JSON.stringify(['Jane Rivera', 'Studio Manger', 'T 206.555.0142', 'E: Jane@Northwind.example', 'www.northwind.example/jane', '1200 Maplebridge Rd', 'Seattle, WA 98101']), JSON.stringify(ignored));
+  ok('QR read: a second phone and a tagline the code lacks stay as read', out.some(l => l.text === 'F 206.555.0100' && l.role === 'phoneFax') && out.some(l => l.text === 'Design that lasts' && l.role === 'notes'));
+  ok('QR read: no code, no change', qr.withQrLines(read, null) === read && qr.qrLines(null).length === 0);
+  const fm = new (await import(`${R}/modules/mod05-form/formMapper.js`)).ContactFormMapper();
+  const f = fm.buildFields(out).fields;
+  ok('QR read + field mapping: the form gets the code\'s exact data plus the extra fax from the print',
+    f.firstName === 'Jane' && f.lastName === 'Rivera' && f.organization === 'Northwind Studio, LLC' && f.jobTitle === 'Studio Manager' && f.city === 'Seattle' && f.state === 'WA' && f.zip === '98101'
+    && f.emails.some(e => e.value === 'jane@northwind.example') && f.phones.length === 3 && f.phones.some(p => /fax/i.test(p.type)), JSON.stringify(f));
+  ok('QR read: with no decoder, or nothing to read, the search quietly finds nothing', (await qr.readCardQr('data:image/png;base64,x', null)) === null && (await qr.readCardQr('', () => ({ data: 'x' }))) === null);
+  const grown = qr.grownCorners([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }], 0.2);
+  ok('QR read: the cover over the code grows about its centre to take in the quiet zone', JSON.stringify(grown) === JSON.stringify([{ x: -1, y: -1 }, { x: 11, y: -1 }, { x: 11, y: 11 }, { x: -1, y: 11 }]), JSON.stringify(grown));
+  ok('QR read: with no corners the photo goes to the reader unchanged', (await qr.withoutQr('data:image/png;base64,x', null)) === 'data:image/png;base64,x');
+  const fsQ = await import('node:fs');
+  const html = fsQ.readFileSync(`${R}/../index.html`, 'utf8');
+  ok('QR read: the bundled jsQR loads from the app\'s own files, after the QR maker', /<script src="src\/vendor\/qrcode-generator\/qrcode\.js"><\/script>\s*<script src="src\/vendor\/jsqr\/jsQR\.js"><\/script>/.test(html) && fsQ.existsSync(`${R}/vendor/jsqr/jsQR.js`) && fsQ.existsSync(`${R}/vendor/jsqr/LICENSE`));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

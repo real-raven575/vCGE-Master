@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD01: the screen tier (layout step 1, raven575 approved 2026-10-22; plan notes/layout/responsive-options.html)
- * Created by raven575, Team vCGE (Claude) & Gemini
+ * Created by raven575, Herd of Helpers (claude) & gemini
  *
  * Names the kind of screen on <html data-tier>: phone, small-tablet, large-tablet, laptop, monitor or wide. It is the
  * window's width divided by the text size (Settings), so Larger text on a tablet lays out like a smaller tablet and

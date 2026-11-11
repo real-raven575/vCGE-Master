@@ -1,6 +1,6 @@
 /**
  * vCard Generator Engine (vCGE)
- * Copyright (c) 2026 raven575, Team vCGE (Claude) & Gemini
+ * Copyright (c) 2026 raven575, Herd of Helpers (claude) & gemini
  *
  * Repository: https://github.com/real-raven575/vCGE-Master
  * This source code is licensed under the MIT License found in the
@@ -84,6 +84,11 @@ export function fade(el, from, to, ms, { instant = reducedMotion(), now = () => 
  * says the reader is loading (the wash waits at the start), `status('reading')` starts the wash on the read curve;
  * `set(fraction)` places the wash by hand (full when the read ends); `hide()` stops everything and drops the photo.
  */
+/** "Preparing the reader… 45%": the start-up label with how far it is, so a slow first load is seen moving. */
+export function startLabel(fraction) {
+    return typeof fraction === 'number' && fraction > 0 ? `Preparing the reader… ${Math.round(Math.min(1, fraction) * 100)}%` : 'Preparing the reader…';
+}
+
 export const readIndicator = {
     timer: null,
     set(fraction) {
@@ -104,8 +109,8 @@ export const readIndicator = {
         $('ocrProgressBar').classList.add('is-reading');
         $('ocrProgress').classList.remove('hidden');
     },
-    status(status) {
-        $('ocrProgressLabel').textContent = status === 'starting' ? 'Preparing the reader…' : 'Extracting…';
+    status(status, fraction = null) {
+        $('ocrProgressLabel').textContent = status === 'starting' ? startLabel(fraction) : 'Extracting…';
         if (status !== 'reading' || this.timer) return;
         const started = Date.now();
         this.timer = setInterval(() => this.set(readProgress(Date.now() - started)), 100);

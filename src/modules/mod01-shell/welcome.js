@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD01: Welcome card, "Take a Tour" and the Thank You page
- * Created by raven575, Team vCGE (Claude) & Gemini
+ * Created by raven575, Herd of Helpers (claude) & gemini
  *
  * The first card of the deck, every time vCGE opens (0.8 redo R2, Creative's CRTV-0020 mock-up; the markup is in
  * index.html): Shutout waving, "Scan a card. Keep the contact.", the privacy line, the tagline and "Made by". The primary

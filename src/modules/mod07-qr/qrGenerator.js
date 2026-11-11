@@ -1,21 +1,38 @@
 /**
  * vCard Generator Engine (vCGE)
  * Module: vCGE-MOD07 (QR Code & vCard Engine)
- * Attributions: Created by raven575, Team vCGE (Claude) & Gemini
+ * Attributions: Created by raven575, Herd of Helpers (claude) & gemini
  *
  * Scope:
  * - Builds vCard 3.0 payloads (RFC 2425/2426) via the shared formatter, so every module emits identical output.
  * - Renders QR codes onto an HTML5 canvas in RAM (bundled qrcode-generator, MIT).
  * - Until the card has details, draws a blank placeholder (a white square on a black square) that can never scan.
  * - Tints the code to the card's theme (very dark theme shade on a pale theme tint) when the contrast stays
- *   scannable, else black on white; and draws the export styles (dots, frame, centre logo) from the same matrix.
+ *   scannable, else black on white; offers named high-contrast colour pairs (7:1 or better, dark on light only);
+ *   and draws the export styles (dot shape and size, corner squares, frame, centre logo) from the same matrix.
  * File exports (PNG, .vcf) are egress and live in vCGE-MOD08. The theme colours arrive as plain values; this module
  * never reads another module's elements or code.
  */
 import { formatVCard } from '../../share/vcardFormatter.js';
 import { isShelved } from '../mod01-shell/edition.js';
 
-export const QR_DOTS = ['square', 'round', 'diamond'];
+export const QR_DOTS = ['square', 'rounded', 'round', 'diamond', 'bars'];
+export const QR_EYES = ['square', 'rounded', 'circle'];  // the three corner squares (finder patterns)
+export const QR_DOT_SIZES = [1, 0.9, 0.8];                // share of a module each dot fills; never smaller than 80 percent
+export const QR_PAIR_MIN_CONTRAST = 7;                    // a named colour pair is offered only at this ratio or better
+/** Named colour pairs: a pale colour under dark dots from across the colour wheel. Dark on light only: some phone cameras miss light-on-dark codes. */
+export const QR_PAIRS = Object.freeze({
+    'cream-navy': { name: 'Cream & Navy', light: '#fff8e1', dark: '#14213d' },
+    'mint-plum': { name: 'Mint & Plum', light: '#e6f7ee', dark: '#4a1942' },
+    'peach-teal': { name: 'Peach & Deep Teal', light: '#ffe8d6', dark: '#0b3c49' },
+    'sky-maroon': { name: 'Sky & Maroon', light: '#e3f2fd', dark: '#5c1a1b' },
+    'lavender-forest': { name: 'Lavender & Forest', light: '#f1eafb', dark: '#14402a' },
+    'lemon-indigo': { name: 'Lemon & Indigo', light: '#fffbd1', dark: '#1e1b5c' },
+    'blush-pine': { name: 'Blush & Pine', light: '#fde7ec', dark: '#0f3b33' },
+    'ice-burgundy': { name: 'Ice & Burgundy', light: '#e8f6f8', dark: '#5a0f2e' },
+    'sand-cobalt': { name: 'Sand & Cobalt', light: '#f5eedc', dark: '#102a6b' },
+    'lilac-olive': { name: 'Lilac & Olive', light: '#f3e8ff', dark: '#2f3b0b' }
+});
 export const QR_FRAMES = ['none', 'square', 'rounded', 'circle', 'stripes', 'checkers', 'polka'];
 const BAND_FRAMES = ['stripes', 'checkers', 'polka'];   // patterned bands, wider than a line frame
 export const QR_LOGO_LEVEL = 'H';          // a centre logo covers modules; the strongest correction recovers them
@@ -65,6 +82,22 @@ export function qrPalette(theme, { darkMix = DARK_MIX, lightMix = LIGHT_MIX } = 
     const light = mix(theme.card, '#ffffff', lightMix);
     const ratio = contrastRatio(dark, light);
     return ratio >= QR_MIN_CONTRAST ? { dark, light, themed: true, ratio } : { ...plain, ratio };
+}
+
+/**
+ * The colours for a named pair, or a check of explicit colours. Usable only when the dark colour really is the darker
+ * one and the contrast reaches QR_PAIR_MIN_CONTRAST; otherwise the result is black on white with `ok` false and a reason.
+ * @param {string|{light: string, dark: string}} pair  a QR_PAIRS id or explicit colours
+ * @returns {{dark: string, light: string, ok: boolean, ratio: number, reason: string}}
+ */
+export function pairPalette(pair) {
+    const plain = { dark: '#000000', light: '#ffffff', ok: false, ratio: 21 };
+    const p = typeof pair === 'string' ? QR_PAIRS[pair] : pair;
+    if (!p || !hexToRgb(p.light) || !hexToRgb(p.dark)) return { ...plain, reason: 'Unknown colours' };
+    const ratio = contrastRatio(p.dark, p.light);
+    if (relativeLuminance(p.dark) >= relativeLuminance(p.light)) return { ...plain, ratio, reason: 'Light dots on a dark background do not scan on every phone' };
+    if (ratio < QR_PAIR_MIN_CONTRAST) return { ...plain, ratio, reason: `Contrast ${ratio.toFixed(1)}:1 is too faint to scan (needs ${QR_PAIR_MIN_CONTRAST}:1)` };
+    return { dark: p.dark, light: p.light, ok: true, ratio, reason: '' };
 }
 
 export class VCGEQREngine {
@@ -153,7 +186,10 @@ export class VCGEQREngine {
      *   level       error correction L/M/Q/H (default M; a logo forces H)
      *   theme       {card} theme colours; tinted when the contrast allows, else black on white
      *   foreground/background  explicit colours (override the theme)
-     *   dots        'square' | 'round' | 'diamond' (finder patterns stay square so phones lock on)
+     *   pair        a QR_PAIRS id: its pale and dark colours when they reach QR_PAIR_MIN_CONTRAST, else black on white
+     *   dots        'square' | 'rounded' | 'round' | 'diamond' | 'bars' (bars join dots that sit one above the other)
+     *   eyes        'square' | 'rounded' | 'circle': the three corner squares, always solid in the middle so phones lock on
+     *   dotSize     1 | 0.9 | 0.8: how much of its cell each dot fills (the corner squares always fill theirs)
      *   frame       'none' | 'square' | 'rounded' | 'circle', or a patterned band: 'stripes' (diagonal zebra stripes),
  *               'checkers' (a checkerboard) or 'polka' (dots); all drawn outside the quiet zone in the dark colour
      *   logo        an image or canvas drawn at the centre on a light plate (needs level H), keeping its own shape
@@ -169,6 +205,8 @@ export class VCGEQREngine {
         const logo = options.logo || null;
         const level = logo ? QR_LOGO_LEVEL : (options.level || this.defaultErrorCorrectionLevel);
         const dots = QR_DOTS.includes(options.dots) ? options.dots : 'square';
+        const eyes = QR_EYES.includes(options.eyes) ? options.eyes : 'square';
+        const dotSize = QR_DOT_SIZES.includes(options.dotSize) ? options.dotSize : 1;
         const frame = QR_FRAMES.includes(options.frame) ? options.frame : 'none';
 
         if (typeof qrcode !== 'function') {
@@ -183,7 +221,8 @@ export class VCGEQREngine {
             return false;
         }
 
-        const palette = qrPalette(options.theme);
+        const pair = options.pair ? pairPalette(options.pair) : null;
+        const palette = pair ? { dark: pair.dark, light: pair.light, themed: pair.ok, ratio: pair.ratio } : qrPalette(options.theme);
         const dark = options.foreground || palette.dark;
         const light = options.background || palette.light;
 
@@ -212,26 +251,69 @@ export class VCGEQREngine {
 
         ctx.fillStyle = dark;
         const isFinder = (row, col) => (row < 7 && col < 7) || (row < 7 && col >= n - 7) || (row >= n - 7 && col < 7);
-        const r = scale * 0.46;
+        // The small alignment squares (version 2 and up) stay solid full-size squares too: scanners use them to
+        // correct for a tilted camera, and separated round or shrunken dots there stop some decoders.
+        const solid = new Set();
+        const alignsAt = (r, c) => { for (let i = -2; i <= 2; i++) for (let j = -2; j <= 2; j++) { const edge = Math.max(Math.abs(i), Math.abs(j)); if (qr.isDark(r + i, c + j) !== (edge !== 1)) return false; } return true; };
+        for (let r = 6; r < n - 6; r++) for (let c = 6; c < n - 6; c++) {
+            if (isFinder(r - 2, c - 2) || isFinder(r + 2, c + 2) || isFinder(r - 2, c + 2) || isFinder(r + 2, c - 2) || !alignsAt(r, c)) continue;
+            for (let i = -2; i <= 2; i++) for (let j = -2; j <= 2; j++) solid.add((r + i) * n + c + j);
+        }
+        const isDot = (row, col) => row >= 0 && row < n && qr.isDark(row, col) && !isFinder(row, col) && !solid.has(row * n + col);
+        const cellX = (col) => origin + (col + QUIET) * scale;
+        const d = scale * dotSize, o = (scale - d) / 2;  // a dot's width and its inset from the cell edge
+        const roundRect = (x, y, w, h, radius) => {
+            ctx.beginPath();
+            if (typeof ctx.roundRect === 'function') ctx.roundRect(x, y, w, h, radius); else ctx.rect(x, y, w, h);
+            ctx.fill();
+        };
         for (let row = 0; row < n; row++) {
             for (let col = 0; col < n; col++) {
-                if (!qr.isDark(row, col)) continue;
-                const x = origin + (col + QUIET) * scale, y = origin + (row + QUIET) * scale;
-                if (dots === 'round' && !isFinder(row, col)) {
+                if (!isDot(row, col)) continue;
+                const x = cellX(col), y = cellX(row);
+                if (dots === 'round') {
                     ctx.beginPath();
-                    ctx.arc(x + scale / 2, y + scale / 2, r, 0, Math.PI * 2);
+                    ctx.arc(x + scale / 2, y + scale / 2, scale * 0.46 * dotSize, 0, Math.PI * 2);
                     ctx.fill();
-                } else if (dots === 'diamond' && !isFinder(row, col)) {
-                    const cx = x + scale / 2, cy = y + scale / 2, d = scale * 0.62;
+                } else if (dots === 'diamond') {
+                    const cx = x + scale / 2, cy = y + scale / 2, h = scale * 0.62 * dotSize;
                     ctx.beginPath();
-                    ctx.moveTo(cx, cy - d); ctx.lineTo(cx + d, cy); ctx.lineTo(cx, cy + d); ctx.lineTo(cx - d, cy);
+                    ctx.moveTo(cx, cy - h); ctx.lineTo(cx + h, cy); ctx.lineTo(cx, cy + h); ctx.lineTo(cx - h, cy);
                     ctx.closePath();
                     ctx.fill();
+                } else if (dots === 'rounded') {
+                    roundRect(x + o, y + o, d, d, d * 0.35);
+                } else if (dots === 'bars') {
+                    // One bar per run of dots in a column, drawn from the run's first dot.
+                    if (isDot(row - 1, col)) continue;
+                    let end = row;
+                    while (isDot(end + 1, col)) end++;
+                    roundRect(x + o, y + o, d, (end - row + 1) * scale - o * 2, d / 2);
                 } else {
-                    ctx.fillRect(x, y, scale, scale);
+                    ctx.fillRect(x + o, y + o, d, d);
                 }
             }
         }
+        for (const key of solid) if (qr.isDark(Math.floor(key / n), key % n)) ctx.fillRect(cellX(key % n), cellX(Math.floor(key / n)), scale, scale);
+        // The corner squares: a 7-cell ring, a light gap and a solid 3-cell middle, drawn as filled shapes.
+        for (const [row, col] of [[0, 0], [0, n - 7], [n - 7, 0]]) {
+            const x = cellX(col), y = cellX(row);
+            const layer = (inset, colour) => {
+                ctx.fillStyle = colour;
+                const w = (7 - inset * 2) * scale, at = inset * scale;
+                if (eyes === 'circle') {
+                    ctx.beginPath();
+                    ctx.arc(x + 3.5 * scale, y + 3.5 * scale, w / 2, 0, Math.PI * 2);
+                    ctx.fill();
+                } else if (eyes === 'rounded') {
+                    roundRect(x + at, y + at, w, w, w * 0.28);
+                } else {
+                    ctx.fillRect(x + at, y + at, w, w);
+                }
+            };
+            layer(0, dark); layer(1, light); layer(2, dark);
+        }
+        ctx.fillStyle = dark;
 
         if (BAND_FRAMES.includes(frame)) {
             // A pattern clipped to the band outside the quiet zone, so the code itself is untouched.
@@ -280,7 +362,8 @@ export class VCGEQREngine {
         }
 
         this.lastRender = { themed: !options.foreground && !options.background && palette.themed, ratio: palette.ratio,
-            dark, light, level, dots, frame, logo: !!logo, modules: n };
+            dark, light, level, dots, eyes, dotSize, frame, logo: !!logo, modules: n,
+            pair: pair ? { ok: pair.ok, reason: pair.reason } : null };
         return true;
     }
 

@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD01: The app shell: one screen at a time, the head over it, the dock under it, and the sheets (0.8 redo, R1)
- * Created by raven575, Team vCGE (Claude) & Gemini
+ * Created by raven575, Herd of Helpers (claude) & gemini
  *
  * Built to Team Creative's mock-up (CRTV-0020, vcge-0.6-preview.html). Six screens, one per step: Welcome, Capture
  * (MOD03), Read (MOD04), Details (MOD05), Card (MOD06, with the QR on its back, MOD07) and Share (MOD08). Only the

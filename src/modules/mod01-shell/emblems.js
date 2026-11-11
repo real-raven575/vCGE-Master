@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD01: background texture and pilot emblems (0.8 redesign, Creative's CRTV-0020 mock-up, raven575 2026-11-01)
- * Created by raven575, Team vCGE (Claude) & Gemini
+ * Created by raven575, Herd of Helpers (claude) & gemini
  *
  * Each card carries one large line-art emblem for its pilot's job, in the theme's accent at low opacity, behind the
  * card's content (Creative's default spots: percent of the card for the centre, px for the size, degrees). They are

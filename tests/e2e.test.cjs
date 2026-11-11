@@ -173,7 +173,7 @@ async function openVault(page) { if (!(await vaultOpen(page))) { await page.clic
 // Settings (0.8 redo R5): a theme by its fixed code is its swatch plus, for a palette with both versions, the Appearance chip
 async function setTheme(page, code) {
   const sel = await page.evaluate((c) => { const b = [...document.querySelectorAll('#settingsSheet [data-family]')].find(x => x.dataset.light === String(c) || x.dataset.dark === String(c));
-    if (!b) return null; const d = b.closest('details'); if (d) d.open = true;
+    if (!b) return null; for (let d = b.closest('details'); d; d = d.parentElement.closest('details')) d.open = true;
     return { fam: b.dataset.family, mode: b.dataset.light === String(c) ? 'light' : 'dark', both: !!b.dataset.light && !!b.dataset.dark }; }, code);
   await page.click(`#settingsSheet [data-family="${sel.fam}"]`);
   if (sel.both) await page.click(`#appearanceChips [data-v="${sel.mode}"]`);
@@ -322,6 +322,19 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   browser.newContext = async (opts = {}) => { const c = await plainContext({ ...deviceOptions, ...opts }); await c.addInitScript(pressStartNow); await c.addInitScript(keepReaderLog); await editionRoute(c);
     c.on('page', p => { p.once('crash', () => { pageCrashed = true; }); showsScreenFirst(p); }); opened.push(c); return c; };
   const newContext = (options) => browser.newContext(options);
+  // Print / PDF: window.print is replaced by a stand-in that notes, for each print, whether the QR picture on the sheet
+  // was already decoded (raven575 2026-11-10: a PDF with the card and a blank square where the QR goes). The dialog
+  // opens after the sheet's pictures are ready, so a test waits for the next print before reading what it shows.
+  const stubPrint = (pg) => pg.evaluate(() => { window.__prints = []; window.print = () => {
+    const img = document.querySelector('#printSheet .print-qr img');
+    window.__prints.push({ qr: !!img, decoded: !!(img && img.complete && img.naturalWidth > 0) });
+  }; });
+  const printWith = async (pg, button) => {
+    const before = await pg.evaluate(() => window.__prints.length);
+    await pg.click('#printCardBtn'); await pg.click(button);
+    await pg.waitForFunction(n => window.__prints.length > n, before, { timeout: 5000 });
+    return pg.evaluate(() => window.__prints[window.__prints.length - 1]);
+  };
   // raven575, 2026-10-22: Playwright's WebKit sometimes loses a whole page process while it reads a card ("Target
   // crashed", the F4 block on 2026-10-21); no code in the page can catch that. A block that reads cards then runs once
   // more on fresh pages, said in the log and counted in the summary. A FAIL from the crashed try still counts; a second
@@ -574,6 +587,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     : 'OK moves to the Read card, where the photo shimmers while it is read, the label says the reader is being prepared, and the wash is full before the review opens', bar.shown && bar.shimmer === !SHELVED && bar.photo && bar.values.includes(100) && bar.labels.includes('Preparing the reader…') && !(await visible('ocrProgress')) && (await visible('ocrStepText')) && (await page.evaluate(() => document.documentElement.dataset.card)) === 'read', JSON.stringify({ shown: bar.shown, shimmer: bar.shimmer, photo: bar.photo, max: Math.max(...bar.values), labels: [...new Set(bar.labels)] }));
   ok('the reading indicator shows no number (no visible digits, screen readers hear text)', !/\d/.test(await page.$eval('#ocrProgress', el => el.innerText)) && (await page.getAttribute('#ocrProgressBar', 'aria-valuetext')) === 'Reading the card', await page.$eval('#ocrProgress', el => el.innerText));
   ok('after the read the photo under the shimmer is dropped', !(await page.getAttribute('#ocrReadPhoto', 'src')));
+  ok('first scan counts the reader\'s start-up up in percent (a slow first load is seen moving, 0.8 phone run 2026-11-03)', bar.labels.some(l => /^Preparing the reader… \d+%$/.test(l)), [...new Set(bar.labels)].join(' | '));
   ok('first scan says the reader is being prepared, then extracting', bar.labels.indexOf('Preparing the reader…') >= 0 && bar.labels.indexOf('Extracting…', bar.labels.indexOf('Preparing the reader…')) > 0, [...new Set(bar.labels)].join(' | '));
   ok('review step lists the OCR lines with a field picker each', (await page.$$('#ocrLines select')).length >= 8 && (await page.inputValue('#ocrLineRole0')) === 'name', String((await page.$$('#ocrLines select')).length));
   // 0.8 redo R3 (Creative's mock-up): each line is one rounded box with its type chip beside it; the chip is the picker
@@ -670,14 +684,25 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     dark: document.documentElement.classList.contains('dark'), body: getComputedStyle(document.body).fontFamily, entry: localStorage.getItem('vcge_settings') }));
   ok('before any change: nothing is stored, right hand, Inter, dark', (await settingsKeys()).length === 0 && (await htmlState()).hand === 'right' && (await htmlState()).dark && /Inter/.test((await htmlState()).body), JSON.stringify(await htmlState()));
   await page.click('#navSettings');
-  ok('the cog opens Settings (0.8 sheet): theme swatches, Appearance, the six styles, text size, font, the Left-handed, colour-blind, texture and Plain look switches, and the disclaimer', await page.isVisible('#settingsSheet') && await page.isVisible('#handToggle') && await page.isVisible('#cbToggle') && await page.isVisible('#appThemes [data-family="herd"]')
+  ok('the cog opens Settings (0.8 sheet): theme swatches, Appearance, the six styles, text size, font, the Left-handed, colour-blind, texture and Plain look switches, and the disclaimer', await page.isVisible('#settingsSheet') && await page.isVisible('#handToggle') && await page.isVisible('#cbToggle') && await page.isVisible('#dyslexiaToggle') && await page.isVisible('#themeSummary')
     && await page.isVisible('#appearanceChips') && (await page.$$eval('#styleChips button', bs => bs.map(b => b.textContent).join())) === 'Herd,Material,iOS,Windows,GNOME,KDE'
-    && await page.isVisible('#sizeRange') && await page.isVisible('#fontSelect') && await page.isVisible('#texToggle') && await page.$eval('#plainToggle', c => c.disabled) && /separate download|This is the Plain edition/.test(await text('plainNote'))
-    && (await text('settingsNote')) === 'vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time). Nothing you scan, upload or type is ever saved.');
+    && await page.isVisible('#sizeRange') && await page.isVisible('#fontSelect') && await page.isVisible('#texToggle') && await page.$eval('#plainToggle', c => c.disabled === (document.documentElement.dataset.edition === 'plain')) && (EDITION_PLAIN ? /This is the Plain edition/ : /Hides the Herd pilots and art/).test(await text('plainNote'))
+    && (await text('settingsNote')) === 'vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look). Nothing you scan, upload or type is ever saved.');
+  // raven575 (2026-11-03): the theme box starts closed, naming the theme in use; one tap shows the 3 quick picks, More themes stays closed
+  ok('the theme box starts closed and names Herd; no swatch shows until it is opened', !(await page.$eval('#themePicker', d => d.open)) && (await text('themeSummaryName')) === 'Herd'
+    && !(await page.isVisible('#appThemes [data-family="herd"]')));
+  await page.click('#themeSummary');
+  ok('one tap opens the quick picks Herd, Signal, Graphite (Herd pressed); More themes stays closed', (await page.$$eval('#appThemes [data-family]', bs => bs.filter(b => b.getBoundingClientRect().height > 0).map(b => b.dataset.family).join())) === 'herd,signal,graphite'
+    && (await page.$eval('#appThemes [data-family="herd"]', b => b.getAttribute('aria-pressed'))) === 'true' && !(await page.$eval('#moreThemes', d => d.open)) && !(await page.isVisible('#moreThemesGrid [data-family="evergreen"]')));
   ok('the font list is the seven fonts, alphabetical, Inter chosen', (await page.$$eval('#fontSelect option', os => os.map(o => o.textContent).join('|'))) === 'Atkinson Hyperlegible|Comic Neue|Inter|Lexend|Macondo|OpenDyslexic|Tinos'
     && (await page.$eval('#fontSelect', s => s.selectedOptions[0].textContent)) === 'Inter');
-  ok('every settings control is at least 44 px tall (the switches are 34 px tracks in a row at least 44 px tall)', (await page.$$eval('#appThemes button, #appearanceChips button, #styleChips button, #fontSelect', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44)
-    && (await page.$$eval('#handToggle, #cbToggle, #texToggle, #sizeRange', els => els.map(e => e.closest('.r5-sw-row, .r5-range').getBoundingClientRect().height))).every(h => h >= 44));
+  ok('every settings control is at least 44 px tall (the switches are 34 px tracks in a row at least 44 px tall)', (await page.$$eval('#themeSummary, #appThemes button, #appearanceChips button, #styleChips button, #fontSelect', els => els.map(e => e.getBoundingClientRect().height))).every(h => h >= 44)
+    && (await page.$$eval('#dyslexiaToggle, #handToggle, #cbToggle, #texToggle, #sizeRange', els => els.map(e => e.closest('.r5-sw-row, .r5-range').getBoundingClientRect().height))).every(h => h >= 44));
+  await page.click('label[for="dyslexiaToggle"]');
+  ok('Dyslexia-friendly font on: OpenDyslexic is the font (code 3 saved) and the font list shows it', (await htmlState()).font === '3' && /OpenDyslexic/.test((await htmlState()).body)
+    && (await page.$eval('#fontSelect', s => s.selectedOptions[0].textContent)) === 'OpenDyslexic' && (await htmlState()).entry === 'hand=0;cb=0;theme=0;font=3;size=0;wipe=0', JSON.stringify(await htmlState()));
+  await page.click('label[for="dyslexiaToggle"]');
+  ok('Dyslexia-friendly font off: back to Inter (code 0)', (await htmlState()).font === '0' && /Inter/.test((await htmlState()).body) && !(await page.$eval('#dyslexiaToggle', c => c.checked)) && (await htmlState()).entry === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0');
   await setTheme(page, 1);
   ok('theme Light: light mode and the entry appears, one key, name=number pairs', !(await htmlState()).dark && (await settingsKeys()).join() === 'vcge_settings' && (await htmlState()).entry === 'hand=0;cb=0;theme=1;font=0;size=0;wipe=0');
   // App themes (raven575's test report, 2026-10-22): Basic, the Autumn colours and, in the branded edition only, a dark and a light per character
@@ -685,8 +710,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     bg: getComputedStyle(document.body).backgroundColor, primary: getComputedStyle(document.getElementById('dockNext')).backgroundColor,
     on: getComputedStyle(document.querySelector('.vcge-step[data-state="now"]')).color, entry: localStorage.getItem('vcge_settings') }));
   const themeGroups = await page.evaluate(() => [...document.querySelectorAll('#appThemes > *, #moreThemesGrid > *')].reduce((a, el) => { if (el.classList.contains('r5-tgroup')) a.push([el.textContent, 0]); else a[a.length - 1][1]++; return a; }, []).map(g => g.join(':')).join('|'));
-  ok(EDITION_PLAIN ? 'the theme swatches are Everyday (5: Herd = Dark + Light) and Seasonal (7), then the card colours (8) under More themes, no characters in plain' : 'the theme swatches are Everyday (5: Herd = Dark + Light) and Seasonal (7), then the card colours (8) and Team vCGE (9 characters, each light and dark) under More themes',
-    themeGroups === (EDITION_PLAIN ? 'Everyday:5|Seasonal:7|Card colours:8' : 'Everyday:5|Seasonal:7|Card colours:8|Team vCGE:9'), themeGroups);
+  ok(EDITION_PLAIN ? 'the theme swatches are 3 quick picks (Herd = Dark + Light, Signal, Graphite), then Everyday (2), Seasonal (7) and Autumn (8) under More themes, no characters in plain' : 'the theme swatches are 3 quick picks (Herd = Dark + Light, Signal, Graphite), then Everyday (2), Seasonal (7), Autumn (8) and Team vCGE (9 characters, each light and dark) under More themes',
+    themeGroups === (EDITION_PLAIN ? 'Quick picks:3|Everyday:2|Seasonal:7|Autumn:8' : 'Quick picks:3|Everyday:2|Seasonal:7|Autumn:8|Team vCGE:9'), themeGroups);
   // The dock's steps and buttons fade their colour (deck.css): read only once no fade is running on the step in view,
   // the primary button or the page (getAnimations() starts any pending fade first, so it can't be read too early)
   const themeSettled = () => page.waitForFunction(() => [document.querySelector('.vcge-step[data-state="now"]'), document.getElementById('dockNext'), document.body]
@@ -695,6 +720,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   const pumpkin = await themeState();
   ok('Pumpkin colours the page, the primary button and the step in view, stays light, and its code 2 is saved', pumpkin.id === 'pumpkin' && !pumpkin.dark && pumpkin.bg === 'rgb(243, 221, 206)'
     && pumpkin.primary === 'rgb(225, 107, 24)' && pumpkin.on === 'rgb(225, 107, 24)' && pumpkin.entry === 'hand=0;cb=0;theme=2;font=0;size=0;wipe=0', JSON.stringify(pumpkin));
+  ok('the closed box names the theme in use (Pumpkin) and More themes opened itself for it', (await text('themeSummaryName')) === 'Pumpkin' && await page.$eval('#moreThemes', d => d.open));
   if (!EDITION_PLAIN) {
     await setTheme(page, 12); await themeSettled();
     const shutout = await themeState();
@@ -747,6 +773,25 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   await page.check('#cbToggle'); await themeSettled();
   ok('colour-blind mode sets html[data-cb="1"] (MOD02 reads it) and the step in view is marked in blue with its label underlined', (await htmlState()).cb === '1' && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=0;size=0;wipe=0'
     && await page.$eval('.vcge-step[data-state="now"]', b => getComputedStyle(b).color === 'rgb(37, 99, 235)' && /underline/.test(getComputedStyle(b.querySelector('span')).textDecorationLine)));
+  // The switch knob carries no mark on or off; the word beside it says On or Off (raven575, 2026-11-10)
+  const knob = await page.$eval('#cbToggle', el => getComputedStyle(el, '::after').content);
+  const words = await page.$$eval('#settingsSheet .r5-onoff', ws => ws.map(w => `${w._for.id}:${w.textContent}`).join());
+  ok('switches: the knob stays plain when on (no tick), and the word beside each switch says On or Off',
+    (knob === '""' || knob === 'none' || knob === 'normal') && /cbToggle:On/.test(words) && /handToggle:Off/.test(words), JSON.stringify({ knob, words }));
+  // Colour vision: a picture drop-down; Red-weak moves good and stop to blue and orange, keeps words and marks, saves cb=2
+  await page.click('.r5-cvd-row .vcge-pick-btn');
+  const cvdRows = await page.$$eval('.r5-cvd-row [role="option"]', os => os.map(o => `${o.querySelector('b').textContent}:${Math.round(o.getBoundingClientRect().height) >= 52}`).join('|'));
+  await page.keyboard.press('Escape'); await page.waitForTimeout(200);
+  ok('picture drop-down: Escape closes only the list, never the Settings sheet around it (Checkers, 2026-11-10)',
+    await page.$eval('.r5-cvd-row .vcge-pick-list', l => l.hidden) && await page.isVisible('#settingsSheet') && (await page.evaluate(() => document.activeElement && document.activeElement.classList.contains('vcge-pick-btn'))));
+  await page.click('.r5-cvd-row .vcge-pick-btn');
+  await page.click('.r5-cvd-row [role="option"][data-value="2"]');
+  const cvd = await page.evaluate(() => ({ cvd: document.documentElement.dataset.cvd, cb: document.documentElement.dataset.cb, good: document.documentElement.style.getPropertyValue('--vcge-good'), entry: localStorage.getItem('vcge_settings') }));
+  ok('colour vision: five choices with a picture each, big enough for a finger; Red-weak saves cb=2, keeps words and marks and moves "good" to blue',
+    cvdRows === 'Typical:true|Red-weak (protan):true|Green-weak (deutan):true|Blue-weak (tritan):true|No colour:true' && cvd.cvd === 'protan' && cvd.cb === '1' && /^#(1d4ed8|8ab4ff)$/.test(cvd.good) && /cb=2;/.test(cvd.entry), JSON.stringify({ cvdRows, cvd }));
+  await page.selectOption('#cvdSelect', '0');
+  ok('colour vision: Typical goes back to plain colour-blind mode (cb=1)', !(await page.evaluate(() => document.documentElement.dataset.cvd)) && /cb=1;/.test((await htmlState()).entry));
+  ok('App look says it changes the app, never the card, and points to Card design', (await page.textContent('#appThemesLabel')).trim() === 'App look' && /Your card keeps its own design/.test(await page.textContent('#appLookNote')) && await page.isVisible('#cardDesignLink'));
   await page.selectOption('#fontSelect', { label: 'Lexend' });
   ok('the UI font follows the drop-down (Lexend) and its fixed code is saved', /Lexend/.test((await htmlState()).body) && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2;size=0;wipe=0');
   // 0.8 redo R5: the six platform styles, the texture switch and Appearance System, in the same one entry
@@ -774,7 +819,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     && sys.entry === `hand=0;cb=1;theme=${sys.sysDark ? 0 : 1};font=2;size=0;wipe=0;mode=1`, JSON.stringify(sys));
   await page.click('#appearanceChips [data-v="light"]');
   ok('Appearance Light: Herd light, mode leaves the entry', !(await htmlState()).dark && (await htmlState()).entry === 'hand=0;cb=1;theme=1;font=2;size=0;wipe=0');
-  ok('Plain look is shown but never live: a disabled switch that says Plain is its own build', await page.$eval('#plainToggle', c => c.disabled && c.checked === (document.documentElement.dataset.edition === 'plain')));
+  ok(EDITION_PLAIN ? 'Plain look: in the Plain download the switch is on and fixed (that build is plain by its html line)' : 'Plain look: in the Herd build the switch is live and off (it is tried on a page of its own, below)',
+    await page.$eval('#plainToggle', c => c.checked === (document.documentElement.dataset.edition === 'plain') && c.disabled === (document.documentElement.dataset.edition === 'plain')));
   // Settings polish from raven575's iPad video: the cog by the title (#13) and a text size that leaves the header alone (#6)
   ok('Settings shows the cog left of its title', (await page.$eval('#settingsTitle use', u => u.getAttribute('href'))).endsWith('#settings')
     && await page.$eval('#settingsTitle', h => h.firstElementChild.tagName.toLowerCase() === 'svg'));
@@ -1455,7 +1501,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // Logos as uploaded (redesign step 8): a one-colour logo is traced into the card's ink colour; one of many colours
     // is kept as a picture; a white background is removed first. Wide ones get the strip, small ones the badge.
     const logo = (kind) => p11.evaluate((kind) => {
-      const text = '<text x="10" y="70" font-size="60" fill="#0a6">TeamLogic</text>';
+      const text = '<text x="10" y="70" font-size="60" fill="#0a6">PeakLogic</text>';
       if (kind === 'svg') return 'data:image/svg+xml;base64,' + btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="400" height="100">${text}</svg>`);
       if (kind === 'viewbox') return 'data:image/svg+xml;base64,' + btoa(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 100">${text.replace('#0a6', '#06a')}</svg>`);
       const c = document.createElement('canvas'); c.width = kind === 'round' ? 300 : 400; c.height = kind === 'round' ? 300 : 100;
@@ -1466,11 +1512,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       x.font = 'bold 60px Arial';
       if (kind === 'rainbow' || kind === 'pastel' || kind === 'whitebg-colour') {
         const colours = kind === 'pastel' ? ['#ffa0a0', '#a0ffa0', '#a0a0ff'] : ['#d00', '#07c', '#fc0'];
-        'TeamLogic'.split('').forEach((ch, i) => { x.fillStyle = colours[i % 3]; x.fillText(ch, 10 + i * 40, 70); });
+        'PeakLogic'.split('').forEach((ch, i) => { x.fillStyle = colours[i % 3]; x.fillText(ch, 10 + i * 40, 70); });
         return c.toDataURL(kind === 'whitebg-colour' ? 'image/jpeg' : 'image/png');
       }
       x.fillStyle = kind === 'light' ? '#f5f5f5' : kind === 'opaque' ? '#fff' : '#123';
-      x.fillText('TeamLogic', 10, 70);
+      x.fillText('PeakLogic', 10, 70);
       // 'whitebg-rough': a heavily compressed photo of a logo (the colour fringes JPEG leaves around dark lettering).
       return kind === 'whitebg-rough' ? c.toDataURL('image/jpeg', 0.4) : c.toDataURL(kind === 'whitebg' ? 'image/jpeg' : 'image/png');
     }, kind);
@@ -1542,8 +1588,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // Print: the strip does not fit on a 2 in card, so the printed card shows the logo in the badge, with every line in.
     await upload('dark', 'logo.png');
     await p11.fill('#street', '745 Fifth Avenue'); await p11.fill('#city', 'New York');
-    await p11.evaluate(() => { window.print = () => {}; });
-    await p11.click('#printCardBtn'); await p11.click('#printBwBtn');
+    await stubPrint(p11);
+    await printWith(p11, '#printBwBtn');
     await p11.emulateMedia({ media: 'print' });
     const printed = await p11.evaluate(() => {
       const card = document.querySelector('#printSheet .print-card'), r = card.getBoundingClientRect();
@@ -1675,6 +1721,53 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await ctxS.close();
   });
 
+  // Settings > Plain look (raven575, 2026-11-03): the Herd build switches to the Plain look and back. Switching starts vCGE
+  // fresh; with contacts in memory it asks first. The Plain download keeps its own fixed switch (checked above).
+  if (!EDITION_PLAIN) {
+    const ctxP = await browser.newContext();
+    const pP = await ctxP.newPage();
+    const errorsP = [];
+    pP.on('pageerror', e => errorsP.push(e.message));
+    pP.on('console', m => { if (m.type() === 'error') errorsP.push('console: ' + m.text()); });
+    const plainSamples = ['Sample contact', ...SAMPLES_PLAIN.map(([f, l, o]) => `${f} ${l}, ${o}`)].join('|');
+    const lookNow = () => pP.evaluate(() => { const sw = document.getElementById('plainToggle'), ask = document.getElementById('plainConfirm');
+      return { edition: document.documentElement.dataset.edition || '', look: document.documentElement.dataset.look || '', entry: localStorage.getItem('vcge_settings'),
+        nav: [...document.querySelectorAll('.deck-header button[aria-label], .vcge-dock button[aria-label]')].map(b => b.getAttribute('aria-label')).join('|'),
+        samples: [...document.querySelectorAll('#fakeContactSelect option')].map(o => o.textContent).join('|'), tagline: !!document.getElementById('welcomeTagline'),
+        thanks: (document.getElementById('thankYouText') || {}).textContent || '', on: sw.checked, disabled: sw.disabled, asking: !ask.classList.contains('hidden') }; });
+    const openSettings = async () => { await pP.click('#navSettings'); await pP.waitForSelector('#settingsSheet', { state: 'visible' }); };
+    const flipStartsFresh = async (click) => { await Promise.all([pP.waitForNavigation({ timeout: 10000 }), pP.click(click)]); await pP.waitForTimeout(400); };
+    await pP.goto(ORIGIN); await pP.waitForTimeout(300);
+    const herd = await lookNow();
+    ok('Plain look: the Herd build opens in the Herd look, the switch live and off, nothing saved', herd.edition === '' && herd.look === '' && !herd.on && !herd.disabled && !herd.asking
+      && herd.entry === null && / \((?:Iris|Glyph)\)/.test(herd.nav) && herd.samples === sampleList() && herd.tagline, JSON.stringify(herd));
+    await openSettings();
+    await flipStartsFresh('label[for="plainToggle"]');
+    const plainOn = await lookNow();
+    ok('Plain look on with nothing in memory: no ask, vCGE starts fresh in the Plain look (look=1 saved, no pilot names, the plain samples, no tagline, "Session ended.")',
+      plainOn.edition === 'plain' && plainOn.look === 'plain' && plainOn.entry === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0;look=1' && plainOn.on && !plainOn.disabled
+      && !/ \([A-Z][a-z]+\)/.test(plainOn.nav) && plainOn.samples === plainSamples && !plainOn.tagline && plainOn.thanks === 'Session ended.', JSON.stringify(plainOn));
+    // A contact in memory: the switch asks first; Keep leaves everything as it was
+    await pP.click('#navFields'); await pP.waitForTimeout(500);
+    await pP.selectOption('#fakeContactSelect', '2'); await pP.waitForTimeout(400);
+    await openSettings();
+    await pP.click('label[for="plainToggle"]'); await pP.waitForTimeout(300);
+    const asked = await lookNow();
+    ok('Plain look off with a contact in memory: it asks "clears your current contacts. Are you sure?" and nothing is saved or restarted yet',
+      asked.asking && !asked.on && asked.look === 'plain' && /;look=1$/.test(asked.entry) && /clears your current contacts\. Are you sure\?/.test(await pP.textContent('#plainConfirmText')), JSON.stringify(asked));
+    await pP.click('#plainNoBtn'); await pP.waitForTimeout(200);
+    const kept = await lookNow();
+    ok('Plain look: Keep them puts the switch back on, hides the ask, and stays plain with the contact', !kept.asking && kept.on && kept.look === 'plain' && /;look=1$/.test(kept.entry)
+      && await pP.evaluate(() => !!document.getElementById('firstName') && document.getElementById('firstName').value !== ''), JSON.stringify(kept));
+    await pP.click('label[for="plainToggle"]'); await pP.waitForTimeout(200);
+    await flipStartsFresh('#plainYesBtn');
+    const back = await lookNow();
+    ok('Plain look: Yes, switch starts vCGE fresh in the Herd look again (look leaves the entry, the pilots are back)', back.edition === '' && back.look === '' && !back.on
+      && back.entry === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0' && / \((?:Iris|Glyph)\)/.test(back.nav) && back.samples === sampleList() && back.tagline, JSON.stringify(back));
+    ok('Plain look: no page errors while switching', errorsP.length === 0, errorsP.join(' | '));
+    await ctxP.close();
+  }
+
   // Fields card (MOD05, redesign step 7): the "Sample vCGE pilot contact" list, the pop-in on arrival, "Everything's correct"
   {
     const ctxF = await browser.newContext();
@@ -1758,7 +1851,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // Phone style (video review #71): the format list and the +1 switch restyle every number on the card at once,
     // and a number typed afterwards follows the style. Memory only: nothing about it is saved.
     await pF.emulateMedia({ reducedMotion: 'no-preference' });
-    ok('fields: the phone style list offers the three styles raven575 named, +1 on by default', (await pF.$$eval('#phoneFormatSelect option', os => os.map(o => o.textContent).join('|'))) === '(269) 492-7400|269.492.7400|2694927400'
+    ok('fields: the phone style list offers the three styles raven575 named, +1 on by default', (await pF.$$eval('#phoneFormatSelect option', os => os.map(o => o.textContent).join('|'))) === '(616) 555-0140|616.555.0140|6165550140'
       && (await pF.$eval('#phoneCountryCode', c => c.checked)) && (await pF.inputValue('#phoneValue0')) === '+1 (202) 555-0101', await pF.inputValue('#phoneValue0'));
     await pF.selectOption('#phoneFormatSelect', 'dots');
     ok('fields: choosing dots restyles every number', JSON.stringify((await rows(pF, 'phone')).map(r => r.value)) === JSON.stringify(['+1 202.555.0101', '+1 202.555.0111']), JSON.stringify(await rows(pF, 'phone')));
@@ -1865,12 +1958,13 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     }
 
     // Print / Save as PDF (step 10): Themed or Black & White, then one 6 x 3.5 in page with the front at business-card size and the QR beside it
-    await p9.evaluate(() => { window.print = () => {}; });
+    await stubPrint(p9);
     await p9.click('#printCardBtn');
     ok('Print / PDF asks only Themed or Black & White', await p9.isVisible('#printChoiceSheet') && await p9.isVisible('#printThemedBtn') && await p9.isVisible('#printBwBtn') && (await p9.evaluate(() => document.activeElement && document.activeElement.id)) === 'printThemedBtn');
     await p9.keyboard.press('Escape');
     ok('Esc cancels the print choice (a sheet: a swipe would too) and nothing is printed', !(await p9.isVisible('#printChoiceSheet')) && (await p9.evaluate(() => document.getElementById('printSheet').children.length)) === 0);
-    await p9.click('#printCardBtn'); await p9.click('#printThemedBtn');
+    const themedPrint = await printWith(p9, '#printThemedBtn');
+    ok('Airlock: the print dialog opens only once the QR picture is decoded (no blank square in the PDF)', themedPrint.qr && themedPrint.decoded, JSON.stringify(themedPrint));
     const printFalcon = await p9.evaluate(() => ({ toast: document.getElementById('toastMessage').textContent, hidden: document.getElementById('toastFalcon').classList.contains('hidden') }));
     ok(SHELVED ? 'Airlock E2: after a print the toast says so (0.8 shelf: no falcon)' : 'Airlock E2: after a print the toast says so and the falcon is on it', printFalcon.toast === 'Sent to the print dialog.' && printFalcon.hidden === SHELVED, JSON.stringify(printFalcon));
     const sheet = await p9.evaluate(() => {
@@ -1904,7 +1998,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     }
     await p9.evaluate(() => window.dispatchEvent(new Event('afterprint')));
     ok('print copies stay until the next print (afterprint can fire before the PDF is drawn)', (await p9.evaluate(() => document.getElementById('printSheet').children.length)) === 2);
-    await p9.click('#printCardBtn'); await p9.click('#printBwBtn');
+    await printWith(p9, '#printBwBtn');
     await p9.emulateMedia({ media: 'print' });
     const bw = await p9.evaluate(() => {
       const c = document.querySelector('#printSheet .print-card'), q = document.querySelector('#printSheet .print-qr img');
@@ -1922,7 +2016,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('Black & White QR is pure black on pure white', qrColours.length === 2 && qrColours.includes('0,0,0') && qrColours.includes('255,255,255'), JSON.stringify(qrColours));
     // A card taller than 2 in (here: larger text) grows instead of clipping, and the page grows with it: still one page
     await p9.evaluate(() => { document.documentElement.style.fontSize = '24px'; });
-    await p9.click('#printCardBtn'); await p9.click('#printBwBtn');
+    ok('Airlock: the Black & White print waits for its QR picture too', (await printWith(p9, '#printBwBtn')).decoded);
     await p9.emulateMedia({ media: 'print' });
     const tall = await p9.evaluate(() => {
       const c = document.querySelector('#printSheet .print-card'), r = c.getBoundingClientRect();
@@ -1943,7 +2037,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       ok('the tall card prints as one 6 in wide page of the height the controller set', tallPages === 1 && tallBox && tallBox[1] === '432' && Math.abs(boxIn - setIn) < 0.01, `${tallPages} pages, box ${tallBox && tallBox.slice(1)}, set ${setIn} in`);
     }
     await p9.evaluate(() => { document.documentElement.style.fontSize = ''; });
-    await p9.click('#printCardBtn'); await p9.click('#printBwBtn');
+    await printWith(p9, '#printBwBtn');
     if (ENGINE === 'chromium') {
       const backPdf = (await p9.pdf({ preferCSSPageSize: true, printBackground: true })).toString('latin1');
       ok('a normal card prints on the 6 x 3.5 in page again', (/\/MediaBox\s*\[\s*0\s+0\s+(\d+)\s+(\d+)/.exec(backPdf) || []).slice(1).join() === '432,252');
@@ -1951,17 +2045,19 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // PDF name (raven575 2026-10-18): opt-in each print. Unticked, the title (and so the PDF name) stays the app's;
     // ticked, the title is the contact's file name only until printing ends or the next tap
     const appTitle = await p9.title();
+    const printsBefore = await p9.evaluate(() => window.__prints.length);
+    const printed9 = (n) => p9.waitForFunction(k => window.__prints.length >= k, printsBefore + n, { timeout: 5000 });
     await p9.click('#printCardBtn');
     const boxOff = await p9.isChecked('#printNameFile');
-    await p9.click('#printBwBtn');
+    await p9.click('#printBwBtn'); await printed9(1);
     ok('PDF name: the "Name the PDF after the contact" box starts unticked, and unticked the title stays the app\'s', !boxOff && (await p9.title()) === appTitle && appTitle === 'vCard Generator Engine (vCGE)', appTitle);
-    await p9.click('#printCardBtn'); await p9.check('#printNameFile'); await p9.click('#printBwBtn');
+    await p9.click('#printCardBtn'); await p9.check('#printNameFile'); await p9.click('#printBwBtn'); await printed9(2);
     const named = await p9.title();
     await p9.evaluate(() => window.dispatchEvent(new Event('afterprint')));
     ok('PDF name: ticked, the title is the contact\'s file name while printing, then goes back on afterprint', named === 'Maria Gonzalez' && (await p9.title()) === appTitle, `${named} / ${await p9.title()}`);
     await p9.click('#printCardBtn');
     const boxAgain = await p9.isChecked('#printNameFile');
-    await p9.check('#printNameFile'); await p9.click('#printThemedBtn');
+    await p9.check('#printNameFile'); await p9.click('#printThemedBtn'); await printed9(3);
     const namedAgain = await p9.title();
     await p9.mouse.click(5, 5);
     ok('PDF name: the box is unticked again on the next print, and a tap also puts the title back', !boxAgain && namedAgain === 'Maria Gonzalez' && (await p9.title()) === appTitle, `${boxAgain} ${namedAgain} / ${await p9.title()}`);
@@ -2010,7 +2106,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const c = document.createElement('canvas'); c.width = 1050; c.height = 600; const x = c.getContext('2d');
       x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111';
       x.font = 'bold 52px Arial'; x.fillText('Nora Lindqvist', 60, 90); x.font = '32px Arial'; x.fillText('General Manager', 60, 145);
-      ['7950 Harbor Road', 'Portage, MI 42024', 'nora@harborworks.com', 'T 269.555.0142'].forEach((t, i) => x.fillText(t, 60, 250 + i * 70));
+      ['7950 Harbor Road', 'Portage, MI 42024', 'nora@harborworks.com', 'T 616.555.0142'].forEach((t, i) => x.fillText(t, 60, 250 + i * 70));
       return c.toDataURL('image/png');
     });
     await pZ.setInputFiles('#imageUpload', { name: 'zip.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') }); await pZ.waitForTimeout(300);
@@ -2088,6 +2184,61 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await ctxL.close();
   }
 
+  // Digits look (raven575's yes, 2026-11-10, accuracy round 1): a slightly blurred bold phone number was read
+  // "(616) 55-0158" (a real 5 lost); read again allowing only phone characters, every digit comes back. Measured in
+  // Chromium, where text is drawn the way the trial ran.
+  if (ENGINE === 'chromium') {
+    const ctxD = await browser.newContext();
+    const pD = await ctxD.newPage();
+    const looks = [];
+    pD.on('console', m => { if (m.text().includes('Digits look:')) looks.push(m.text()); });
+    await pD.goto(ORIGIN); await pD.waitForTimeout(300);
+    const dataUrl = await pD.evaluate(() => {
+      const c = document.createElement('canvas'); c.width = 900; c.height = 520; const x = c.getContext('2d');
+      x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111'; x.filter = 'blur(1.2px)';
+      x.font = '44px Arial'; x.fillText('Jane Rivera', 40, 70); x.font = '30px Arial'; x.fillText('Studio Manager', 40, 115);
+      x.fillText('jane@northwind.com', 40, 200);
+      x.font = 'bold 26px Arial'; x.fillText('T (616) 555-0158', 40, 260); x.fillText('M 269.380.6655', 40, 320);
+      return c.toDataURL('image/png');
+    });
+    await pD.setInputFiles('#imageUpload', { name: 'digits.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') }); await pD.waitForTimeout(300);
+    await pD.click('#runOcrBtn');
+    await readEnds(pD);
+    const lines = await pD.$$eval('#ocrLines input[id^="ocrLineText"]', els => els.map(e => e.value));
+    const digits = lines.map(t => t.replace(/\D/g, ''));
+    ok('digits look: a blurred bold phone number is read again in digits only and keeps every digit',
+      looks.length >= 1 && digits.some(d => d.endsWith('6165550158')) && digits.some(d => d.endsWith('2693806655')), JSON.stringify({ looks, lines }));
+    await ctxD.close();
+  }
+
+  // Printed QR code (accuracy round 1, raven575's yes 2026-11-10): a card with a vCard QR code fills the fields from the
+  // code; the printed lines for the same fields are set to Ignore with a note. Made-up data only.
+  await rerunIfPageCrashed('Printed QR code on a card', async () => {
+    const ctxQ = await browser.newContext();
+    const pQ = await ctxQ.newPage();
+    await pQ.goto(ORIGIN); await pQ.waitForTimeout(300);
+    const dataUrl = await pQ.evaluate(() => {
+      const vcard = 'BEGIN:VCARD\r\nVERSION:3.0\r\nN:Rivera;Jane;;;\r\nFN:Jane Rivera\r\nORG:Northwind Studio\r\nTITLE:Studio Manager\r\nTEL;TYPE=CELL:206.555.0199\r\nEMAIL:jane@northwind.example\r\nEND:VCARD';
+      const q = window.qrcode(0, 'M'); q.addData(vcard); q.make();
+      const n = q.getModuleCount(), cell = 5, quiet = 4 * cell;
+      const c = document.createElement('canvas'); c.width = 900; c.height = 520; const x = c.getContext('2d');
+      x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111';
+      x.font = '44px Arial'; x.fillText('Jane Rivera', 40, 70); x.font = '30px Arial'; x.fillText('Studio Manager', 40, 115);
+      x.fillText('M 206.555.0199', 40, 200); x.fillText('jane@northwind.example', 40, 250);
+      const left = c.width - n * cell - quiet - 20, top = 60;
+      for (let r = 0; r < n; r++) for (let k = 0; k < n; k++) if (q.isDark(r, k)) x.fillRect(left + k * cell, top + r * cell, cell, cell);
+      return c.toDataURL('image/png');
+    });
+    await pQ.setInputFiles('#imageUpload', { name: 'qr-card.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') }); await pQ.waitForTimeout(300);
+    await pQ.click('#runOcrBtn');
+    await readEnds(pQ);
+    const lines = await pQ.$$eval('#ocrLines input[id^="ocrLineText"]', els => els.map(e => e.value));
+    const summary = await pQ.textContent('#ocrSummary');
+    ok('printed QR: the code\'s name, title and company come first and fill the fields', lines[0] === 'Jane Rivera' && lines[1] === 'Studio Manager' && lines[2] === 'Northwind Studio' && summary.includes('Northwind Studio'), JSON.stringify({ lines, summary }));
+    ok('printed QR: the printed lines for the same fields are set to Ignore with a note', (await pQ.$$('#ocrLines [id^="ocrLineCheck"]')).length >= 2, JSON.stringify(lines));
+    await ctxQ.close();
+  });
+
   // Cancel while reading: the reader stops, the photo step comes back with Retake, and Extract works again
   await rerunIfPageCrashed('Cancel while reading', async () => {
     const ctxS = await browser.newContext();
@@ -2113,6 +2264,28 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('after Cancel, Extract reads the photo with a fresh reader', (await pS.$$('#ocrLines select')).length >= 8);
     ok('Cancel while reading: no page errors', errorsS.length === 0, errorsS.join(' | '));
     await ctxS.close();
+  });
+
+  // Cancel during the QR search (WebKit CI 2026-11-11): the QR code is searched for before the reader starts, and a
+  // reader started after Cancel held the next read until it timed out. Now nothing starts after Cancel.
+  await rerunIfPageCrashed('Cancel during the QR search', async () => {
+    const ctxC = await browser.newContext();
+    const pC = await ctxC.newPage();
+    const started = [];
+    pC.on('console', m => { if (m.text().includes('OCR extraction pipeline')) started.push(m.text()); });
+    await pC.goto(ORIGIN); await pC.waitForTimeout(300);
+    // The first picture decode (the QR search's) waits 1.5 s, so Cancel lands while the code is being looked for
+    await pC.evaluate(() => { const real = HTMLImageElement.prototype.decode; let first = true;
+      HTMLImageElement.prototype.decode = function () { if (first && String(this.src).startsWith('data:')) { first = false; return new Promise(r => setTimeout(r, 1500)).then(() => real.call(this)); } return real.call(this); }; });
+    await pC.setInputFiles('#imageUpload', await renderCardImage(pC)); await pC.waitForTimeout(300);
+    await pC.click('#runOcrBtn');
+    await pC.click('#ocrStopBtn');
+    await pC.waitForTimeout(2500);
+    ok('Cancel during the QR search: the reader never starts, and the photo is back on the Capture card', started.length === 0 && (await pC.evaluate(() => document.documentElement.dataset.card)) === 'capture' && !(await pC.isDisabled('#runOcrBtn')), JSON.stringify(started));
+    await pC.click('#runOcrBtn');
+    await readEnds(pC);
+    ok('Cancel during the QR search: OK afterwards reads the card', (await pC.$$('#ocrLines select')).length >= 8);
+    await ctxC.close();
   });
 
   // Cancel pressed just as the reader finishes (the wash fills, the review is a moment away) still cancels: it used to
@@ -3430,7 +3603,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       && cardLayout.sw.filter(b => b.pressed === 'true').length === 1 && cardLayout.sw[6].pressed === 'true' && cardLayout.toolsBelow && !cardLayout.oldRow, JSON.stringify(cardLayout));
     await p6.click('#paletteListContainer [data-theme="pumpkin"]');
     ok('0.8 card: the picked swatch is the pressed one', (await p6.$$eval('#paletteListContainer button[aria-pressed="true"]', bs => bs.map(b => b.dataset.theme).join())) === 'pumpkin');
-    ok('card: Pumpkin colours the whole face, front and back, with dark ink; the back too', (await face()).bg === rgb('#e8792b') && (await face()).ink === rgb('#2a1407') && (await p6.$eval('#cardBack', el => getComputedStyle(el).backgroundColor)) === rgb('#e8792b') && (await p6.textContent('#toastMessage')) === 'Applied palette: Pumpkin', JSON.stringify(await face()));
+    ok('card: Pumpkin colours the whole face, front and back, with dark ink; the back too', (await face()).bg === rgb('#e8792b') && (await face()).ink === rgb('#2a1407') && (await p6.$eval('#cardBack', el => getComputedStyle(el).backgroundColor)) === rgb('#e8792b') && (await p6.textContent('#toastMessage')) === 'Card colour: Pumpkin stock', JSON.stringify(await face()));
     ok('card: the initials badge is the accent with the card colour on it', (await p6.$eval('#previewAvatar', el => [el.style.background, el.style.color].join('|'))) === `${rgb('#7a3309')}|${rgb('#e8792b')}`, await p6.$eval('#previewAvatar', el => el.style.background));
     // Every phone, email and site, each with its label; the third of a kind is left off the printed card
     await p6.click('#navFields'); await p6.waitForTimeout(500);
@@ -3624,7 +3797,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('sample: Undo after Clear brings the sample back without its logo (removed before) and with its theme', (await p6.inputValue('#firstName')) === s1First && (await p6.textContent('#currentPaletteLabel')) === 'Twilight' && !(await p6.$(LOGO6)));
     // The logo's look and the card's finish (raven575 test report, 2026-10-22)
     await p6.click('#navCard'); await p6.waitForTimeout(300);
-    ok('card: the logo and finish controls start folded under "Logo & finish", so the card stays in view on a phone', !(await p6.$eval('#cardLookPanel', d => d.open)) && !(await p6.isVisible('#logoSizeSelect')) && (await p6.textContent('#cardLookPanel summary')).trim() === 'Logo & finish');
+    ok('card: the paper and logo controls start folded under "Paper & logo", so the card stays in view on a phone', !(await p6.$eval('#cardLookPanel', d => d.open)) && !(await p6.isVisible('#cardLookPanel .vcge-pick-btn')) && (await p6.textContent('#cardLookPanel summary')).trim() === 'Paper & logo');
+    ok('card: Card design says it changes this card only, over the card colours', (await p6.textContent('#cardDesignNote')).trim() === 'Changes this card only. The app keeps its look.' && await p6.isVisible('#cardDesignHead'));
     // (the guide fades in: WebKit runs no transitions on a page that is not in front, CI 11-02)
     await p6.bringToFront();
     await p6.click('#cardLookPanel summary'); await p6.waitForTimeout(400);
@@ -3661,19 +3835,32 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       dark.bg === 'rgb(51, 65, 85)' && wheel.bg === 'rgb(255, 136, 0)' && wheel.on && wheel.pressed === 0 && auto.bg !== 'rgb(255, 136, 0)' && auto.pressed === 'true', JSON.stringify({ dark, wheel, auto }));
     const swatches = await p6.$$eval('#logoBgGroup button', bs => bs.map(b => b.getAttribute('aria-label')).join('|'));
     ok('logo: the quick picks are Auto, Mostly white, Light gray, Dark gray and Charcoal, each named for screen readers (no pure white or black)', swatches === 'Auto|Mostly white|Light gray|Dark gray|Charcoal', swatches);
-    const finish = () => p6.evaluate(() => { const st = getComputedStyle(document.getElementById('cardFront'), '::before'); return { image: st.backgroundImage.slice(0, 22), opacity: st.opacity, z: st.zIndex, off: document.getElementById('cardFinishStrength').disabled }; });
-    const flat = await finish();
-    await p6.selectOption('#cardFinishSelect', 'dots');
+    const finish = () => p6.evaluate(() => { const st = getComputedStyle(document.getElementById('cardFront'), '::before'); return { image: st.backgroundImage.slice(0, 22), opacity: st.opacity, z: st.zIndex, blur: st.filter, blend: st.mixBlendMode, off: document.getElementById('cardFinishStrength').disabled, blurOff: document.getElementById('cardFinishBlur').disabled }; });
+    const paper = await finish();
+    ok('card: Paper grain is the start (raven575, 2026-11-10): inline SVG noise laid on with overlay at 70% and an 8% soft blur (0.8 px), behind the text',
+      paper.image.startsWith('url("data:image/svg+xm') && paper.opacity === '0.7' && paper.blur === 'blur(0.8px)' && paper.blend === 'overlay' && paper.z === '-1' && !paper.off && !paper.blurOff, JSON.stringify(paper));
+    // The picture drop-down: a tap opens rows, each with its own sample in the card's colour; picking one sets the select
+    await p6.click('#cardLookPanel .r4-look-group:first-of-type .vcge-pick-btn');
+    const rows = await p6.$$eval('#cardLookPanel .r4-look-group:first-of-type [role="option"]', os => os.map(o => ({ name: o.querySelector('b').textContent, h: Math.round(o.getBoundingClientRect().height), sample: !!o.querySelector('.finish-sample') })));
+    ok('card: the paper picker lists ten finishes with a picture each, every row at least 52 px tall for a finger',
+      rows.map(r => r.name).join('|') === 'Paper grain|Cotton paper|Watercolour paper|Light thatch|Linen|Soft gradient|Corner glow|Dots|Stripes|Flat colour' && rows.every(r => r.h >= 52 && r.sample), JSON.stringify(rows));
+    await p6.click('#cardLookPanel [role="option"][data-value="dots"]');
     const dots = await finish();
     await p6.fill('#cardFinishStrength', '30');
     const strong = await finish();
+    await p6.fill('#cardFinishBlur', '20');
+    const soft = await finish();
     // Behind the text by construction: the texture is stacked below the face's own content (z-index -1) inside the face
     // (isolation), so it can never cover a line. (Hit-testing cannot see a pseudo-element, and on a phone the open
     // controls push the card under other layers.)
     const textOnTop = await p6.$eval('#cardFront', el => getComputedStyle(el).isolation === 'isolate');
-    ok('card: a finish lays a texture over the card colour (Dots at 15%, the slider takes it to 30%), behind the text; Flat has none and no slider',
-      flat.image === 'none' && flat.off && dots.image.startsWith('radial-gradient') && dots.opacity === '0.15' && !dots.off && strong.opacity === '0.3' && dots.z === '-1' && textOnTop, JSON.stringify({ flat, dots, strong, textOnTop }));
+    ok('card: Dots starts at its own 15%, the Strength slider takes it to 30% and Soft blur to 2 px, behind the text',
+      (await p6.inputValue('#cardFinishSelect')) === 'dots' && dots.image.startsWith('radial-gradient') && dots.opacity === '0.15' && strong.opacity === '0.3' && soft.blur === 'blur(2px)' && dots.z === '-1' && textOnTop, JSON.stringify({ dots, strong, soft, textOnTop }));
     await p6.selectOption('#cardFinishSelect', 'flat');
+    const flat = await finish();
+    ok('card: Flat colour has no texture and both sliders are off', flat.image === 'none' && flat.off && flat.blurOff
+      && (await p6.textContent('#cardLookPanel .r4-look-group:first-of-type .vcge-pick-btn b')) === 'Flat colour', JSON.stringify(flat));
+    await p6.selectOption('#cardFinishSelect', 'paper');
     await p6.click('#removeAvatarBtn'); await p6.click('#removeLogoYes');
     ok('card: no page errors, nothing fetched from outside, no missing files', errors6.length === 0 && external6.length === 0 && missing6.length === 0, errors6.concat(external6, missing6).join(' | '));
     await ctx6.close();
@@ -3874,9 +4061,15 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       .then(q => { if (!q) return null; const r = jsQR(Uint8ClampedArray.from(q.data), q.w, q.h); return r && r.data; });
     const coloursOf = (id) => pA.evaluate((id) => { const c = document.getElementById(id), d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; const seen = new Set(); for (let i = 0; i < d.length; i += 4) seen.add(`${d[i]},${d[i + 1]},${d[i + 2]}`); return [...seen]; }, id);
     const tA = (id) => pA.$eval('#' + id, el => el.textContent.trim());
-    // Each style choice is a 1 px hidden radio inside a 44 px label (export.css): tap the label as a person does, then report whether it took
-    const pickFrame = async (value) => { await pA.selectOption('#qrFrameSelect', value); return (await pA.inputValue('#qrFrameSelect')) === value; };
-    const tapChoice = async (name, value) => { const input = `input[name="${name}"][value="${value}"]`; await pA.click(`label:has(> ${input})`); return pA.isChecked(input); };
+    // The look is picture drop-downs (MOD01 pictureSelect): tap the button, then the row, as a person does, then report whether it took.
+    // The centre logo is still a 1 px hidden radio inside a 44 px label (export.css).
+    const pick = async (id, value) => { await pA.click(`#${id} + .vcge-pick .vcge-pick-btn`); await pA.click(`#${id} + .vcge-pick [role="option"][data-value="${value}"]`); return (await pA.inputValue('#' + id)) === value; };
+    const pickFrame = (value) => pick('qrFrameSelect', value);
+    const tapChoice = async (name, value) => {
+      const select = { qrColour: 'qrColourSelect', qrDots: 'qrDotsSelect' }[name];
+      if (select) return pick(select, value);
+      const input = `input[name="${name}"][value="${value}"]`; await pA.click(`label:has(> ${input})`); return pA.isChecked(input);
+    };
 
     // An empty card: the Share card says so instead of opening the pop-up or printing
     await pA.click('#navShare'); await pA.waitForTimeout(400);
@@ -3964,14 +4157,34 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     for (const colour of ['navy', 'forest', 'plum', 'cocoa']) { const picked = await tapChoice('qrColour', colour); await pA.waitForTimeout(150); const cs = await coloursOf('exportQrPreview'); inks.push(picked && (await decodeCanvas('exportQrPreview')) === expected && !cs.includes('0,0,0') && (await tA('exportQrNote')) === '' ? 'ok' : colour); }
     const diamondPicked = await tapChoice('qrDots', 'diamond'); await pA.waitForTimeout(150);
     ok('more colours (Navy, Forest, Plum, Cocoa, tinted and contrast-checked) and Diamond dots still decode', inks.every(c => c === 'ok') && diamondPicked && (await decodeCanvas('exportQrPreview')) === expected, inks.join());
-    const bigger = await pA.evaluate(() => ({ preview: document.getElementById('exportQrPreview').getBoundingClientRect().width, label: document.querySelector('label:has(> input[name="qrColour"])').getBoundingClientRect().height, select: document.getElementById('qrFrameSelect').getBoundingClientRect().height }));
-    ok('the style options are larger: a bigger preview, 48 px buttons and dropdown', bigger.label >= 48 && bigger.select >= 48 && bigger.preview > 200, JSON.stringify(bigger));
+    const bigger = await pA.evaluate(() => ({ preview: document.getElementById('exportQrPreview').getBoundingClientRect().width, label: document.querySelector('label:has(> input[name="qrLogo"])').getBoundingClientRect().height, select: document.querySelector('#qrFrameSelect + .vcge-pick .vcge-pick-btn').getBoundingClientRect().height }));
+    ok('the style options are larger: a bigger preview, 48 px buttons and drop-downs', bigger.label >= 48 && bigger.select >= 48 && bigger.preview > 200, JSON.stringify(bigger));
+    // raven575 2026-11-10: many more high-contrast colours, shapes and sizes, in picture drop-downs big enough for fingers
+    await pickFrame('none'); await pick('qrDotsSelect', 'square');   // square dots: exactly the pair's two colours, no smoothed edges
+    const pairs = [];
+    for (const colour of ['cream-navy', 'mint-plum', 'peach-teal', 'sky-maroon', 'lavender-forest', 'lemon-indigo', 'blush-pine', 'ice-burgundy', 'sand-cobalt', 'lilac-olive']) {
+      const picked = await pick('qrColourSelect', colour); await pA.waitForTimeout(120); const cs = await coloursOf('exportQrPreview');
+      pairs.push(picked && cs.length === 2 && !cs.includes('0,0,0') && (await decodeCanvas('exportQrPreview')) === expected && (await tA('exportQrNote')) === '' ? 'ok' : colour);
+    }
+    ok('Checkers: all ten high-contrast colour pairs draw in their own two colours and decode in the browser', pairs.every(c => c === 'ok'), pairs.join());
+    const looks = [];
+    for (const dots of ['square', 'rounded', 'round', 'diamond', 'bars']) for (const eyes of ['square', 'rounded', 'circle']) for (const size of ['1', '0.8']) {
+      const picked = await pick('qrDotsSelect', dots) && await pick('qrEyesSelect', eyes) && await pick('qrDotSizeSelect', size); await pA.waitForTimeout(80);
+      looks.push(picked && (await decodeCanvas('exportQrPreview')) === expected ? 'ok' : `${dots}/${eyes}/${size}`);
+    }
+    ok('Checkers: every dot shape with every corner style, at full and 80 percent dot size, decodes in the browser', looks.every(c => c === 'ok'), looks.filter(c => c !== 'ok').join());
+    await pA.click('#qrColourSelect + .vcge-pick .vcge-pick-btn');
+    const rows = await pA.evaluate(() => [...document.querySelectorAll('#qrColourSelect + .vcge-pick [role="option"]')].map(li => ({ h: li.getBoundingClientRect().height, pic: !!li.querySelector('.vcge-pick-prev canvas'), hint: (li.querySelector('small') || {}).textContent || '' })));
+    ok('Checkers: the colour drop-down shows a QR picture and the contrast on every row, each row at least 48 px tall', rows.length === 16 && rows.every(r => r.h >= 48 && r.pic) && rows.filter(r => /^Contrast \d+ to 1$/.test(r.hint)).length === 11, JSON.stringify(rows.slice(0, 3)));
+    await pA.click('#qrColourSelect + .vcge-pick .vcge-pick-btn');   // a second tap closes the list
+    await pick('qrDotsSelect', 'diamond'); await pick('qrEyesSelect', 'square'); await pick('qrDotSizeSelect', '1'); await pick('qrColourSelect', 'cocoa');
     ok('the note is empty when there is nothing to say', (await tA('exportQrNote')) === '');
     // Esc (a Shell sheet: a sideways swipe or the X do the same) cancels; the next opening starts fresh
     await pA.keyboard.press('Escape');
     ok('Esc cancels the pop-up', !(await pA.isVisible('#exportQrSheet')));
     await pA.click('#exportQrBtn'); await pA.waitForSelector('#exportQrSheet', { state: 'visible' }); await pA.waitForTimeout(200);
-    ok('the pop-up opens fresh: Themed, square, no frame, no logo', await pA.isChecked('input[name="qrColour"][value="themed"]') && await pA.isChecked('input[name="qrDots"][value="square"]') && (await pA.inputValue('#qrFrameSelect')) === 'none' && await pA.isChecked('input[name="qrLogo"][value="none"]'));
+    ok('the pop-up keeps the chosen look (Cocoa, diamond dots) for the next export and for Print / PDF, but the logo starts at Nothing', (await pA.inputValue('#qrColourSelect')) === 'cocoa' && (await pA.inputValue('#qrDotsSelect')) === 'diamond' && (await pA.inputValue('#qrFrameSelect')) === 'none' && await pA.isChecked('input[name="qrLogo"][value="none"]')
+      && (await pA.textContent('#qrColourSelect + .vcge-pick .vcge-pick-btn b')) === 'Cocoa');
 
     // Upload a logo for the centre: made ready on the device (traced into a drawing), drawn as an image; the code still decodes around it
     const logoPng = await pA.evaluate(() => { const c = document.createElement('canvas'); c.width = 320; c.height = 80; const x = c.getContext('2d'); x.fillStyle = '#1d4ed8'; x.font = 'bold 56px Arial'; x.fillText('ACME', 20, 62); return c.toDataURL('image/png'); });

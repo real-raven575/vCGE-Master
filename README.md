@@ -4,9 +4,9 @@
 
 > **Operation: Never Lose Contact**
 >
-> Zero-trust, offline-first, privacy-focused digital business cards. Created by raven575.
+> Offline, privacy-first business card scanner. Created by raven575.
 
-The **vCard Generator Engine (vCGE)** is a high-security, cross-platform digital business card processing system. Built on a modular ES Architecture and powered by Tauri v2, vCGE processes physical business cards via hardware camera feeds or local file uploads, parses text locally via WebAssembly OCR, and generates interactive 3D business cards with scannable vCard QR codes—all without leaving your device.
+The **vCard Generator Engine (vCGE)** is a cross-platform app that turns a photo of a business card into a phone contact. Built on a modular ES Architecture and powered by Tauri v2, vCGE processes physical business cards via hardware camera feeds or local file uploads, parses text locally via WebAssembly OCR, and generates interactive 3D business cards with scannable vCard QR codes—all without leaving your device.
 
 No ads, no tracking, no accounts, no internet: the app talks to nothing but its own bundled files, and the only thing it ever keeps is one small settings line (hand, colour-blind mode, theme, font, text size, wipe time). Everything scanned, typed or shown lives in memory and is wiped when you leave. Site: [vCGE.APP](https://vcge.app).
 
@@ -17,8 +17,8 @@ No ads, no tracking, no accounts, no internet: the app talks to nothing but its 
 *Design targets. Implementation status is tracked in [`docs/spec.md` §3](docs/spec.md#3-current-progress--verification-status).*
 
 1. **The Vault Principle (`vCGE-MOD02`):** Nothing is stored. The vault is temporary and lives in memory only: leaving or reloading the page, or 7 minutes without activity (10 or 15 if chosen in Settings), wipes the card, the photo and the scan. With a 4-digit session PIN the screen timing out only locks the card, and 7 minutes after the lock (or the 10 or 15 chosen) it is wiped; without one, 30 seconds out of view or 2 idle minutes wipe it. A locked card is held encrypted with AES-GCM-256 under a key made for that lock alone. The red trash button on every card wipes everything: Yes must be held for 1.5 seconds.
-2. **Ephemeral Memory Lifecycle:** The card being edited (`MOD06`) lives only in the page's form fields and in memory, never in storage, and QR code matrix generation (`MOD07`) operates on volatile RAM streams; both are protected by a 120-second TTL zero-fill auto-purge protocol and startup memory residue checks.
-3. **Sole Egress Gateway (`vCGE-MOD08`):** All external data sharing (Web Share API, `.vcf` downloads, high-res PNG QR exports, SMS/Email, and printing: one 6 × 3.5 in page with the card at business-card size and its QR beside it) is strictly routed through a single, audited egress controller. Direct network calls from sub-modules are intercepted and blocked by the central container.
+2. **Ephemeral Memory Lifecycle:** The card being edited (`MOD06`) lives only in the page's form fields and in memory, never in storage, and QR code matrix generation (`MOD07`) operates on volatile RAM streams; both are cleared after 2 idle minutes (the buffer is overwritten with zeros), with a memory residue check at startup.
+3. **Sole Egress Gateway (`vCGE-MOD08`):** All external data sharing (Web Share API, `.vcf` downloads, high-res PNG QR exports, SMS/Email, and printing: one 6 × 3.5 in page with the card at business-card size and its QR beside it) is strictly routed through a single egress controller that logs every outbound action inside the app. Direct network calls from sub-modules are intercepted and blocked by the central container.
 
 ---
 
@@ -146,6 +146,10 @@ vCGE-Master/
 ## 👥 Creators
 
 Created by [raven575](https://raven575.com), with Team vCGE (Claude), and Gemini for the first generation. Home: [vCGE.APP](https://vcge.app).
+
+## 💬 Feedback
+
+Found a bug, a misread card or something confusing? [Open an issue on GitHub](https://github.com/real-raven575/vCGE-Master/issues/new/choose). Please never attach a real business card photo or anyone's real contact details: describe the problem or use made-up data.
 
 ## 📄 License
 

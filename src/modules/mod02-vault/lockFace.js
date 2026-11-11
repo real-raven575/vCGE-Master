@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD02: Ghost on the lock screen (cute round V1-V3, raven575 2026-10-21)
- * Created by raven575, Team vCGE (Claude) & Gemini
+ * Created by raven575, Herd of Helpers (claude) & gemini
  *
  * V1: a small Ghost the Raccoon over the PIN box shows one face per digit typed (raven575, 2026-10-22): eyes open but
  * looking away ("not watching"), a paw over one eye, both paws, a wink with an eyebrow raised, then sunglasses. With the

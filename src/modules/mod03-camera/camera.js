@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD03: Active Camera & Acquisition Subsystem (Iris)
- * Created by raven575, Team vCGE (Claude) & Gemini
+ * Created by raven575, Herd of Helpers (claude) & gemini
  * Target: camera.js (Modular ES Implementation)
  *
  * The Capture card (0.8 redo R2, Creative's CRTV-0020 mock-up): the viewfinder first, with corner brackets marking a

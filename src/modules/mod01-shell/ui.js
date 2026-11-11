@@ -1,13 +1,13 @@
 /**
  * vCGE-MOD01: shared look and touch behaviour (redesign step 1)
- * Created by raven575, Team vCGE (Claude) & Gemini
+ * Created by raven575, Herd of Helpers (claude) & gemini
  *
  * Size breakpoints for the three layouts, and the near-miss guard for buttons: a finger tap that lands on the outer
  * edge of a button (the outer 4 px) is ignored, so a tap meant for its neighbour does not press it. Mouse, pen and
  * keyboard presses are unchanged. The look itself (44 px buttons, 2 px outlines, the MOD-XX tag) is in ui.css.
  */
 
-import { isPlain, applyEdition } from './edition.js';
+import { isPlain, applyEdition, applySavedLook } from './edition.js';
 import { initShellArt } from './shellArt.js';
 import { initTier } from './tier.js';
 
@@ -59,6 +59,7 @@ export function initTags(doc = document) {
 }
 
 if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
+    applySavedLook();        // Settings > Plain look, before anything reads the edition
     applyEdition();
     initTier();
     initTags();

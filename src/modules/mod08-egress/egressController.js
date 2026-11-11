@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD08: Export ("Airlock") controller (egressController.js)
- * Created by raven575, Team vCGE (Claude) & Gemini
+ * Created by raven575, Herd of Helpers (claude) & gemini
  *
  * The one hatch out. Every outbound action starts with a button press on the Share card: the .vcf file, the share sheet,
  * Copy, the QR PNG (styled in the Export QR pop-up, exportDialogs.js), Print / PDF (the 6 x 3.5 in sheet, print.css),
@@ -17,6 +17,27 @@ import { foldVCardLines } from '../../share/vcardFormatter.js';
 export const FILE_NAME_MAX = 80;         // characters of the name part, before the suffix
 export const PRINT_QR_PX = 600;          // the QR drawn for the print sheet (1.5 in on paper)
 export const PRINT_PAGE_IN = { width: 6, height: 3.5, margin: 0.3 };   // print.css's @page; the height grows to fit
+export const PRINT_IMAGE_WAIT_MS = 3000;   // longest wait for the sheet's pictures before the print dialog opens anyway
+
+/**
+ * Resolves once every picture in the sheet is decoded, or failed, or the wait is over. A picture set from a data URL
+ * is decoded later, not at once: the print dialog opened right after drew the QR's 1.5 in box empty (raven575's
+ * PDF on 2026-11-10 had the card and a blank square). Never rejects: a picture that cannot load must not stop printing.
+ */
+export function picturesReady(root, waitMs = PRINT_IMAGE_WAIT_MS) {
+    const pictures = root && root.querySelectorAll ? [...root.querySelectorAll('img')] : [];
+    const one = (img) => {
+        if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+        if (typeof img.decode === 'function') return img.decode().catch(() => {});
+        return new Promise(done => { img.addEventListener('load', done, { once: true }); img.addEventListener('error', done, { once: true }); });
+    };
+    if (!pictures.length) return Promise.resolve();
+    let timer;
+    return Promise.race([
+        Promise.all(pictures.map(one)),
+        new Promise(done => { timer = setTimeout(done, waitMs); })
+    ]).then(() => { clearTimeout(timer); });
+}
 
 /** The page height (inches) for a print sheet this tall (CSS px, 96 per inch): 3.5 in, or more when the card grows. */
 export function printPageHeight(sheetPx) {
@@ -318,9 +339,11 @@ export class EgressController {
      * @param {{ themed?: boolean, qrCanvas?: HTMLCanvasElement|null, nameFile?: boolean }} [options]
      *   qrCanvas: the code drawn in the chosen colours (null when none fits); the themed one falls back to black on
      *   white inside MOD07 when the theme's contrast is too low, which the caller reports.
-     * @returns {{ success: boolean, reason?: 'empty', pageHeightIn?: number }}
+     * The print dialog opens only once the sheet's pictures (the QR, a logo on the card) are decoded (picturesReady), so
+     * the PDF never shows an empty square where the QR goes. A clear (idle purge, lock, wipe) during that wait cancels.
+     * @returns {Promise<{ success: boolean, reason?: 'empty'|'cleared', pageHeightIn?: number }>}
      */
-    triggerPhysicalPrint({ themed = false, qrCanvas = null, nameFile = false } = {}) {
+    async triggerPhysicalPrint({ themed = false, qrCanvas = null, nameFile = false } = {}) {
         if (this.isEmpty()) return { success: false, reason: 'empty' };
         const sheet = document.getElementById('printSheet'), front = document.getElementById('cardFront');
         if (sheet && front) {
@@ -354,6 +377,11 @@ export class EgressController {
             name.textContent = this.displayName();
             side.append(name);
             sheet.replaceChildren(frontCopy, side);
+        }
+        if (sheet) {
+            const filled = sheet.firstChild;
+            await picturesReady(sheet);
+            if (sheet.firstChild !== filled) return { success: false, reason: 'cleared' };
         }
         const pageHeightIn = sheet ? this.fitPrintPage(sheet) : PRINT_PAGE_IN.height;
         audit('print', { themed });

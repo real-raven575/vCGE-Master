@@ -61,7 +61,14 @@ input.r5-toggle:checked { background: var(--r5-good); }
 input.r5-toggle:checked::after { transform: translateX(22px); }
 input.r5-toggle:focus-visible, button.r5-switch:focus-visible .r5-track { outline: 2px solid var(--sh-accent); outline-offset: 2px; }
 input.r5-toggle:disabled { opacity: .5; cursor: default; }
-input.r5-toggle:disabled + * , .r5-plain-row .r5-lbl { cursor: default; }
+input.r5-toggle:disabled + * , .r5-plain-row:has(input:disabled) .r5-lbl { cursor: default; }
+/* Plain look's ask (contacts in memory): the switch's own row of Yes and Keep, both at least 44 px tall */
+.r5-plain-confirm { display: flex; flex-direction: column; gap: 8px; margin: 0 16px 12px; padding: 10px 12px; border-radius: 12px;
+    border: 1px solid var(--sh-line); font-size: .85em; line-height: 1.4; }
+.r5-plain-confirm.hidden { display: none; }
+.r5-plain-confirm-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+button.r5-mini { min-height: 44px; padding: 0 14px; border-radius: 12px; border: 2px solid currentColor; background: transparent; color: inherit;
+    font: 600 .85rem var(--r5-body); cursor: pointer; }
 #vaultPage button.vault-switch.r5-switch { position: relative; flex: none; display: inline-flex; align-items: center; gap: 10px; min-width: 0; min-height: 44px;
     padding: 0; border: 2px solid transparent; border-radius: 999px; background: transparent; color: var(--sh-stop); cursor: pointer;
     font: 700 .75rem var(--r5-body); letter-spacing: .04em; text-transform: uppercase; }
@@ -72,9 +79,11 @@ input.r5-toggle:disabled + * , .r5-plain-row .r5-lbl { cursor: default; }
 .r5-switch[aria-checked="true"] .r5-track { background: var(--r5-good); }
 #vaultPage .r5-switch[aria-checked="true"] .r5-track > .vault-switch-knob { left: 3px; right: auto; transform: translateX(22px); }
 @media (prefers-reduced-motion: reduce) { input.r5-toggle::after, .r5-track > .vault-switch-knob { transition: none; } }
-/* Colour-blind mode: a tick in the knob of a switch that is on, and on a chosen chip */
-html[data-cb="1"] input.r5-toggle:checked::after, html[data-cb="1"] .r5-switch[aria-checked="true"] .vault-switch-knob::after {
-    content: "\2713"; display: grid; place-items: center; color: #1d4ed8; font: 700 1rem/28px system-ui, sans-serif; text-align: center; }
+/* Every settings switch says On or Off in words beside it (settings.js adds .r5-onoff), so the knob stays plain both ways
+   (raven575, 2026-11-10: a tick showed in the knob only when on, in colour-blind mode, and nothing when off). */
+.r5-onoff { flex: none; min-width: 2.2em; text-align: right; font: 700 .75rem var(--r5-body); letter-spacing: .04em; text-transform: uppercase; color: var(--sh-stop, #b3261e); }
+.r5-onoff.is-on { color: var(--r5-good); }
+/* Colour-blind mode: the switch that is on turns blue, and a chosen chip gets a tick */
 html[data-cb="1"] input.r5-toggle:checked, html[data-cb="1"] .r5-switch[aria-checked="true"] .r5-track { background: #2563eb; }
 html[data-cb="1"] .r5-chip[aria-pressed="true"]::before { content: "\2713\00a0"; }
 
@@ -120,6 +129,18 @@ button.r5-swatch small { margin-top: -4px; font-size: .625rem; font-weight: 500;
 .r5-more > summary::-webkit-details-marker { display: none; }
 .r5-more > summary::after { content: "\203A"; margin-left: 8px; font-size: 1.2em; transition: transform 200ms var(--ease-out); }
 .r5-more[open] > summary::after { transform: rotate(90deg); }
+/* The theme box (raven575, 2026-11-03): closed, one 44 px row with the theme in use; open, the quick picks and More themes */
+.r5-picker { margin: 0 16px 10px; border-radius: 12px; border: 1px solid var(--sh-line); background: var(--sh-sunk); }
+.r5-picker > summary { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 12px; cursor: pointer; list-style: none; font-weight: 600; color: var(--sh-ink); }
+.r5-picker > summary::-webkit-details-marker { display: none; }
+.r5-picker > summary i { flex: none; width: 26px; height: 26px; border-radius: 8px; box-shadow: 0 0 0 1px var(--sh-line);
+    background: linear-gradient(135deg, var(--sw-a, #17736e) 0 50%, var(--sw-b, #18151f) 50% 100%); }
+.r5-picker > summary span { flex: 1; min-width: 0; }
+.r5-picker > summary::after { content: "\25BE"; font-size: 1.1em; transition: transform 200ms var(--ease-out); }
+.r5-picker[open] > summary::after { transform: rotate(180deg); }
+.r5-picker .r5-themes { padding: 6px 4px 10px; }
+.r5-picker .r5-more { margin: -6px 0 4px; }
+.r5-picker .r5-more > summary { padding: 0 8px; }
 .r5-range { display: flex; align-items: center; gap: 12px; padding: 6px 16px 14px; }
 .r5-range input { flex: 1; min-width: 0; min-height: 40px; margin: 0; accent-color: var(--sh-accent); }
 .r5-a-small { font-size: .8125rem; } .r5-a-big { font-size: 1.375rem; }
@@ -315,3 +336,48 @@ html[data-style="kde"] button.r5-chip { border-radius: 5px; background: var(--sh
 html[data-style="kde"] button.r5-chip[aria-pressed="true"] { background: color-mix(in srgb, var(--sh-accent) 16%, transparent); color: var(--sh-ink); box-shadow: 0 0 0 1px var(--sh-accent); }
 html[data-style="kde"] :is(.tip, .finder) { border-radius: 6px; box-shadow: none; }
 @media (forced-colors: active) { input.r5-toggle, .r5-track, button.r5-chip, .r5-group { border: 1px solid CanvasText; } }
+
+/* ---- The picture drop-down (pictureSelect.js; shared with MOD07's QR looks) ----------------------------------- */
+/* The real <select> stays in the page for every module, out of sight; the button shows the pick's picture and name. */
+select.vcge-pick-native { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; border: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; opacity: 0; pointer-events: none; }
+/* The list opens in place, under its button, pushing what follows down: never clipped by a sheet or a card panel. */
+.vcge-pick { position: relative; min-width: 0; flex: 0 1 auto; width: 100%; max-width: 100%; }
+button.vcge-pick-btn { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 52px; padding: 6px 12px; border: 2px solid var(--sh-line);
+    border-radius: 14px; background: var(--sh-surface); color: var(--sh-ink); font: 600 .9rem var(--r5-body); text-align: left; cursor: pointer; }
+button.vcge-pick-btn:focus-visible, .vcge-pick-row:focus-visible { outline: 2px solid var(--sh-accent); outline-offset: 2px; }
+button.vcge-pick-btn:disabled { opacity: .55; cursor: default; }
+.vcge-pick.is-open > .vcge-pick-btn { border-color: var(--sh-accent); }
+.vcge-pick-prev { flex: none; display: grid; place-items: center; width: 56px; height: 34px; border-radius: 8px; overflow: hidden;
+    box-shadow: 0 0 0 1px var(--sh-line); background: var(--sh-sunk); font-size: 1.1rem; }
+.vcge-pick-prev:empty { display: none; }
+.vcge-pick-prev > img, .vcge-pick-prev > canvas, .vcge-pick-prev > svg { width: 100%; height: 100%; object-fit: contain; display: block; }
+.vcge-pick-prev.is-split { display: flex; }
+.vcge-pick-prev.is-split > i { flex: 1; align-self: stretch; }
+.vcge-pick-square { display: block; border-radius: 3px; background: currentColor; opacity: .7; }
+.vcge-pick-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.vcge-pick-text b { font-weight: 600; overflow-wrap: anywhere; }
+.vcge-pick-text small { font-size: .75rem; font-weight: 400; color: var(--sh-muted); }
+.vcge-pick-chev { flex: none; width: 9px; height: 9px; margin-left: auto; border-right: 2px solid var(--sh-muted); border-bottom: 2px solid var(--sh-muted); transform: rotate(45deg) translate(-2px, -2px); }
+.vcge-pick.is-open .vcge-pick-chev { transform: rotate(225deg); }
+.vcge-pick-list { position: static; max-height: min(60vh, 26rem); overflow-y: auto; margin: 6px 0 0; padding: 6px;
+    list-style: none; border: 1px solid var(--sh-line); border-radius: 14px; background: var(--sh-surface); box-shadow: 0 10px 24px -14px rgba(0, 0, 0, .45); }
+.vcge-pick-list[hidden] { display: none; }
+.vcge-pick-row { display: flex; align-items: center; gap: 12px; min-height: 52px; padding: 6px 10px; border-radius: 10px; cursor: pointer; color: var(--sh-ink); font-size: .9rem; }
+.vcge-pick-row:hover { background: var(--sh-sunk); }
+.vcge-pick-row[aria-selected="true"] { background: color-mix(in srgb, var(--sh-accent) 16%, transparent); font-weight: 600; }
+.vcge-pick-row[aria-selected="true"] .vcge-pick-text b::after { content: "  \2713"; }
+.vcge-pick-row[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
+.vcge-pick-head { padding: 8px 10px 2px; font-size: .7rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--sh-muted); }
+
+/* ---- Colour vision (Settings > Accessibility, cb 2-5): settings.js moves the good / stop colours to a pair that
+   person can tell apart; words and marks stay on with every choice (html[data-cb="1"]). No colour greys the page. ---- */
+html[data-cvd="mono"] { filter: grayscale(1); }
+.r5-cvd-row { flex-wrap: wrap; }
+.r5-cvd-row .vcge-pick { flex-basis: 100%; }
+
+/* ---- Settings > App look (raven575, 2026-11-10): says it changes the app, never the card ----------------------- */
+.r5-look-head { display: flex; align-items: center; gap: 8px; }
+.r5-look-head svg { width: 18px; height: 18px; flex: none; }
+.r5-look-link { display: flex; align-items: center; gap: 8px; width: calc(100% - 32px); min-height: 44px; margin: 0 16px 12px; padding: 6px 12px; border: 1px dashed var(--sh-line);
+    border-radius: 12px; background: transparent; color: var(--sh-muted); font: 500 .8125rem var(--r5-body); text-align: left; cursor: pointer; }
+.r5-look-link b { color: var(--sh-ink); text-decoration: underline; }

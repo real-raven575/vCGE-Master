@@ -128,7 +128,7 @@
                         <button id="welcomeSampleBtn" type="button" class="r2-quiet">Play with sample fields</button>
                         <button id="welcomeCancelBtn" type="button" class="r2-quiet r2-quiet-stop">CANCEL</button>
                     </div>
-                    <p class="r2-fine">This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data: it keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time), and nothing you scan, upload or type is ever saved.</p>
+                    <p class="r2-fine">This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data: it keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look), and nothing you scan, upload or type is ever saved.</p>
                 </div>
             </div>
         </section>
@@ -438,7 +438,13 @@
                     </div>
                 </div>
                 <p class="r4-flipnote">Tap the right side to spin right, the left side to spin left.</p>
-                <div id="paletteListContainer" class="r4-swatches" role="group" aria-label="Card colours"></div>
+                <!-- Card design (raven575, 2026-11-10): says plainly it changes this card only, never the app's look (that is
+                     Settings > App look). Colour stays in view under the card; Paper and Logo fold under one opener below. -->
+                <div class="r4-design-head" id="cardDesignHead">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M7 11h6M7 14h4"/></svg>
+                    <b>Card design</b><small id="cardDesignNote">Changes this card only. The app keeps its look.</small>
+                </div>
+                <div id="paletteListContainer" class="r4-swatches" role="group" aria-label="Card colours" aria-describedby="cardDesignNote"></div>
                 <p class="vcge-sr-only" aria-live="polite">Card colour: <span id="currentPaletteLabel">Ocean Blue</span></p>
                 <div class="r4-tip r4-logo">
                     <p class="r4-tip-line"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M9 12h6M12 9v6"/></svg><span>Add a logo. You will see a safe-area guide so the rounded corners never clip it.</span></p>
@@ -471,18 +477,27 @@
                          colour behind it, and a texture over the card colour with its strength. Memory only, like the rest of the card.
                          Folded under one opener, closed at the start, so on a phone the card itself stays in view. -->
                     <details id="cardLookPanel" class="card-look r4-look">
-                <summary class="r4-look-sum">Logo &amp; finish</summary>
-                <div id="cardLookRow" class="r4-chips r4-look-row">
-                    <select id="logoPresetSelect" class="r4-pill r4-select" aria-label="Ready-made logo"></select>
-                    <select id="logoSizeSelect" class="r4-pill r4-select" aria-label="Logo size"></select>
-                    <div id="logoBgGroup" role="group" aria-label="Colour behind the logo" class="r4-behind">
-                        <span>Behind logo</span>
-                        <input id="logoBgPicker" type="color" value="#f8fafc" class="logo-bg-wheel" aria-label="Pick any colour behind the logo" title="Pick any colour">
-                    </div>
-                    <select id="cardFinishSelect" class="r4-pill r4-select" aria-label="Card finish"></select>
-                    <label id="cardFinishStrengthLabel" class="r4-strength">Strength
-                        <input id="cardFinishStrength" type="range" min="5" max="35" step="1" value="15" class="w-24" aria-label="Finish strength (per cent)">
-                    </label>
+                <summary class="r4-look-sum">Paper &amp; logo</summary>
+                <div id="cardLookRow" class="r4-look-groups">
+                    <section class="r4-look-group" aria-labelledby="cardPaperHead">
+                        <h4 id="cardPaperHead">Paper</h4>
+                        <select id="cardFinishSelect" class="r4-pill r4-select" aria-label="Paper finish"></select>
+                        <label id="cardFinishStrengthLabel" class="r4-strength" for="cardFinishStrength"><span>Strength</span>
+                            <input id="cardFinishStrength" type="range" min="5" max="100" step="1" value="70" aria-label="Paper strength (per cent)"><output id="cardFinishStrengthOut" for="cardFinishStrength">70%</output>
+                        </label>
+                        <label id="cardFinishBlurLabel" class="r4-strength" for="cardFinishBlur"><span>Soft blur</span>
+                            <input id="cardFinishBlur" type="range" min="0" max="20" step="1" value="8" aria-label="Paper soft blur (per cent)"><output id="cardFinishBlurOut" for="cardFinishBlur">8%</output>
+                        </label>
+                    </section>
+                    <section class="r4-look-group" aria-labelledby="cardLogoHead">
+                        <h4 id="cardLogoHead">Logo</h4>
+                        <select id="logoPresetSelect" class="r4-pill r4-select" aria-label="Ready-made logo"></select>
+                        <select id="logoSizeSelect" class="r4-pill r4-select" aria-label="Logo size"></select>
+                        <div id="logoBgGroup" role="group" aria-label="Colour behind the logo" class="r4-behind">
+                            <span>Behind logo</span>
+                            <input id="logoBgPicker" type="color" value="#f8fafc" class="logo-bg-wheel" aria-label="Pick any colour behind the logo" title="Pick any colour">
+                        </div>
+                    </section>
                 </div>
                 </details>
                 </section>
@@ -598,7 +613,7 @@
     </div>
 
     <!-- Settings sheet (0.8 redo R5, Creative's CRTV-0020 mock-up; MOD01): App theme swatches and Appearance, the
-         platform style, text size and font, the Comfort switches, the Cornerstone credit and About. Kept in the one
+         platform style, text size and font, the Accessibility and Comfort switches, the Cornerstone credit and About. Kept in the one
          settings entry (settings.js). -->
     <div id="settingsSheet" class="vcge-sheet hidden" role="dialog" aria-modal="true" aria-labelledby="settingsTitle">
         <div class="vcge-sheet-panel r5-sheet">
@@ -608,14 +623,21 @@
             </div>
             <div class="r5-body">
                 <div class="r5-group">
-                    <h4 id="appThemesLabel">App theme</h4>
-                    <div id="appThemes" class="r5-themes" role="group" aria-labelledby="appThemesLabel"></div>
-                    <details id="moreThemes" class="r5-more"><summary>More themes</summary><div id="moreThemesGrid" class="r5-themes"></div></details>
+                    <!-- App look (raven575, 2026-11-10): the app's colours only; the card's colours live on the Card screen -->
+                    <h4 id="appThemesLabel" class="r5-look-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 18h4"/></svg>App look</h4>
+                    <p id="appLookNote" class="r5-note r5-note-in">Changes vCGE's screens and buttons. Your card keeps its own design.</p>
+                    <!-- One closed box (raven575, 2026-11-03): it shows the theme in use; a tap opens the quick picks, and More themes holds the rest -->
+                    <details id="themePicker" class="r5-picker">
+                        <summary id="themeSummary" aria-describedby="appThemesLabel"><i id="themeSummarySwatch" aria-hidden="true"></i><span id="themeSummaryName">Herd</span></summary>
+                        <div id="appThemes" class="r5-themes" role="group" aria-labelledby="appThemesLabel"></div>
+                        <details id="moreThemes" class="r5-more"><summary>More themes</summary><div id="moreThemesGrid" class="r5-themes"></div></details>
+                    </details>
                     <h4 id="appearanceLabel">Appearance</h4>
                     <div id="appearanceChips" class="r5-minis" role="group" aria-labelledby="appearanceLabel">
                         <button type="button" class="r5-chip" data-v="system" aria-pressed="false">System</button><button type="button" class="r5-chip" data-v="light" aria-pressed="false">Light</button><button type="button" class="r5-chip" data-v="dark" aria-pressed="false">Dark</button>
                     </div>
                     <p id="appearanceOne" class="r5-note r5-note-in hidden">This theme comes in one version only.</p>
+                    <button id="cardDesignLink" type="button" class="r5-look-link"><span aria-hidden="true">🎴</span><span>Looking for card colours? They are on the Card screen. <b>Open Card design</b></span></button>
                 </div>
                 <div class="r5-group">
                     <h4 id="styleChipsLabel">Style</h4>
@@ -634,23 +656,43 @@
                     </div>
                 </div>
                 <div class="r5-group">
-                    <h4>Comfort</h4>
+                    <h4 id="a11yLabel">Accessibility</h4>
                     <div class="r5-sw-row">
-                        <label class="r5-lbl" for="handToggle"><b>Left-handed</b><small>Moves the top buttons and camera tools</small></label>
-                        <input id="handToggle" type="checkbox" role="switch" class="r5-toggle">
+                        <label class="r5-lbl" for="dyslexiaToggle"><b>Dyslexia-friendly font</b><small id="dyslexiaHint">Uses OpenDyslexic; off goes back to Inter</small></label>
+                        <input id="dyslexiaToggle" type="checkbox" role="switch" class="r5-toggle" aria-describedby="dyslexiaHint">
                     </div>
                     <div class="r5-sw-row">
                         <label class="r5-lbl" for="cbToggle"><b>Colour-blind mode</b><small id="cbHint">Words and marks next to every colour cue</small></label>
                         <input id="cbToggle" type="checkbox" role="switch" class="r5-toggle" aria-describedby="cbHint">
                     </div>
+                    <!-- Colour vision (raven575, 2026-11-10: "the color blindness still seems to be only one option"): with
+                         Colour-blind mode on, the good and stop colours move to a pair this person tells apart (cb 2 to 5) -->
+                    <div class="r5-sw-row r5-cvd-row">
+                        <label class="r5-lbl" for="cvdSelect"><b>Colour vision</b><small id="cvdHint">Moves colours that are hard to tell apart. Turns on words and marks too</small></label>
+                        <select id="cvdSelect" aria-label="Colour vision" aria-describedby="cvdHint"></select>
+                    </div>
+                    <div class="r5-sw-row">
+                        <label class="r5-lbl" for="handToggle"><b>Left-handed</b><small>Moves the top buttons and camera tools</small></label>
+                        <input id="handToggle" type="checkbox" role="switch" class="r5-toggle">
+                    </div>
+                </div>
+                <div class="r5-group">
+                    <h4>Comfort</h4>
                     <div class="r5-sw-row">
                         <label class="r5-lbl" for="texToggle"><b>Background texture</b><small>A soft dot pattern behind the screens</small></label>
                         <input id="texToggle" type="checkbox" role="switch" class="r5-toggle" checked>
                     </div>
-                    <!-- Plain is its own build (the plain edition): the switch shows where it would be, and is never live here -->
+                    <!-- Plain look: live in the Herd build (starts vCGE fresh in the Plain look); on and fixed in the Plain download -->
                     <div class="r5-sw-row r5-plain-row">
-                        <label class="r5-lbl" for="plainToggle"><b>Plain look</b><small id="plainNote">A separate download: the Plain edition hides the Herd pilots and art</small></label>
-                        <input id="plainToggle" type="checkbox" role="switch" class="r5-toggle" disabled aria-describedby="plainNote">
+                        <label class="r5-lbl" for="plainToggle"><b>Plain look</b><small id="plainNote">Hides the Herd pilots and art. vCGE starts fresh to switch</small></label>
+                        <input id="plainToggle" type="checkbox" role="switch" class="r5-toggle" aria-describedby="plainNote">
+                    </div>
+                    <div id="plainConfirm" class="r5-plain-confirm hidden" role="group" aria-labelledby="plainConfirmText">
+                        <span id="plainConfirmText">Switching starts vCGE fresh and clears your current contacts. Are you sure?</span>
+                        <span class="r5-plain-confirm-btns">
+                            <button id="plainYesBtn" type="button" class="r5-mini">Yes, switch</button>
+                            <button id="plainNoBtn" type="button" class="r5-mini">Keep them</button>
+                        </span>
                     </div>
                 </div>
                 <!-- Project manager credit (branded only) and About (CRTV-0020): the maker mark, the wordmark and the credits -->
@@ -661,7 +703,7 @@
                     <p>vCGE 0.8</p>
                     <p>&copy; 2026 raven575, Herd of Helpers (claude) &amp; gemini</p>
                 </div>
-                <p id="settingsNote" class="r5-foot">vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time). Nothing you scan, upload or type is ever saved.</p>
+                <p id="settingsNote" class="r5-foot">vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look). Nothing you scan, upload or type is ever saved.</p>
             </div>
         </div>
     </div>
@@ -680,28 +722,70 @@
                     <p id="exportQrNote" class="export-qr-note" aria-live="polite"></p>
                 </div>
                 <div class="export-qr-options">
-                    <div class="export-qr-group" role="radiogroup" aria-labelledby="qrColourLabel">
-                        <span id="qrColourLabel">Colours</span>
-                        <div class="export-qr-choices">
-                            <label><input type="radio" name="qrColour" value="themed" checked>Themed</label>
-                            <label><input type="radio" name="qrColour" value="bw">Black &amp; White</label>
-                            <label><input type="radio" name="qrColour" value="navy">Navy</label>
-                            <label><input type="radio" name="qrColour" value="forest">Forest</label>
-                            <label><input type="radio" name="qrColour" value="plum">Plum</label>
-                            <label><input type="radio" name="qrColour" value="cocoa">Cocoa</label>
-                        </div>
+                    <div class="export-qr-group">
+                        <label id="qrColourLabel" for="qrColourSelect">Colours</label>
+                        <select id="qrColourSelect" class="vcge-select export-qr-select" aria-label="Colours">
+                            <optgroup label="From the card">
+                                <option value="themed" data-hint="Tinted from the card colour" selected>Card theme</option>
+                            </optgroup>
+                            <optgroup label="High contrast pairs">
+                                <option value="cream-navy" data-hint="Contrast 15 to 1">Cream &amp; Navy</option>
+                                <option value="mint-plum" data-hint="Contrast 13 to 1">Mint &amp; Plum</option>
+                                <option value="peach-teal" data-hint="Contrast 10 to 1">Peach &amp; Deep Teal</option>
+                                <option value="sky-maroon" data-hint="Contrast 11 to 1">Sky &amp; Maroon</option>
+                                <option value="lavender-forest" data-hint="Contrast 10 to 1">Lavender &amp; Forest</option>
+                                <option value="lemon-indigo" data-hint="Contrast 15 to 1">Lemon &amp; Indigo</option>
+                                <option value="blush-pine" data-hint="Contrast 11 to 1">Blush &amp; Pine</option>
+                                <option value="ice-burgundy" data-hint="Contrast 12 to 1">Ice &amp; Burgundy</option>
+                                <option value="sand-cobalt" data-hint="Contrast 12 to 1">Sand &amp; Cobalt</option>
+                                <option value="lilac-olive" data-hint="Contrast 10 to 1">Lilac &amp; Olive</option>
+                            </optgroup>
+                            <optgroup label="Classic">
+                                <option value="bw" data-hint="Contrast 21 to 1">Black &amp; White</option>
+                                <option value="navy" data-hint="Tinted navy">Navy</option>
+                                <option value="forest" data-hint="Tinted forest green">Forest</option>
+                                <option value="plum" data-hint="Tinted plum">Plum</option>
+                                <option value="cocoa" data-hint="Tinted cocoa">Cocoa</option>
+                            </optgroup>
+                        </select>
                     </div>
-                    <div class="export-qr-group" role="radiogroup" aria-labelledby="qrDotsLabel">
-                        <span id="qrDotsLabel">Dots</span>
-                        <div class="export-qr-choices">
-                            <label><input type="radio" name="qrDots" value="square" checked>Square</label>
-                            <label><input type="radio" name="qrDots" value="round">Round</label>
-                            <label><input type="radio" name="qrDots" value="diamond">Diamond</label>
-                        </div>
+                    <div class="export-qr-group">
+                        <label id="qrDotsLabel" for="qrDotsSelect">Dot shape</label>
+                        <select id="qrDotsSelect" class="vcge-select export-qr-select" aria-label="Dot shape">
+                            <option value="square" data-hint="Classic, scans everywhere" selected>Square</option>
+                            <option value="rounded" data-hint="Soft corners">Rounded</option>
+                            <option value="round" data-hint="Round dots">Dots</option>
+                            <option value="diamond" data-hint="Turned squares">Diamond</option>
+                            <option value="bars" data-hint="Dots joined into up-down bars">Bars</option>
+                        </select>
+                    </div>
+                    <div class="export-qr-group">
+                        <label id="qrEyesLabel" for="qrEyesSelect">Corner squares</label>
+                        <select id="qrEyesSelect" class="vcge-select export-qr-select" aria-label="Corner squares">
+                            <option value="square" data-hint="Classic corners" selected>Square</option>
+                            <option value="rounded" data-hint="Soft corners">Rounded</option>
+                            <option value="circle" data-hint="Round corners">Circle</option>
+                        </select>
+                    </div>
+                    <div class="export-qr-group">
+                        <label id="qrDotSizeLabel" for="qrDotSizeSelect">Dot size</label>
+                        <select id="qrDotSizeSelect" class="vcge-select export-qr-select" aria-label="Dot size">
+                            <option value="1" data-hint="Dots touch" selected>Full</option>
+                            <option value="0.9" data-hint="90 percent">Large</option>
+                            <option value="0.8" data-hint="80 percent, the smallest that still scans well">Medium</option>
+                        </select>
+                    </div>
+                    <div class="export-qr-group">
+                        <label id="qrPrintSizeLabel" for="qrPrintSizeSelect">Size on Print / PDF</label>
+                        <select id="qrPrintSizeSelect" class="vcge-select export-qr-select" aria-label="Size on Print / PDF">
+                            <option value="2.5" data-hint="2.5 cm wide">Small</option>
+                            <option value="3.5" data-hint="3.5 cm wide" selected>Medium</option>
+                            <option value="5" data-hint="5 cm wide">Large</option>
+                        </select>
                     </div>
                     <div class="export-qr-group">
                         <label id="qrFrameLabel" for="qrFrameSelect">Frame</label>
-                        <select id="qrFrameSelect" class="vcge-select export-qr-select">
+                        <select id="qrFrameSelect" class="vcge-select export-qr-select" aria-label="Frame">
                             <option value="none" selected>None</option>
                             <option value="square">Square</option>
                             <option value="rounded">Rounded</option>
@@ -896,6 +980,7 @@
 
     <!-- Bundled third-party libraries (pinned, MIT / Apache-2.0; see THIRD_PARTY_NOTICES.md) -->
     <script src="src/vendor/qrcode-generator/qrcode.js"></script>
+    <script src="src/vendor/jsqr/jsQR.js"></script>
     <script src="src/vendor/tesseract/tesseract.min.js"></script>
 </body>
 </html>
