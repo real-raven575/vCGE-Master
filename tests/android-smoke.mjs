@@ -74,7 +74,7 @@ if (!welcome) {
 }
 ok('browser gate passed (no "cannot run" page)', !screen().find(/cannot run in this browser/i));
 
-// 3. Paces: Skip the tour if it is up, then "Scan a card" moves to step 2 (Capture).
+// 3. Paces: Skip the tour if it is up, then "Scan a card" moves to Capture.
 const skip = screen().find(/^Skip tour$/i);
 if (skip) { tap(skip); await sleep(1500); }
 const scan = await waitFor(/^Scan a card$/i, 15000);
@@ -84,9 +84,9 @@ if (scan) {
   // Opening Capture may start the camera: Android then asks the person once. Allow it, as a person scanning would.
   const allow = await waitFor(/^(While using the app|Only this time|Allow)$/i, 8000);
   if (allow) { console.log('note: Android asked for the camera; allowing'); shot('2-camera-ask'); tap(allow); }
-  const capture = await waitFor(/Step 2 of 5/i, 20000);
+  const capture = await waitFor(/Step \d+ of \d+ · Capture/i, 20000);
   shot('3-capture');
-  ok('tap moves to Capture (step 2 of 5)', !!capture, screen().nodes.filter(n => n.text || n.desc).slice(0, 40).map(n => n.text || n.desc).join(' | '));
+  ok('tap moves to Capture (header shows the Capture step)', !!capture, screen().nodes.filter(n => n.text || n.desc).slice(0, 40).map(n => n.text || n.desc).join(' | '));
 }
 
 // 4. Still alive, and nothing crashed.
