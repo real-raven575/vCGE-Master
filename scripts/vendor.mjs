@@ -10,6 +10,9 @@ const OUT = path.join(ROOT, 'src', 'vendor');
 
 const FILES = [
     ['qrcode-generator/qrcode.js', 'qrcode-generator/qrcode.js'],
+    // jsQR (Apache-2.0): reads a QR code printed on a photographed card (MOD07 qrReader.js), on the device.
+    ['jsqr/dist/jsQR.js', 'jsqr/jsQR.js'],
+    ['jsqr/LICENSE', 'jsqr/LICENSE'],
     ['tesseract.js/dist/tesseract.min.js', 'tesseract/tesseract.min.js'],
     ['tesseract.js/dist/worker.min.js', 'tesseract/worker.min.js'],
     ['tesseract.js/LICENSE.md', 'tesseract/LICENSE.md'],

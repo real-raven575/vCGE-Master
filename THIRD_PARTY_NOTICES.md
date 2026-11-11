@@ -5,6 +5,7 @@ vCGE bundles the following third-party software in `src/vendor/`. The files are 
 | Component | Version | Licence | Bundled files | Copyright |
 |---|---|---|---|---|
 | [qrcode-generator](https://github.com/kazuhikoarase/qrcode-generator) | 1.4.4 | MIT (notice in file header) | `src/vendor/qrcode-generator/qrcode.js` | © 2009 Kazuhiko Arase |
+| [jsQR](https://github.com/cozmo/jsQR) | 1.4.0 | Apache-2.0 (`src/vendor/jsqr/LICENSE`) | `src/vendor/jsqr/jsQR.js` (reads a QR code printed on a photographed card) | jsQR contributors (Cosmo Wolfe) |
 | [Tesseract.js](https://github.com/naptha/tesseract.js) | 5.1.1 | Apache-2.0 (`src/vendor/tesseract/LICENSE.md`) | `src/vendor/tesseract/tesseract.min.js`, `worker.min.js` | Tesseract.js contributors |
 | [tesseract.js-core](https://github.com/naptha/tesseract.js-core) | 5.1.1 | Apache-2.0 (`src/vendor/tesseract/core/LICENSE`) | `src/vendor/tesseract/core/tesseract-core-*-lstm.wasm.js` (Tesseract OCR engine compiled to WebAssembly) | Tesseract OCR / Google, tesseract.js-core contributors |
 | [Inter](https://github.com/rsms/inter) via [@fontsource/inter](https://fontsource.org/fonts/inter) | 5.3.0 | SIL OFL 1.1 (`src/vendor/fonts/LICENSE-inter.txt`) | `src/vendor/fonts/inter-latin-{400,600,700}.woff2` | © 2016 The Inter Project Authors |

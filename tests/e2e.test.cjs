@@ -2165,6 +2165,61 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await ctxL.close();
   }
 
+  // Digits look (raven575's yes, 2026-11-10, accuracy round 1): a slightly blurred bold phone number was read
+  // "(616) 55-0158" (a real 5 lost); read again allowing only phone characters, every digit comes back. Measured in
+  // Chromium, where text is drawn the way the trial ran.
+  if (ENGINE === 'chromium') {
+    const ctxD = await browser.newContext();
+    const pD = await ctxD.newPage();
+    const looks = [];
+    pD.on('console', m => { if (m.text().includes('Digits look:')) looks.push(m.text()); });
+    await pD.goto(ORIGIN); await pD.waitForTimeout(300);
+    const dataUrl = await pD.evaluate(() => {
+      const c = document.createElement('canvas'); c.width = 900; c.height = 520; const x = c.getContext('2d');
+      x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111'; x.filter = 'blur(1.2px)';
+      x.font = '44px Arial'; x.fillText('Jane Rivera', 40, 70); x.font = '30px Arial'; x.fillText('Studio Manager', 40, 115);
+      x.fillText('jane@northwind.com', 40, 200);
+      x.font = 'bold 26px Arial'; x.fillText('T (616) 555-0158', 40, 260); x.fillText('M 269.380.6655', 40, 320);
+      return c.toDataURL('image/png');
+    });
+    await pD.setInputFiles('#imageUpload', { name: 'digits.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') }); await pD.waitForTimeout(300);
+    await pD.click('#runOcrBtn');
+    await readEnds(pD);
+    const lines = await pD.$$eval('#ocrLines input[id^="ocrLineText"]', els => els.map(e => e.value));
+    const digits = lines.map(t => t.replace(/\D/g, ''));
+    ok('digits look: a blurred bold phone number is read again in digits only and keeps every digit',
+      looks.length >= 1 && digits.some(d => d.endsWith('6165550158')) && digits.some(d => d.endsWith('2693806655')), JSON.stringify({ looks, lines }));
+    await ctxD.close();
+  }
+
+  // Printed QR code (accuracy round 1, raven575's yes 2026-11-10): a card with a vCard QR code fills the fields from the
+  // code; the printed lines for the same fields are set to Ignore with a note. Made-up data only.
+  await rerunIfPageCrashed('Printed QR code on a card', async () => {
+    const ctxQ = await browser.newContext();
+    const pQ = await ctxQ.newPage();
+    await pQ.goto(ORIGIN); await pQ.waitForTimeout(300);
+    const dataUrl = await pQ.evaluate(() => {
+      const vcard = 'BEGIN:VCARD\r\nVERSION:3.0\r\nN:Rivera;Jane;;;\r\nFN:Jane Rivera\r\nORG:Northwind Studio\r\nTITLE:Studio Manager\r\nTEL;TYPE=CELL:206.555.0199\r\nEMAIL:jane@northwind.example\r\nEND:VCARD';
+      const q = window.qrcode(0, 'M'); q.addData(vcard); q.make();
+      const n = q.getModuleCount(), cell = 5, quiet = 4 * cell;
+      const c = document.createElement('canvas'); c.width = 900; c.height = 520; const x = c.getContext('2d');
+      x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111';
+      x.font = '44px Arial'; x.fillText('Jane Rivera', 40, 70); x.font = '30px Arial'; x.fillText('Studio Manager', 40, 115);
+      x.fillText('M 206.555.0199', 40, 200); x.fillText('jane@northwind.example', 40, 250);
+      const left = c.width - n * cell - quiet - 20, top = 60;
+      for (let r = 0; r < n; r++) for (let k = 0; k < n; k++) if (q.isDark(r, k)) x.fillRect(left + k * cell, top + r * cell, cell, cell);
+      return c.toDataURL('image/png');
+    });
+    await pQ.setInputFiles('#imageUpload', { name: 'qr-card.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') }); await pQ.waitForTimeout(300);
+    await pQ.click('#runOcrBtn');
+    await readEnds(pQ);
+    const lines = await pQ.$$eval('#ocrLines input[id^="ocrLineText"]', els => els.map(e => e.value));
+    const summary = await pQ.textContent('#ocrSummary');
+    ok('printed QR: the code\'s name, title and company come first and fill the fields', lines[0] === 'Jane Rivera' && lines[1] === 'Studio Manager' && lines[2] === 'Northwind Studio' && summary.includes('Northwind Studio'), JSON.stringify({ lines, summary }));
+    ok('printed QR: the printed lines for the same fields are set to Ignore with a note', (await pQ.$$('#ocrLines [id^="ocrLineCheck"]')).length >= 2, JSON.stringify(lines));
+    await ctxQ.close();
+  });
+
   // Cancel while reading: the reader stops, the photo step comes back with Retake, and Extract works again
   await rerunIfPageCrashed('Cancel while reading', async () => {
     const ctxS = await browser.newContext();
@@ -2190,6 +2245,28 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('after Cancel, Extract reads the photo with a fresh reader', (await pS.$$('#ocrLines select')).length >= 8);
     ok('Cancel while reading: no page errors', errorsS.length === 0, errorsS.join(' | '));
     await ctxS.close();
+  });
+
+  // Cancel during the QR search (WebKit CI 2026-11-11): the QR code is searched for before the reader starts, and a
+  // reader started after Cancel held the next read until it timed out. Now nothing starts after Cancel.
+  await rerunIfPageCrashed('Cancel during the QR search', async () => {
+    const ctxC = await browser.newContext();
+    const pC = await ctxC.newPage();
+    const started = [];
+    pC.on('console', m => { if (m.text().includes('OCR extraction pipeline')) started.push(m.text()); });
+    await pC.goto(ORIGIN); await pC.waitForTimeout(300);
+    // The first picture decode (the QR search's) waits 1.5 s, so Cancel lands while the code is being looked for
+    await pC.evaluate(() => { const real = HTMLImageElement.prototype.decode; let first = true;
+      HTMLImageElement.prototype.decode = function () { if (first && String(this.src).startsWith('data:')) { first = false; return new Promise(r => setTimeout(r, 1500)).then(() => real.call(this)); } return real.call(this); }; });
+    await pC.setInputFiles('#imageUpload', await renderCardImage(pC)); await pC.waitForTimeout(300);
+    await pC.click('#runOcrBtn');
+    await pC.click('#ocrStopBtn');
+    await pC.waitForTimeout(2500);
+    ok('Cancel during the QR search: the reader never starts, and the photo is back on the Capture card', started.length === 0 && (await pC.evaluate(() => document.documentElement.dataset.card)) === 'capture' && !(await pC.isDisabled('#runOcrBtn')), JSON.stringify(started));
+    await pC.click('#runOcrBtn');
+    await readEnds(pC);
+    ok('Cancel during the QR search: OK afterwards reads the card', (await pC.$$('#ocrLines select')).length >= 8);
+    await ctxC.close();
   });
 
   // Cancel pressed just as the reader finishes (the wash fills, the review is a moment away) still cancels: it used to

@@ -1125,6 +1125,52 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     const straightened = fm.buildFields(fm.classifyLines([{ text: 'Dana Quill' }, { text: 'Portage, MI 49024' }, { text: 'w PeakLogiclT.com/KalamazooM\\', alts: merged }])).fields;
     ok('second look + field mapping: the straightened "PeakLogiclT" becomes PeakLogicIT from the first reading\'s "I"', straightened.websites[0].value === 'PeakLogicIT.com/KalamazooMI' && straightened.organization === 'PeakLogicIT', JSON.stringify([straightened.websites, straightened.organization]));
 
+    // Digits look (raven575's yes, 2026-11-10, accuracy round 1): the phone number in a line is read again allowing only
+    // phone characters, and replaces the first reading when it makes a whole number the first reading did not
+    {
+      const phoneRead = { text: 'Jane Doe\nT (616) S55-O140', confidence: 80, words: words(6, 90), lines: [
+        { text: 'Jane Doe', bbox: box(40, 40, 400, 90), words: [{ text: 'Jane', confidence: 95, bbox: box(40, 40, 200, 90), symbols: sym('Jane') }, { text: 'Doe', confidence: 92, bbox: box(220, 40, 400, 90), symbols: sym('Doe') }] },
+        { text: 'T (616) S55-O140', bbox: box(40, 300, 600, 340), words: [{ text: 'T', confidence: 95, bbox: box(40, 300, 60, 340), symbols: sym('T') }, { text: '(616)', confidence: 80, bbox: box(80, 300, 200, 340), symbols: sym('(616)') }, { text: 'S55-O140', confidence: 70, bbox: box(210, 300, 600, 340), symbols: sym('S55-O140') }] }] };
+      // A digits-only strip as Tesseract gives it: the word scored 0, its digits in the 90s
+      const digitStrip = (text, each) => ({ text, confidence: 0, words: [{ text, confidence: 0, symbols: text.split('').map(t => ({ text: t, confidence: each })) }] });
+      const reads2 = (...strips) => { let n = 0; return () => (n++ === 0 ? phoneRead : strips[Math.min(n - 2, strips.length - 1)]); };
+      globalThis.Image = class { constructor() { this.naturalWidth = this.width = 900; this.naturalHeight = this.height = 520; } set src(v) { setTimeout(() => this.onload && this.onload(), 0); } decode() { return Promise.resolve(); } };
+      globalThis.document.createElement = () => ({ width: 0, height: 0, getContext: () => ({ drawImage() {}, getImageData: () => ({ data: new Uint8ClampedArray(4) }), putImageData() {}, fillRect() {}, setTransform() {} }), toDataURL: () => 'data:image/png;base64,strip' });
+      psms = [];
+      result = reads2(digitStrip('(616)555-0140', 96));
+      const fixed = await ocr.executeOCRScan('data:image/png;base64,x');
+      const phone = fixed.lines.find(l => l.text.startsWith('T '));
+      ok('digits look: a phone number read with S and O for digits is read again in digits only and fixed', phone && phone.text === 'T (616)555-0140' && phone.unsure.length === 0, JSON.stringify(fixed.lines));
+      ok('digits look: reads one line with only phone characters allowed, then the engine goes back to sparse text with no character list', psms.join() === '7,11' && params.tessedit_char_whitelist === '', JSON.stringify({ psms, params }));
+      ok('digits look: the name line is left alone and nothing extra is returned', fixed.lines.find(l => l.text === 'Jane Doe') && fixed.lines.every(l => !('digits' in l) && !('look' in l)), JSON.stringify(fixed.lines));
+
+      result = reads2(digitStrip('(616)555-014', 96));
+      const short = await ocr.executeOCRScan('data:image/png;base64,x');
+      ok('digits look: a digits reading that is not a whole number changes nothing', short.lines.find(l => l.text.startsWith('T ')).text === 'T (616) S55-O140', JSON.stringify(short.lines));
+      globalThis.Image = savedImage; globalThis.document.createElement = savedCreate;
+    }
+    ok('digits look: look-alike letters become digits', ocr.asDigits('(6l6) S55-O14O') === '(616) 555-0140' && ocr.asDigits('Sales') === '5a1e5');
+    ok('digits look: whole phone numbers are 10 digits, 11 starting with 1, or + and 8-15 digits', ocr.isPhoneDigits('(616) 555-0140') && ocr.isPhoneDigits('1-616-555-0140') && ocr.isPhoneDigits('+44 20 7946 0958') && ocr.isPhoneDigits('616.555.0140 x204')
+      && !ocr.isPhoneDigits('616 555 014') && !ocr.isPhoneDigits('2-616-555-0140') && !ocr.isPhoneDigits('(616) S55-0140') && !ocr.isPhoneDigits(''));
+    {
+      const w = (text, confidence, x0) => ({ text, confidence, bbox: box(x0, 0, x0 + 50, 20) });
+      const line = (...ws) => ({ bbox: box(0, 0, 900, 20), words: ws });
+      const t = ocr.digitsLookTarget(line(w('M', 95, 0), w('269.38O.6655', 70, 60), w('ext', 90, 300)));
+      ok('digits look: the target is the run of phone words, with the words around it kept', t && t.text === '269.38O.6655' && t.box.x0 === 60 && t.box.x1 === 110 && t.before.length === 1 && t.after.length === 1, JSON.stringify(t));
+      ok('digits look: a sure number already in digits, a ZIP, a street and a name are not read again',
+        ocr.digitsLookTarget(line(w('(616)', 95, 0), w('555-0140', 96, 60))) === null && ocr.digitsLookTarget(line(w('Portage,', 90, 0), w('MI', 90, 60), w('49024', 90, 120))) === null
+        && ocr.digitsLookTarget(line(w('1200', 90, 0), w('Maplebridge', 90, 60))) === null && ocr.digitsLookTarget(line(w('Bob', 90, 0), w('Lee', 90, 60))) === null);
+      ok('digits look: a sure number with a dropped digit is read again', ocr.digitsLookTarget(line(w('(616)', 96, 0), w('55-0158', 96, 60))) !== null);
+      const target = { text: '(616) S55-O140', confidence: 70 };
+      ok('digits look: only whole numbers win; a sure number needs a clearly surer reading of the same length',
+        ocr.digitsLookWins(target, { text: '(616) 555-0140', confidence: 65 }) && !ocr.digitsLookWins(target, { text: '(616) 555-014', confidence: 99 }) && !ocr.digitsLookWins(target, { text: '(616) 555-0140', confidence: 55 })
+        && !ocr.digitsLookWins({ text: '(616) 555-0140', confidence: 80 }, { text: '(616) 556-0140', confidence: 85 }) && ocr.digitsLookWins({ text: '(616) 555-0140', confidence: 80 }, { text: '(616) 556-0140', confidence: 95 })
+        && !ocr.digitsLookWins({ text: '(616) 555-0140', confidence: 80 }, { text: '(616) 555-01400', confidence: 99 }) && !ocr.digitsLookWins(target, null));
+      ok('digits look: the new digits replace just the run', ocr.joinDigitsLook('M 269.38O.6655 ext', ['269.38O.6655'], '269.380.6655') === 'M 269.380.6655 ext' && ocr.joinDigitsLook('T a b', ['x'], 'y') === null);
+      const dw = ocr.digitWords({ words: [{ text: '555', confidence: 0, symbols: [{ text: '5', confidence: 24 }, { text: '5', confidence: 99 }, { text: '5', confidence: 99 }] }, { text: ' ', confidence: 0 }] });
+      ok('digits look: words keep every digit (no echo clean-up) and score by their digits', dw.length === 1 && dw[0].text === '555' && Math.round(dw[0].confidence) === 74, JSON.stringify(dw));
+    }
+
     // Garbage check and up to three readings (raven575, 2026-10-20: a light green name read as garbage reached the form)
     const rq = await import(`${R}/modules/mod04-ocr/readingQuality.js`);
     const garbage = ['~: ;\' |_ ,', 'lIlIlI WwWnN', 'Rhtkp Qwxzt', '—_= ~ ^', 'ﬁ{ ,'].filter(text => !rq.isGarbage({ text, confidence: 45 }));
@@ -2074,6 +2120,51 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('README keeps the tagline and credits Claude and Gemini', readme.includes('Operation: Never Lose Contact') && readme.includes('Team vCGE (Claude)') && readme.includes('Gemini'));
   const forms = ['bug-report.yml', 'feedback.yml'].map(f => fsR.readFileSync(`${R}/../.github/ISSUE_TEMPLATE/${f}`, 'utf8'));
   ok('README links feedback to GitHub Issues, and every issue form warns against real card photos or contact data', /\]\(https:\/\/github\.com\/real-raven575\/vCGE-Master\/issues\/new\/choose\)/.test(readme) && forms.every(f => /never (attach|include) a real business card photo/.test(f)));
+}
+
+{
+  // Printed QR code on a card (accuracy round 1, raven575's yes 2026-11-10): its vCard, MECARD or web address is exact
+  // data, so it fills its fields first and the reader's lines for the same fields are set to Ignore. Made-up data only.
+  const qr = await import(`${R}/modules/mod07-qr/qrReader.js`);
+  const vcard = 'BEGIN:VCARD\r\nVERSION:3.0\r\nN:Rivera;Jane;Q;Dr.;\r\nFN:Dr. Jane Q Rivera\r\nORG:Northwind Studio\\, LLC;Design\r\nTITLE:Studio Manager\r\n'
+    + 'TEL;TYPE=WORK,VOICE:+1 206 555 0142\r\nTEL;TYPE=CELL:206.555.0199\r\nitem1.EMAIL;TYPE=INTERNET:jane@northwind.example\r\nURL:https://northwind.example/jane\r\n'
+    + 'ADR;TYPE=WORK:;;1200 Maplebridge Rd\\, Ste 3;Seattle;WA;98101;USA\r\nNOTE:a long note that is fol\r\n ded here\r\nEND:VCARD';
+  const c = qr.parseQrPayload(vcard);
+  ok('QR read: a vCard gives name, company (escaped comma kept), title, typed phones, email, web and address',
+    c && c.name === 'Dr. Jane Q Rivera' && c.organization === 'Northwind Studio, LLC' && c.jobTitle === 'Studio Manager'
+    && JSON.stringify(c.phones) === JSON.stringify([{ role: 'phoneWork', value: '+1 206 555 0142' }, { role: 'phoneMobile', value: '206.555.0199' }])
+    && c.emails.join() === 'jane@northwind.example' && c.websites.join() === 'https://northwind.example/jane' && c.street === '1200 Maplebridge Rd, Ste 3' && c.cityStateZip === 'Seattle, WA 98101', JSON.stringify(c));
+  const n = qr.parseQrPayload('BEGIN:VCARD\nVERSION:3.0\nN:Takahashi;Kai;;;\nTEL;TYPE=FAX:+44 20 7946 0958\nADR:;;12 Long Lane;London;;EC1A 9ZZ;United Kingdom\nEND:VCARD');
+  ok('QR read: with no FN the name comes from N; a fax and an address outside the US/Canada are kept whole',
+    n && n.name === 'Kai Takahashi' && n.phones[0].role === 'phoneFax' && n.address === '12 Long Lane, London, EC1A 9ZZ, United Kingdom' && !n.street, JSON.stringify(n));
+  const m = qr.parseQrPayload('MECARD:N:Doe,Jane;TEL:6165550140;EMAIL:jane@example.com;URL:http://example.com;ORG:Acme\\; Co;;');
+  ok('QR read: a MECARD gives name (last,first), phone, email, web and company', m && m.name === 'Jane Doe' && m.phones[0].value === '6165550140' && m.emails[0] === 'jane@example.com' && m.websites[0] === 'http://example.com' && m.organization === 'Acme; Co', JSON.stringify(m));
+  ok('QR read: a bare web address is a website; plain text, wifi and empty codes give nothing',
+    qr.parseQrPayload('https://example.com/jane').websites[0] === 'https://example.com/jane' && qr.parseQrPayload('www.example.com').websites.length === 1
+    && qr.parseQrPayload('hello there') === null && qr.parseQrPayload('WIFI:S:x;T:WPA;P:y;;') === null && qr.parseQrPayload('') === null && qr.parseQrPayload('BEGIN:VCARD\nVERSION:3.0\nEND:VCARD') === null);
+  const read = [
+    { text: 'Jane Rivera', role: 'name' }, { text: 'Studio Manger', role: 'jobTitle' }, { text: 'T 206.555.0142', role: 'phoneWork' },
+    { text: 'F 206.555.0100', role: 'phoneFax' }, { text: 'E: Jane@Northwind.example', role: 'email' }, { text: 'www.northwind.example/jane', role: 'website' },
+    { text: '1200 Maplebridge Rd', role: 'street' }, { text: 'Seattle, WA 98101', role: 'cityStateZip' }, { text: 'Design that lasts', role: 'notes' }];
+  const out = qr.withQrLines(read, c);
+  const ignored = out.filter(l => l.role === 'ignore' && l.check === qr.QR_DUPLICATE_NOTE).map(l => l.text);
+  ok('QR read: the code\'s lines come first with their roles set', out.slice(0, 3).map(l => l.role).join() === 'name,jobTitle,organization' && out[0].text === 'Dr. Jane Q Rivera' && out.filter(l => l.qr).length === 9, JSON.stringify(out.slice(0, 10)));
+  ok('QR read: the reader\'s name, title, address and the same phone, email and web lines are set to Ignore with a note',
+    JSON.stringify(ignored) === JSON.stringify(['Jane Rivera', 'Studio Manger', 'T 206.555.0142', 'E: Jane@Northwind.example', 'www.northwind.example/jane', '1200 Maplebridge Rd', 'Seattle, WA 98101']), JSON.stringify(ignored));
+  ok('QR read: a second phone and a tagline the code lacks stay as read', out.some(l => l.text === 'F 206.555.0100' && l.role === 'phoneFax') && out.some(l => l.text === 'Design that lasts' && l.role === 'notes'));
+  ok('QR read: no code, no change', qr.withQrLines(read, null) === read && qr.qrLines(null).length === 0);
+  const fm = new (await import(`${R}/modules/mod05-form/formMapper.js`)).ContactFormMapper();
+  const f = fm.buildFields(out).fields;
+  ok('QR read + field mapping: the form gets the code\'s exact data plus the extra fax from the print',
+    f.firstName === 'Jane' && f.lastName === 'Rivera' && f.organization === 'Northwind Studio, LLC' && f.jobTitle === 'Studio Manager' && f.city === 'Seattle' && f.state === 'WA' && f.zip === '98101'
+    && f.emails.some(e => e.value === 'jane@northwind.example') && f.phones.length === 3 && f.phones.some(p => /fax/i.test(p.type)), JSON.stringify(f));
+  ok('QR read: with no decoder, or nothing to read, the search quietly finds nothing', (await qr.readCardQr('data:image/png;base64,x', null)) === null && (await qr.readCardQr('', () => ({ data: 'x' }))) === null);
+  const grown = qr.grownCorners([{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 10 }, { x: 0, y: 10 }], 0.2);
+  ok('QR read: the cover over the code grows about its centre to take in the quiet zone', JSON.stringify(grown) === JSON.stringify([{ x: -1, y: -1 }, { x: 11, y: -1 }, { x: 11, y: 11 }, { x: -1, y: 11 }]), JSON.stringify(grown));
+  ok('QR read: with no corners the photo goes to the reader unchanged', (await qr.withoutQr('data:image/png;base64,x', null)) === 'data:image/png;base64,x');
+  const fsQ = await import('node:fs');
+  const html = fsQ.readFileSync(`${R}/../index.html`, 'utf8');
+  ok('QR read: the bundled jsQR loads from the app\'s own files, after the QR maker', /<script src="src\/vendor\/qrcode-generator\/qrcode\.js"><\/script>\s*<script src="src\/vendor\/jsqr\/jsQR\.js"><\/script>/.test(html) && fsQ.existsSync(`${R}/vendor/jsqr/jsQR.js`) && fsQ.existsSync(`${R}/vendor/jsqr/LICENSE`));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
