@@ -1,6 +1,6 @@
 /**
  * vCard Generator Engine (vCGE) - Master Integration Controller
- * Created by raven575, Team vCGE (Claude) & Gemini
+ * Created by raven575, Herd of Helpers (claude) & gemini
  *
  * Wires the modules together over the shared event bus:
  *   MOD03 camera / upload -> MOD04 OCR -> MOD05 mapper -> MOD06 card view -> MOD07 vCard + QR
@@ -33,6 +33,7 @@ import { VCGEActiveCamera } from './modules/mod03-camera/camera.js';
 import { CropEditor } from './modules/mod03-camera/cropEditor.js';
 import { executeOCRScan, shutdownOCREngine } from './modules/mod04-ocr/ocrWorker.js';
 import { mergeReadings, missingParts, describeMissing, MAX_PHOTOS } from './modules/mod04-ocr/readingQuality.js';
+import { readCardQr, withoutQr, parseQrPayload, withQrLines } from './modules/mod07-qr/qrReader.js';
 import { readIndicator, readThumb, renderReviewRows, initReadCard, resetBlink, READER_UNAVAILABLE_MESSAGE, READER_STOPPED_MESSAGE } from './modules/mod04-ocr/readCard.js';
 import { ContactFormMapper, LINE_ROLES, PHONE_FORMATS } from './modules/mod05-form/formMapper.js';
 import { PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES } from './share/contactOptions.js';
@@ -41,7 +42,8 @@ import { initFieldsCard, SAMPLE_PROMPT, PLAIN_SAMPLE_PROMPT, unplacedLines, show
 import { CardView, PRESETS, PLAIN_PRESETS, THEMES, themeKeyOf, prepareLogo } from './modules/mod06-gui/card3dView.js';
 import { vcgeQREngine } from './modules/mod07-qr/qrGenerator.js';
 import { egressController, PRINT_QR_PX } from './modules/mod08-egress/egressController.js';
-import { exportQrDialog, printChoiceDialog } from './modules/mod08-egress/exportDialogs.js';
+import { pictureSelect } from './modules/mod01-shell/pictureSelect.js';
+import { exportQrDialog, printChoiceDialog, renderOptions, LOOK_SELECTS } from './modules/mod08-egress/exportDialogs.js';
 import { wireHatches, wireFalcon, flyFalcon, showReadyLights } from './modules/mod08-egress/airlockTouches.js';
 import { VaultStore, READINGS } from './modules/mod02-vault/vaultStore.js';
 
@@ -487,7 +489,7 @@ function clearCapturedImages() {
     forgetReadings();
     cardView.forgetUndo();
     egressController.clearPrintSheet();
-    exportQrDialog.reset();       // an uploaded QR logo and the preview
+    exportQrDialog.reset({ keepLook: false });   // an uploaded QR logo, the preview and the chosen look
     printChoiceDialog.close();
     vaultStore.clear('logo');
     camera.closeCamera();
@@ -784,8 +786,15 @@ async function runOcr() {
     readIndicator.show(photo);
     try {
         // The first scan (and the first after a wipe) starts the reader from ~7 MB of bundled files: say so.
-        const onStatus = (status) => readIndicator.status(status);
-        const { text, lines } = await executeOCRScan(photo, { onStatus });
+        const onStatus = (status, fraction) => readIndicator.status(status, fraction);
+        // A QR code printed on the card is read first (accuracy round 1, 2026-11-10) and painted over for the text
+        // reader, whose junk readings of its squares would otherwise turn the card down.
+        const found = await readCardQr(photo);
+        // Cancel (or a wipe) during the QR search: the reader must not start afterwards (WebKit CI 2026-11-11: a reader
+        // started after Cancel was left holding the next read until it timed out).
+        if (ocrStoppedByUser || $('cropReviewModal').classList.contains('hidden')) throw Object.assign(new Error('Reading cancelled during the QR search'), { code: 'OCR_CANCELLED' });
+        const qr = found ? found.data : null;
+        const { text, lines } = await executeOCRScan(found && found.corners ? await withoutQr(photo, found.corners) : photo, { onStatus });
         // Finished early: the wash fills up (and the owl closes its eyes) before the review step opens.
         readIndicator.stop(); readIndicator.set(1); readIndicator.finish();
         await new Promise(res => setTimeout(res, 250));
@@ -796,11 +805,11 @@ async function runOcr() {
         const readings = [...heldReadings(), read];
         const missing = missingParts(formMapper.classifyLines(mergeReadings(readings).filter(l => !l.unreadable)));
         if (missing.length && readings.length < MAX_PHOTOS) {
-            ocrVault.put(READINGS[readings.length - 1], { lines: read, at: Date.now() });
+            ocrVault.put(READINGS[readings.length - 1], { lines: read, qr, at: Date.now() });
             askForAnotherPhoto(missing, readings.length + 1);
             return;
         }
-        openReviewFrom(readings, photo);
+        openReviewFrom(readings, photo, qr);
     } catch (e) {
         if (e && e.code === 'OCR_CANCELLED') {
             // Cancel: back to the photo on the Capture card, ready for OK again or a new one. A wipe already cleared everything.
@@ -859,11 +868,18 @@ function showPhotoCount() {
 const reviewPhoto = () => ($('reviewImage').getAttribute('src') ? cropEditor.getCroppedImage() : null);
 
 // The review step with every reading put together: lines no photo could read are listed as Ignore, with a note.
-function openReviewFrom(readings, photo = null) {
+// The text of the first QR code found on any held photo of this card (it waits with that photo's reading).
+function heldQr() {
+    return READINGS.map(slot => ocrVault.get(slot)).filter(Boolean).map(reading => reading.qr).find(Boolean) || null;
+}
+
+function openReviewFrom(readings, photo = null, qr = null) {
+    const qrText = qr || heldQr();
     forgetReadings();
     const merged = mergeReadings(readings);
     const unreadable = merged.filter(l => l.unreadable).map(l => ({ text: l.text, role: 'ignore', icon: l.icon || null, check: UNREADABLE_LINE_NOTE }));
-    ocrReview = { lines: [...formMapper.classifyLines(merged.filter(l => !l.unreadable)), ...unreadable], fields: null };
+    // A QR code's vCard, MECARD or web address is exact: its lines come first and win their fields (MOD07 qrReader.js).
+    ocrReview = { lines: withQrLines([...formMapper.classifyLines(merged.filter(l => !l.unreadable)), ...unreadable], parseQrPayload(qrText)), fields: null };
     renderOcrLines();
     $('ocrBackBtn').classList.toggle('hidden', !$('reviewImage').getAttribute('src'));
     readThumb.show(photo || reviewPhoto());
@@ -1045,12 +1061,12 @@ function wireIntake() {
 // ---- Egress (MOD08 only) ---------------------------------------------------------------------------------------
 
 // The QR for an export, drawn by MOD07 from the current contact in the chosen style. Returns what was drawn.
-function renderExportQr(canvas, { themed = true, ink = null, dots = 'square', frame = 'none', logo = null, size = 320 } = {}) {
+function renderExportQr(canvas, { themed = true, ink = null, pair = null, dots = 'square', eyes = 'square', dotSize = 1, frame = 'none', logo = null, size = 320, sample = null } = {}) {
     const contact = cardView.getContact();
-    if (!vcgeQREngine.hasDetails(contact)) return { ok: false, themed: false };
-    const text = vcgeQREngine.generateVCard30({ ...contact, avatarBase64: null });
+    if (!sample && !vcgeQREngine.hasDetails(contact)) return { ok: false, themed: false };
+    const text = sample || vcgeQREngine.generateVCard30({ ...contact, avatarBase64: null });
     const theme = ink ? { card: ink } : themed ? THEMES[themeKeyOf(contact.themePalette)] : null;
-    const ok = vcgeQREngine.renderQRCode(canvas, text, { size, theme, dots, frame, logo });
+    const ok = vcgeQREngine.renderQRCode(canvas, text, { size, theme, pair, dots, eyes, dotSize, frame, logo });
     return { ok, themed: !!(ok && vcgeQREngine.lastRender && vcgeQREngine.lastRender.themed) };
 }
 
@@ -1077,6 +1093,19 @@ function wireEgress() {
         delivered: () => flyFalcon({ parcel: true }),
         beforeExternal: expectExternalApp
     });
+    // The look's picture drop-downs: each row shows a small code in the current look with that one choice changed.
+    // The pictures use a short sample code, not the contact, so they stay quick to draw.
+    const QR_THUMB_PX = 96;
+    for (const [key, id] of Object.entries(LOOK_SELECTS)) {
+        pictureSelect($(id), { render: (value, box) => {
+            const look = { ...exportQrDialog.choices, [key]: key === 'dotSize' || key === 'printCm' ? Number(value) : value };
+            const canvas = document.createElement('canvas');
+            canvas.className = 'export-qr-thumb';
+            if (!renderExportQr(canvas, { ...renderOptions(look), size: QR_THUMB_PX, sample: 'vCGE' }).ok) return;
+            if (key === 'printCm') canvas.style.width = canvas.style.height = `${Math.round(look.printCm / 5 * 100)}%`;   // bigger print, bigger picture
+            box.append(canvas);
+        } });
+    }
     // "Also use this logo on my card": Export wrote the Vault's logo slot; the card view reads it through its own handle.
     egressController.setVault(vaultStore.handle('mod08'));
     const cardVault = vaultStore.handle('mod06');
@@ -1095,15 +1124,17 @@ function wireEgress() {
         printChoiceDialog.open();
     });
     printChoiceDialog.init({
-        onChoose: (themed, { nameFile = false } = {}) => {
+        onChoose: async (themed, { nameFile = false } = {}) => {
             expectExternalApp();
             const qr = document.createElement('canvas');
             const drawn = renderExportQr(qr, { themed, size: PRINT_QR_PX });
             const warned = themed && drawn.ok && !drawn.themed;
             if (warned) cardView.showToast('The theme colours are not scannable, so the QR is printed in black and white.');
-            const printed = egressController.triggerPhysicalPrint({ themed, qrCanvas: drawn.ok ? qr : null, nameFile });
-            if (printed && printed.success && !warned) { cardView.showToast('Sent to the print dialog.'); flyFalcon(); }
+            // The sheet takes a PNG copy of the QR at once, so the drawing canvas can be emptied before the wait for it.
+            const printing = egressController.triggerPhysicalPrint({ themed, qrCanvas: drawn.ok ? qr : null, nameFile });
             qr.width = qr.height = 0;
+            const printed = await printing;
+            if (printed && printed.success && !warned) { cardView.showToast('Sent to the print dialog.'); flyFalcon(); }
         }
     });
     $('shareNativeBtn').addEventListener('click', async () => {
@@ -1154,7 +1185,7 @@ function wireAuditLog() {
 
 function boot() {
     maskSecretInputs();
-    initSettings();          // the one saved entry: hand, colour-blind mode, theme, font
+    initSettings(document, { hasContacts: () => hasWork() || !vaultStore.isEmpty(), restart: startFresh });   // the one saved entry: hand, colour-blind mode, theme, font, look
     // MOD01's deck talks to the other modules only through these hooks (and the CARD_CHANGED signal on the bus).
     useDeck({
         toast: (message) => cardView.showToast(message),

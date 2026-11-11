@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD08 Export (Airlock): the small touches raven575 approved on 2026-10-21 (notes/cute-ideas/mod08-airlock.md).
- * Attributions: Created by raven575, Team vCGE (Claude) & Gemini
+ * Attributions: Created by raven575, Herd of Helpers (claude) & gemini
  *
  * E1 the hatch: each Share button's little door swings open for a moment when pressed, with air lines and a soft
  *    green ring round the button (export.css; reduce motion: no movement).

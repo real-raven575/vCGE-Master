@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD01: Shutout's touches on the header (the "make it cute" round, raven575 approved 2026-10-21)
- * Created by raven575, Team vCGE (Claude) & Gemini
+ * Created by raven575, Herd of Helpers (claude) & gemini
  *
  * S1: Shutout's comic medal sits tucked in behind the lit card icon. When the card changes (or Left/Right mirrors the
  * header) he steps down onto the header's bottom edge and walks to the new icon on a spring (raven575's test report,

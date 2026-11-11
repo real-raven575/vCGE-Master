@@ -1,10 +1,11 @@
 /**
  * vCGE-MOD08: the Export QR pop-up and the Print / PDF choice (redesign step 10)
- * Created by raven575, Team vCGE (Claude) & Gemini
+ * Created by raven575, Herd of Helpers (claude) & gemini
  *
  * Export QR: a small selector over the deck (markup in index.html, a Shell sheet: a sideways swipe, Esc or the X is
- * Cancel) with a live preview. Colours Themed or Black & White; dots Square or Round; frame None, Square, Rounded
- * square or Circle; centre logo Nothing (default), the scanned logo from the card, or an upload. The PNG is saved
+ * Cancel) with a live preview. Picture drop-downs for colours (card theme, ten high-contrast pairs, classic inks), dot
+ * shape and size, corner squares, frame and size on Print / PDF; centre logo Nothing (default), the scanned logo from
+ * the card, or an upload. The PNG is saved
  * exactly as previewed. The code itself is drawn by MOD07 through the `render` hook the controller sets here (this
  * module never imports another); an uploaded logo is made ready by the `prepareLogo` hook (MOD06's trace and white
  * removal, on the device) and is only ever drawn as an image, so a script inside an SVG never runs. "Also use this
@@ -16,20 +17,33 @@
  */
 import { egressController } from './egressController.js';
 
-export const QR_COLOURS = ['themed', 'bw', 'navy', 'forest', 'plum', 'cocoa'];
+// The named high-contrast pairs (MOD07 QR_PAIRS holds their colours and checks each one reaches 7:1 before drawing it)
+export const QR_PAIR_NAMES = Object.freeze({
+    'cream-navy': 'Cream & Navy', 'mint-plum': 'Mint & Plum', 'peach-teal': 'Peach & Deep Teal', 'sky-maroon': 'Sky & Maroon',
+    'lavender-forest': 'Lavender & Forest', 'lemon-indigo': 'Lemon & Indigo', 'blush-pine': 'Blush & Pine',
+    'ice-burgundy': 'Ice & Burgundy', 'sand-cobalt': 'Sand & Cobalt', 'lilac-olive': 'Lilac & Olive'
+});
+export const QR_COLOURS = ['themed', 'bw', ...Object.keys(QR_PAIR_NAMES), 'navy', 'forest', 'plum', 'cocoa'];
 // The extra colours: MOD07 tints them like a card theme (a very dark shade on a pale tint, contrast checked)
 export const QR_INKS = Object.freeze({ navy: '#1e3a8a', forest: '#166534', plum: '#6b21a8', cocoa: '#7c4a1e' });
-export const QR_DOTS = ['square', 'round', 'diamond'];
+export const QR_DOTS = ['square', 'rounded', 'round', 'diamond', 'bars'];
+export const QR_EYES = ['square', 'rounded', 'circle'];
+export const QR_DOT_SIZES = [1, 0.9, 0.8];
+export const QR_PRINT_CM = [2.5, 3.5, 5];   // the code's width on the Print / PDF sheet
 export const QR_FRAMES = ['none', 'square', 'rounded', 'circle', 'stripes', 'checkers', 'polka'];
 export const QR_LOGOS = ['none', 'scanned', 'upload'];
 export const LOGO_MAX_BYTES = 2 * 1024 * 1024;
 export const PREVIEW_PX = 320;
+/** The look's drop-downs, by choice key. */
+export const LOOK_SELECTS = Object.freeze({
+    colour: 'qrColourSelect', dots: 'qrDotsSelect', eyes: 'qrEyesSelect', dotSize: 'qrDotSizeSelect', frame: 'qrFrameSelect', printCm: 'qrPrintSizeSelect'
+});
 
 const $ = (id) => document.getElementById(id);
 
-/** The default choices: themed, square dots, no frame, no logo, the logo not put on the card. */
+/** The default choices: themed, square full-size dots, square corners, no frame, 3.5 cm in print, no logo, the logo not put on the card. */
 export function defaultChoices() {
-    return { colour: 'themed', dots: 'square', frame: 'none', logo: 'none', useOnCard: false };
+    return { colour: 'themed', dots: 'square', eyes: 'square', dotSize: 1, frame: 'none', printCm: 3.5, logo: 'none', useOnCard: false };
 }
 
 /** A choice set with every value checked against the lists (anything unknown falls back to the default). */
@@ -38,9 +52,23 @@ export function cleanChoices(c = {}) {
     return {
         colour: QR_COLOURS.includes(c.colour) ? c.colour : d.colour,
         dots: QR_DOTS.includes(c.dots) ? c.dots : d.dots,
+        eyes: QR_EYES.includes(c.eyes) ? c.eyes : d.eyes,
+        dotSize: QR_DOT_SIZES.includes(Number(c.dotSize)) ? Number(c.dotSize) : d.dotSize,
+        printCm: QR_PRINT_CM.includes(Number(c.printCm)) ? Number(c.printCm) : d.printCm,
         frame: QR_FRAMES.includes(c.frame) ? c.frame : d.frame,
         logo: QR_LOGOS.includes(c.logo) ? c.logo : d.logo,
         useOnCard: c.useOnCard === true
+    };
+}
+
+/**
+ * What the `render` hook gets for a choice set: the colour as a theme flag, an ink or a named pair, plus the style.
+ * Print uses the same object, so the PDF matches the PNG.
+ */
+export function renderOptions(c) {
+    return {
+        themed: c.colour === 'themed', ink: QR_INKS[c.colour] || null, pair: QR_PAIR_NAMES[c.colour] ? c.colour : null,
+        dots: c.dots, eyes: c.eyes, dotSize: c.dotSize, frame: c.frame
     };
 }
 
@@ -94,11 +122,17 @@ export class ExportQrDialog {
             logoReason: $('exportQrLogoReason'), useOnCard: $('exportQrUseOnCard'), useOnCardRow: $('exportQrUseOnCardRow'),
             fileName: $('exportQrFileName')
         };
-        root.querySelectorAll('input[name="qrColour"], input[name="qrDots"], input[name="qrLogo"]').forEach(input => {
-            input.addEventListener('change', () => this.onChoice(input.name, input.value));
+        root.querySelectorAll('input[name="qrLogo"]').forEach(input => {
+            input.addEventListener('change', () => this.onChoice('logo', input.value));
         });
-        this.el.frame = $('qrFrameSelect');
-        this.el.frame.addEventListener('change', () => this.onChoice('qrFrame', this.el.frame.value));
+        // The look: plain <select>s the controller dresses as picture drop-downs (MOD01 pictureSelect).
+        this.el.selects = {};
+        for (const [key, id] of Object.entries(LOOK_SELECTS)) {
+            const select = $(id);
+            if (!select) continue;
+            this.el.selects[key] = select;
+            select.addEventListener('change', () => this.onChoice(key, select.value));
+        }
         this.el.useOnCard.addEventListener('change', () => { this.choices.useOnCard = this.el.useOnCard.checked; });
         this.el.file.addEventListener('change', (e) => { const file = e.target.files[0]; e.target.value = ''; if (file) this.loadUpload(file); });
         this.el.save.addEventListener('click', () => this.save());
@@ -118,7 +152,7 @@ export class ExportQrDialog {
         this.el.fileName.textContent = egressController.fileName(' QR.png');
         this.root.classList.remove('hidden', 'is-closing'); // (also when Esc or a swipe is still sliding it away)
         await this.preview();
-        const first = this.root.querySelector('input[name="qrColour"]:checked');
+        const first = this.el.selects.colour && (this.el.selects.colour._picture?.button || this.el.selects.colour);
         if (first) first.focus();
     }
 
@@ -128,9 +162,13 @@ export class ExportQrDialog {
         this.reset();
     }
 
-    /** Drops the upload, the preview and the choices (a wipe calls this too). */
-    reset() {
-        this.choices = defaultChoices();
+    /**
+     * Drops the upload and the preview. The look (colours, dots, corners, sizes, frame) stays in memory between openings
+     * so Print / PDF can use it too; a wipe calls reset({ keepLook: false }) and that clears it as well.
+     */
+    reset({ keepLook = true } = {}) {
+        const c = this.choices || defaultChoices();
+        this.choices = keepLook ? cleanChoices({ ...c, logo: 'none', useOnCard: false }) : defaultChoices();
         this.upload = null;
         this.images.clear();
         this.last = { ok: false, themed: false };
@@ -155,16 +193,19 @@ export class ExportQrDialog {
 
     paintChoices() {
         const set = (name, value) => { const input = this.root.querySelector(`input[name="${name}"][value="${value}"]`); if (input) input.checked = true; };
-        set('qrColour', this.choices.colour); set('qrDots', this.choices.dots); set('qrLogo', this.choices.logo);
-        this.el.frame.value = this.choices.frame;
+        set('qrLogo', this.choices.logo);
+        for (const [key, select] of Object.entries(this.el.selects)) {
+            select.value = String(this.choices[key]);
+            if (select._picture) select._picture.refresh();   // its picture shows the current contact in the new look
+        }
         this.el.useOnCard.checked = this.choices.useOnCard;
         this.el.useOnCardRow.classList.toggle('hidden', !this.upload);
     }
 
-    onChoice(name, value) {
-        const key = { qrColour: 'colour', qrDots: 'dots', qrFrame: 'frame', qrLogo: 'logo' }[name];
-        if (!key) return;
+    onChoice(key, value) {
+        if (!(key in this.choices) || key === 'useOnCard') return;
         this.choices = cleanChoices({ ...this.choices, [key]: value });
+        if (key !== 'logo') for (const [k, select] of Object.entries(this.el.selects)) if (k !== key && select._picture) select._picture.refresh();
         if (key === 'logo' && value === 'upload' && !this.upload) { this.el.file.click(); return; }
         this.preview();
     }
@@ -213,7 +254,7 @@ export class ExportQrDialog {
         this.rendering = (async () => {
             const logo = await this.logoImage();
             const c = this.choices;
-            const result = this.hooks.render(this.el.canvas, { themed: c.colour === 'themed', ink: QR_INKS[c.colour] || null, dots: c.dots, frame: c.frame, logo, size: PREVIEW_PX }) || { ok: false, themed: false };
+            const result = this.hooks.render(this.el.canvas, { ...renderOptions(c), logo, size: PREVIEW_PX }) || { ok: false, themed: false };
             this.last = { ok: !!result.ok, themed: !!result.themed };
             if (!this.last.ok) this.el.canvas.width = this.el.canvas.height = 0;
             this.el.note.textContent = previewNote(this.last, c);
@@ -239,7 +280,7 @@ export class ExportQrDialog {
 }
 
 export class PrintChoiceDialog {
-    /** @param {{ onChoose: (themed: boolean, options: { nameFile: boolean }) => void }} hooks */
+    /** @param {{ onChoose: (themed: boolean, options: { nameFile: boolean }) => void|Promise<void> }} hooks */
     constructor(hooks = {}) {
         this.hooks = hooks;
         this.root = null;

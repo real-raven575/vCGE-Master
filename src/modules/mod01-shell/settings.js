@@ -1,6 +1,6 @@
 /**
  * vCGE-MOD01: saved settings (redesign step 4)
- * Created by raven575, Team vCGE (Claude) & Gemini
+ * Created by raven575, Herd of Helpers (claude) & gemini
  *
  * The one thing vCGE keeps on the device: a single localStorage entry of preferences and nothing else (raven575,
  * 2026-10-17). One line of `name=number` pairs, for example `hand=0;cb=0;theme=0;font=0;size=0;wipe=0`. Missing or unreadable
@@ -9,7 +9,9 @@
  *
  *   hand   0 right (default), 1 left: `html[data-hand="right|left"]` for the header mirror, the
  *          Welcome buttons' thumb line and any module that places a control by hand (MOD03's shutter and fader).
- *   cb     0 off (default), 1 on: colour-blind mode, `html[data-cb="1"]` (MOD02's wipe dialog reads it).
+ *   cb     0 off (default), 1 on: colour-blind mode, `html[data-cb="1"]` (MOD02's wipe dialog reads it). 2 to 5 are
+ *          colour vision (COLOUR_VISION, raven575 2026-11-10): words and marks as 1, and the good and stop colours moved to
+ *          a pair that person can tell apart (`html[data-cvd]`): 2 red-weak, 3 green-weak, 4 blue-weak, 5 no colour.
  *   theme  the colour theme by its fixed code (themes.js; 0 Dark, the default, 1 Light (both in Creative's Herd colours),
  *          then the Autumn and Team vCGE themes, then Creative's Everyday and Seasonal ones from 28): its mode sets the `dark` class on <html> (Tailwind `darkMode: 'class'`), its colours the --vcge-*
  *          variables and html[data-app-theme]. Plain shows no branded theme and reads a saved one as Dark or Light.
@@ -35,7 +37,9 @@ import { globalEventBus, Events } from '../../share/eventBus.js';
 import { UI_FONTS, DEFAULT_UI_FONT } from './ui.js';
 import { THEMES, THEME_FAMILIES, themeFor, familyOf, familyCode, applyTheme } from './themes.js';
 
-export const SETTINGS_KEY = 'vcge_settings';
+import { SETTINGS_KEY, isPlainLook } from './edition.js';
+import { pictureSelect } from './pictureSelect.js';
+export { SETTINGS_KEY };
 const OLD_THEME_KEY = 'vcge_theme_preference';
 
 // Fixed, never reused: the order the fonts were added, not the alphabetical order shown in Settings.
@@ -55,12 +59,26 @@ export const STYLES = Object.freeze([
     { code: 0, id: 'herd', name: 'Herd' }, { code: 1, id: 'material', name: 'Material' }, { code: 2, id: 'ios', name: 'iOS' },
     { code: 3, id: 'windows', name: 'Windows' }, { code: 4, id: 'gnome', name: 'GNOME' }, { code: 5, id: 'kde', name: 'KDE' }
 ]);
-export const DEFAULTS = Object.freeze({ hand: 0, cb: 0, theme: 0, font: FONT_CODES[DEFAULT_UI_FONT], size: 0, wipe: 0, mode: 0, style: 0, tex: 0 });
+export const DEFAULTS = Object.freeze({ hand: 0, cb: 0, theme: 0, font: FONT_CODES[DEFAULT_UI_FONT], size: 0, wipe: 0, mode: 0, style: 0, tex: 0, look: 0 });
 // The names every entry has carried since step 4; the 0.8 ones (mode, style, tex) are written only once they differ from
 // their defaults, so an entry nobody changed them in reads exactly as before.
 const CORE = ['hand', 'cb', 'theme', 'font', 'size', 'wipe'];
-const RANGE = { hand: 1, cb: 1, theme: Math.max(...THEMES.map(t => t.code)), font: Math.max(...Object.values(FONT_CODES)), size: Math.max(...TEXT_SIZES.map(t => t.code)),
-    wipe: Math.max(...WIPE_TIMES.map(t => t.code)), mode: 1, style: Math.max(...STYLES.map(t => t.code)), tex: 1 };
+const RANGE = { hand: 1, cb: 5, theme: Math.max(...THEMES.map(t => t.code)), font: Math.max(...Object.values(FONT_CODES)), size: Math.max(...TEXT_SIZES.map(t => t.code)),
+    wipe: Math.max(...WIPE_TIMES.map(t => t.code)), mode: 1, style: Math.max(...STYLES.map(t => t.code)), tex: 1, look: 1 };
+
+/** Colour vision (Settings > Accessibility): fixed codes, the cb setting's 2 to 5; 0 is Typical. Each moves the good and
+ *  stop colours (light page, dark page) to a pair that person tells apart; No colour greys the page (screens-r5.css). */
+export const COLOUR_VISION = Object.freeze([
+    { code: 0, id: 'typical', name: 'Typical', hint: 'No colour changes' },
+    { code: 2, id: 'protan', name: 'Red-weak (protan)', hint: 'Green and red become blue and orange',
+      light: { good: '#1d4ed8', stop: '#c2410c' }, dark: { good: '#8ab4ff', stop: '#fdba74' } },
+    { code: 3, id: 'deutan', name: 'Green-weak (deutan)', hint: 'Green and red become blue and orange',
+      light: { good: '#1d4ed8', stop: '#c2410c' }, dark: { good: '#8ab4ff', stop: '#fdba74' } },
+    { code: 4, id: 'tritan', name: 'Blue-weak (tritan)', hint: 'Blue and yellow cues become teal and pink',
+      light: { good: '#0f766e', stop: '#be185d' }, dark: { good: '#5eead4', stop: '#f9a8d4' } },
+    { code: 5, id: 'mono', name: 'No colour', hint: 'Grey only, with words and marks' }
+]);
+export const visionFor = (cb) => COLOUR_VISION.find(v => v.code === cb) || COLOUR_VISION[0];
 
 /** The text-size factor for a code (1 when the code is unknown). */
 export function scaleFor(code) {
@@ -144,8 +162,12 @@ export function clearSettings(storage = localStorage) {
 export function applySettings(settings, root = document.documentElement, dark = systemDark()) {
     const s = parseSettings(serializeRaw(settings));
     root.dataset.hand = s.hand === 1 ? 'left' : 'right';
-    if (s.cb === 1) root.dataset.cb = '1'; else delete root.dataset.cb;
-    applyTheme(root, effectiveTheme(s, dark), root.dataset.edition === 'plain');
+    if (s.cb >= 1) root.dataset.cb = '1'; else delete root.dataset.cb;
+    const t = applyTheme(root, effectiveTheme(s, dark), root.dataset.edition === 'plain');
+    const v = visionFor(s.cb);
+    if (v.code) root.dataset.cvd = v.id; else delete root.dataset.cvd;
+    const pair = v[t.mode];                                  // after the theme, so it wins over the theme's own good / stop
+    if (pair) { root.style.setProperty('--vcge-good', pair.good); root.style.setProperty('--vcge-stop', pair.stop); }
     root.dataset.style = styleFor(s.style).id;
     root.dataset.tex = s.tex === 1 ? 'off' : 'on';
     root.dataset.font = String(s.font);
@@ -158,19 +180,32 @@ export function applySettings(settings, root = document.documentElement, dark = 
 
 // ---- The Settings sheet (0.8, Creative's CRTV-0020 mock-up) ---------------------------------------------------------
 
-/** The swatch groups: Everyday and Seasonal in view (the mock-up), the card colours and the Team under More themes. */
+/** The quick picks in the theme box (raven575, 2026-11-03): one tap after opening it. Every other palette is under More themes. */
+export const QUICK_THEMES = Object.freeze(['herd', 'signal', 'graphite']);
+/** The swatch groups: the quick picks in view once the box is open; the rest of Everyday, Seasonal, the card colours and
+ *  the Team under More themes. */
 export const SWATCH_GROUPS = Object.freeze([
-    { group: 'Everyday', label: 'Everyday', more: false }, { group: 'Seasonal', label: 'Seasonal', more: false },
-    { group: 'Autumn', label: 'Card colours', more: true }, { group: 'Team vCGE', label: 'Team vCGE', more: true }
+    { group: 'Quick', label: 'Quick picks', more: false }, { group: 'Everyday', label: 'Everyday', more: true },
+    { group: 'Seasonal', label: 'Seasonal', more: true }, { group: 'Autumn', label: 'Autumn', more: true },
+    { group: 'Team vCGE', label: 'Team vCGE', more: true }
 ]);
+/** The palettes a swatch group shows: Quick is QUICK_THEMES in that order; the others leave the quick picks out. */
+export function swatchFamilies(families, group) {
+    if (group === 'Quick') return QUICK_THEMES.map(id => families.find(f => f.id === id)).filter(Boolean);
+    return families.filter(f => f.group === group && !QUICK_THEMES.includes(f.id));
+}
+/** The font code the Dyslexia-friendly switch sets: OpenDyslexic on, Inter (the default) off. */
+export const DYSLEXIA_FONT = FONT_CODES['OpenDyslexic'];
+export const dyslexiaFont = (on) => (on ? DYSLEXIA_FONT : FONT_CODES[DEFAULT_UI_FONT]);
 
 /**
  * Wire the sheets' controls (any of them may be missing), apply the saved settings and listen for the wipe signal.
- * Settings: #appThemes (theme swatches, built here; #moreThemes holds the extra groups), #appearanceChips (System /
- * Light / Dark), #styleChips (the six platform styles), #sizeRange (text size), #fontSelect, and the switches #handToggle,
- * #cbToggle and #texToggle. The Vault sheet: #wipeChips (7, 10 or 15 minutes after the lock).
+ * Settings: #themePicker (the closed theme box; #themeSummary shows the theme in use), #appThemes (the quick-pick
+ * swatches, built here; #moreThemes holds the other groups), #appearanceChips (System / Light / Dark), #styleChips (the six
+ * platform styles), #sizeRange (text size), #fontSelect, and the switches #dyslexiaToggle, #cbToggle, #handToggle and #texToggle. The Vault sheet: #wipeChips (7, 10 or 15 minutes after the lock).
  */
-export function initSettings(doc = document) {
+/** hasContacts: true while anything is held in memory (MOD02's vault); restart: starts vCGE fresh (main.js passes startFresh). */
+export function initSettings(doc = document, { hasContacts = () => false, restart = () => {} } = {}) {
     const $ = (id) => doc.getElementById(id);
     const win = doc.defaultView || (typeof window !== 'undefined' ? window : null);
     const dark = () => systemDark(win);
@@ -187,7 +222,10 @@ export function initSettings(doc = document) {
         const t = shown(), fam = familyOf(t.code), both = fam.light !== null && fam.dark !== null;
         pressAll($('appThemes'), '[data-family]', b => b.dataset.family === fam.id);
         const more = $('moreThemes');
-        if (more && families.some(f => f.id === fam.id && SWATCH_GROUPS.some(g => g.more && g.group === f.group))) more.open = true;
+        if (more && !QUICK_THEMES.includes(fam.id) && families.some(f => f.id === fam.id)) more.open = true;
+        const sumName = $('themeSummaryName'), sumSw = $('themeSummarySwatch');
+        if (sumName) sumName.textContent = fam.label;
+        if (sumSw) { sumSw.style.setProperty('--sw-a', t.vars ? t.vars.accent : ''); sumSw.style.setProperty('--sw-b', t.vars ? t.vars.bg : ''); }
         const chips = $('appearanceChips');
         pressAll(chips, '[data-v]', b => b.dataset.v === (s.mode === 1 && both ? 'system' : t.mode));
         chips?.querySelectorAll('[data-v]').forEach(b => { b.disabled = !both && b.dataset.v !== t.mode; });
@@ -200,9 +238,13 @@ export function initSettings(doc = document) {
             const i = Math.max(0, TEXT_SIZES.findIndex(x => x.code === s.size));
             size.value = String(i); size.setAttribute('aria-valuetext', TEXT_SIZES[i].name);
         }
-        const hand = $('handToggle'), cb = $('cbToggle'), tex = $('texToggle'), font = $('fontSelect');
+        const hand = $('handToggle'), cb = $('cbToggle'), tex = $('texToggle'), font = $('fontSelect'), dys = $('dyslexiaToggle');
+        if (dys) dys.checked = s.font === DYSLEXIA_FONT;
         if (hand) hand.checked = s.hand === 1;
-        if (cb) cb.checked = s.cb === 1;
+        if (cb) cb.checked = s.cb >= 1;
+        const cvd = $('cvdSelect');
+        if (cvd) { cvd.value = String(visionFor(s.cb).code); cvd._picture?.refresh(); }
+        doc.querySelectorAll('.r5-onoff').forEach(w => { const on = !!w._for?.checked; w.textContent = on ? 'On' : 'Off'; w.classList.toggle('is-on', on); });
         if (tex) tex.checked = s.tex === 0;
         if (font) font.value = String(s.font);
     };
@@ -212,7 +254,7 @@ export function initSettings(doc = document) {
     if (themes && !themes.querySelector('[data-family]')) {
         const more = $('moreThemesGrid');
         for (const g of SWATCH_GROUPS) {
-            const list = families.filter(f => f.group === g.group);
+            const list = swatchFamilies(families, g.group);
             const host = g.more ? more : themes;
             if (!list.length || !host) continue;
             const head = doc.createElement('span');
@@ -267,15 +309,60 @@ export function initSettings(doc = document) {
     if (size) { size.min = '0'; size.max = String(TEXT_SIZES.length - 1); size.step = '1'; }
     size?.addEventListener('input', (e) => set({ size: (TEXT_SIZES[Number(e.target.value)] || TEXT_SIZES[1]).code }));
     $('handToggle')?.addEventListener('change', (e) => set({ hand: e.target.checked ? 1 : 0 }));
-    $('cbToggle')?.addEventListener('change', (e) => set({ cb: e.target.checked ? 1 : 0 }));
+    $('cbToggle')?.addEventListener('change', (e) => set({ cb: e.target.checked ? (s.cb >= 1 ? s.cb : 1) : 0 }));
+    // Colour vision: a picture drop-down; Typical keeps words and marks as the switch has them
+    const cvd = $('cvdSelect');
+    if (cvd && !cvd.options.length) {
+        for (const v of COLOUR_VISION) {
+            const o = doc.createElement('option');
+            o.value = String(v.code); o.textContent = v.name; o.dataset.hint = v.hint;
+            cvd.append(o);
+        }
+        const swatch = (value, el) => {
+            const v = visionFor(Number(value)), p = v.light || { good: v.id === 'mono' ? '#3f3f46' : '#2e7d4f', stop: v.id === 'mono' ? '#d4d4d8' : '#b3261e' };
+            el.classList.add('is-split');
+            for (const c of [p.good, p.stop]) { const i = doc.createElement('i'); i.style.background = c; el.append(i); }
+        };
+        pictureSelect(cvd, { render: swatch });
+        cvd.addEventListener('change', () => { const code = Number(cvd.value); set({ cb: code || (s.cb >= 1 ? 1 : 0) }); });
+    }
+    // On or Off in words beside every switch (raven575, 2026-11-10), so the knob carries no mark in either state
+    doc.querySelectorAll('.r5-sheet input.r5-toggle').forEach(sw => {
+        if (sw.previousElementSibling?.classList.contains('r5-onoff')) return;
+        const w = doc.createElement('span');
+        w.className = 'r5-onoff'; w.setAttribute('aria-hidden', 'true'); w._for = sw;
+        sw.before(w);
+        sw.addEventListener('change', () => { w.textContent = sw.checked ? 'On' : 'Off'; w.classList.toggle('is-on', sw.checked); });
+    });
+    // App look's pointer to the card's own colours: closes Settings and opens Card design on the Card screen
+    $('cardDesignLink')?.addEventListener('click', () => {
+        doc.querySelector('#settingsSheet [data-sheet-close]')?.click();
+        doc.getElementById('navCard')?.click();
+        setTimeout(() => doc.getElementById('cardDesignHead')?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 350);
+    });
+    $('dyslexiaToggle')?.addEventListener('change', (e) => set({ font: dyslexiaFont(e.target.checked) }));
     $('texToggle')?.addEventListener('change', (e) => set({ tex: e.target.checked ? 0 : 1 }));
     font?.addEventListener('change', (e) => set({ font: Number(e.target.value) }));
-    // Plain look: plain is its own build, so the switch is never live; in the plain edition it says that this is it
+    // Plain look: in the Plain download the switch is on and fixed (that build is plain by its html line). In the Herd build it
+    // is live: look=1 is saved and vCGE starts fresh in the Plain look (applySavedLook, edition.js); with contacts in memory it
+    // asks first, because starting fresh clears them.
     const plainSw = $('plainToggle');
     if (plainSw) {
-        plainSw.disabled = true; plainSw.checked = plain;
-        const note = $('plainNote');
-        if (note && plain) note.textContent = 'This is the Plain edition: no Herd pilots or art';
+        const note = $('plainNote'), ask = $('plainConfirm');
+        if (plain && !isPlainLook(doc)) {
+            plainSw.disabled = true; plainSw.checked = true;
+            if (note) note.textContent = 'This is the Plain edition: no Herd pilots or art';
+        } else {
+            plainSw.disabled = false; plainSw.checked = s.look === 1;
+            const switchLook = () => { s = { ...s, look: plainSw.checked ? 1 : 0 }; saveSettings(s); restart(); };
+            const hideAsk = () => ask?.classList.add('hidden');
+            plainSw.addEventListener('change', () => {
+                if (!hasContacts() || !ask) return switchLook();
+                ask.classList.remove('hidden');
+            });
+            $('plainYesBtn')?.addEventListener('click', () => { hideAsk(); switchLook(); });
+            $('plainNoBtn')?.addEventListener('click', () => { hideAsk(); plainSw.checked = s.look === 1; });
+        }
     }
     // Appearance on System follows the device as it changes (nothing is written)
     try {

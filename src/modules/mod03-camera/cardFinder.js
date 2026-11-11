@@ -1,6 +1,6 @@
 /**
  * vCard Generator Engine (vCGE)
- * Copyright (c) 2026 raven575, Team vCGE (Claude) & Gemini
+ * Copyright (c) 2026 raven575, Herd of Helpers (claude) & gemini
  *
  * Repository: https://github.com/real-raven575/vCGE-Master
  * This source code is licensed under the MIT License found in the
@@ -12,7 +12,7 @@
  *
  * A business card in a photo is a bright (or dark) four-sided patch in the middle against a table or hand of another
  * shade around the edges. The finder works on a small copy of the photo: it reads the shade at the centre and the
- * shade along the border, splits the pixels between the two, takes the patch connected to the centre, wraps it in
+ * shade along the border, splits the pixels between the two (by colour when the shades are too close), takes the patch connected to the centre, wraps it in
  * its convex hull, fits the tightest rotated rectangle around the hull and picks the hull points nearest that
  * rectangle's corners. A patch that is too small, runs off every edge, or is nothing like a card's shape gives null,
  * and the corners stay where they are. It runs when the person presses Snap to card, and on a small copy of the live
@@ -32,30 +32,88 @@ export function findCardQuad(image) {
     const w = Math.floor(width / step), h = Math.floor(height / step);
     if (w < 8 || h < 8) return null;
 
-    // Luminance of the small copy (nearest sample, no smoothing needed at this size)
-    const lum = new Uint8Array(w * h);
+    // The small copy's colours (nearest sample, no smoothing needed at this size)
+    const rgb = new Float32Array(w * h * 3);
     for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
-            const o = ((y * step) * width + x * step) * 4;
-            lum[y * w + x] = (data[o] * 299 + data[o + 1] * 587 + data[o + 2] * 114) / 1000;
+            const o = ((y * step) * width + x * step) * 4, i = (y * w + x) * 3;
+            rgb[i] = data[o]; rgb[i + 1] = data[o + 1]; rgb[i + 2] = data[o + 2];
         }
     }
-
-    // The centre box (15 percent each way) against the border ring (4 percent in)
+    // The centre box (15 percent each way) and the border ring (4 percent in)
     const bx0 = Math.floor(w * 0.425), bx1 = Math.ceil(w * 0.575), by0 = Math.floor(h * 0.425), by1 = Math.ceil(h * 0.575);
     const ring = Math.max(1, Math.round(Math.min(w, h) * 0.04));
-    let cSum = 0, cN = 0, bSum = 0, bN = 0;
+    const centreIdx = [], borderIdx = [];
     for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
-            const v = lum[y * w + x];
-            if (x >= bx0 && x < bx1 && y >= by0 && y < by1) { cSum += v; cN++; }
-            if (x < ring || y < ring || x >= w - ring || y >= h - ring) { bSum += v; bN++; }
+            if (x >= bx0 && x < bx1 && y >= by0 && y < by1) centreIdx.push(y * w + x);
+            if (x < ring || y < ring || x >= w - ring || y >= h - ring) borderIdx.push(y * w + x);
         }
     }
-    const centre = cSum / cN, border = bSum / bN;
+    const small = { rgb, w, h, centreIdx, borderIdx };
+    // Shade first (a white card on a dark table, a dark card on a light one). When the shades are too close, as for a
+    // white card on a sunlit beige counter (raven575's first phone run of 0.8, 2026-11-03), try colour.
+    for (const makeSplit of [shadeSplit, colourSplit]) {
+        const split = makeSplit(small);
+        if (!split) continue;
+        const quad = quadFromSplit(small, split, image, step);
+        if (quad) return quad;
+    }
+    return null;
+}
+
+const luma = (r, g, b) => (r * 299 + g * 587 + b * 114) / 1000;
+
+/** Card pixels by brightness: halfway between the centre's mean shade and the border's. Null below MIN_CONTRAST. */
+export function shadeSplit({ rgb, centreIdx, borderIdx }) {
+    const mean = (idx) => idx.reduce((s, i) => s + luma(rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2]), 0) / idx.length;
+    const centre = mean(centreIdx), border = mean(borderIdx);
     if (Math.abs(centre - border) < MIN_CONTRAST) return null;
     const threshold = (centre + border) / 2, bright = centre > border;
-    const isCard = (i) => (bright ? lum[i] >= threshold : lum[i] <= threshold);
+    return (r, g, b) => (bright ? luma(r, g, b) >= threshold : luma(r, g, b) <= threshold);
+}
+
+export const MIN_COLOUR_SEPARATION = 0.6;   // centre and border must sit this many of the border's own spreads apart
+
+/**
+ * Card pixels by colour: the one direction in RGB along which the centre stands furthest from the border, counted in
+ * the border's own spread (a linear discriminant). A table's shadows and glare change its brightness a lot but its
+ * hue only a little, so a white card on a beige counter of the same brightness still stands out along "less yellow".
+ * Medians keep the card's printing and a strip of something else at the photo's edge from moving the two reference
+ * colours. Null when the two colours are not far enough apart.
+ */
+export function colourSplit({ rgb, centreIdx, borderIdx }) {
+    const median = (idx, k) => { const v = idx.map(i => rgb[i * 3 + k]).sort((a, b) => a - b); return v[v.length >> 1]; };
+    const c = [0, 1, 2].map(k => median(centreIdx, k)), b = [0, 1, 2].map(k => median(borderIdx, k));
+    const mu = [0, 0, 0];
+    for (const i of borderIdx) for (let k = 0; k < 3; k++) mu[k] += rgb[i * 3 + k] / borderIdx.length;
+    const S = [[25, 0, 0], [0, 25, 0], [0, 0, 25]];   // a little sensor noise, so a perfectly flat border still inverts
+    for (const i of borderIdx) {
+        const d = [rgb[i * 3] - mu[0], rgb[i * 3 + 1] - mu[1], rgb[i * 3 + 2] - mu[2]];
+        for (let r = 0; r < 3; r++) for (let q = 0; q < 3; q++) S[r][q] += d[r] * d[q] / borderIdx.length;
+    }
+    const diff = [c[0] - b[0], c[1] - b[1], c[2] - b[2]];
+    const dir = solve3(S, diff);
+    if (!dir) return null;
+    const spread = Math.sqrt(dir[0] * diff[0] + dir[1] * diff[1] + dir[2] * diff[2]);   // = separation in border spreads
+    if (!(spread >= MIN_COLOUR_SEPARATION)) return null;
+    const project = (r, g, bl) => r * dir[0] + g * dir[1] + bl * dir[2];
+    const threshold = (project(c[0], c[1], c[2]) + project(b[0], b[1], b[2])) / 2;
+    return (r, g, bl) => project(r, g, bl) >= threshold;
+}
+
+/** Solves the 3 x 3 system S x = v (Cramer's rule); null when S is singular. */
+export function solve3(S, v) {
+    const det3 = (m) => m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+    const d = det3(S);
+    if (!(Math.abs(d) > 1e-9)) return null;
+    return [0, 1, 2].map(k => det3(S.map((row, r) => row.map((x, q) => (q === k ? v[r] : x)))) / d);
+}
+
+// The patch of card pixels connected to the centre, wrapped in its hull and fitted with a rotated rectangle.
+function quadFromSplit({ rgb, w, h }, isCardRGB, image, step) {
+    const { width, height } = image;
+    const isCard = (i) => isCardRGB(rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2]);
 
     // The patch connected to the centre (4-connected flood fill from the card pixel nearest the centre)
     const cx = Math.floor(w / 2), cy = Math.floor(h / 2);
@@ -91,7 +149,7 @@ export function findCardQuad(image) {
         if (edge) points.push([x + 0.5, y + 0.5]);
     }
     if (count < MIN_AREA * w * h) return null;
-    // Running off all four sides means the photo already is the card (or the shade split found nothing): no edges to snap to
+    // Running off all four sides means the photo already is the card (or the split found nothing): no edges to snap to
     if (touchLeft > h * 0.5 && touchRight > h * 0.5 && touchTop > w * 0.5 && touchBottom > w * 0.5) return null;
 
     const hull = convexHull(points);
@@ -105,12 +163,12 @@ export function findCardQuad(image) {
     const aspect = longSide / shortSide;
     if (aspect < ASPECT_RANGE[0] || aspect > ASPECT_RANGE[1]) return null;
     if (polygonArea(quad) < MIN_AREA * width * height) return null;
-    return refineCorners(quad, image, step, threshold, bright);
+    return refineCorners(quad, image, step, isCardRGB);
 }
 
 // Each corner found on the small copy is within one sample step of the true one: at full size, the card pixel in
 // that neighbourhood that sticks out furthest away from the card's centre is the corner.
-function refineCorners(quad, { data, width, height }, step, threshold, bright) {
+function refineCorners(quad, { data, width, height }, step, isCardRGB) {
     const cx = quad.reduce((s, p) => s + p.x, 0) / 4, cy = quad.reduce((s, p) => s + p.y, 0) / 4;
     const reach = step + 2;
     return quad.map(c => {
@@ -118,8 +176,8 @@ function refineCorners(quad, { data, width, height }, step, threshold, bright) {
         let best = { x: c.x, y: c.y }, bestScore = -Infinity;
         for (let y = Math.max(0, Math.round(c.y) - reach); y <= Math.min(height - 1, Math.round(c.y) + reach); y++) {
             for (let x = Math.max(0, Math.round(c.x) - reach); x <= Math.min(width - 1, Math.round(c.x) + reach); x++) {
-                const o = (y * width + x) * 4, v = (data[o] * 299 + data[o + 1] * 587 + data[o + 2] * 114) / 1000;
-                if (bright ? v < threshold : v > threshold) continue;
+                const o = (y * width + x) * 4;
+                if (!isCardRGB(data[o], data[o + 1], data[o + 2])) continue;
                 const score = (x + 0.5 - c.x) * dx + (y + 0.5 - c.y) * dy;
                 if (score > bestScore) { bestScore = score; best = { x: x + 0.5, y: y + 0.5 }; }
             }
@@ -165,12 +223,24 @@ export function rectangleCorners(hull) {
     const toXY = (u, v) => [u * ux - v * uy, u * uy + v * ux];
     const rect = [toXY(minU, minV), toXY(maxU, minV), toXY(maxU, maxV), toXY(minU, maxV)];
     const used = new Set();
-    return rect.map(([rx, ry]) => {
+    const picks = rect.map(([rx, ry]) => {
         let pick = null, dist = Infinity;
         hull.forEach((p, k) => { if (used.has(k)) return; const d = Math.hypot(p[0] - rx, p[1] - ry); if (d < dist) { dist = d; pick = k; } });
         used.add(pick);
-        return hull[pick];
+        return { point: hull[pick], dist };
     });
+    return picks.map((p, k) => (isCutCorner(picks.map(q => q.dist), k, rect) ? rect[k] : p.point));
+}
+
+/**
+ * True when corner k of the patch is missing: its nearest hull point lies far inside the rectangle while the other
+ * three sit on theirs. A card printed with a dark or coloured band across one corner (a diagonal stripe) loses that
+ * corner from the patch; the rectangle around the rest of the card still reaches it, so the rectangle's corner is used.
+ */
+export function isCutCorner(dists, k, rect) {
+    const others = dists.filter((_, i) => i !== k).sort((a, b) => a - b);
+    const diag = Math.hypot(rect[2][0] - rect[0][0], rect[2][1] - rect[0][1]);
+    return dists[k] > Math.max(4 * others[1], 0.04 * diag) && others[2] < 0.04 * diag;
 }
 
 /** Corners in the crop editor's order: top-left, top-right, bottom-right, bottom-left (clockwise on screen). */

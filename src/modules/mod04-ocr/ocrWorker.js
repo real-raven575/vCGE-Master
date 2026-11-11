@@ -1,6 +1,6 @@
 /**
  * vCard Generator Engine (vCGE)
- * Copyright (c) 2026 raven575, Team vCGE (Claude) & Gemini
+ * Copyright (c) 2026 raven575, Herd of Helpers (claude) & gemini
  *
  * Repository: https://github.com/real-raven575/vCGE-Master
  * This source code is licensed under the MIT License found in the
@@ -60,7 +60,7 @@ export const OCR_UNSURE_WORD_CONFIDENCE = 50;
 
 // Second look (raven575's yes, 2026-10-18): a line with unsure words is read again as one enlarged strip, straight and
 // with its lean corrected both ways, and the surest reading is kept when it is clearly surer than the first. On a scan
-// whose text leaned backwards, the web line went from "TeamLogic\T.com Kalamazoo" (12) to "...KalamazooM|" (87).
+// whose text leaned backwards, the web line went from "PeakLogic\T.com Kalamazoo" (12) to "...KalamazooM|" (87).
 // Straight cards rarely have unsure lines, and a re-read that is not clearly surer changes nothing.
 export const SECOND_LOOK_PAGE_SEG_MODE = '7';                  // one line of text
 export const SECOND_LOOK_SCALE = 2;
@@ -74,6 +74,21 @@ export const SECOND_LOOK_MIN_GAIN = 15;
 export const SECOND_LOOK_GOOD_ENOUGH = 85;
 // The second look starts no new strip after this long, so it never makes a slow phone much slower.
 export const SECOND_LOOK_BUDGET_MS = 12000;
+
+// Digits look (raven575's yes, 2026-11-10, accuracy round 1): the phone number in a line is read once more as a strip
+// that may hold only phone characters, so the reader cannot turn a 5 into an S or a 0 into an O. The new digits replace
+// the first reading only when they make a whole phone number and the first reading did not, or are clearly surer.
+export const DIGITS_LOOK_CHARS = '0123456789()+-.x';
+export const DIGITS_LOOK_SHEARS = [0, -0.15, 0.15];
+export const DIGITS_LOOK_MAX_LINES = 3;
+export const DIGITS_LOOK_MIN_CONFIDENCE = 60;
+export const DIGITS_LOOK_MIN_GAIN = 10;
+// A number read this surely, all in digits already, is not read again.
+export const DIGITS_LOOK_SURE = 90;
+export const DIGITS_LOOK_GOOD_ENOUGH = 90;
+export const DIGITS_LOOK_BUDGET_MS = 8000;
+// Letters and marks the reader gives for digits in a phone number.
+const DIGIT_LOOKALIKES = { O: '0', o: '0', D: '0', Q: '0', I: '1', l: '1', i: '1', '|': '1', '!': '1', Z: '2', z: '2', S: '5', s: '5', $: '5', G: '6', b: '6', T: '7', B: '8', g: '9', q: '9' };
 
 /** Thrown when the photo is too blurry or unclear to read; the caller should ask for a new photo. */
 export class OcrUnreadableError extends Error {
@@ -95,6 +110,18 @@ export class OcrCancelledError extends Error {
         this.name = 'OcrCancelledError';
         this.code = 'OCR_CANCELLED';
     }
+}
+
+// The reader's start-up steps (Tesseract.js logger) and the share of the start each one ends at: the engine (about 4 MB)
+// and the English model (about 3 MB) are the slow ones.
+const START_STEPS = [['loading tesseract core', 0, 0.5], ['initializing tesseract', 0.5, 0.55], ['loading language traineddata', 0.55, 0.95], ['initializing api', 0.95, 1]];
+
+/** How far start-up is (0 to 1) when the engine reports `step` at `progress` (0 to 1); unknown steps give null. */
+export function startProgress(step, progress) {
+    const found = START_STEPS.find(([name]) => name === step);
+    if (!found) return null;
+    const [, from, to] = found, p = Math.min(1, Math.max(0, Number(progress) || 0));
+    return from + (to - from) * p;
 }
 
 /** Thrown when reading a photo took too long; the engine has been restarted and the caller should offer a retry. */
@@ -134,7 +161,7 @@ export class OcrStartFailedError extends Error {
  * Tesseract.js 5 swallows failures of its language/initialize steps inside createWorker, whose promise then never
  * settles, so errors are caught through `errorHandler` and raced against the returned promise.
  */
-async function initOCREngine(timeoutMs) {
+async function initOCREngine(timeoutMs, onStep = () => {}) {
     if (tesseractWorker) return tesseractWorker;
     const started = generation;
     if (typeof Tesseract === 'undefined') throw new OcrUnavailableError('Tesseract.js is not loaded');
@@ -154,6 +181,7 @@ async function initOCREngine(timeoutMs) {
         logger: m => {
             if (m && m.status) {
                 if (m.status === 'initializing api') filesLoaded = true;
+                onStep(m.status, m.progress);
                 console.log(`[${MODULE_ID}] OCR Progress: ${m.status} (${Math.round((m.progress || 0) * 100)}%)`);
             }
         }
@@ -344,7 +372,7 @@ export function joinSecondLook(text, word, reread) {
  * (`firstText`, `firstAlts`): where the two readings line up letter for letter (a letter kept or swapped for one other),
  * the first reading's letter and its runner-ups join the new letter's runner-ups. When the readings disagree the field
  * mapper still sees both, and picks from the card's context as it does for any second guess (a straightened
- * "TeamLogiclT" with "TeamLogiciT", "I" as runner-up, in the first reading becomes TeamLogicIT).
+ * "PeakLogiclT" with "PeakLogiciT", "I" as runner-up, in the first reading becomes PeakLogicIT).
  */
 export function mergeReadingAlts(firstText, firstAlts, text, alts) {
     const a = String(firstText || ''), b = String(text || '');
@@ -374,6 +402,66 @@ export function mergeReadingAlts(firstText, firstAlts, text, alts) {
 /** Is a second reading (`best`: { text, confidence }) clearly surer than the first (`firstConfidence`)? */
 export function secondLookWins(firstConfidence, best) {
     return !!best && !!best.text && best.confidence >= SECOND_LOOK_MIN_CONFIDENCE && best.confidence >= firstConfidence + SECOND_LOOK_MIN_GAIN;
+}
+
+/** `text` with every digit look-alike (O, S, l, B...) turned into the digit it stands for. */
+export function asDigits(text) {
+    return String(text || '').replace(/[OoDQIli|!ZzSs$GbTBgq]/g, c => DIGIT_LOOKALIKES[c]);
+}
+
+// One word of a phone number: phone characters only once look-alikes are digits, with at least one real digit.
+const phoneWord = (text) => /\d/.test(text) && /^[+(]?[\d().\-x]*\d[\d().\-x]*[,;]?$/.test(asDigits(text));
+const digitCount = (text) => String(text || '').replace(/x\d+$/i, '').replace(/\D/g, '').length;
+
+/** Is `text` a whole phone number in phone characters: 10 digits, 11 starting with 1, or + and 8-15 digits (an x extension aside)? */
+export function isPhoneDigits(text) {
+    const t = String(text || '').trim();
+    if (!t || !/^[\d()+\-.x ]+$/.test(t)) return false;
+    const n = digitCount(t), digits = t.replace(/x\d+$/i, '').replace(/\D/g, '');
+    return t.startsWith('+') ? n >= 8 && n <= 15 : n === 10 || (n === 11 && digits[0] === '1');
+}
+
+/**
+ * What a digits look at `line` would re-read: its first run of phone words holding 7-15 digits (look-alikes counted),
+ * at least half of them real digits. Null when the line has no such run, or the run is already sure, whole digits.
+ */
+export function digitsLookTarget(line) {
+    const words = (line.words || []).filter(w => w.text && w.text.trim());
+    if (!line.bbox) return null;
+    for (let start = 0; start < words.length; start++) {
+        if (!phoneWord(words[start].text)) continue;
+        let end = start;
+        while (end + 1 < words.length && phoneWord(words[end + 1].text)) end++;
+        const run = words.slice(start, end + 1), text = run.map(w => w.text).join(' ');
+        const n = digitCount(asDigits(text)), real = (text.match(/\d/g) || []).length;
+        if (n >= 7 && n <= 15 && real * 2 >= n && run.every(w => w.bbox)) {
+            const confidence = run.reduce((sum, w) => sum + (w.confidence || 0), 0) / run.length;
+            if (asDigits(text) === text && isPhoneDigits(text) && run.every(w => w.confidence >= DIGITS_LOOK_SURE)) return null;
+            return {
+                box: { x0: run[0].bbox.x0, y0: line.bbox.y0, x1: run[run.length - 1].bbox.x1, y1: line.bbox.y1 },
+                words: run.map(w => w.text), before: words.slice(0, start), after: words.slice(end + 1), text, confidence
+            };
+        }
+        start = end;
+    }
+    return null;
+}
+
+/** Does a digits-only reading (`best`: { text, confidence }) replace the first reading of the run (`target`)? */
+export function digitsLookWins(target, best) {
+    if (!target || !best || !best.text || best.text === target.text || best.confidence < DIGITS_LOOK_MIN_CONFIDENCE || !isPhoneDigits(best.text)) return false;
+    const was = digitCount(asDigits(target.text));
+    if (digitCount(best.text) !== was && isPhoneDigits(asDigits(target.text))) return false;
+    return !isPhoneDigits(target.text) || best.confidence >= target.confidence + DIGITS_LOOK_MIN_GAIN;
+}
+
+/** `text` with the run of tokens `words` replaced by `reread`, or null when the run is not in `text`. */
+export function joinDigitsLook(text, words, reread) {
+    const tokens = String(text || '').split(' ');
+    for (let i = 0; i + words.length <= tokens.length; i++) {
+        if (words.every((w, k) => tokens[i + k] === w)) return [...tokens.slice(0, i), reread, ...tokens.slice(i + words.length)].join(' ');
+    }
+    return null;
 }
 
 /** The strip of `page` (an image) inside `box`, padded, enlarged and sheared, as a PNG data URL. */
@@ -440,19 +528,76 @@ async function secondLook(worker, processedImage, lines, started) {
 }
 
 /**
+ * The words of a digits-only strip reading, as read: the echo clean-up of refineLines is skipped, because it takes the
+ * real second digit of "55" or "66" for an echo (measured 2026-11-10: "555-0158" came back "55-0158"). With a
+ * character list Tesseract can score a whole word 0 while every digit in it scores in the 90s, so a word's confidence is
+ * the mean of its digits' when it has them.
+ */
+export function digitWords(data) {
+    return (data.words || []).filter(w => w.text && w.text.trim()).map(w => {
+        const symbols = (w.symbols || []).filter(y => typeof y.confidence === 'number');
+        const confidence = symbols.length ? symbols.reduce((sum, y) => sum + y.confidence, 0) / symbols.length : (w.confidence || 0);
+        return { ...w, confidence, alts: [] };
+    });
+}
+
+/**
+ * Digits look at the lines holding a phone number (at most DIGITS_LOOK_MAX_LINES, least sure first): the number is read
+ * again as a strip that may hold only DIGITS_LOOK_CHARS, and replaces the first reading when digitsLookWins. Changes
+ * `lines` in place. Best effort like the second look: a failure keeps the reading; only a wipe ends the scan.
+ */
+async function digitsLook(worker, processedImage, lines, started) {
+    const todo = lines.filter(l => l.digits).sort((a, b) => a.digits.confidence - b.digits.confidence).slice(0, DIGITS_LOOK_MAX_LINES);
+    if (!todo.length) return;
+    const until = Date.now() + DIGITS_LOOK_BUDGET_MS;
+    try {
+        const page = new Image();
+        page.src = processedImage;
+        await page.decode();
+        await worker.setParameters({ tessedit_pageseg_mode: SECOND_LOOK_PAGE_SEG_MODE, tessedit_char_whitelist: DIGITS_LOOK_CHARS });
+        for (const line of todo) {
+            let best = null;
+            for (const shear of DIGITS_LOOK_SHEARS) {
+                if (Date.now() > until) break;
+                const { data } = await readWithin(worker, stripImage(page, line.digits.box, shear), OCR_READ_TIMEOUT_MS);
+                if (generation !== started) throw new OcrCancelledError();
+                const words = digitWords(data);
+                if (!words.length) continue;
+                const confidence = words.reduce((sum, w) => sum + w.confidence, 0) / words.length;
+                if (!best || confidence > best.confidence) best = { text: words.map(w => w.text).join(' '), words, confidence };
+                if (confidence >= DIGITS_LOOK_GOOD_ENOUGH && isPhoneDigits(best.text)) break;
+            }
+            const text = digitsLookWins(line.digits, best) && joinDigitsLook(line.text, line.digits.words, best.text);
+            if (!text) continue;
+            console.log(`[${MODULE_ID}] Digits look: a phone number read again in digits only, confidence ${Math.round(best.confidence)} (was ${Math.round(line.digits.confidence)})`);
+            const all = [...line.digits.before, ...best.words, ...line.digits.after];
+            line.alts = mergeReadingAlts(line.text, line.alts, text, altsForText(text, all));
+            line.text = text;
+            line.unsure = unsureWords(text, all);
+            line.confidence = meanConfidence(all);
+        }
+    } catch (error) {
+        if (error instanceof OcrCancelledError) throw error;
+        console.warn(`[${MODULE_ID}] Digits look stopped, first reading kept:`, error);
+    } finally {
+        if (tesseractWorker === worker) await worker.setParameters({ tessedit_pageseg_mode: OCR_PAGE_SEG_MODE, tessedit_char_whitelist: '' }).catch(() => {});
+    }
+}
+
+/**
  * Icons in front of each OCR line (phone handset, envelope, social logo...). Best effort: any failure means no icons,
  * never a failed scan. Returns [{ text, icon, alts, unsure, confidence, look? }] in card order (lines that were only an icon are dropped);
  * `alts` are the engine's close second guesses for letters of `text` ([{ at, chars }], see glyphChoices.js), `unsure`
  * the words of 2+ characters it read with confidence below OCR_UNSURE_WORD_CONFIDENCE, `look` what a second look would
- * re-read (secondLookTarget; dropped before the lines are returned).
+ * re-read (secondLookTarget) and `digits` what a digits look would (digitsLookTarget); both dropped before the lines are returned.
  */
 async function linesWithIcons(processedImage, data) {
     const lines = refineLines(data.lines || []);
     if (!lines.length) return String(data.text || '').split('\n').map(text => ({ text: text.trim(), icon: null, alts: [], unsure: [] })).filter(l => l.text);
     const withAlts = (found) => found.map((l, i) => {
         const out = { text: l.text, icon: l.icon, alts: altsForText(l.text, lines[i].words), unsure: unsureWords(l.text, lines[i].words), confidence: meanConfidence(lines[i].words) };
-        const look = secondLookTarget(lines[i], out.unsure);
-        return look ? { ...out, look } : out;
+        const look = secondLookTarget(lines[i], out.unsure), digits = digitsLookTarget(lines[i]);
+        return { ...out, ...(look ? { look } : {}), ...(digits ? { digits } : {}) };
     }).filter(l => l.text);
     try {
         const [templates, image] = await Promise.all([loadIconTemplates(), grayFromDataUrl(processedImage)]);
@@ -492,16 +637,20 @@ async function scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started) {
     let timer;
     const late = new Promise((_, reject) => { timer = setTimeout(() => reject(new OcrUnavailableError(`preparing the photo took longer than ${Math.round(initTimeoutMs / 1000)} s`)), initTimeoutMs); });
     const processedImage = await Promise.race([preProcessImageBuffer(imageSrc), late]).finally(() => clearTimeout(timer));
+    // Each start-up step moves the "Preparing the reader" percentage, so a slow first load (about 7 MB) is seen moving
+    // and not taken for a freeze (raven575's first phone run of 0.8, 2026-11-03).
+    // Only start-up steps: the same logger also reports "recognizing text" while reading, which must not relabel the read.
+    const onStep = (step, progress) => { const f = startProgress(step, progress); if (f !== null && !tesseractWorker) onStatus('starting', f); };
     // The engine stopping in its own start-up step (WebKit, CI run 39702174014) gets one fresh start (raven575, 2026-10-22).
     const startEngine = async () => {
-        try { return await initOCREngine(initTimeoutMs); }
+        try { return await initOCREngine(initTimeoutMs, onStep); }
         catch (error) {
             if (!(error instanceof OcrStartFailedError) || generation !== started) throw error;
             console.warn(`[${MODULE_ID}] ${error.message}; starting a fresh reader once more`);
-            return initOCREngine(initTimeoutMs);
+            return initOCREngine(initTimeoutMs, onStep);
         }
     };
-    if (!tesseractWorker) onStatus('starting');
+    if (!tesseractWorker) onStatus('starting', 0);
     let worker = await startEngine();
     onStatus('reading');
     let result;
@@ -535,7 +684,9 @@ async function scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started) {
     if (generation !== started) throw new OcrCancelledError();
     await secondLook(worker, processedImage, found, started);
     if (generation !== started) throw new OcrCancelledError();
-    const lines = found.map(({ look, ...line }) => line);
+    await digitsLook(worker, processedImage, found, started);
+    if (generation !== started) throw new OcrCancelledError();
+    const lines = found.map(({ look, digits, ...line }) => line);
     // A signal only: the text itself is contact data and goes back to the caller, never onto the bus.
     globalEventBus.publish(Events.OCR_TEXT_EXTRACTED, { sourceModule: MODULE_ID, confidence, icons: lines.filter(l => l.icon).length, timestamp: Date.now() });
     return { text, confidence, lines };

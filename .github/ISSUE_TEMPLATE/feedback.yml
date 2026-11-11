@@ -1,0 +1,14 @@
+name: Feedback or idea
+description: Tell us what vCGE got wrong, what confused you, or what you wish it did.
+labels: [feedback]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Please never include a real business card photo or anyone's real contact details.**
+  - type: textarea
+    id: feedback
+    attributes:
+      label: Your feedback
+    validations:
+      required: true
