@@ -40,6 +40,19 @@ export function picturesReady(root, waitMs = PRINT_IMAGE_WAIT_MS) {
 }
 
 /** The page height (inches) for a print sheet this tall (CSS px, 96 per inch): 3.5 in, or more when the card grows. */
+/** The QR's width on the sheet (Export QR's print size, in cm) when none is given: Checkers' default. */
+export const PRINT_QR_CM = 3.5;
+
+/**
+ * The page width in inches for a QR printed qrCm wide: 6 in as before, wider (rounded up to 0.01 in) when the code and
+ * its column no longer fit beside the 3.5 in card (the column is at least 1.5 in, so the name under the code fits).
+ */
+export function printPageWidth(qrCm = PRINT_QR_CM) {
+    const column = Math.max(1.5, qrCm / 2.54);
+    const needed = Math.ceil((3.5 + 0.3 + column + 2 * PRINT_PAGE_IN.margin) * 100) / 100;
+    return Math.max(PRINT_PAGE_IN.width, needed);
+}
+
 export function printPageHeight(sheetPx) {
     const needed = Math.ceil((sheetPx / 96 + 2 * PRINT_PAGE_IN.margin) * 100) / 100;
     return Math.max(PRINT_PAGE_IN.height, needed);
@@ -343,7 +356,7 @@ export class EgressController {
      * the PDF never shows an empty square where the QR goes. A clear (idle purge, lock, wipe) during that wait cancels.
      * @returns {Promise<{ success: boolean, reason?: 'empty'|'cleared', pageHeightIn?: number }>}
      */
-    async triggerPhysicalPrint({ themed = false, qrCanvas = null, nameFile = false } = {}) {
+    async triggerPhysicalPrint({ themed = false, qrCanvas = null, nameFile = false, qrCm = PRINT_QR_CM } = {}) {
         if (this.isEmpty()) return { success: false, reason: 'empty' };
         const sheet = document.getElementById('printSheet'), front = document.getElementById('cardFront');
         if (sheet && front) {
@@ -377,36 +390,40 @@ export class EgressController {
             name.textContent = this.displayName();
             side.append(name);
             sheet.replaceChildren(frontCopy, side);
+            // Export QR's print size: the code is drawn qrCm wide (print.css reads the variable), the page widens to fit
+            sheet.style.setProperty('--print-qr-size', `${qrCm}cm`);
+            sheet.style.setProperty('--print-qr-column', `${Math.max(1.5, qrCm / 2.54).toFixed(3)}in`);
         }
         if (sheet) {
             const filled = sheet.firstChild;
             await picturesReady(sheet);
             if (sheet.firstChild !== filled) return { success: false, reason: 'cleared' };
         }
-        const pageHeightIn = sheet ? this.fitPrintPage(sheet) : PRINT_PAGE_IN.height;
+        const pageWidthIn = printPageWidth(qrCm);
+        const pageHeightIn = sheet ? this.fitPrintPage(sheet, pageWidthIn) : PRINT_PAGE_IN.height;
         audit('print', { themed });
         if (nameFile) this.setPrintTitle(this.fileName(''));
         window.print();
-        return { success: true, pageHeightIn };
+        return { success: true, pageHeightIn, pageWidthIn };
     }
 
     /** Measures the filled sheet with the print layout (off screen) and sizes the page to it. Returns the page height. */
-    fitPrintPage(sheet) {
+    fitPrintPage(sheet, width = PRINT_PAGE_IN.width) {
         sheet.classList.add('print-measure');
         const height = printPageHeight(sheet.getBoundingClientRect().height);
         sheet.classList.remove('print-measure');
-        this.setPrintPageHeight(height);
+        this.setPrintPageSize(width, height);
         return height;
     }
 
-    setPrintPageHeight(height) {
+    setPrintPageSize(width, height) {
         if (typeof CSSStyleSheet === 'undefined' || !('adoptedStyleSheets' in document)) return;
         if (!this.pageSheet) {
             this.pageSheet = new CSSStyleSheet();
             document.adoptedStyleSheets = [...document.adoptedStyleSheets, this.pageSheet];
         }
-        this.pageSheet.replaceSync(height > PRINT_PAGE_IN.height
-            ? `@media print { @page { size: ${PRINT_PAGE_IN.width}in ${height}in; margin: ${PRINT_PAGE_IN.margin}in; } }` : '');
+        this.pageSheet.replaceSync(height > PRINT_PAGE_IN.height || width > PRINT_PAGE_IN.width
+            ? `@media print { @page { size: ${width}in ${height}in; margin: ${PRINT_PAGE_IN.margin}in; } }` : '');
     }
 
     /** The page title becomes the PDF's name until printing ends (afterprint), the next tap or key, or the next clear. */
