@@ -32,7 +32,12 @@ function screen() {
   return { xml, nodes, find: (re) => nodes.find(n => re.test(n.text) || re.test(n.desc)) };
 }
 async function waitFor(re, ms) {
-  for (const end = Date.now() + ms; Date.now() < end; await sleep(1500)) { const s = screen(); const n = s.find(re); if (n) return n; }
+  for (const end = Date.now() + ms; Date.now() < end; await sleep(1500)) {
+    const s = screen(); const n = s.find(re); if (n) return n;
+    // A freshly booted emulator can put up "Process system isn't responding" over everything: wait it out, as a person would.
+    const busy = s.find(/isn.t responding/i) && s.find(/^Wait$/);
+    if (busy) { console.log('note: Android showed a "not responding" box; tapping Wait'); tap(busy); }
+  }
   return null;
 }
 const tap = (n) => shell(`input tap ${n.x} ${n.y}`);
@@ -53,6 +58,8 @@ ok('APK installs', /Success/.test(installed), installed);
 const dump = shell(`dumpsys package ${PKG}`);
 ok('installed app holds no INTERNET permission', !/android\.permission\.INTERNET/.test(dump));
 
+// Error and not-responding boxes off, so a slow first boot can't cover the app (they only ever hide, never fail a check).
+shell('settings put global hide_error_dialogs 1');
 shell('logcat -c');
 shell('input keyevent KEYCODE_WAKEUP'); shell('wm dismiss-keyguard');
 shell(`am start -W -n ${PKG}/.MainActivity`);
@@ -63,7 +70,7 @@ if (!welcome) {
   // What Android does see, for the log: the on-screen nodes and the app's WebView and crash lines.
   const seen = screen();
   console.log('on screen:', seen.nodes.map(n => `[${n.pkg}] ${n.text || n.desc || '-'}`).slice(0, 60).join(' | '));
-  console.log(shell('logcat -d').split('\n').filter(l => /chromium|Console|vcge|Tauri|wry|WebView|ERR_|AndroidRuntime/i.test(l)).slice(-80).join('\n'));
+  console.log(shell('logcat -d').split('\n').filter(l => /chromium|Console|vcge|Tauri|wry|WebView|ERR_|FATAL/i.test(l) && !/uiautomator/.test(l)).slice(-80).join('\n'));
 }
 ok('browser gate passed (no "cannot run" page)', !screen().find(/cannot run in this browser/i));
 
