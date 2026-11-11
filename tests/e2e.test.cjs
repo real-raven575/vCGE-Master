@@ -3767,13 +3767,17 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('card: under reduce motion the flip is instant (one frame)', (await angle()) === 'rotateY(0deg)' && (await p6.evaluate(() => window.__spin.length)) === 1, JSON.stringify(await p6.evaluate(() => window.__spin)));
     await p6.emulateMedia({ reducedMotion: 'no-preference' });
     // Toasts: above the dock, 3 s, a tap dismisses, a hold keeps it until 3 s after the release
+    // The page notes when the toast shows, so its 3 s are timed on the page's own clock, not from before the tap
+    await p6.evaluate(() => { const t = document.getElementById('toast'); window.__toastAt = null;
+      new MutationObserver(() => { if (window.__toastAt === null && !t.classList.contains('opacity-0')) window.__toastAt = performance.now(); }).observe(t, { attributes: true, attributeFilter: ['class'] }); });
     await p6.click('#paletteListContainer [data-theme="sage"]');
     await p6.waitForTimeout(400);   // it slides in over 0.3 s
     const toastBox = await p6.locator('#toast').boundingBox();
     const dockTop = await p6.$eval('.vcge-dock', d => d.getBoundingClientRect().top);
     ok('0.8 shell: the toast shows as a pill just above the dock (the mock-up), never over it', toastBox.y + toastBox.height <= dockTop && toastBox.y > dockTop - 200 && await p6.isVisible('#toast'), JSON.stringify({ toastBox, dockTop }));
-    await p6.waitForTimeout(2200);
-    ok('toast: still there at 2.6 s', !(await p6.$eval('#toast', t => t.classList.contains('opacity-0'))));
+    await p6.waitForFunction(() => window.__toastAt !== null && performance.now() - window.__toastAt >= 2600, null, { polling: 50, timeout: 5000 }).catch(() => {});
+    const at26 = await p6.evaluate(() => ({ shown: !document.getElementById('toast').classList.contains('opacity-0'), ms: window.__toastAt === null ? null : Math.round(performance.now() - window.__toastAt) }));
+    ok('toast: still there at 2.6 s', at26.shown && at26.ms !== null && at26.ms >= 2600 && at26.ms < 3000, JSON.stringify(at26));
     await p6.waitForTimeout(700);
     ok('toast: gone after 3 s', await p6.$eval('#toast', t => t.classList.contains('opacity-0')));
     await p6.click('#paletteListContainer [data-theme="maple"]');
