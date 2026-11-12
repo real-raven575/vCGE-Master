@@ -58,8 +58,9 @@ ok('APK installs', /Success/.test(installed), installed);
 const dump = shell(`dumpsys package ${PKG}`);
 ok('installed app holds no INTERNET permission', !/android\.permission\.INTERNET/.test(dump));
 
-// Error and not-responding boxes off, so a slow first boot can't cover the app (they only ever hide, never fail a check).
-shell('settings put global hide_error_dialogs 1');
+// Not-responding boxes stay ON. With them hidden, Android closes a slow-starting app by itself instead of asking,
+// which killed vCGE on a busy emulator (main run 43324405383). waitFor taps "Wait" on such a box, as a person would.
+shell('settings put global hide_error_dialogs 0');
 shell('logcat -c');
 shell('input keyevent KEYCODE_WAKEUP'); shell('wm dismiss-keyguard');
 shell(`am start -W -n ${PKG}/.MainActivity`);
