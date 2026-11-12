@@ -1987,7 +1987,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const cut = leaves.filter(e => { const b = e.getBoundingClientRect(); return b.bottom > r.bottom + 0.5 || b.right > r.right + 0.5; }).map(e => e.textContent.trim());
       return { cut, card: [Math.round(r.width), Math.round(r.height)], qr: [Math.round(qr.width), Math.round(qr.height)], qrRight: qr.left > r.right, bg: getComputedStyle(c).backgroundColor, ink: getComputedStyle(c).color, cardBg: getComputedStyle(document.getElementById('cardFront')).backgroundColor };
     });
-    ok('printed card is 3.5 in wide and at least 2 in tall, with the 1.5 in QR to its right', size.card[0] === 336 && size.card[1] >= 192 && size.qr[0] === 144 && size.qr[1] === 144 && size.qrRight, JSON.stringify(size));
+    ok('printed card is 3.5 in wide and at least 2 in tall, with the QR to its right at the default 3.5 cm', size.card[0] === 336 && size.card[1] >= 192 && size.qr[0] === 132 && size.qr[1] === 132 && size.qrRight, JSON.stringify(size));
     ok('printed card cuts nothing off: every line sits inside the card (raven575 2026-10-18)', size.cut.length === 0, JSON.stringify(size.cut));
     ok('themed print keeps the card\'s own colours', size.bg === size.cardBg && size.bg !== 'rgb(255, 255, 255)', JSON.stringify(size));
     // Chrome's print preview sized the one-screen-tall body to the window, so a short card printed 4 sheets (raven575 2026-10-21)
@@ -2047,6 +2047,33 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const backPdf = (await p9.pdf({ preferCSSPageSize: true, printBackground: true })).toString('latin1');
       ok('a normal card prints on the 6 x 3.5 in page again', (/\/MediaBox\s*\[\s*0\s+0\s+(\d+)\s+(\d+)/.exec(backPdf) || []).slice(1).join() === '432,252');
     }
+    // raven575 2026-11-10: the PDF's QR uses the look and size picked under Save QR image (Checkers' styles), as the PNG does
+    const pick9 = async (id, value) => { await p9.click(`#${id} + .vcge-pick .vcge-pick-btn`); await p9.click(`#${id} + .vcge-pick [role="option"][data-value="${value}"]`); return (await p9.inputValue('#' + id)) === value; };
+    await p9.evaluate(() => { document.documentElement.style.fontSize = ''; });
+    await p9.click('#exportQrBtn'); await p9.waitForSelector('#exportQrSheet', { state: 'visible' });
+    const looked = await pick9('qrColourSelect', 'cream-navy') && await pick9('qrDotsSelect', 'round') && await pick9('qrPrintSizeSelect', '5');
+    await p9.keyboard.press('Escape');
+    const printedQr = () => p9.evaluate(() => {
+      const img = document.querySelector('#printSheet .print-qr img'), c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+      const x = c.getContext('2d'); x.drawImage(img, 0, 0); const d = x.getImageData(0, 0, c.width, c.height).data, seen = new Set();
+      for (let i = 0; i < d.length; i += 4) seen.add(`${d[i]},${d[i + 1]},${d[i + 2]}`);
+      return { colours: [...seen], css: getComputedStyle(document.getElementById('printSheet')).getPropertyValue('--print-qr-size').trim() };
+    });
+    const lookPrint = await printWith(p9, '#printThemedBtn');
+    const lookQr = await printedQr();
+    await p9.emulateMedia({ media: 'print' });
+    const lookBox = await p9.evaluate(() => { const q = document.querySelector('#printSheet .print-qr img').getBoundingClientRect(), c = document.querySelector('#printSheet .print-card').getBoundingClientRect(); return { qr: Math.round(q.width), right: q.left > c.right }; });
+    await p9.emulateMedia({ media: null });
+    ok('Airlock: Themed print uses the Save QR image look (Cream & Navy, not black) at its print size (5 cm)', looked && lookPrint.decoded && !lookQr.colours.includes('0,0,0') && !lookQr.colours.includes('255,255,255') && lookQr.css === '5cm' && lookBox.qr === 189 && lookBox.right, JSON.stringify({ looked, lookQr: { n: lookQr.colours.length, css: lookQr.css }, lookBox }));
+    if (ENGINE === 'chromium') {
+      const pdf5 = await p9.pdf({ preferCSSPageSize: true, printBackground: true });
+      const box5 = pdf5.toString('latin1').match(/\/MediaBox\s*\[\s*0 0 ([\d.]+) ([\d.]+)\s*\]/);
+      const pages5 = (pdf5.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length;
+      ok('Airlock: a 5 cm QR widens the page (6.37 in) and it is still one page', pages5 === 1 && box5 && Math.abs(Number(box5[1]) - 6.37 * 72) < 1, `${pages5} pages, box ${box5 && box5.slice(1)}`);
+    }
+    await printWith(p9, '#printBwBtn');
+    const bwLook = await printedQr();
+    ok('Airlock: Black & White print keeps the look\'s size but prints pure black on white', bwLook.colours.includes('0,0,0') && bwLook.colours.includes('255,255,255') && bwLook.css === '5cm', JSON.stringify({ n: bwLook.colours.length, css: bwLook.css }));
     // PDF name (raven575 2026-10-18): opt-in each print. Unticked, the title (and so the PDF name) stays the app's;
     // ticked, the title is the contact's file name only until printing ends or the next tap
     const appTitle = await p9.title();

@@ -2208,6 +2208,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const { printPageHeight, PRINT_PAGE_IN } = await import(`${R}/modules/mod08-egress/egressController.js`);
   ok('MOD08 print page: 3.5 in for a sheet that fits, taller (rounded up to 0.01 in) for a card that grows', PRINT_PAGE_IN.height === 3.5 && printPageHeight(278) === 3.5 && printPageHeight(0) === 3.5
     && printPageHeight(450) === 5.29 && printPageHeight(451) === 5.3, [printPageHeight(278), printPageHeight(450), printPageHeight(451)].join());
+  const { printPageWidth, PRINT_QR_CM } = await import(`${R}/modules/mod08-egress/egressController.js`);
+  ok('MOD08 print page: 6 in wide for a 2.5 or 3.5 cm QR (the default), wider (6.37 in) for a 5 cm QR', PRINT_QR_CM === 3.5 && printPageWidth() === 6 && printPageWidth(2.5) === 6 && printPageWidth(3.5) === 6 && printPageWidth(5) === 6.37, [printPageWidth(2.5), printPageWidth(5)].join());
   // raven575 2026-11-10: a PDF with the card and a blank square where the QR goes. The print dialog waits for the pictures.
   const { picturesReady } = await import(`${R}/modules/mod08-egress/egressController.js`);
   const decodedLater = (ms) => { const img = { complete: false, naturalWidth: 0, decode: () => new Promise(done => setTimeout(() => { img.complete = true; img.naturalWidth = 600; done(); }, ms)) }; return img; };

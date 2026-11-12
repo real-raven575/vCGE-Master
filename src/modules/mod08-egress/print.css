@@ -18,7 +18,7 @@
     align-items: center;
     justify-content: center;
     gap: 0.3in;
-    width: 5.4in;
+    width: calc(3.8in + var(--print-qr-column, 1.5in));
     min-height: 2.9in;
     box-sizing: border-box;
 }
@@ -82,8 +82,8 @@
 }
 
 .print-qr {
-    flex: 0 0 1.5in;
-    width: 1.5in;
+    flex: 0 0 var(--print-qr-column, 1.5in);
+    width: var(--print-qr-column, 1.5in);
     display: flex !important;
     flex-direction: column;
     align-items: center;
@@ -92,9 +92,10 @@
     color: #0f172a;
 }
 
+/* Export QR's print size (2.5, 3.5 or 5 cm), set on the sheet by egressController */
 .print-qr img {
-    width: 1.5in;
-    height: 1.5in;
+    width: var(--print-qr-size, 1.5in);
+    height: var(--print-qr-size, 1.5in);
 }
 
 .print-qr p {
@@ -102,7 +103,7 @@
     font-size: 8pt;
     font-weight: 700;
     text-align: center;
-    max-width: 1.5in;
+    max-width: var(--print-qr-column, 1.5in);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
