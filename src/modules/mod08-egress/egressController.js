@@ -335,7 +335,7 @@ export class EgressController {
 
     /**
      * Print / Save as PDF: one 6 x 3.5 in page (print.css) with the card front at business-card size (3.5 x 2 in or taller)
-     * on the left and the QR code (1.5 in) to its right. Themed keeps the card's colours (copied from the card onto
+     * on the left and the QR code (its print size) to its right. Themed keeps the card's colours and finish (copied onto
      * the print copy, which inherits nothing once it leaves the card); Black & White is white paper and dark ink.
      * When the contact is too big for a QR code the right side says so instead of showing an unscannable code.
      * A card with more lines than 2 in holds grows taller instead of cutting them off: the sheet is measured off screen
@@ -372,6 +372,16 @@ export class EgressController {
                 });
                 const flipper = front.parentElement;
                 if (flipper && flipper.dataset && flipper.dataset.theme) frontCopy.dataset.theme = flipper.dataset.theme;
+                // The finish (texture, its strength and blur) lives on the flipper too: the copy carries it, so the PDF
+                // shows the paper as on screen, not a flat colour (raven575 2026-11-11, CRTV-0061).
+                if (flipper && flipper.dataset && flipper.dataset.finish) {
+                    frontCopy.dataset.finish = flipper.dataset.finish;
+                    const look = getComputedStyle(flipper);
+                    ['--finish-a', '--finish-blur'].forEach(v => {
+                        const value = look.getPropertyValue(v).trim();
+                        if (value) frontCopy.style.setProperty(v, value);
+                    });
+                }
             }
             const side = document.createElement('div');
             side.className = `print-qr${themed ? ' print-themed' : ' print-bw'}`;

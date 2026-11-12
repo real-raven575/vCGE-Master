@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Debug builds only (`tauri android dev`): INTERNET so the WebView can reach the dev server on this computer.
+     Release builds are made from src/main alone and have no INTERNET permission. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+</manifest>

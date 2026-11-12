@@ -104,7 +104,7 @@ html[data-cb="1"] .logo-bg-swatch[aria-pressed="true"], html[data-cb="1"] .logo-
    picked (--finish-a, 0.05 to 1) and softened by the blur picked (--finish-blur, 0 to 2 px). Paper grain is the start.
    The paper textures are greyscale noise drawn by the browser from inline SVG (no image file, no internet) and laid on
    with overlay, so they read on light and dark cards alike; Linen, Thatch, Dots and Stripes are drawn in the ink colour.
-   It sits behind the card's text (isolation keeps it inside the face) and stays off the printed card. The same rules
+   It sits behind the card's text (isolation keeps it inside the face); the Themed print copy carries it, Black & White does not. The same rules
    draw the little samples in the finish picker (.finish-sample). */
 :root {
     --tex-paper-grain: url("data:image/svg+xml,%3Csvg xmlns='http%3A//www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='t' x='0' y='0' width='100%25' height='100%25'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.72' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='linear' slope='2.2' intercept='-0.6'/%3E%3CfeFuncG type='linear' slope='2.2' intercept='-0.6'/%3E%3CfeFuncB type='linear' slope='2.2' intercept='-0.6'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23t)'/%3E%3C/svg%3E");
@@ -117,24 +117,27 @@ html[data-cb="1"] .logo-bg-swatch[aria-pressed="true"], html[data-cb="1"] .logo-
 .card-face { isolation: isolate; }
 .card-face::before, .finish-sample::before { content: ''; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; z-index: -1;
     opacity: var(--finish-a, 0.7); filter: blur(var(--finish-blur, 0px)); }
-:is(#card3DFlipper[data-finish="paper"] .card-face, .finish-sample[data-finish="paper"])::before {
+:is(#card3DFlipper[data-finish="paper"] .card-face, .finish-sample[data-finish="paper"], .print-card.print-themed[data-finish="paper"])::before {
     background-image: var(--tex-paper-grain), var(--tex-paper-fibre), var(--tex-paper-fleck); mix-blend-mode: overlay; }
-:is(#card3DFlipper[data-finish="cotton"] .card-face, .finish-sample[data-finish="cotton"])::before {
+:is(#card3DFlipper[data-finish="cotton"] .card-face, .finish-sample[data-finish="cotton"], .print-card.print-themed[data-finish="cotton"])::before {
     background-image: var(--tex-cotton-fine), var(--tex-cotton-cloud), var(--tex-paper-fibre); mix-blend-mode: overlay; }
-:is(#card3DFlipper[data-finish="watercolour"] .card-face, .finish-sample[data-finish="watercolour"])::before {
+:is(#card3DFlipper[data-finish="watercolour"] .card-face, .finish-sample[data-finish="watercolour"], .print-card.print-themed[data-finish="watercolour"])::before {
     background-image: var(--tex-watercolour), var(--tex-cotton-fine); mix-blend-mode: overlay; }
-:is(#card3DFlipper[data-finish="thatch"] .card-face, .finish-sample[data-finish="thatch"])::before {
+:is(#card3DFlipper[data-finish="thatch"] .card-face, .finish-sample[data-finish="thatch"], .print-card.print-themed[data-finish="thatch"])::before {
     background: repeating-linear-gradient(35deg, var(--card-ink) 0 0.6px, transparent 0.6px 7px), repeating-linear-gradient(-35deg, var(--card-ink) 0 0.6px, transparent 0.6px 9px); }
-:is(#card3DFlipper[data-finish="linen"] .card-face, .finish-sample[data-finish="linen"])::before {
+:is(#card3DFlipper[data-finish="linen"] .card-face, .finish-sample[data-finish="linen"], .print-card.print-themed[data-finish="linen"])::before {
     background: repeating-linear-gradient(0deg, var(--card-ink) 0 1px, transparent 1px 4px), repeating-linear-gradient(90deg, var(--card-ink) 0 1px, transparent 1px 4px); }
-:is(#card3DFlipper[data-finish="gradient"] .card-face, .finish-sample[data-finish="gradient"])::before { background: linear-gradient(160deg, #ffffff 0%, transparent 55%, #000000 100%); }
-:is(#card3DFlipper[data-finish="glow"] .card-face, .finish-sample[data-finish="glow"])::before { background: radial-gradient(120% 100% at 0% 0%, #ffffff, transparent 65%); }
-:is(#card3DFlipper[data-finish="dots"] .card-face, .finish-sample[data-finish="dots"])::before { background: radial-gradient(var(--card-ink) 1.2px, transparent 1.8px) 0 0 / 10px 10px; }
-:is(#card3DFlipper[data-finish="stripes"] .card-face, .finish-sample[data-finish="stripes"])::before { background: repeating-linear-gradient(45deg, var(--card-ink) 0 6px, transparent 6px 16px); }
-@media print { .card-face::before { display: none; } }
+:is(#card3DFlipper[data-finish="gradient"] .card-face, .finish-sample[data-finish="gradient"], .print-card.print-themed[data-finish="gradient"])::before { background: linear-gradient(160deg, #ffffff 0%, transparent 55%, #000000 100%); }
+:is(#card3DFlipper[data-finish="glow"] .card-face, .finish-sample[data-finish="glow"], .print-card.print-themed[data-finish="glow"])::before { background: radial-gradient(120% 100% at 0% 0%, #ffffff, transparent 65%); }
+:is(#card3DFlipper[data-finish="dots"] .card-face, .finish-sample[data-finish="dots"], .print-card.print-themed[data-finish="dots"])::before { background: radial-gradient(var(--card-ink) 1.2px, transparent 1.8px) 0 0 / 10px 10px; }
+:is(#card3DFlipper[data-finish="stripes"] .card-face, .finish-sample[data-finish="stripes"], .print-card.print-themed[data-finish="stripes"])::before { background: repeating-linear-gradient(45deg, var(--card-ink) 0 6px, transparent 6px 16px); }
+/* The printed card (mod08-egress print.css) keeps its finish when printed Themed (raven575 2026-11-11: the PDF came out flat);
+   Black & White prints plain paper. */
+@media print { .card-face:not(.print-themed)::before { display: none; } }
 .finish-sample { position: relative; isolation: isolate; display: block; width: 100%; height: 100%; background: var(--card-bg, #3e5572); }
 /* The natural touches (raven575, 2026-11-10: "a little bit more flair ... more natural"): light from the top left and a
-   little shade at the bottom right on every finish, and the name pressed lightly into the paper. Not on the printed card. */
+   little shade at the bottom right on every finish, and the name pressed lightly into the paper. The Themed print gets the
+   light and shade too (print.css). */
 @media screen {
     .card-face { background-image: radial-gradient(120% 90% at 12% 0%, rgb(255 255 255 / 0.12), transparent 70%), radial-gradient(90% 80% at 100% 100%, rgb(0 0 0 / 0.10), transparent 75%); }
     .card-face h2, .card-face h3, #previewAvatar { text-shadow: 0 1px 0 rgb(0 0 0 / 0.16), 0 -1px 0 rgb(255 255 255 / 0.06); }
