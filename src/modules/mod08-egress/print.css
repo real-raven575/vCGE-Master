@@ -72,7 +72,9 @@
 
 /* Themed: the card's own colours (the variables are copied onto the copy, which stands outside the card) */
 .print-card.print-themed {
-    background: var(--card-bg, #ffffff) !important;
+    /* the light from the top left and the shade at the bottom right, as on screen (cardStyles.css) */
+    background: radial-gradient(120% 90% at 12% 0%, rgb(255 255 255 / 0.12), transparent 70%),
+        radial-gradient(90% 80% at 100% 100%, rgb(0 0 0 / 0.10), transparent 75%), var(--card-bg, #ffffff) !important;
     color: var(--card-ink, #0f172a) !important;
     border-color: var(--card-ink, #0f172a) !important;
 }
