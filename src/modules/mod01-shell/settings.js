@@ -59,12 +59,12 @@ export const STYLES = Object.freeze([
     { code: 0, id: 'herd', name: 'Herd' }, { code: 1, id: 'material', name: 'Material' }, { code: 2, id: 'ios', name: 'iOS' },
     { code: 3, id: 'windows', name: 'Windows' }, { code: 4, id: 'gnome', name: 'GNOME' }, { code: 5, id: 'kde', name: 'KDE' }
 ]);
-export const DEFAULTS = Object.freeze({ hand: 0, cb: 0, theme: 0, font: FONT_CODES[DEFAULT_UI_FONT], size: 0, wipe: 0, mode: 0, style: 0, tex: 0, look: 0 });
+export const DEFAULTS = Object.freeze({ hand: 0, cb: 0, theme: 0, font: FONT_CODES[DEFAULT_UI_FONT], size: 0, wipe: 0, mode: 0, style: 0, tex: 0, look: 0, tour: 0, splash: 0 });
 // The names every entry has carried since step 4; the 0.8 ones (mode, style, tex) are written only once they differ from
 // their defaults, so an entry nobody changed them in reads exactly as before.
 const CORE = ['hand', 'cb', 'theme', 'font', 'size', 'wipe'];
 const RANGE = { hand: 1, cb: 5, theme: Math.max(...THEMES.map(t => t.code)), font: Math.max(...Object.values(FONT_CODES)), size: Math.max(...TEXT_SIZES.map(t => t.code)),
-    wipe: Math.max(...WIPE_TIMES.map(t => t.code)), mode: 1, style: Math.max(...STYLES.map(t => t.code)), tex: 1, look: 1 };
+    wipe: Math.max(...WIPE_TIMES.map(t => t.code)), mode: 1, style: Math.max(...STYLES.map(t => t.code)), tex: 1, look: 1, tour: 1, splash: 1 };
 
 /** Colour vision (Settings > Accessibility): fixed codes, the cb setting's 2 to 5; 0 is Typical. Each moves the good and
  *  stop colours (light page, dark page) to a pair that person tells apart; No colour greys the page (screens-r5.css). */
@@ -157,6 +157,22 @@ export function clearSettings(storage = localStorage) {
     try { storage.removeItem(SETTINGS_KEY); storage.removeItem(OLD_THEME_KEY); } catch { /* nothing to remove */ }
 }
 
+// First-run tour (raven575, 2026-11-11): tour=1 once the tour has been finished or skipped, so it opens by itself only on
+// the very first start. It is one more name in the same entry, written only then; "Also delete my saved settings" brings it back.
+let liveSet = null;
+/** True once the first-run tour has been finished or skipped on this device. */
+export function tourSeen(storage = typeof localStorage !== 'undefined' ? localStorage : null) {
+    return storage ? loadSettings(storage).tour === 1 : false;
+}
+/** Remembers that the tour was seen: through the Settings sheet's own copy once it is wired, so a later change keeps it. */
+export function rememberTourSeen(storage = typeof localStorage !== 'undefined' ? localStorage : null) {
+    if (liveSet) return liveSet({ tour: 1 });
+    if (storage) saveSettings({ ...loadSettings(storage), tour: 1 }, storage);
+}
+// Opening splash switch (raven575, 2026-11-11): the splash covers no loading (a fixed CSS fade; the reader loads on the first
+// scan), so Settings > Comfort can turn it off. splash=1 is Off (html[data-splash="off"]); browserGate.js also reads it before
+// the page is drawn, so the splash never shows for a moment.
+
 /** Put the settings on <html>: the hand, colour-blind, font, size and wipe hooks, the theme (the dark class and its
  *  colours, through Appearance), the platform style (html[data-style]) and the background texture (html[data-tex]). */
 export function applySettings(settings, root = document.documentElement, dark = systemDark()) {
@@ -170,6 +186,7 @@ export function applySettings(settings, root = document.documentElement, dark = 
     if (pair) { root.style.setProperty('--vcge-good', pair.good); root.style.setProperty('--vcge-stop', pair.stop); }
     root.dataset.style = styleFor(s.style).id;
     root.dataset.tex = s.tex === 1 ? 'off' : 'on';
+    if (s.splash === 1) root.dataset.splash = 'off'; else delete root.dataset.splash;
     root.dataset.font = String(s.font);
     root.style.setProperty('--vcge-ui-font', `'${fontFor(s.font)}'`);
     root.dataset.size = String(s.size);
@@ -202,7 +219,7 @@ export const dyslexiaFont = (on) => (on ? DYSLEXIA_FONT : FONT_CODES[DEFAULT_UI_
  * Wire the sheets' controls (any of them may be missing), apply the saved settings and listen for the wipe signal.
  * Settings: #themePicker (the closed theme box; #themeSummary shows the theme in use), #appThemes (the quick-pick
  * swatches, built here; #moreThemes holds the other groups), #appearanceChips (System / Light / Dark), #styleChips (the six
- * platform styles), #sizeRange (text size), #fontSelect, and the switches #dyslexiaToggle, #cbToggle, #handToggle and #texToggle. The Vault sheet: #wipeChips (7, 10 or 15 minutes after the lock).
+ * platform styles), #sizeRange (text size), #fontSelect, and the switches #dyslexiaToggle, #cbToggle, #handToggle, #texToggle and #splashToggle. The Vault sheet: #wipeChips (7, 10 or 15 minutes after the lock).
  */
 /** hasContacts: true while anything is held in memory (MOD02's vault); restart: starts vCGE fresh (main.js passes startFresh). */
 export function initSettings(doc = document, { hasContacts = () => false, restart = () => {} } = {}) {
@@ -214,6 +231,7 @@ export function initSettings(doc = document, { hasContacts = () => false, restar
     const families = THEME_FAMILIES.filter(f => !(plain && f.branded));
 
     const set = (change) => { s = applySettings({ ...s, ...change }, doc.documentElement, dark()); saveSettings(s); reflect(); };
+    liveSet = set;
     // The theme in view (a branded one reads as Dark or Light in plain) and its family
     const shown = () => themeFor(effectiveTheme(s, dark()), plain);
     const pressAll = (root, sel, test) => root && root.querySelectorAll(sel).forEach(b => b.setAttribute('aria-pressed', String(test(b))));
@@ -246,6 +264,8 @@ export function initSettings(doc = document, { hasContacts = () => false, restar
         if (cvd) { cvd.value = String(visionFor(s.cb).code); cvd._picture?.refresh(); }
         doc.querySelectorAll('.r5-onoff').forEach(w => { const on = !!w._for?.checked; w.textContent = on ? 'On' : 'Off'; w.classList.toggle('is-on', on); });
         if (tex) tex.checked = s.tex === 0;
+        const splash = $('splashToggle');
+        if (splash) splash.checked = s.splash === 0;
         if (font) font.value = String(s.font);
     };
 
@@ -342,6 +362,7 @@ export function initSettings(doc = document, { hasContacts = () => false, restar
     });
     $('dyslexiaToggle')?.addEventListener('change', (e) => set({ font: dyslexiaFont(e.target.checked) }));
     $('texToggle')?.addEventListener('change', (e) => set({ tex: e.target.checked ? 0 : 1 }));
+    $('splashToggle')?.addEventListener('change', (e) => set({ splash: e.target.checked ? 0 : 1 }));
     font?.addEventListener('change', (e) => set({ font: Number(e.target.value) }));
     // Plain look: in the Plain download the switch is on and fixed (that build is plain by its html line). In the Herd build it
     // is live: look=1 is saved and vCGE starts fresh in the Plain look (applySavedLook, edition.js); with contacts in memory it

@@ -64,9 +64,12 @@ shell('settings put global hide_error_dialogs 0');
 shell('logcat -c');
 shell('input keyevent KEYCODE_WAKEUP'); shell('wm dismiss-keyguard');
 shell(`am start -W -n ${PKG}/.MainActivity`);
-const welcome = await waitFor(/Hello there|cannot run|isn.t supported/i, 90000);
+// A fresh install is a first run: the tour opens by itself over Welcome once the splash goes (raven575 2026-11-11), and
+// its step 1 shows the Capture card. A slow emulator may only get its first look after that, so either screen counts.
+const welcome = await waitFor(/Hello there|^Skip tour$|cannot run|isn.t supported/i, 90000);
 shot('1-welcome');
-ok('app opens on Welcome ("Hello there")', welcome && /Hello there/i.test(welcome.text + welcome.desc), welcome ? welcome.text + welcome.desc : 'nothing within 90 s');
+const firstTour = !!welcome && /^Skip tour$/i.test(welcome.text || welcome.desc);
+ok('app opens on Welcome ("Hello there") or its first-run tour (Skip tour)', welcome && (firstTour || /Hello there/i.test(welcome.text + welcome.desc)), welcome ? welcome.text + welcome.desc : 'nothing within 90 s');
 if (!welcome) {
   // What Android does see, for the log: the on-screen nodes and the app's WebView and crash lines.
   const seen = screen();
@@ -75,19 +78,22 @@ if (!welcome) {
 }
 ok('browser gate passed (no "cannot run" page)', !screen().find(/cannot run in this browser/i));
 
-// 3. Paces: Skip the tour if it is up, then "Scan a card" moves to Capture.
-const skip = screen().find(/^Skip tour$/i);
-if (skip) { tap(skip); await sleep(1500); }
-const scan = await waitFor(/^Scan a card$/i, 15000);
-ok('"Scan a card" button is on screen', !!scan);
-if (scan) {
-  tap(scan);
+// 3. Paces: on Welcome, "Scan a card" moves to Capture; on the first-run tour, Skip tour closes it on Capture.
+const tourUp = firstTour || await waitFor(/^Skip tour$/i, 6000);
+const scan = tourUp ? null : await waitFor(/^Scan a card$/i, 15000);
+if (tourUp) {
+  const skip = await waitFor(/^Skip tour$/i, 5000);
+  ok('first run: the tour opened by itself, with Skip tour', !!skip);
+  if (skip) tap(skip);
+} else ok('"Scan a card" button is on screen', !!scan);
+if (scan || tourUp) {
+  if (scan) tap(scan);
   // Opening Capture may start the camera: Android then asks the person once. Allow it, as a person scanning would.
   const allow = await waitFor(/^(While using the app|Only this time|Allow)$/i, 8000);
   if (allow) { console.log('note: Android asked for the camera; allowing'); shot('2-camera-ask'); tap(allow); }
   const capture = await waitFor(/Step \d+ of \d+ · Capture/i, 20000);
   shot('3-capture');
-  ok('tap moves to Capture (header shows the Capture step)', !!capture, screen().nodes.filter(n => n.text || n.desc).slice(0, 40).map(n => n.text || n.desc).join(' | '));
+  ok(tourUp ? 'Skip tour leaves the app on Capture (header shows the Capture step)' : 'tap moves to Capture (header shows the Capture step)', !!capture, screen().nodes.filter(n => n.text || n.desc).slice(0, 40).map(n => n.text || n.desc).join(' | '));
 }
 
 // 4. Still alive, and nothing crashed.

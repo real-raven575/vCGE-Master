@@ -2,8 +2,8 @@
  * vCGE-MOD01: browser gate
  * Created by raven575, Herd of Helpers (claude) & gemini
  *
- * A classic script loaded by index.html right after netLock.js, before every other script. It only checks features:
- * nothing is sent, stored or fetched. It is written in ES5 so that even very old browsers (Internet Explorer 11)
+ * A classic script loaded by index.html right after netLock.js, before every other script. It only checks features (and
+ * reads the splash switch from vcge_settings): nothing is sent, stored or fetched. It is written in ES5 so that even very old browsers (Internet Explorer 11)
  * can run it and show a clear page instead of a blank one.
  *
  * Block: when a protection vCGE relies on is missing, the app never starts and the "cannot run in this browser" page
@@ -108,32 +108,48 @@
 
     // Loads the app as an ES module after the page has been read (as the old deferred module tag did), never once
     // the "cannot run" page is opening.
-    function startApp(env) {
+    // `settled` runs once the entry script has run or failed (its load or error event), so the gate stops watching
+    // for code the browser cannot read at that point, and not before.
+    function startApp(env, settled) {
         var doc = env.document;
         function load() {
             if (env.__vcgeGateBlocked) return;
             var script = doc.createElement('script');
             script.type = 'module';
             script.src = appEntry(doc);
+            if (settled && script.addEventListener) {
+                script.addEventListener('load', settled);
+                script.addEventListener('error', settled);
+            }
             doc.body.appendChild(script);
         }
         if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', load);
         else load();
     }
 
+    // Settings > Comfort > Opening splash (raven575, 2026-11-11): splash=1 in vcge_settings is Off. Read here, before the page
+    // is drawn, so a switched-off splash never shows for a moment. It only reads the one entry; nothing is written.
+    function splashOff(env) {
+        var line = null;
+        try { line = env.localStorage ? env.localStorage.getItem('vcge_settings') : null; } catch (e) { return false; }
+        return typeof line === 'string' && (';' + line + ';').indexOf(';splash=1;') !== -1;
+    }
+
     function run(env) {
+        if (splashOff(env)) env.document.documentElement.setAttribute('data-splash', 'off');
         var blocked = blockReasons(env);
         if (blocked.length) { showUnsupported(env, blocked); return; }
         // An engine that cannot read vCGE's code (a SyntaxError while its scripts load) must not leave a blank page.
-        // Only until the page has loaded: scripts are parsed by then, and a later error must never wipe a card.
+        // Only until the app's entry script has run (its load event comes after the browser reports a SyntaxError in it
+        // or in anything it imports): a later error must never wipe a card. The page's own load event is not used: a
+        // slow engine can fire it before the entry script is read, and a SyntaxError then left a blank page.
         function onError(e) {
             var err = e && e.error;
             var syntax = (err && err.name === 'SyntaxError') || /SyntaxError/.test(String(e && e.message));
             if (syntax) showUnsupported(env, ['script']);
         }
         env.addEventListener('error', onError, true);
-        env.addEventListener('load', function () { env.removeEventListener('error', onError, true); });
-        startApp(env);
+        startApp(env, function () { env.setTimeout(function () { env.removeEventListener('error', onError, true); }, 0); });
         var warn = warnReasons(env);
         if (!warn.length) return;
         if (env.document.readyState === 'loading') env.document.addEventListener('DOMContentLoaded', function () { showBanner(env, warn); });
@@ -142,7 +158,7 @@
 
     if (typeof module === 'object' && module.exports) {
         module.exports = { blockReasons: blockReasons, warnReasons: warnReasons, WARNINGS: WARNINGS, UNSUPPORTED_PAGE: UNSUPPORTED_PAGE,
-            APP_ENTRY: APP_ENTRY, appEntry: appEntry, startApp: startApp };
+            APP_ENTRY: APP_ENTRY, appEntry: appEntry, startApp: startApp, splashOff: splashOff };
     } else {
         run(window);
     }

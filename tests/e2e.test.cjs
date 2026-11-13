@@ -687,7 +687,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   ok('the cog opens Settings (0.8 sheet): theme swatches, Appearance, the six styles, text size, font, the Left-handed, colour-blind, texture and Plain look switches, and the disclaimer', await page.isVisible('#settingsSheet') && await page.isVisible('#handToggle') && await page.isVisible('#cbToggle') && await page.isVisible('#dyslexiaToggle') && await page.isVisible('#themeSummary')
     && await page.isVisible('#appearanceChips') && (await page.$$eval('#styleChips button', bs => bs.map(b => b.textContent).join())) === 'Herd,Material,iOS,Windows,GNOME,KDE'
     && await page.isVisible('#sizeRange') && await page.isVisible('#fontSelect') && await page.isVisible('#texToggle') && await page.$eval('#plainToggle', c => c.disabled === (document.documentElement.dataset.edition === 'plain')) && (EDITION_PLAIN ? /This is the Plain edition/ : /Hides the Herd pilots and art/).test(await text('plainNote'))
-    && (await text('settingsNote')) === 'vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look). Nothing you scan, upload or type is ever saved.');
+    && (await text('settingsNote')) === 'vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look, the opening splash, and whether you have seen the tour). Nothing you scan, upload or type is ever saved.');
   // raven575 (2026-11-03): the theme box starts closed, naming the theme in use; one tap shows the 3 quick picks, More themes stays closed
   ok('the theme box starts closed and names Herd; no swatch shows until it is opened', !(await page.$eval('#themePicker', d => d.open)) && (await text('themeSummaryName')) === 'Herd'
     && !(await page.isVisible('#appThemes [data-family="herd"]')));
@@ -1080,28 +1080,31 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       return face8Now(); };
     const face8Now = () => p8.evaluate(() => {
       const shown = (id) => { const el = document.getElementById(id); return !!el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0; };
-      const op = (sel) => getComputedStyle(document.querySelector('#vaultGhost ' + sel)).opacity;
+      // Creative's movable Ghost (movable-v1, raven575 2026-11-11): .ghost-paw-right is on the viewer's left
+      const op = (sel) => { const el = document.querySelector('#vaultGhost ' + sel); return el ? getComputedStyle(el).opacity : null; };
+      const vis = (sel) => { const el = document.querySelector('#vaultGhost ' + sel); return el ? getComputedStyle(el).visibility : null; };
+      const tf = (sel) => { const el = document.querySelector('#vaultGhost ' + sel); return el ? getComputedStyle(el).transform : null; };
       return { face: document.getElementById('vaultModal').dataset.face, filled: document.getElementById('vaultPinPaws').dataset.filled,
         ghost: shown('vaultGhost'), paws: shown('vaultPinPaws'), bands: shown('vaultTailBands'),
-        look: getComputedStyle(document.querySelector('#vaultGhost .vg-glints')).transform,
-        pawL: op('.vg-paw-l'), pawR: op('.vg-paw-r'), eyeL: op('.vg-eye-l'), wink: op('.vg-wink'), brows: op('.vg-brows'), eyes: op('.vg-eyes'), shades: op('.vg-shades'),
+        oldParts: !!document.querySelector('#vaultGhost [class^="vg-"]'), look: tf('.ghost-eyes'), browsUp: tf('.ghost-brows'),
+        pawV: op('.ghost-paw-right'), pawW: op('.ghost-paw-left'), wink: op('.ghost-wink'), winkVis: vis('.ghost-wink'), eyes: op('.ghost-eyes'), shades: op('.ghost-shades'), shadesVis: vis('.ghost-shades'),
         filledPaws: [...document.querySelectorAll('#vaultPinPaws .vault-paw')].filter(s => getComputedStyle(s).fill !== 'none').length,
         pinColor: getComputedStyle(document.getElementById('vaultPin')).color,
         ring: document.getElementById('vaultLockRing').getAttribute('stroke-dashoffset'), tail: document.getElementById('vaultTailMaskRing').getAttribute('stroke-dashoffset') };
     });
     const f0 = await face8();
     if (EDITION_PLAIN) ok('plain edition: no Ghost, no paw prints and no tail bands on the lock screen; the PIN box shows its own dots', !f0.ghost && !f0.paws && !f0.bands && f0.pinColor !== 'rgba(0, 0, 0, 0)', JSON.stringify(f0));
-    else ok('lock screen: Ghost has its eyes open but looks away, and four empty paw prints sit in the PIN box', f0.ghost && f0.paws && f0.face === 'away' && f0.look !== 'none' && f0.filled === '0' && f0.filledPaws === 0 && f0.pawL === '0' && f0.pawR === '0', JSON.stringify(f0));
+    else ok('lock screen: Creative\'s Ghost has his eyes open but looks away, paws down, over four empty paw prints in the PIN box', f0.ghost && !f0.oldParts && f0.paws && f0.face === 'away' && f0.look !== 'none' && f0.filled === '0' && f0.filledPaws === 0 && f0.pawV === '0' && f0.pawW === '0' && f0.winkVis === 'hidden' && f0.shadesVis === 'hidden', JSON.stringify(f0));
     ok('lock screen: the tail\'s bands follow the ring\'s countdown', f0.tail === f0.ring, JSON.stringify(f0));
     await p8.type('#vaultPin', '1'); await p8.waitForTimeout(500);
     const f1 = await face8();
-    ok('1st digit: one paw covers one eye and one paw print fills', f1.face === 'one' && f1.filled === '1' && (EDITION_PLAIN || (f1.filledPaws === 1 && f1.pawL === '1' && f1.pawR === '0')), JSON.stringify(f1));
+    ok('1st digit: one paw covers one eye and one paw print fills', f1.face === 'one' && f1.filled === '1' && (EDITION_PLAIN || (f1.filledPaws === 1 && f1.pawV === '1' && f1.pawW === '0')), JSON.stringify(f1));
     await p8.type('#vaultPin', '3'); await p8.waitForTimeout(500);
     const f2 = await face8();
-    ok('2nd digit: both paws cover the eyes and two paw prints fill', f2.face === 'both' && f2.filled === '2' && (EDITION_PLAIN || (f2.filledPaws === 2 && f2.pawL === '1' && f2.pawR === '1')), JSON.stringify(f2));
+    ok('2nd digit: both paws cover the eyes and two paw prints fill', f2.face === 'both' && f2.filled === '2' && (EDITION_PLAIN || (f2.filledPaws === 2 && f2.pawV === '1' && f2.pawW === '1')), JSON.stringify(f2));
     await p8.type('#vaultPin', '5'); await p8.waitForTimeout(500);
     const f3 = await face8();
-    ok('3rd digit: paws down, a wink and a raised eyebrow', f3.face === 'wink' && f3.filled === '3' && (EDITION_PLAIN || (f3.filledPaws === 3 && f3.pawL === '0' && f3.pawR === '0' && f3.eyeL === '0' && f3.wink === '1' && f3.brows === '1' && /, 2\.4\)$/.test(f3.look))), JSON.stringify(f3));
+    ok('3rd digit: paws down, a wink and raised brows; the open eye glances down', f3.face === 'wink' && f3.filled === '3' && (EDITION_PLAIN || (f3.filledPaws === 3 && f3.pawV === '0' && f3.pawW === '0' && f3.wink === '1' && f3.winkVis === 'visible' && /, -3\)$/.test(f3.browsUp) && /, 2\.4\)$/.test(f3.look))), JSON.stringify(f3));
     const box8 = await p8.evaluate(() => { const i = document.getElementById('vaultPin'); return { type: i.type, mask: i.style.webkitTextSecurity, max: i.maxLength, labels: i.labels.length, pawsHidden: document.getElementById('vaultPinPaws').getAttribute('aria-hidden'), ghostHidden: document.getElementById('vaultGhost').getAttribute('aria-hidden') }; });
     ok('the paw prints are drawing only: the PIN box is still a masked 4-digit field', (box8.type === 'password' || (box8.type === 'text' && box8.mask === 'disc')) && box8.max === 4 && box8.labels > 0 && box8.pawsHidden === 'true' && box8.ghostHidden === 'true', JSON.stringify(box8));
     await p8.fill('#vaultPin', ''); await p8.waitForTimeout(100);
@@ -1110,10 +1113,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p8.fill('#vaultPin', '1111'); await p8.waitForTimeout(300);
     ok('wrong session PIN (checked on the 4th digit) rejected with tries left', (await t8('vaultError')) === 'Wrong PIN. 4 tries left.' && (await p8.inputValue('#vaultPin')) === '', await t8('vaultError'));
     const fw = await face8();
-    ok('wrong PIN: the sunglasses come off, Ghost looks away again and the paw prints empty', fw.face === 'away' && fw.filled === '0' && (EDITION_PLAIN || (fw.shades === '0' && fw.eyes === '1')), JSON.stringify(fw));
+    ok('wrong PIN: the sunglasses come off, Ghost looks away again and the paw prints empty', fw.face === 'away' && fw.filled === '0' && (EDITION_PLAIN || (fw.shades === '0' && fw.shadesVis === 'hidden' && fw.eyes === '1')), JSON.stringify(fw));
     await p8.fill('#vaultPin', '2468'); await p8.waitForTimeout(600);   // the sunglasses are on (0.4 s); the dissolve ends at 1 s
-    const f4 = await p8.evaluate(() => { const m = document.getElementById('vaultModal'); return { face: m.dataset.face, hidden: m.classList.contains('hidden'), dissolving: m.classList.contains('vault-dissolve'),
-      shades: getComputedStyle(document.querySelector('#vaultGhost .vg-shades')).opacity, card: document.getElementById('firstName').value }; });
+    const f4 = await p8.evaluate(() => { const m = document.getElementById('vaultModal'); const sh = document.querySelector('#vaultGhost .ghost-shades');
+      return { face: m.dataset.face, hidden: m.classList.contains('hidden'), dissolving: m.classList.contains('vault-dissolve'),
+        shades: sh ? getComputedStyle(sh).opacity : null, card: document.getElementById('firstName').value }; });
     if (EDITION_PLAIN || SHELVED) ok(EDITION_PLAIN ? 'plain edition: the right PIN unlocks at once, no dissolve' : '0.8 shelf: the right PIN unlocks at once, no dissolve', f4.hidden && !f4.dissolving, JSON.stringify(f4));
     else ok('4th digit, right PIN: sunglasses on, then the lock screen dissolves before the card comes back', f4.face === 'shades' && f4.shades === '1' && f4.dissolving && !f4.hidden && f4.card === '', JSON.stringify(f4));
     await p8.waitForSelector('#vaultModal', { state: 'hidden' });
@@ -1965,7 +1969,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('Esc cancels the print choice (a sheet: a swipe would too) and nothing is printed', !(await p9.isVisible('#printChoiceSheet')) && (await p9.evaluate(() => document.getElementById('printSheet').children.length)) === 0);
     const themedPrint = await printWith(p9, '#printThemedBtn');
     ok('Airlock: the print dialog opens only once the QR picture is decoded (no blank square in the PDF)', themedPrint.qr && themedPrint.decoded, JSON.stringify(themedPrint));
-    const printFalcon = await p9.evaluate(() => ({ toast: document.getElementById('toastMessage').textContent, hidden: document.getElementById('toastFalcon').classList.contains('hidden') }));
+    // The old falcon drawing is gone (raven575 2026-11-11: only Creative's new pilot drawings); flyFalcon finds nothing to fly
+    const printFalcon = await p9.evaluate(() => ({ toast: document.getElementById('toastMessage').textContent, hidden: !document.getElementById('toastFalcon') || document.getElementById('toastFalcon').classList.contains('hidden') }));
     ok(SHELVED ? 'Airlock E2: after a print the toast says so (0.8 shelf: no falcon)' : 'Airlock E2: after a print the toast says so and the falcon is on it', printFalcon.toast === 'Sent to the print dialog.' && printFalcon.hidden === SHELVED, JSON.stringify(printFalcon));
     const sheet = await p9.evaluate(() => {
       const card = document.querySelector('#printSheet .print-card'), flipper = document.getElementById('card3DFlipper');
@@ -2363,16 +2368,17 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('one more photo: a reading with no name asks for another photo, saying what is missing and that it would be photo 2 of 3',
       /but not the name/.test(await pM.textContent('#ocrMorePhotoText')) && (await pM.textContent('#ocrMorePhotoCount')).includes('photo 2 of 3') && await pM.isVisible('#ocrAnotherPhotoBtn') && await pM.isVisible('#ocrFixByHandBtn'),
       await readStage(pM));
-    await pM.waitForTimeout(500);   // the owl's eyes settle (0.4 s)
-    // The reading box is hidden once the read ends, and a hidden SVG has no transform to read: show it for the measurement
+    await pM.waitForTimeout(500);   // Glyph's pupils settle (0.4 s)
+    // Creative's Glyph: the movable one reads along on the Read card (movable-v1), the helper one puzzles on "One more photo?" (raven575 2026-11-11)
     const owlM = await pM.evaluate(() => { const cs = (sel) => getComputedStyle(document.querySelector(sel)); const more = document.getElementById('ocrMorePhotoOwl');
-      const box = document.getElementById('ocrProgress'); box.classList.remove('hidden'); const pupils = cs('#ocrReadOwl .owl-pupils').transform; box.classList.add('hidden');
-      return { pupilsShown: pupils, read: cs('#ocrReadOwl').display, more: cs('#ocrMorePhotoOwl').display !== 'none' && more.getBoundingClientRect().width > 0, hidden: [document.getElementById('ocrReadOwl'), more].every(o => o.getAttribute('aria-hidden') === 'true'),
-        pupils: cs('#ocrReadOwl .owl-pupils').transform, closed: cs('#ocrReadOwl .owl-closed').display, progress: document.getElementById('ocrProgress').style.getPropertyValue('--read-progress') }; });
-    // Cute round O1 and O3 (raven575, 2026-10-21): Glyph the owl reads along and asks for the next photo; never in plain
-    ok(EDITION_PLAIN ? 'plain edition: no owl on the Read card or on "One more photo?"' : 'the owl follows the wash to the end and closes its eyes when the read is done; it holds a magnifying glass on "One more photo?"; screen readers skip it',
+      const box = document.getElementById('ocrProgress'); const was = box.classList.contains('is-done');
+      box.classList.remove('hidden', 'is-done'); const pupilsShown = cs('#ocrReadOwl .glyph-pupils').transform; if (was) box.classList.add('is-done'); box.classList.add('hidden');
+      return { pupilsShown, read: cs('#ocrReadOwl').display, more: cs('#ocrMorePhotoOwl').display !== 'none' && more.getBoundingClientRect().width > 0,
+        hidden: [document.getElementById('ocrReadOwl'), more].every(o => o.getAttribute('aria-hidden') === 'true'), helper: !!more.querySelector('.o-glyph-cant-read'),
+        pupils: cs('#ocrReadOwl .glyph-pupils').visibility, closed: cs('#ocrReadOwl .glyph-eyes-closed').visibility, progress: box.style.getPropertyValue('--read-progress') }; });
+    ok(EDITION_PLAIN ? 'plain edition: no owl on the Read card or on "One more photo?"' : 'Glyph\'s eyes follow the wash to the end and close when the read is done; he puzzles over the card on "One more photo?"; screen readers skip both',
       EDITION_PLAIN ? owlM.read === 'none' && !owlM.more
-        : owlM.read !== 'none' && owlM.more && owlM.hidden && owlM.progress === '1' && owlM.pupilsShown === 'matrix(1, 0, 0, 1, 1.5, 0)' && owlM.closed === 'inline', JSON.stringify(owlM));
+        : owlM.read !== 'none' && owlM.more && owlM.hidden && owlM.helper && owlM.progress === '1' && owlM.pupilsShown === 'matrix(1, 0, 0, 1, 4, 0)' && owlM.pupils === 'hidden' && owlM.closed === 'visible', JSON.stringify(owlM));
     ok('one more photo: the first photo is dropped once read; only its text is held, in OCR\'s vault slot', !(await pM.getAttribute('#reviewImage', 'src')) && !(await pM.evaluate(() => JSON.stringify(localStorage)).then(s => s.includes('northwind'))));
     pM.once('filechooser', () => {});
     await pM.click('#ocrAnotherPhotoBtn');
@@ -2400,9 +2406,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pH.click('#runOcrBtn');
     await readEnds(pH, '#ocrMorePhotoModal');
     const owlH = await pH.evaluate(() => { const cs = (sel) => getComputedStyle(document.querySelector(sel));
-      const box = document.getElementById('ocrProgress'); box.classList.remove('hidden'); const pupils = cs('#ocrReadOwl .owl-pupils').transform; box.classList.add('hidden');
-      return { pupils, move: cs('#ocrReadOwl .owl-pupils').transitionDuration, closed: cs('#ocrReadOwl .owl-closed').display, eyes: cs('#ocrReadOwl .owl-eye').display, done: document.getElementById('ocrProgress').classList.contains('is-done') }; });
-    ok('reduce motion: the owl is one still picture: its eyes never move or close, even when the read is done', owlH.done && owlH.pupils === 'none' && owlH.move === '0s' && owlH.closed === 'none' && owlH.eyes !== 'none', JSON.stringify(owlH));
+      const box = document.getElementById('ocrProgress'); box.classList.remove('hidden'); const pupils = cs('#ocrReadOwl .glyph-pupils').transform; box.classList.add('hidden');
+      return { pupils, move: cs('#ocrReadOwl .glyph-pupils').transitionDuration, closed: cs('#ocrReadOwl .glyph-eyes-closed').visibility, open: cs('#ocrReadOwl .glyph-pupils').visibility, done: box.classList.contains('is-done') }; });
+    ok('reduce motion: Glyph is one still picture: his eyes never move or close, even when the read is done', owlH.done && owlH.pupils === 'none' && owlH.move === '0s' && owlH.closed === 'hidden' && owlH.open === 'visible', JSON.stringify(owlH));
     await pH.click('#ocrFixByHandBtn');
     await readEnds(pH);
     const byHand = await pH.$$eval('#ocrLines input[id^="ocrLineText"]', els => els.map(e => e.value));
@@ -3007,6 +3013,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const irisBox = await pI.$eval('#capIris', el => { const r = el.getBoundingClientRect(), c = document.getElementById('startCameraBtn').getBoundingClientRect(), v = document.getElementById('viewfinderArea').getBoundingClientRect();
         return { h: r.height, above: r.bottom <= c.top + 1, inside: r.top >= v.top && r.bottom <= v.bottom }; });
       ok('Iris peeks over a card in the empty viewfinder, above Start the camera', await pI.isVisible('#capIris') && irisBox.h > 30 && irisBox.above && irisBox.inside, JSON.stringify(irisBox));
+      ok('the camera screen\'s Iris is Creative\'s, the same drawing as the tour\'s (raven575 2026-11-11: the characters match)', !!(await pI.$('#capIris .o-01-scan-iris')));
       await pI.click('#capIris');
       const wunk = await winking();
       await pI.waitForTimeout(900);
@@ -3194,7 +3201,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       pG.on('pageerror', e => pageErrors.push(e.message));
       pG.on('console', m => { if (m.type() === 'error' && !/SyntaxError|Unexpected/.test(m.text())) pageErrors.push(m.text()); });
       await setup(ctxG, pG);
-      await pG.goto(base); await pG.waitForTimeout(800);
+      // The gate's "cannot run" page can come a moment after the page's load event (a SyntaxError is only seen once the
+      // entry script is read, and a slow phone engine reads it after load). The gate leaves this page during its load, so a
+      // phone engine may never fire load here: wait only for the first response, then up to 15 s for the "cannot run" page
+      await pG.goto(base, { waitUntil: 'commit' }).catch(() => {});
+      await Promise.all([pG.waitForURL(/unsupported\/index\.html#/, { timeout: 15000 }).catch(() => {}), pG.waitForTimeout(800)]);
+      await pG.waitForLoadState('load').catch(() => {});
       const url = pG.url();
       const shown = url.includes('src/modules/mod01-shell/unsupported/index.html#') && url.includes(reason);
       const reasons = shown ? await pG.$$eval('#reasonList li', els => els.map(el => el.getAttribute('data-reason'))) : [];
@@ -3214,8 +3226,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('gate: free & open source browsers are listed first (Firefox, Firefox ESR, Brave)', noWasm.links.slice(0, 3).map(l => new URL(l.href).hostname).join() === 'www.firefox.com,support.mozilla.org,brave.com', noWasm.links.map(l => l.href).join(' '));
     ok('gate: links open in a new tab with no opener, no referrer and no query data', noWasm.links.length === 6 && noWasm.links.every(l => l.target === '_blank' && /noopener/.test(l.rel) && /noreferrer/.test(l.rel) && !new URL(l.href).search && !new URL(l.href).hash));
     ok('gate: the "cannot run" page makes no outside request and draws without errors', noWasm.external.length === 0 && noWasm.pageErrors.length === 0, noWasm.external.concat(noWasm.pageErrors).join(' | '));
-    const noLock = await blocked((ctxG, pG) => pG.route('**/src/modules/mod01-shell/netLock.js', r => r.fulfill({ contentType: 'text/javascript', body: '' })), 'netlock');
-    ok('gate fails closed: without vCGE\'s own network lock the app does not start', noLock.shown && noLock.reasons.includes('netlock'), noLock.url);
+    // Routed on the context, like the WebAssembly case: a page-level route of the page's very first script has left
+    // WebKit waiting on that script for good in CI (the page never got to its checks)
+    const noLock = await blocked((ctxG) => ctxG.route('**/src/modules/mod01-shell/netLock.js', r => r.fulfill({ contentType: 'text/javascript', body: '' })), 'netlock');
+    ok('gate fails closed: without vCGE\'s own network lock the app does not start', noLock.shown && noLock.reasons.includes('netlock'), noLock.url + ' (requested: ' + noLock.requested.filter(u => u.endsWith('.js')).map(u => u.split('/').pop()).join(' ') + ')');
     const noCsp = await blocked((ctxG) => ctxG.addInitScript(() => { delete window.SecurityPolicyViolationEvent; }), 'csp');
     ok('gate: no Content-Security-Policy support blocks the app', noCsp.shown && noCsp.reasons.includes('csp'), noCsp.url);
     if (!process.env.SERVE_DIR) {
@@ -3247,7 +3261,32 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       await p.goto(ORIGIN); await p.waitForTimeout(400);
       return p;
     };
+    // First-run tour (raven575, 2026-11-11): on the very first start it opens by itself once the splash has gone, on the
+    // Welcome card; Skip closes it and tour=1 in vcge_settings keeps it from opening by itself again (Take a Tour still works)
+    const SEEN = 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0;tour=1';
     let pH = await openH();
+    const early = await pH.evaluate(() => ({ layer: !!document.getElementById('welcomeLayer'), entry: localStorage.getItem('vcge_settings') }));
+    const autoTour = await pH.waitForSelector('#tourTip', { state: 'visible', timeout: 6000 }).then(() => true, () => false);
+    const tourFirst = await pH.evaluate(() => ({ step: (document.getElementById('tourStep') || {}).textContent, skip: !!document.getElementById('tourSkipBtn'),
+      splashGone: getComputedStyle(document.getElementById('vcgeSplash')).visibility === 'hidden' || getComputedStyle(document.getElementById('vcgeSplash')).opacity === '0',
+      art: (() => { const a = document.querySelector('#tourTip .vcge-tour-art'); return a ? { pilot: a.dataset.pilot, kind: a.dataset.art, hidden: a.getAttribute('aria-hidden'), h: a.getBoundingClientRect().height,
+        svgH: a.querySelector('svg') ? a.querySelector('svg').getBoundingClientRect().height : 0, round: a.querySelector('svg g') ? getComputedStyle(a.querySelector('svg g path')).strokeLinecap : '' } : null; })() }));
+    ok('first-run tour: not before the splash goes, then opens by itself on step 1 with Skip tour', !early.layer && early.entry === null && autoTour && tourFirst.step === 'Step 1 of 6' && tourFirst.skip && tourFirst.splashGone, JSON.stringify({ early, tourFirst }));
+    if (!EDITION_PLAIN) ok('tour art: step 1 shows Creative\'s Iris drawing, hidden from screen readers, up to 160 px, its styles from tour-art.css (round line ends)',
+      !!tourFirst.art && tourFirst.art.pilot === 'iris' && tourFirst.art.kind === 'svg' && tourFirst.art.hidden === 'true' && tourFirst.art.h >= 60 && tourFirst.art.h <= 160
+      && tourFirst.art.svgH >= 60 && tourFirst.art.round === 'round', JSON.stringify(tourFirst.art));
+    else ok('plain edition: the tour shows no pilot art', tourFirst.art === null, JSON.stringify(tourFirst.art));
+    await pH.click('#tourSkipBtn');
+    const skipped = await pH.waitForSelector('#welcomeLayer', { state: 'detached', timeout: 5000 }).then(() => true, () => false);
+    ok('first-run tour: Skip closes it and remembers it in the one entry (tour=1), nothing else', skipped
+      && (await pH.evaluate(() => [localStorage.getItem('vcge_settings'), Object.keys(localStorage).join(), sessionStorage.length])).join('|') === `${SEEN}|vcge_settings|0`);
+    { const oldH = pH; pH = await openH(); await oldH.close(); }
+    await pH.waitForTimeout(2600);
+    ok('first-run tour: the next start does not open it by itself; Take a Tour still does', !(await pH.$('#welcomeLayer'))
+      && await pH.evaluate(() => document.getElementById('cardWelcome').classList.contains('is-current'))
+      && await pH.evaluate(() => { document.getElementById('welcomeTourBtn').click(); return !!document.getElementById('tourTip'); }));
+    await pH.keyboard.press('Escape');
+    { const oldH = pH; pH = await openH(); await oldH.close(); }
     const state = () => pH.evaluate(() => ({
       card: document.documentElement.dataset.card, layer: !!document.getElementById('welcomeLayer'),
       welcomeCurrent: document.getElementById('cardWelcome').classList.contains('is-current'),
@@ -3256,7 +3295,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       focus: document.activeElement && document.activeElement.id,
       title: (document.getElementById('welcomeTitle') || {}).textContent, tagline: (document.getElementById('welcomeTagline') || {}).textContent
     }));
-    const stored = () => pH.evaluate(() => localStorage.length + sessionStorage.length + document.cookie.length);
+    // Nothing is stored beyond the first-run tour's tour=1 (checked above)
+    const stored = () => pH.evaluate((seen) => localStorage.length - (localStorage.getItem('vcge_settings') === seen ? 1 : 0) + sessionStorage.length + document.cookie.length, SEEN);
     const first = await state();
     ok('welcome: the deck opens on the Welcome card', first.welcomeCurrent && first.card === 'welcome' && !first.thanks && !first.vault, JSON.stringify(first));
     if (!EDITION_PLAIN) {
@@ -3304,7 +3344,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // own session storage is checked before it closes, so nothing a reload would have kept goes unchecked.
     const lastTab = await stored();
     const oldH = pH; pH = await openH(); await oldH.close();
-    ok('welcome: shows again on the next start (nothing remembers it was seen)', lastTab === 0 && (await state()).welcomeCurrent && (await stored()) === 0, String(lastTab));
+    ok('welcome: shows again on the next start (nothing remembers the Welcome card was seen)', lastTab === 0 && (await state()).welcomeCurrent && (await stored()) === 0, String(lastTab));
     await pH.click('#welcomePinBtn');
     ok('welcome: Set Up PIN/BIO Lock Now opens the Vault page', (await state()).vault && await pH.isVisible('#pinSwitch'));
     await pH.keyboard.press('Escape');
@@ -3403,6 +3443,29 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('welcome: nothing stored, no outside requests, no page errors', (await stored()) === 0 && externalH.length === 0 && errorsH.length === 0,
       externalH.concat(errorsH).join(' | '));
     await ctxH.close();
+  }
+
+  // Opening splash switch (raven575, 2026-11-11): the splash hides no loading, so Settings > Comfort > Opening splash turns it
+  // off (splash=1 in vcge_settings); the gate reads it before the page is drawn, so it never shows for a moment
+  {
+    const ctxS = await browser.newContext();
+    const pS1 = await ctxS.newPage();
+    await pS1.goto(ORIGIN); await pS1.waitForTimeout(400);
+    const onByDefault = await pS1.evaluate(() => ({ attr: document.documentElement.dataset.splash, display: getComputedStyle(document.getElementById('vcgeSplash')).display,
+      toggle: document.getElementById('splashToggle').checked }));
+    ok('splash: on by default (shown, switch On)', onByDefault.attr === undefined && onByDefault.display !== 'none' && onByDefault.toggle, JSON.stringify(onByDefault));
+    await pS1.evaluate(() => { const t = document.getElementById('splashToggle'); t.checked = false; t.dispatchEvent(new Event('change', { bubbles: true })); });
+    const offNow = await pS1.evaluate(() => ({ attr: document.documentElement.dataset.splash, entry: localStorage.getItem('vcge_settings') }));
+    ok('splash: switching it Off saves splash=1 in the one entry', offNow.attr === 'off' && offNow.entry === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0;splash=1', JSON.stringify(offNow));
+    const pS2 = await ctxS.newPage();
+    let firstLook = null;
+    pS2.on('domcontentloaded', async () => { firstLook = await pS2.evaluate(() => ({ attr: document.documentElement.dataset.splash, display: getComputedStyle(document.getElementById('vcgeSplash')).display })).catch(e => String(e)); });
+    await pS2.goto(ORIGIN); await pS2.waitForTimeout(500);
+    ok('splash: Off on the next start hides it from the first paint, and the switch reads Off', !!firstLook && firstLook.attr === 'off' && firstLook.display === 'none'
+      && !(await pS2.evaluate(() => document.getElementById('splashToggle').checked)), JSON.stringify(firstLook));
+    await pS2.evaluate(() => { const t = document.getElementById('splashToggle'); t.checked = true; t.dispatchEvent(new Event('change', { bubbles: true })); });
+    ok('splash: back On takes splash=1 out of the entry', await pS2.evaluate(() => document.documentElement.dataset.splash === undefined && localStorage.getItem('vcge_settings') === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0'));
+    await ctxS.close();
   }
 
   // MOD01 shared look: MOD-XX tags in Sixtyfour on every panel, 44 px buttons with 2 px outlines, the near-miss rim for taps
@@ -3746,13 +3809,17 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('card: under reduce motion the flip is instant (one frame)', (await angle()) === 'rotateY(0deg)' && (await p6.evaluate(() => window.__spin.length)) === 1, JSON.stringify(await p6.evaluate(() => window.__spin)));
     await p6.emulateMedia({ reducedMotion: 'no-preference' });
     // Toasts: above the dock, 3 s, a tap dismisses, a hold keeps it until 3 s after the release
+    // The page notes when the toast shows, so its 3 s are timed on the page's own clock, not from before the tap
+    await p6.evaluate(() => { const t = document.getElementById('toast'); window.__toastAt = null;
+      new MutationObserver(() => { if (window.__toastAt === null && !t.classList.contains('opacity-0')) window.__toastAt = performance.now(); }).observe(t, { attributes: true, attributeFilter: ['class'] }); });
     await p6.click('#paletteListContainer [data-theme="sage"]');
     await p6.waitForTimeout(400);   // it slides in over 0.3 s
     const toastBox = await p6.locator('#toast').boundingBox();
     const dockTop = await p6.$eval('.vcge-dock', d => d.getBoundingClientRect().top);
     ok('0.8 shell: the toast shows as a pill just above the dock (the mock-up), never over it', toastBox.y + toastBox.height <= dockTop && toastBox.y > dockTop - 200 && await p6.isVisible('#toast'), JSON.stringify({ toastBox, dockTop }));
-    await p6.waitForTimeout(2200);
-    ok('toast: still there at 2.6 s', !(await p6.$eval('#toast', t => t.classList.contains('opacity-0'))));
+    await p6.waitForFunction(() => window.__toastAt !== null && performance.now() - window.__toastAt >= 2600, null, { polling: 50, timeout: 5000 }).catch(() => {});
+    const at26 = await p6.evaluate(() => ({ shown: !document.getElementById('toast').classList.contains('opacity-0'), ms: window.__toastAt === null ? null : Math.round(performance.now() - window.__toastAt) }));
+    ok('toast: still there at 2.6 s', at26.shown && at26.ms !== null && at26.ms >= 2600 && at26.ms < 3000, JSON.stringify(at26));
     await p6.waitForTimeout(700);
     ok('toast: gone after 3 s', await p6.$eval('#toast', t => t.classList.contains('opacity-0')));
     await p6.click('#paletteListContainer [data-theme="maple"]');
@@ -4234,7 +4301,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pA.check('#exportQrUseOnCard');
     const [dlQr] = await Promise.all([pA.waitForEvent('download'), pA.click('#exportQrSaveBtn')]);
     ok('Save PNG downloads "Jane Doe QR.png" and closes the pop-up', dlQr.suggestedFilename() === 'Jane Doe QR.png' && !(await pA.isVisible('#exportQrSheet')), dlQr.suggestedFilename());
-    const falconOf = () => pA.evaluate(() => { const f = document.getElementById('toastFalcon'), cs = getComputedStyle(f); return { hidden: f.classList.contains('hidden'), shown: cs.display, anim: cs.animationName, flap: getComputedStyle(f.querySelector('.falcon-body')).animationName, wide: f.getBoundingClientRect().width, parcel: f.classList.contains('with-parcel') && getComputedStyle(f.querySelector('.falcon-parcel')).display !== 'none' }; });
+    const falconOf = () => pA.evaluate(() => { const f = document.getElementById('toastFalcon'); if (!f) return { hidden: true, gone: true }; const cs = getComputedStyle(f); return { hidden: f.classList.contains('hidden'), shown: cs.display, anim: cs.animationName, flap: getComputedStyle(f.querySelector('.falcon-body')).animationName, wide: f.getBoundingClientRect().width, parcel: f.classList.contains('with-parcel') && getComputedStyle(f.querySelector('.falcon-parcel')).display !== 'none' }; });
     const pngFalcon = await falconOf();
     if (SHELVED) ok('0.8 shelf: after Save PNG no falcon flies', pngFalcon.hidden, JSON.stringify(pngFalcon));
     else ok(`Airlock E2 + Checkers Q8: ${EDITION_PLAIN ? 'the plain edition shows no falcon' : 'after Save PNG a big falcon swoops over the toast, beating its wings, carrying the striped parcel'}`, !pngFalcon.hidden && (EDITION_PLAIN ? pngFalcon.shown === 'none' : pngFalcon.shown !== 'none' && pngFalcon.anim === 'falcon-glide' && pngFalcon.flap === 'falcon-flap' && pngFalcon.wide >= 50 && pngFalcon.parcel), JSON.stringify(pngFalcon));
@@ -4249,7 +4316,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const vcfFalcon = await falconOf();
     ok(SHELVED ? 'Airlock E2: Save .vcf says "Saved Jane Doe.vcf." (0.8 shelf: no falcon)' : 'Airlock E2: Save .vcf says "Saved Jane Doe.vcf." and the falcon flies again, this time without the parcel', (await tA('toastMessage')) === 'Saved Jane Doe.vcf.' && (SHELVED ? vcfFalcon.hidden : !vcfFalcon.hidden && !vcfFalcon.parcel), JSON.stringify(vcfFalcon));
     await pA.emulateMedia({ reducedMotion: 'reduce' });
-    ok('Airlock E2: under reduce motion the falcon does not glide', (await falconOf()).anim === 'none');
+    const calmFalcon = await falconOf();   // the old toast falcon is gone (raven575 2026-11-11, SWAP) until Creative draws a new one
+    ok('Airlock E2: under reduce motion no falcon glides', calmFalcon.gone || calmFalcon.anim === 'none', JSON.stringify(calmFalcon));
     await pA.emulateMedia({ reducedMotion: 'no-preference' });
     // Now the card has a logo: "Scanned logo" is offered and draws the card's own logo in the centre
     await pA.click('#exportQrBtn'); await pA.waitForSelector('#exportQrSheet', { state: 'visible' });
