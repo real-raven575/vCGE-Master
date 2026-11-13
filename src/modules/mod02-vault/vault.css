@@ -104,7 +104,7 @@ button.vault-bio-btn.hidden { display: none; }
 .vault-ring { width: 7rem; height: 7rem; }
 /* On phones the header has no room for the text Lock button beside the icons: Lock now lives on the Vault page instead */
 @media (max-width: 599.98px) { #lockVaultBtn { display: none; } }
-#vaultPin { min-height: var(--vcge-tap, 2.75rem); font-size: 1.25rem; letter-spacing: 0.4em; text-align: center; }
+#vaultPin, #sessionPinInput { min-height: var(--vcge-tap, 2.75rem); font-size: 1.25rem; letter-spacing: 0.4em; text-align: center; }
 
 /* ---- Vault page (the header padlock, Welcome's "Set Up PIN/BIO Lock Now", Settings) ------------------------------ */
 .vault-lead { font-size: 0.85rem; margin: 0; color: #475569; }
@@ -184,15 +184,15 @@ button.vault-switch[aria-checked="true"] .vault-switch-knob { left: auto; right:
 .vault-ghost .vg-wink, .vault-ghost .vg-brows, .vault-ghost .vg-shades { opacity: 0; }
 .vault-ghost .vg-shades { transform: translateY(-14px); }
 .vault-ghost .vg-paw-l, .vault-ghost .vg-paw-r { transform: translateY(26px); opacity: 0; }
-#vaultModal[data-face="away"] .vault-ghost .vg-glints { transform: translate(-1.6px, -1.7px); }
-#vaultModal[data-face="one"] .vault-ghost .vg-glints { transform: translate(-1.6px, -1.7px); }
-#vaultModal[data-face="one"] .vault-ghost .vg-paw-l,
-#vaultModal[data-face="both"] .vault-ghost .vg-paw-l, #vaultModal[data-face="both"] .vault-ghost .vg-paw-r { transform: none; opacity: 1; }
-#vaultModal[data-face="wink"] .vault-ghost .vg-eye-l, #vaultModal[data-face="wink"] .vault-ghost .vg-glint-l { opacity: 0; }
-#vaultModal[data-face="wink"] .vault-ghost .vg-glints { transform: translate(-1.6px, 2.4px); }   /* the open eye glances down at the PIN box */
-#vaultModal[data-face="wink"] .vault-ghost .vg-wink, #vaultModal[data-face="wink"] .vault-ghost .vg-brows { opacity: 1; }
-#vaultModal[data-face="shades"] .vault-ghost .vg-eyes { opacity: 0; }
-#vaultModal[data-face="shades"] .vault-ghost .vg-shades { opacity: 1; transform: none; }
+:is(#vaultModal, #quickSetupModal)[data-face="away"] .vault-ghost .vg-glints { transform: translate(-1.6px, -1.7px); }
+:is(#vaultModal, #quickSetupModal)[data-face="one"] .vault-ghost .vg-glints { transform: translate(-1.6px, -1.7px); }
+:is(#vaultModal, #quickSetupModal)[data-face="one"] .vault-ghost .vg-paw-l,
+:is(#vaultModal, #quickSetupModal)[data-face="both"] .vault-ghost .vg-paw-l, :is(#vaultModal, #quickSetupModal)[data-face="both"] .vault-ghost .vg-paw-r { transform: none; opacity: 1; }
+:is(#vaultModal, #quickSetupModal)[data-face="wink"] .vault-ghost .vg-eye-l, :is(#vaultModal, #quickSetupModal)[data-face="wink"] .vault-ghost .vg-glint-l { opacity: 0; }
+:is(#vaultModal, #quickSetupModal)[data-face="wink"] .vault-ghost .vg-glints { transform: translate(-1.6px, 2.4px); }   /* the open eye glances down at the PIN box */
+:is(#vaultModal, #quickSetupModal)[data-face="wink"] .vault-ghost .vg-wink, :is(#vaultModal, #quickSetupModal)[data-face="wink"] .vault-ghost .vg-brows { opacity: 1; }
+:is(#vaultModal, #quickSetupModal)[data-face="shades"] .vault-ghost .vg-eyes { opacity: 0; }
+:is(#vaultModal, #quickSetupModal)[data-face="shades"] .vault-ghost .vg-shades { opacity: 1; transform: none; }
 @media (prefers-reduced-motion: no-preference) {
     .vault-ghost .vg-paw-l, .vault-ghost .vg-paw-r, .vault-ghost .vg-shades { transition: transform 0.4s ease-out, opacity 0.4s ease-out; }
     .vault-ghost .vg-glints, .vault-ghost .vg-eyes, .vault-ghost .vg-eye-l, .vault-ghost .vg-glint-l, .vault-ghost .vg-wink, .vault-ghost .vg-brows { transition: transform 0.3s ease, opacity 0.2s ease; }
@@ -212,7 +212,7 @@ button.vault-switch[aria-checked="true"] .vault-switch-knob { left: auto; right:
 .vault-pin-paws[data-filled="3"] .vault-paw:nth-child(-n+3), .vault-pin-paws[data-filled="4"] .vault-paw:nth-child(-n+4) { fill: #7e22ce; }
 .dark .vault-pin-paws[data-filled="1"] .vault-paw:nth-child(-n+1), .dark .vault-pin-paws[data-filled="2"] .vault-paw:nth-child(-n+2),
 .dark .vault-pin-paws[data-filled="3"] .vault-paw:nth-child(-n+3), .dark .vault-pin-paws[data-filled="4"] .vault-paw:nth-child(-n+4) { fill: #d8b4fe; }
-html:not([data-edition="plain"]) #vaultPin { color: transparent; caret-color: transparent; }
+html:not([data-edition="plain"]) :is(#vaultPin, #sessionPinInput) { color: transparent; caret-color: transparent; }
 
 /* V3: the lock ring as a ringed raccoon tail: dark bands over the green ring, cut by the countdown mask. */
 .vault-tail-bands { stroke: #1e1b4b; opacity: 0.45; }
@@ -220,3 +220,15 @@ html:not([data-edition="plain"]) #vaultPin { color: transparent; caret-color: tr
 
 /* Plain edition: none of it; the PIN box shows its own dots and the ring has no bands. */
 html[data-edition="plain"] .vault-ghost, html[data-edition="plain"] .vault-pin-paws, html[data-edition="plain"] .vault-tail-bands { display: none; }
+
+/* ---- Session PIN setup pop-up in Ghost's look (raven575 2026-11-13): the Vault page's colours and buttons, Ghost and the
+   paw prints over the PIN box as on the lock screen (#quickSetupModal[data-face], lockFace.js syncSetupFace). ---------- */
+.vault-setup { width: 100%; max-width: 24rem; box-sizing: border-box; display: flex; flex-direction: column; gap: 0.75rem;
+    padding: 1.25rem; border-radius: 22px; background: var(--sh-bg); color: var(--sh-ink); box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow-lift); }
+.vault-setup-head { display: flex; align-items: center; gap: 0.6rem; }
+.vault-setup-head h2 { margin: 0 auto 0 0; font-size: 1.25rem; font-weight: 700; line-height: 1.2; }
+.vault-setup-head h2 .vcge-icon { color: var(--sh-accent); }
+.vault-setup-head .vcge-pilot-chip { background: var(--sh-sunk); color: var(--sh-ink); }
+.vault-setup-hint { margin: 0; font-size: 0.8rem; line-height: 1.45; color: var(--sh-muted); }
+.vault-setup-error { margin: 0; min-height: 1rem; font-size: 0.75rem; color: var(--sh-stop); }
+.vault-setup-actions { display: flex; justify-content: space-between; gap: 0.5rem; }
