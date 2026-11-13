@@ -404,7 +404,7 @@
             </div>
         </section>
         <section id="cardCard" class="deck-card" data-card="card" data-step="Step 4 of 5 · Card" data-pilot-emoji="🦎" data-pilot="Flipside" data-title="Your card" data-next="#readyToShareBtn" data-next-label="Share" aria-label="3D card">
-            <div class="deck-card-body r4-card">
+            <div class="deck-card-body r4-card" data-tab="colour">
                 <!-- 0.8 Card (Creative's mock-up, gap list row 17): one card, front and QR back, first; a tap on its left side spins
                      it left and on its right side spins it right (620 ms, soft ease out; card3dView.js), a sideways drag
                      still turns it. Below: round colour swatches, the logo tip with its safe-area guide, then the card's
@@ -457,6 +457,14 @@
                 <div class="r4-design-head" id="cardDesignHead">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M7 11h6M7 14h4"/></svg>
                     <b>Card design</b><small id="cardDesignNote">Changes this card only. The app keeps its look.</small>
+                </div>
+                <!-- What to change (easy + premium plan, step 2; raven575 2026-11-13): one category at a time, picked by a picture
+                     button, so the box below stays short and the card stays in view. cardTabs.js (MOD06) wires them. -->
+                <div id="cardTabs" class="r4-tabs" role="group" aria-label="What to change on the card">
+                    <button type="button" class="r4-tab" data-tab="colour" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><circle cx="8.5" cy="10" r="1.3"/><circle cx="12" cy="7.5" r="1.3"/><circle cx="15.5" cy="10" r="1.3"/><path d="M12 21c-1.5 0-2-1.2-2-2.2 0-1.4 1.2-2 2.6-2H15"/></svg><span>Colour</span></button>
+                    <button type="button" class="r4-tab" data-tab="logo" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/></svg><span>Logo</span></button>
+                    <button type="button" class="r4-tab" data-tab="style" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 19 8 5l5 14M4.8 14h6.4"/><circle cx="17.5" cy="15.5" r="3.5"/><path d="M21 12v7"/></svg><span>Style</span></button>
+                    <button type="button" class="r4-tab" data-tab="paper" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/></svg><span>Paper</span></button>
                 </div>
                 <div id="paletteListContainer" class="r4-swatches" role="group" aria-label="Card colours" aria-describedby="cardDesignNote"></div>
                 <p class="vcge-sr-only" aria-live="polite">Card colour: <span id="currentPaletteLabel">Ocean Blue</span></p>

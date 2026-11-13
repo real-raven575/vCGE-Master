@@ -1822,6 +1822,19 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     hop.at01 < 0.1 && hop.past > 2 && hop.past < 0.2 * 120 && hop.settledAt !== null && hop.settledAt < 3 && hop.x === 120, JSON.stringify(hop));
   ok('shell art: the turtle has a top speed, so a long way takes him a while, and he still gets there',
     far.top <= art.WALK.maxSpeed && far.settledAt > 2 && far.settledAt < 6 && far.x === 0, JSON.stringify(far));
+  // Easy + premium step 2 (cardTabs.js): one category at a time; the mini card once the box has scrolled 40% of the card
+  const tabs = await import(`${R}/modules/mod06-gui/cardTabs.js`);
+  ok('card tabs: Colour, Logo, Style and Paper, in that order', tabs.CARD_TABS.join() === 'colour,logo,style,paper');
+  ok('card tabs: the mini card shows only once the box has scrolled more than 40% of the card\'s height',
+    !tabs.miniWanted(0, 240) && !tabs.miniWanted(96, 240) && tabs.miniWanted(97, 240) && !tabs.miniWanted(500, 0));
+  {
+    const btn = (t) => ({ dataset: { tab: t }, attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } });
+    const bs = tabs.CARD_TABS.map(btn), body = { dataset: { tab: 'colour' } }, look = { open: false };
+    const fakeDoc = { querySelector: () => body, querySelectorAll: () => bs, getElementById: (id) => id === 'cardLookPanel' ? look : null };
+    const seen = ['logo', 'style', 'paper', 'nonsense', 'colour'].map(t => `${tabs.showCardTab(fakeDoc, t)}:${look.open}:${bs.filter(b => b.attrs['aria-pressed'] === 'true').map(b => b.dataset.tab)}`);
+    ok('card tabs: a pick shows that category alone, opens the Paper & logo panel only for Logo and Paper, and ignores an unknown name',
+      seen.join('|') === 'logo:true:logo|style:false:style|paper:true:paper|paper:true:paper|colour:false:colour', seen.join('|'));
+  }
   // Layout step 1 (tier.js): the screen tier is the width over the text size; 21:9 from monitor width is wide
   const tier = await import(`${R}/modules/mod01-shell/tier.js`);
   const tiers = (pairs, size) => pairs.map(([w, h]) => tier.tierFor(w, h, size)).join();

@@ -138,3 +138,35 @@ html[data-edition="plain"] .r4-chev { display: block; }
 .r4-look-group .r4-strength input[type="range"] { width: 100%; min-height: 32px; }
 .r4-look-group .r4-strength output { text-align: right; font-variant-numeric: tabular-nums; color: var(--sh-muted); }
 .r4-look-group .r4-strength:has(input:disabled) { opacity: 0.5; }
+
+/* ---- What to change: Colour, Logo, Style, Paper (easy + premium plan, step 2; cardTabs.js) ---------------------- */
+/* Four picture buttons over one box; the box shows only the category picked (.r4-card[data-tab]) */
+.r4-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin: 0 0 14px; }
+button.r4-tab { min-height: 60px; min-width: 0; padding: 6px 4px; border-radius: 16px; border: 2px solid var(--sh-line); cursor: pointer;
+    background: var(--sh-surface); color: var(--sh-ink); font: 600 13px system-ui, sans-serif;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    transition: background 160ms var(--r4-ease-out), color 160ms var(--r4-ease-out), border-color 160ms var(--r4-ease-out); }
+button.r4-tab svg { width: 24px; height: 24px; flex: none; }
+button.r4-tab[aria-pressed="true"] { background: var(--sh-accent); color: var(--sh-on); border-color: var(--sh-accent); }
+button.r4-tab:focus-visible { outline: 3px solid var(--sh-accent); outline-offset: 2px; }
+html[data-cb="1"] button.r4-tab[aria-pressed="true"] span { font-weight: 800; text-decoration: underline; }   /* not colour alone */
+@media (forced-colors: active) { button.r4-tab[aria-pressed="true"] { border: 3px solid Highlight; } }
+
+/* (Flip card stays in every category, so the back of the card is always one tap away) */
+.r4-card[data-tab]:not([data-tab="colour"]) #paletteListContainer,
+.r4-card[data-tab]:not([data-tab="logo"]) > .r4-logo,
+.r4-card[data-tab]:not([data-tab="style"]) #r4StyleHead,
+.r4-card[data-tab]:not([data-tab="style"]) .r4-chips > :not(#flipCardBtn),
+.r4-card:is([data-tab="colour"], [data-tab="style"]) #cardLookPanel,
+.r4-card[data-tab] #cardLookPanel > summary,
+.r4-card[data-tab="logo"] .r4-look-group:has(#cardFinishSelect),
+.r4-card[data-tab="paper"] .r4-look-group:has(#logoPresetSelect) { display: none; }
+.r4-card[data-tab]:not([data-tab="style"]) .r4-chips { padding-top: 12px; }
+.r4-card:is([data-tab="logo"], [data-tab="paper"]) .r4-look-groups { padding-top: 6px; }
+.r4-card[data-tab="logo"] > .r4-logo { margin-bottom: 12px; }
+
+/* The card stays pinned at the top of its screen on a phone or tablet; once the box below scrolls, it shrinks to a mini
+   card in the corner (tap it to scroll back to the whole card). Wide screens keep it beside the tools. */
+.r4-card > .r4-stage { position: sticky; top: 0; z-index: 4; transform-origin: 100% 0; }
+@media (prefers-reduced-motion: no-preference) { .r4-card > .r4-stage { transition: transform 240ms var(--r4-ease-out); } }
+.r4-card[data-mini="on"] > .r4-stage { transform: scale(0.42); cursor: zoom-in; }
