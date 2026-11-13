@@ -33,7 +33,10 @@ export function initCardTabs(doc = document, win = window) {
     if (!bar || !body) return;
     bar.addEventListener('click', (e) => {
         const b = e.target.closest('.r4-tab');
-        if (b) showCardTab(doc, b.dataset.tab);
+        if (!b) return;
+        showCardTab(doc, b.dataset.tab);
+        // A new category starts from the top, with the whole card in view (phones; a wide screen has nothing to scroll)
+        if (body.scrollTop > 0) body.scrollTop = 0;
     });
     // Arrow keys move along the row, as in any row of picture buttons
     bar.addEventListener('keydown', (e) => {
@@ -55,10 +58,10 @@ export function initCardTabs(doc = document, win = window) {
     if (!stage) return;
     let queued = false;
     const isMini = () => body.dataset.mini === 'on';
+    const isWide = () => ['laptop', 'monitor', 'wide'].includes(doc.documentElement.dataset.tier);
     const sync = () => {
         queued = false;
-        const wide = ['laptop', 'monitor', 'wide'].includes(doc.documentElement.dataset.tier);
-        const on = !wide && miniWanted(body.scrollTop, stage.offsetHeight);
+        const on = !isWide() && miniWanted(body.scrollTop, stage.offsetHeight);
         if (on !== isMini()) { if (on) body.dataset.mini = 'on'; else delete body.dataset.mini; }
     };
     const queue = () => { if (!queued) { queued = true; win.requestAnimationFrame(sync); } };
@@ -67,9 +70,14 @@ export function initCardTabs(doc = document, win = window) {
     // A tap on the mini card brings the whole card back (scrolls up) instead of spinning it
     const reduce = () => !!(win.matchMedia && win.matchMedia('(prefers-reduced-motion: reduce)').matches);
     for (const type of ['pointerdown', 'pointermove', 'click']) stage.addEventListener(type, (e) => { if (isMini()) e.stopPropagation(); }, true);
+    const fullCard = () => body.scrollTo({ top: 0, behavior: reduce() ? 'auto' : 'smooth' });
     stage.addEventListener('pointerup', (e) => {
         if (!isMini()) return;
         e.stopPropagation();
-        body.scrollTo({ top: 0, behavior: reduce() ? 'auto' : 'smooth' });
+        fullCard();
     }, true);
+    // Flip card brings the whole card back first, so the turn is seen at full size (and the card takes drags again).
+    // Checked from the scroll itself: the mini flag is set a frame late and a tap can land in between.
+    const flip = doc.getElementById('flipCardBtn');
+    if (flip) flip.addEventListener('click', () => { if (!isWide() && body.scrollTop > 0) fullCard(); });
 }

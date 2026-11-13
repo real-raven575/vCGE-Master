@@ -3531,6 +3531,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pT.touchscreen.tap(cb.x + cb.width * 0.8, cb.y + cb.height / 2); await pT.waitForTimeout(900);
     const back = await pT.evaluate(() => ({ top: document.querySelector('#cardCard .r4-card').scrollTop, mini: document.querySelector('#cardCard .r4-card').dataset.mini || 'off', turn: document.getElementById('card3DFlipper').style.transform }));
     ok('mini card: a tap on it scrolls back to the whole card and does not spin it', back.top === 0 && back.mini === 'off' && back.turn === turnedBefore, JSON.stringify(back));
+    // Flip card from a scrolled box turns the card at full size: the box scrolls back up as it flips
+    await pT.$eval('#cardCard .r4-card', b => b.scrollTo(0, b.scrollHeight)); await pT.waitForTimeout(500);
+    const miniAgain = await pT.$eval('#cardCard .r4-card', b => b.dataset.mini);
+    await pT.$eval('#flipCardBtn', b => b.click()); await pT.waitForTimeout(1100);
+    const flipped = await pT.evaluate(() => ({ top: document.querySelector('#cardCard .r4-card').scrollTop, mini: document.querySelector('#cardCard .r4-card').dataset.mini || 'off', turn: document.getElementById('card3DFlipper').style.transform }));
+    ok('mini card: Flip card brings the whole card back and turns it', miniAgain === 'on' && flipped.top === 0 && flipped.mini === 'off' && flipped.turn !== turnedBefore, JSON.stringify({ miniAgain, ...flipped }));
     await ctxT.close();
   }
 
