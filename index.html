@@ -167,6 +167,8 @@
                             <span class="cap-corner tl"></span><span class="cap-corner tr"></span><span class="cap-corner br"></span><span class="cap-corner bl"></span>
                         </div>
                         <div id="camHint" class="r2-hint" aria-live="polite">Fit the card inside the corners</div>
+                        <!-- The light (Smart burst, CAM-0028): shown only when the camera has a torch the page may switch (camera.js setupLight) -->
+                        <button id="lightBtn" type="button" class="r2-light hidden" aria-pressed="false" aria-label="Light" title="Light"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 3L5 14h6l-1 7 8-11h-6z"/></svg></button>
                         <button id="stopCameraBtn" type="button" class="r2-close" aria-label="Close camera" title="Close camera"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
                         <!-- Zoom: three chips over the foot of the picture. They drive the same zoom as before (camera.js pickZoom: the
                              slider below, kept as the zoom's value, eases into each change); a pinch still zooms anywhere in between. -->
@@ -823,7 +825,7 @@
                 <h2 id="printChoiceTitle">Print / PDF</h2>
                 <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close">&#x2715;</button>
             </div>
-            <p class="print-choice-lead">One 6 &times; 3.5 inch page (taller if the card needs it): the card at business-card size with its QR code beside it. Choose Save as PDF in the print dialog for a file.</p>
+            <p class="print-choice-lead">One 6 &times; 3.5 inch page (bigger if the card or a 5 cm QR needs it): the card at business-card size with its QR code beside it, in the look and size picked under Save QR image. Choose Save as PDF in the print dialog for a file.</p>
             <div class="print-choice-actions">
                 <button id="printThemedBtn" type="button" class="print-choice print-choice-themed">Themed</button>
                 <button id="printBwBtn" type="button" class="print-choice print-choice-bw">Black &amp; White</button>
@@ -941,16 +943,33 @@
         </form>
     </div>
 
-    <!-- Session PIN setup (MOD02): from the Security panel -->
-    <div id="quickSetupModal" class="hidden fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-        <form id="quickSetupForm" class="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-sm w-full space-y-3 shadow-2xl">
-            <h2 class="text-lg font-bold">Session PIN</h2>
-            <p id="quickSetupHint" class="text-xs text-slate-500 dark:text-slate-400"></p>
-            <label class="block"><span class="field-label">4-digit PIN</span><input id="sessionPinInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-bwignore data-form-type="other" class="field-input"></label>
-            <p id="quickSetupError" class="text-xs text-rose-600 dark:text-rose-400 min-h-4" role="alert"></p>
-            <div class="flex justify-between gap-2">
-                <button id="quickSetupSkipBtn" type="button" class="px-3 py-2 rounded-lg text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white transition">Not now</button>
-                <button id="quickSetupSaveBtn" type="submit" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Set PIN</button>
+    <!-- Session PIN setup (MOD02): from the Vault page's PIN switch and its Change button. Ghost's look, like the lock
+         screen (raven575 2026-11-13): Ghost and the paw prints follow the digits typed; the plain edition shows neither. -->
+    <div id="quickSetupModal" class="hidden fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" data-face="away">
+        <form id="quickSetupForm" class="vault-setup" aria-labelledby="quickSetupTitle" aria-describedby="quickSetupHint">
+            <div class="vault-setup-head">
+                <h2 id="quickSetupTitle" class="vault-title"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#lock"></use></svg>Session PIN</h2>
+                <span class="vcge-pilot-chip" title="Ghost the Raccoon keeps the Vault"><i aria-hidden="true">🦝</i><span>Ghost</span></span>
+            </div>
+            <p id="quickSetupHint" class="vault-setup-hint"></p>
+            <svg id="quickSetupGhost" class="vault-ghost" viewBox="0 0 64 64" aria-hidden="true">
+                <title>Ghost the Raccoon</title>
+                <path class="vg-ear" d="M14 22 L12 8 L25 15 Z"/><path class="vg-ear" d="M50 22 L52 8 L39 15 Z"/>
+                <ellipse class="vg-head" cx="32" cy="34" rx="22" ry="18"/>
+                <path class="vg-mask" d="M11 33 Q20 23 29 31 Q32 34 35 31 Q44 23 53 33 Q46 42 37 37 Q32 35 27 37 Q18 42 11 33 Z"/>
+                <g class="vg-eyes"><circle class="vg-eye vg-eye-l" cx="22" cy="32" r="3.2"/><circle class="vg-eye" cx="42" cy="32" r="3.2"/><g class="vg-glints"><circle class="vg-glint vg-glint-l" cx="23" cy="31" r="1"/><circle class="vg-glint" cx="43" cy="31" r="1"/></g></g>
+                <path class="vg-wink" d="M18.5 32.5 Q22 34.2 25.5 32.5"/>
+                <g class="vg-brows"><path d="M17.5 26.5 L26 27"/><path d="M38 23.5 Q42 20.5 46.5 23"/></g>
+                <ellipse class="vg-snout" cx="32" cy="43" rx="8" ry="5.5"/><ellipse class="vg-nose" cx="32" cy="40.5" rx="3" ry="2"/>
+                <g class="vg-shades"><path class="vg-frame" d="M27.5 31 Q32 29 36.5 31 M14 30 L11 28.5 M50 30 L53 28.5"/><rect class="vg-lens" x="14" y="27.5" width="14" height="9" rx="4"/><rect class="vg-lens" x="36" y="27.5" width="14" height="9" rx="4"/><path class="vg-shine" d="M17 30 L20 29.3 M39 30 L42 29.3"/></g>
+                <g class="vg-paw-l"><ellipse class="vg-paw" cx="21" cy="32" rx="9" ry="6.5"/><path class="vg-toe" d="M15 28.5 v2.5 M19 27 v2.5 M23 27 v2.5"/></g>
+                <g class="vg-paw-r"><ellipse class="vg-paw" cx="43" cy="32" rx="9" ry="6.5"/><path class="vg-toe" d="M41 27 v2.5 M45 27 v2.5 M49 28.5 v2.5"/></g>
+            </svg>
+            <label class="block"><span class="field-label">Choose a 4-digit PIN</span><span class="vault-pin-wrap"><input id="sessionPinInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-bwignore data-form-type="other" class="field-input"><span id="quickSetupPaws" class="vault-pin-paws" data-filled="0" aria-hidden="true"><svg class="vault-paw"><use href="#vaultPawPrint"></use></svg><svg class="vault-paw"><use href="#vaultPawPrint"></use></svg><svg class="vault-paw"><use href="#vaultPawPrint"></use></svg><svg class="vault-paw"><use href="#vaultPawPrint"></use></svg></span></span></label>
+            <p id="quickSetupError" class="vault-setup-error" role="alert"></p>
+            <div class="vault-setup-actions">
+                <button id="quickSetupSkipBtn" type="button" class="vault-btn-quiet">Not now</button>
+                <button id="quickSetupSaveBtn" type="submit" class="vault-btn">Set PIN</button>
             </div>
         </form>
     </div>

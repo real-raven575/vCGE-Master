@@ -28,7 +28,7 @@ import { BiometricUnlock, biometricAvailable } from './modules/mod02-vault/biome
 import { maskSecretInputs } from './modules/mod02-vault/secretInputs.js';
 import { LockHandoff } from './modules/mod02-vault/lockHandoff.js';
 import { WipeDialog, startFresh } from './modules/mod02-vault/wipeDialog.js';
-import { syncLockFace, farewell } from './modules/mod02-vault/lockFace.js';
+import { syncLockFace, syncSetupFace, farewell } from './modules/mod02-vault/lockFace.js';
 import { VCGEActiveCamera } from './modules/mod03-camera/camera.js';
 import { CropEditor } from './modules/mod03-camera/cropEditor.js';
 import { executeOCRScan, shutdownOCREngine } from './modules/mod04-ocr/ocrWorker.js';
@@ -395,6 +395,7 @@ function openQuickSetup() {
     $('quickSetupHint').textContent = `Choose a ${PIN_LENGTH}-digit PIN for this session. When the screen turns off or after ${IDLE_PURGE_SECONDS / 60} minutes without activity, the card is locked and the PIN brings it back. ${wipeSeconds() / 60} minutes after the lock, or after ${MAX_PIN_ATTEMPTS} wrong tries, everything is wiped. The PIN is forgotten when you leave or reload.`;
     $('quickSetupError').textContent = '';
     $('sessionPinInput').value = '';
+    syncSetupFace();
     $('quickSetupModal').classList.remove('hidden');
     $('sessionPinInput').focus();
 }
@@ -408,6 +409,7 @@ async function saveSessionPin(event) {
     }
     await sessionPin.set(pin);
     $('sessionPinInput').value = '';
+    syncSetupFace();
     $('quickSetupModal').classList.add('hidden');
     globalEventBus.publish(Events.VAULT_UNLOCK_METHOD_CHANGED, { change: 'Session PIN set', timestamp: Date.now() });
     setVaultIndicator();
@@ -417,6 +419,7 @@ async function saveSessionPin(event) {
 
 function closeQuickSetup() {
     $('sessionPinInput').value = '';
+    syncSetupFace();
     $('quickSetupModal').classList.add('hidden');
 }
 
@@ -1127,11 +1130,16 @@ function wireEgress() {
         onChoose: async (themed, { nameFile = false } = {}) => {
             expectExternalApp();
             const qr = document.createElement('canvas');
-            const drawn = renderExportQr(qr, { themed, size: PRINT_QR_PX });
-            const warned = themed && drawn.ok && !drawn.themed;
-            if (warned) cardView.showToast('The theme colours are not scannable, so the QR is printed in black and white.');
+            // The QR is printed in the look chosen in Export QR (colours, dots, corners, dot size, frame, print size), as
+            // the PNG is; Black & White keeps the shapes and prints them black on white.
+            const look = exportQrDialog.choices;
+            const options = themed ? renderOptions(look) : { ...renderOptions(look), themed: false, ink: null, pair: null };
+            const drawn = renderExportQr(qr, { ...options, size: PRINT_QR_PX });
+            const wanted = themed && look.colour !== 'bw';
+            const warned = wanted && drawn.ok && !drawn.themed;
+            if (warned) cardView.showToast('Those QR colours are not scannable, so the QR is printed in black and white.');
             // The sheet takes a PNG copy of the QR at once, so the drawing canvas can be emptied before the wait for it.
-            const printing = egressController.triggerPhysicalPrint({ themed, qrCanvas: drawn.ok ? qr : null, nameFile });
+            const printing = egressController.triggerPhysicalPrint({ themed, qrCanvas: drawn.ok ? qr : null, nameFile, qrCm: look.printCm });
             qr.width = qr.height = 0;
             const printed = await printing;
             if (printed && printed.success && !warned) { cardView.showToast('Sent to the print dialog.'); flyFalcon(); }
@@ -1210,6 +1218,7 @@ function boot() {
     $('lockVaultBtn').addEventListener('click', () => { if (sessionPin.isSet()) quickLock('Lock button'); });
     $('vaultLockNowBtn').addEventListener('click', () => { if (sessionPin.isSet()) { closeSheet('vaultPage'); quickLock('Lock button'); lockedFromVault = true; } });
     $('quickSetupForm').addEventListener('submit', saveSessionPin);
+    $('sessionPinInput').addEventListener('input', syncSetupFace);
     $('quickSetupSkipBtn').addEventListener('click', closeQuickSetup);
     $('setSessionPinBtn').addEventListener('click', openQuickSetup);
     $('pinSwitch').addEventListener('click', togglePin);

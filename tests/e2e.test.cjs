@@ -1046,10 +1046,28 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('Vault page: Off switches have the knob on the left (PIN and fingerprint), with the right or the left hand set', pinOff8.knob === 'left' && bioOff8.knob === 'left' && (await handSwap8('pinSwitch')) === 'left' && (await handSwap8('biometricSwitch')) === 'left', JSON.stringify([pinOff8, bioOff8]));
     ok('Vault page: the title has its lock icon on the left', await p8.$eval('#vaultPageTitle', h => h.firstElementChild && h.firstElementChild.tagName === 'svg' && h.textContent.trim() === 'Vault'));
     await p8.click('#pinSwitch');
-    await p8.fill('#sessionPinInput', '12'); await p8.click('#quickSetupSaveBtn');
+    // The PIN setup pop-up has Ghost's look (raven575 2026-11-13): the Vault page's colours, Ghost and four paw prints
+    const setup8 = () => p8.evaluate(() => {
+      const shown = (id) => { const el = document.getElementById(id); return !!el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0; };
+      const form = document.getElementById('quickSetupForm'), page = document.querySelector('#vaultPage .vcge-sheet-panel');
+      return { face: document.getElementById('quickSetupModal').dataset.face, filled: document.getElementById('quickSetupPaws').dataset.filled,
+        ghost: shown('quickSetupGhost'), paws: shown('quickSetupPaws'), title: document.getElementById('quickSetupTitle').textContent.trim(),
+        bg: getComputedStyle(form).backgroundColor, pageBg: getComputedStyle(page).backgroundColor,
+        save: document.getElementById('quickSetupSaveBtn').className, skip: document.getElementById('quickSetupSkipBtn').className,
+        pinColor: getComputedStyle(document.getElementById('sessionPinInput')).color };
+    });
+    const s0 = await setup8();
+    ok('PIN setup pop-up: the Vault page\'s colours and buttons, titled "Session PIN"', s0.title === 'Session PIN' && s0.bg === s0.pageBg && s0.save === 'vault-btn' && s0.skip === 'vault-btn-quiet', JSON.stringify(s0));
+    if (EDITION_PLAIN) ok('plain edition: no Ghost and no paw prints on the PIN setup pop-up; the PIN box shows its own dots', !s0.ghost && !s0.paws && s0.pinColor !== 'rgba(0, 0, 0, 0)', JSON.stringify(s0));
+    else ok('PIN setup pop-up: Ghost looks away over four empty paw prints', s0.ghost && s0.paws && s0.face === 'away' && s0.filled === '0', JSON.stringify(s0));
+    await p8.fill('#sessionPinInput', '12');
+    const s2 = await setup8();
+    ok('PIN setup pop-up: two digits typed, both paws over the eyes and two paw prints fill', s2.face === 'both' && s2.filled === '2', JSON.stringify(s2));
+    await p8.click('#quickSetupSaveBtn');
     ok('session PIN: too-short PIN refused', (await t8('quickSetupError')) === 'Use exactly 4 digits.', await t8('quickSetupError'));
     await p8.fill('#sessionPinInput', '2468'); await p8.click('#quickSetupSaveBtn');
     await p8.waitForSelector('#quickSetupModal', { state: 'hidden' });
+    ok('PIN setup pop-up: once the PIN is set, Ghost and the paw prints are back to the start for next time', (await setup8()).filled === '0' && (await setup8()).face === 'away');
     ok('session PIN set: Security panel shows it and Lock appears', (await t8('sessionPinStatus')) === 'Session PIN: set' && await lockOffered(p8));
     const pinOn8 = await sw8('pinSwitch');
     ok('Vault page: the PIN switch turns green with "On" in green (the theme\'s good colour), Change and Lock now appear, the note goes', pinOn8.on === 'true' && pinOn8.word === 'On' && ['rgb(46, 125, 79)', 'rgb(127, 211, 158)'].includes(pinOn8.bg) && pinOn8.wordColor === pinOn8.bg
@@ -1982,9 +2000,17 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const cut = leaves.filter(e => { const b = e.getBoundingClientRect(); return b.bottom > r.bottom + 0.5 || b.right > r.right + 0.5; }).map(e => e.textContent.trim());
       return { cut, card: [Math.round(r.width), Math.round(r.height)], qr: [Math.round(qr.width), Math.round(qr.height)], qrRight: qr.left > r.right, bg: getComputedStyle(c).backgroundColor, ink: getComputedStyle(c).color, cardBg: getComputedStyle(document.getElementById('cardFront')).backgroundColor };
     });
-    ok('printed card is 3.5 in wide and at least 2 in tall, with the 1.5 in QR to its right', size.card[0] === 336 && size.card[1] >= 192 && size.qr[0] === 144 && size.qr[1] === 144 && size.qrRight, JSON.stringify(size));
+    ok('printed card is 3.5 in wide and at least 2 in tall, with the QR to its right at the default 3.5 cm', size.card[0] === 336 && size.card[1] >= 192 && size.qr[0] === 132 && size.qr[1] === 132 && size.qrRight, JSON.stringify(size));
     ok('printed card cuts nothing off: every line sits inside the card (raven575 2026-10-18)', size.cut.length === 0, JSON.stringify(size.cut));
     ok('themed print keeps the card\'s own colours', size.bg === size.cardBg && size.bg !== 'rgb(255, 255, 255)', JSON.stringify(size));
+    // raven575 2026-11-11 (CRTV-0061): the PDF came out flat; the Themed print keeps the texture, its strength and blur, and the light
+    const finish = await p9.evaluate(() => {
+      const c = document.querySelector('#printSheet .print-card'), f = document.getElementById('card3DFlipper'), b = getComputedStyle(c, '::before');
+      return { finish: c.dataset.finish, card: f.dataset.finish, a: [c.style.getPropertyValue('--finish-a'), f.style.getPropertyValue('--finish-a')], blur: [c.style.getPropertyValue('--finish-blur'), f.style.getPropertyValue('--finish-blur')],
+        display: b.display, image: b.backgroundImage.slice(0, 22), opacity: b.opacity, filter: b.filter, blend: b.mixBlendMode, light: getComputedStyle(c).backgroundImage.startsWith('radial-gradient') };
+    });
+    ok('Airlock: Themed print keeps the card\'s finish (Paper grain at its strength and blur, the soft light), not a flat colour', finish.finish === finish.card && finish.finish === 'paper' && finish.a[0] === finish.a[1] && finish.blur[0] === finish.blur[1]
+      && finish.display !== 'none' && finish.image.startsWith('url("data:image/svg') && finish.opacity === finish.a[1] && finish.filter === `blur(${finish.blur[1]})` && finish.blend === 'overlay' && finish.light, JSON.stringify(finish));
     // Chrome's print preview sized the one-screen-tall body to the window, so a short card printed 4 sheets (raven575 2026-10-21)
     const printBody = await p9.evaluate(() => ({ body: document.body.getBoundingClientRect().height, sheet: document.getElementById('printSheet').getBoundingClientRect().height, view: innerHeight }));
     ok('in print the page is only as tall as the print sheet, not the window (no blank sheets after the card)', Math.abs(printBody.body - printBody.sheet) < 1 && printBody.body < printBody.view, JSON.stringify(printBody));
@@ -2002,10 +2028,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p9.emulateMedia({ media: 'print' });
     const bw = await p9.evaluate(() => {
       const c = document.querySelector('#printSheet .print-card'), q = document.querySelector('#printSheet .print-qr img');
-      return { bg: getComputedStyle(c).backgroundColor, ink: getComputedStyle(c).color, bw: c.classList.contains('print-bw'), src: q.src.slice(0, 21) };
+      return { bg: getComputedStyle(c).backgroundColor, ink: getComputedStyle(c).color, bw: c.classList.contains('print-bw'), src: q.src.slice(0, 21), texture: getComputedStyle(c, '::before').display };
     });
     await p9.emulateMedia({ media: null });
-    ok('Black & White print: white card, dark ink, a PNG QR', bw.bw && bw.bg === 'rgb(255, 255, 255)' && bw.ink === 'rgb(15, 23, 42)' && bw.src === 'data:image/png;base64', JSON.stringify(bw));
+    ok('Black & White print: white card, dark ink, a PNG QR, no texture', bw.bw && bw.bg === 'rgb(255, 255, 255)' && bw.ink === 'rgb(15, 23, 42)' && bw.src === 'data:image/png;base64' && bw.texture === 'none', JSON.stringify(bw));
     // The B&W QR on the sheet is black on white; the themed one above was tinted
     const qrColours = await p9.evaluate(async () => {
       const img = document.querySelector('#printSheet .print-qr img'); await img.decode();
@@ -2042,6 +2068,33 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const backPdf = (await p9.pdf({ preferCSSPageSize: true, printBackground: true })).toString('latin1');
       ok('a normal card prints on the 6 x 3.5 in page again', (/\/MediaBox\s*\[\s*0\s+0\s+(\d+)\s+(\d+)/.exec(backPdf) || []).slice(1).join() === '432,252');
     }
+    // raven575 2026-11-10: the PDF's QR uses the look and size picked under Save QR image (Checkers' styles), as the PNG does
+    const pick9 = async (id, value) => { await p9.click(`#${id} + .vcge-pick .vcge-pick-btn`); await p9.click(`#${id} + .vcge-pick [role="option"][data-value="${value}"]`); return (await p9.inputValue('#' + id)) === value; };
+    await p9.evaluate(() => { document.documentElement.style.fontSize = ''; });
+    await p9.click('#exportQrBtn'); await p9.waitForSelector('#exportQrSheet', { state: 'visible' });
+    const looked = await pick9('qrColourSelect', 'cream-navy') && await pick9('qrDotsSelect', 'round') && await pick9('qrPrintSizeSelect', '5');
+    await p9.keyboard.press('Escape');
+    const printedQr = () => p9.evaluate(() => {
+      const img = document.querySelector('#printSheet .print-qr img'), c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+      const x = c.getContext('2d'); x.drawImage(img, 0, 0); const d = x.getImageData(0, 0, c.width, c.height).data, seen = new Set();
+      for (let i = 0; i < d.length; i += 4) seen.add(`${d[i]},${d[i + 1]},${d[i + 2]}`);
+      return { colours: [...seen], css: getComputedStyle(document.getElementById('printSheet')).getPropertyValue('--print-qr-size').trim() };
+    });
+    const lookPrint = await printWith(p9, '#printThemedBtn');
+    const lookQr = await printedQr();
+    await p9.emulateMedia({ media: 'print' });
+    const lookBox = await p9.evaluate(() => { const q = document.querySelector('#printSheet .print-qr img').getBoundingClientRect(), c = document.querySelector('#printSheet .print-card').getBoundingClientRect(); return { qr: Math.round(q.width), right: q.left > c.right }; });
+    await p9.emulateMedia({ media: null });
+    ok('Airlock: Themed print uses the Save QR image look (Cream & Navy, not black) at its print size (5 cm)', looked && lookPrint.decoded && !lookQr.colours.includes('0,0,0') && !lookQr.colours.includes('255,255,255') && lookQr.css === '5cm' && lookBox.qr === 189 && lookBox.right, JSON.stringify({ looked, lookQr: { n: lookQr.colours.length, css: lookQr.css }, lookBox }));
+    if (ENGINE === 'chromium') {
+      const pdf5 = await p9.pdf({ preferCSSPageSize: true, printBackground: true });
+      const box5 = pdf5.toString('latin1').match(/\/MediaBox\s*\[\s*0 0 ([\d.]+) ([\d.]+)\s*\]/);
+      const pages5 = (pdf5.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length;
+      ok('Airlock: a 5 cm QR widens the page (6.37 in) and it is still one page', pages5 === 1 && box5 && Math.abs(Number(box5[1]) - 6.37 * 72) < 1, `${pages5} pages, box ${box5 && box5.slice(1)}`);
+    }
+    await printWith(p9, '#printBwBtn');
+    const bwLook = await printedQr();
+    ok('Airlock: Black & White print keeps the look\'s size but prints pure black on white', bwLook.colours.includes('0,0,0') && bwLook.colours.includes('255,255,255') && bwLook.css === '5cm', JSON.stringify({ n: bwLook.colours.length, css: bwLook.css }));
     // PDF name (raven575 2026-10-18): opt-in each print. Unticked, the title (and so the PDF name) stays the app's;
     // ticked, the title is the contact's file name only until printing ends or the next tap
     const appTitle = await p9.title();
@@ -2788,6 +2841,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const clicks = await pV.evaluate(() => window.__clicks);
     const clickSpan = clicks.length ? Math.max(...clicks.map(c => c.stop)) - Math.min(...clicks.map(c => c.start)) : -1;
     ok('shutter: the shot plays one short click (two taps, over in 0.08 s), and opening, zoom and the press made no sound', clicksBefore === 0 && clicks.length === 2 && clicks.every(c => !c.loop) && clickSpan > 0 && clickSpan <= 0.0801, JSON.stringify({ clicksBefore, clicks }));
+    // Smart burst (CAM-0028): the press watches the camera for a moment (BURST_MS) before the photo opens
+    await pV.waitForSelector('#captureReview', { state: 'visible', timeout: 5000 }).catch(() => {});
+    const burstLog = await pV.textContent('#eventLog');
+    const burstFrames = Number((/best of (\d+) frames/.exec(burstLog) || [])[1] || 0);
+    ok('shutter: Smart burst looked at several frames and kept the best (a clean feed is never blended)', burstFrames >= 2, burstLog);
+    ok('shutter: a camera with no light shows no light button', !(await pV.isVisible('#lightBtn')));
     ok('shutter: the shot opens the crop step and the camera closes', await pV.isVisible('#captureReview') && (await pV.evaluate(() => document.getElementById('cameraPanel').classList.contains('hidden') && document.getElementById('cameraStream').srcObject === null)) && (await card()) === 'capture');
     // The 390 x 464-ish portrait view covers the 640 x 360 feed (scale by height), zoomed 2x: the window is the middle of it
     const shot = await pV.evaluate(() => new Promise(resolve => {
@@ -2817,10 +2876,17 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pV.click('#captureBtn'); await pV.waitForTimeout(200);
     const heldBack = await pV.isVisible('#cameraPanel') && !(await pV.isVisible('#captureReview'));
     await pV.evaluate(() => { const v = document.getElementById('cameraStream'); delete v.videoWidth; v.dispatchEvent(new Event('loadeddata')); });
-    await pV.waitForTimeout(300);
+    await pV.waitForSelector('#captureReview', { state: 'visible', timeout: 5000 }).catch(() => {});
     ok('shutter before the first picture: the shot is taken as soon as the picture comes', heldBack && await pV.isVisible('#captureReview') && !(await pV.isVisible('#cameraPanel')));
     await pV.evaluate(() => document.getElementById('retakePhotoBtn').classList.remove('hidden'));
     await pV.click('#retakePhotoBtn'); await pV.waitForTimeout(300);
+    // Closing the camera in the middle of a burst drops every frame: no photo, nothing left behind
+    await pV.waitForFunction(() => document.getElementById('cameraStream').videoWidth > 0, null, { timeout: 5000 }).catch(() => {});
+    await pV.evaluate(() => { document.getElementById('captureBtn').click(); setTimeout(() => document.getElementById('stopCameraBtn').click(), 150); });
+    await pV.waitForTimeout(1500);
+    ok('Smart burst: closing the camera mid-burst makes no photo and leaves nothing in the capture canvas', !(await pV.isVisible('#captureReview')) && !(await pV.getAttribute('#reviewImage', 'src'))
+      && (await pV.$eval('#captureCanvas', c => c.width + c.height)) === 0 && (await pV.evaluate(() => document.getElementById('cameraPanel').classList.contains('hidden'))));
+    await pV.click('#startCameraBtn').catch(() => {}); await pV.waitForTimeout(500);
     await pV.click('#stopCameraBtn');
     ok('Close camera stops the feed', await pV.evaluate(() => document.getElementById('cameraStream').srcObject === null && document.getElementById('cameraPanel').classList.contains('hidden')));
     }
