@@ -749,16 +749,20 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const cardEm = document.querySelector('.deck-card.is-current > .vcge-emblem');
     return { field: document.documentElement.dataset.emblemField, whole: !!r && r.width > 100 && r.left >= 0 && r.right <= innerWidth && r.top >= 0, beyond: !!r && (r.right > d.right || r.left < d.left), card: (document.querySelector('.deck-card.is-current') || {}).dataset?.card, at: r ? [Math.round(r.left), Math.round(r.right), Math.round(d.left), Math.round(d.right)].join() : '',
       marks: marks.length, clear: marks.every(m => m.right < d.left - 40 || m.left > d.right + 40), tileShown: getComputedStyle(document.querySelector('.vcge-field-tile')).display !== 'none',
-      cardCopy: cardEm ? getComputedStyle(cardEm).visibility : 'none', width: innerWidth, tier: document.documentElement.dataset.tier, taps: getComputedStyle(document.querySelector('.vcge-field')).pointerEvents }; });
+      cardCopy: cardEm ? getComputedStyle(cardEm).visibility : 'none', width: innerWidth, tier: document.documentElement.dataset.tier, taps: getComputedStyle(document.querySelector('.vcge-field')).pointerEvents,
+      deckWide: d.width > 1000, noRoom: Math.max(d.left, innerWidth - d.right) - 48 < 220 * 1.5 }; });
   ok('wide window: the current card\'s emblem shows whole past an edge of the deck (its clipped copy steps aside), and a sparse tile of whole small copies keeps clear of the deck, taking no taps',
-    wide.field === 'on' && wide.whole && wide.beyond && wide.cardCopy === 'hidden' && wide.tileShown && wide.marks >= 2 && wide.clear && wide.taps === 'none', JSON.stringify(wide));
+    // (since the easy + premium layout, step 1, the deck itself spreads across a monitor, so the emblem sits whole inside
+    // its wider column and the tile only has room in the narrow bands beside it; a phone-sized deck still shows it past the edge)
+    wide.field === 'on' && wide.whole && (wide.beyond || wide.deckWide) && wide.cardCopy === 'hidden' && wide.tileShown && (wide.marks >= 2 || wide.noRoom) && wide.clear && wide.taps === 'none', JSON.stringify(wide));
   // (the layer must never widen the page: a phone browser zooms out to fit anything past the edge, and the page then
   // stays wide; iPhone CI 11-04 kept the 1920 tier after going to 1280)
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.waitForFunction(() => document.documentElement.dataset.tier === 'laptop', null, { timeout: 5000 }).catch(() => {});
   const laptop = await page.evaluate(() => ({ field: document.documentElement.dataset.emblemField, tileShown: getComputedStyle(document.querySelector('.vcge-field-tile')).display !== 'none',
     tier: document.documentElement.dataset.tier, width: innerWidth, page: document.documentElement.scrollWidth }));
-  ok('laptop window: the whole emblem still shows, the small tile does not (only from 1600 px)', laptop.field === 'on' && !laptop.tileShown && laptop.width === 1280 && laptop.page <= 1280, JSON.stringify(laptop));
+  // (a laptop's deck now fills the window, so the card keeps its own emblem and no page layer is needed)
+  ok('laptop window: the deck fills the width, so the card keeps its own emblem; the small tile does not show (only from 1600 px)', laptop.field === 'off' && !laptop.tileShown && laptop.width === 1280 && laptop.page <= 1280, JSON.stringify(laptop));
   if (vpWas) { await page.setViewportSize(vpWas); await page.waitForTimeout(300); }
   await setHand(page, true);
   const headerOrder = () => page.evaluate(() => ['navSettings', 'navVault', 'navWelcome', 'navCapture', 'navShare'].map(id => document.getElementById(id).getBoundingClientRect().left));
@@ -1825,15 +1829,20 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // 0.8 Details layout (Creative's mock-up): groups Name, Work, Reach, Notes; labels above rounded boxes; first and last name side by side
     const look = await pF.evaluate(() => {
       const r = (id) => document.getElementById(id).getBoundingClientRect(), label = document.querySelector('#fieldsForm label:has(#jobTitle) .field-label').getBoundingClientRect();
-      const box = document.getElementById('jobTitle');
+      const box = document.getElementById('jobTitle'), wide = ['laptop', 'monitor', 'wide'].includes(document.documentElement.dataset.tier);
+      const short = wide && innerHeight <= 760;   // a short wide window (a 1366 x 768 laptop) uses 44 px boxes so Details fits
       return { groups: Array.from(document.querySelectorAll('#fieldsForm > .fields-group')).filter(h => h.offsetHeight).map(h => h.textContent).join(), radius: getComputedStyle(box).borderTopLeftRadius,
         h: Math.round(r('jobTitle').height), labelAbove: label.bottom <= r('jobTitle').top + 1, pair: Math.abs(r('firstName').top - r('lastName').top) < 1 && r('lastName').left > r('firstName').right,
-        order: r('firstName').top < r('jobTitle').top && r('jobTitle').top < r('organization').top && r('organization').top < r('phoneList').top && r('phoneList').top < r('notes').top,
-        add: r('fieldsAddBtn').top > r('notes').bottom, tools: r('fakeContactSelect').top > r('fieldsAddBtn').bottom && r('clearFormBtn').top > r('fieldsAddBtn').bottom,
-        topBar: !document.querySelector('.vcge-bar #fakeContactSelect, .vcge-bar #clearFormBtn, .vcge-head #fakeContactSelect, .vcge-head #clearFormBtn') };
+        // (one column on a phone or tablet; on a laptop or wider the groups sit in columns: Name and Work, then Reach, then
+        // Address and Notes, with the sample list and Clear under Work and "+ Add a field" under Notes)
+        wideTier: wide, order: wide ? r('firstName').top < r('jobTitle').top && r('jobTitle').top < r('organization').top && r('phoneList').left > r('organization').right && r('notes').left > r('phoneList').right
+            : r('firstName').top < r('jobTitle').top && r('jobTitle').top < r('organization').top && r('organization').top < r('phoneList').top && r('phoneList').top < r('notes').top,
+        add: r('fieldsAddBtn').top > r('notes').bottom, tools: wide ? r('fakeContactSelect').top > r('organization').bottom && r('clearFormBtn').top > r('organization').bottom
+            : r('fakeContactSelect').top > r('fieldsAddBtn').bottom && r('clearFormBtn').top > r('fieldsAddBtn').bottom,
+        short, topBar: !document.querySelector('.vcge-bar #fakeContactSelect, .vcge-bar #clearFormBtn, .vcge-head #fakeContactSelect, .vcge-head #clearFormBtn') };
     });
     ok('fields (0.8): grouped Name, Work, Reach, Notes; labels above 16 px rounded boxes; first and last name side by side; "+ Add a field" under Notes; the sample list and Clear form last, off the top',
-      look.groups === 'Name,Work,Reach,Notes' && look.radius === '16px' && look.h >= 52 && look.labelAbove && look.pair && look.order && look.add && look.tools && look.topBar, JSON.stringify(look));
+      look.groups === 'Name,Work,Reach,Notes' && look.radius === (look.short ? '14px' : '16px') && look.h >= (look.short ? 44 : 52) && look.labelAbove && look.pair && look.order && look.add && look.tools && look.topBar, JSON.stringify(look));
     // The class goes on animationend, which a slow phone engine on CI can deliver well after 0.32 s: wait for it (3 s cap)
     const popEnded = await pF.waitForFunction(() => !document.getElementById('fieldsForm').classList.contains('is-popping'), null, { timeout: 3000 }).then(() => true, () => false);
     ok('fields: the pop class is gone once the animation ends', popEnded && !(await pF.$eval('#fieldsForm', f => f.classList.contains('is-popping'))));
@@ -3292,8 +3301,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('welcome: buttons read Set Up PIN/BIO Lock Now, Take a Tour, CANCEL; the primary is the dock\'s "Scan a card" (no Start button in the card)', (await pH.textContent('#welcomePinBtn')) === 'Set Up PIN/BIO Lock Now' && (await pH.textContent('#dockNext')) === 'Scan a card'
       && !(await pH.$('#welcomeStartBtn')) && (await pH.textContent('#welcomeTourBtn')) === 'Take a Tour' && (await pH.textContent('#welcomeCancelBtn')) === 'CANCEL');
     // The mock-up's order: Shutout, the promise, the line under it, the privacy line with its shield, the tagline, "Made by"
-    const order = await pH.evaluate(() => ['#welcomeArt', '#welcomeTitle', '.r2-lede', '.r2-privacy', '#welcomeTagline', '#cardWelcome .vcge-maker'].map(q => document.querySelector(q)).filter(Boolean).map(e => Math.round(e.getBoundingClientRect().top)));
-    ok('welcome (0.8): the mock-up\'s order, top to bottom, with the shield in the privacy line', order.length === (EDITION_PLAIN ? 4 : 6) && order.every((t, i) => !i || t > order[i - 1])
+    // (in reading order: on a laptop or wider the screen has two columns, so the order runs down the left one, then the right)
+    const order = await pH.evaluate(() => { const mid = document.querySelector('#cardWelcome .deck-card-body').getBoundingClientRect(); const half = mid.left + mid.width / 2;
+      return ['#welcomeArt', '#welcomeTitle', '.r2-lede', '.r2-privacy', '#welcomeTagline', '#cardWelcome .vcge-maker'].map(q => document.querySelector(q)).filter(Boolean)
+        .map(e => { const r = e.getBoundingClientRect(); return [r.left + r.width / 2 > half ? 1 : 0, Math.round(r.top)]; }); });
+    ok('welcome (0.8): the mock-up\'s order, top to bottom (column by column on a wide screen), with the shield in the privacy line', order.length === (EDITION_PLAIN ? 4 : 6)
+      && order.every(([c, t], i) => !i || c > order[i - 1][0] || (c === order[i - 1][0] && t > order[i - 1][1]))
       && await pH.$eval('.r2-privacy', p => !!p.querySelector('svg') && p.textContent.includes('Nothing is saved.')), JSON.stringify(order));
     ok('0.8 shell: the screens out of view are hidden (from sight, taps and assistive tech); only Welcome shows', await pH.evaluate(() => document.querySelectorAll('.deck-card[aria-hidden="true"]').length === 5 && document.getElementById('cardWelcome').getAttribute('aria-hidden') === 'false'
       && Array.from(document.querySelectorAll('.deck-card')).filter(c => getComputedStyle(c).display !== 'none').map(c => c.id).join() === 'cardWelcome'));
@@ -3421,6 +3434,49 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('welcome: nothing stored, no outside requests, no page errors', (await stored()) === 0 && externalH.length === 0 && errorsH.length === 0,
       externalH.concat(errorsH).join(' | '));
     await ctxH.close();
+  }
+
+  // MOD01 wide screens (easy + premium plan, step 1, raven575 2026-11-13): on a 1080p monitor and on a 1366 x 768 laptop
+  // every screen fits with no scrolling, the step's title sits in the top bar, the dock is one row, the card and its
+  // design tools sit side by side, and Share's two groups too. (Phones keep their own layout: this runs without a device.)
+  if (!process.env.VCGE_DEVICE) {
+    for (const [w, h, tier] of [[1920, 969, 'monitor'], [1366, 657, 'laptop']]) {
+      const ctxW = await browser.newContext({ viewport: { width: w, height: h } });
+      const pW = await ctxW.newPage();
+      await pW.goto(ORIGIN); await pW.waitForTimeout(500);
+      ok(`wide ${w} x ${h}: the screen counts as a ${tier}`, (await pW.getAttribute('html', 'data-tier')) === tier);
+      await pW.fill('#firstName', 'Wide'); await pW.fill('#lastName', 'Screen');
+      const over = [];
+      for (const screen of ['welcome', 'capture', 'read', 'fields', 'card', 'share']) {
+        await pW.$eval(DOCK[screen], b => b.click()); await deckSettled(pW);
+        await pW.waitForFunction((s) => document.documentElement.dataset.card === s, screen, { timeout: 5000 }).catch(() => {});
+        const o = await pW.evaluate((s) => {
+          const card = document.querySelector(`.deck-card[data-card="${s}"]`);
+          const scrolls = [card, ...card.querySelectorAll('*')].filter(e => e.offsetParent !== null && /(auto|scroll)/.test(getComputedStyle(e).overflowY) && e.scrollHeight > e.clientHeight + 1)
+            .map(e => `${e.id || e.className.toString().split(' ')[0]} ${e.scrollHeight}/${e.clientHeight}`);
+          const page = document.scrollingElement.scrollHeight > innerHeight + 1 ? [`page ${document.scrollingElement.scrollHeight}/${innerHeight}`] : [];
+          return scrolls.concat(page);
+        }, screen);
+        if (o.length) over.push(`${screen}: ${o.join(', ')}`);
+      }
+      ok(`wide ${w} x ${h}: every screen (Welcome, Capture, Read, Details, Card, Share) fits with no scrolling`, over.length === 0, over.join(' | '));
+      const shell = await pW.evaluate(() => {
+        const r = (sel) => document.querySelector(sel).getBoundingClientRect();
+        const bar = r('.vcge-bar'), title = r('#hTitle'), steps = r('.vcge-steps'), next = r('#dockNext');
+        return { titleInBar: title.top >= bar.top && title.bottom <= bar.bottom + 2, dockOneRow: Math.abs((steps.top + steps.bottom) / 2 - (next.top + next.bottom) / 2) < 12 && steps.right <= next.left,
+          wide: Math.round(r('.deck').width) };
+      });
+      ok(`wide ${w} x ${h}: the title sits in the top bar, the dock is one row and the screens use the width`, shell.titleInBar && shell.dockOneRow && shell.wide > 1000, JSON.stringify(shell));
+      await pW.$eval(DOCK.card, b => b.click()); await deckSettled(pW);
+      const cardSide = await pW.evaluate(() => { const c = document.getElementById('card3DFlipper').getBoundingClientRect(), t = document.getElementById('paletteListContainer').getBoundingClientRect(), f = document.getElementById('flipCardBtn').getBoundingClientRect();
+        return { side: c.right <= t.left && f.left >= c.right, cardW: Math.round(c.width) }; });
+      ok(`wide ${w} x ${h}: Your card shows the card on the left and its design tools beside it, the card bigger than on a phone`, cardSide.side && cardSide.cardW > 360, JSON.stringify(cardSide));
+      await pW.$eval(DOCK.share, b => b.click()); await deckSettled(pW);
+      const shareSide = await pW.evaluate(() => { const a = document.getElementById('downloadVcfBtn').getBoundingClientRect(), b = document.getElementById('shareNativeBtn').getBoundingClientRect();
+        return { side: a.right <= b.left && Math.abs(a.top - b.top) < 2 }; });
+      ok(`wide ${w} x ${h}: Share shows Save and Send side by side`, shareSide.side, JSON.stringify(shareSide));
+      await ctxW.close();
+    }
   }
 
   // MOD01 shared look: MOD-XX tags in Sixtyfour on every panel, 44 px buttons with 2 px outlines, the near-miss rim for taps
