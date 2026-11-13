@@ -301,6 +301,9 @@
             <datalist id="unitTypeOptions"></datalist>
 
             <div id="fieldsForm" class="fields-form">
+                <!-- Four columns on a wide screen (layout-wide.css): Name and Work | Reach | Address | Notes. On a phone the
+                     columns step aside (display: contents) and the groups run down the screen as before. -->
+                <div class="fields-col fields-col-a">
                 <h4 class="fields-group">Name</h4>
                 <div class="fields-pair">
                     <label class="block"><span class="field-label">First name</span><input id="firstName" type="text" autocomplete="off" class="field-input"></label>
@@ -311,6 +314,8 @@
                 <label class="block"><span class="field-label">Job title</span><input id="jobTitle" type="text" autocomplete="off" class="field-input"></label>
                 <label class="block"><span class="field-label">Company</span><input id="organization" type="text" autocomplete="off" class="field-input"></label>
 
+                </div>
+                <div class="fields-col fields-col-b">
                 <h4 class="fields-group">Reach</h4>
                 <!-- Typed lists (MOD06 builds the rows): each row is a value box, its type and a remove button -->
                 <fieldset class="fields-list">
@@ -334,6 +339,8 @@
                     <button id="addWebsiteBtn" type="button" class="fields-add-row">+ Add website</button>
                 </fieldset>
 
+                </div>
+                <div class="fields-col fields-col-c">
                 <fieldset class="fields-address">
                     <legend class="field-label">Address</legend>
                     <label class="block"><span class="field-label">Type</span><select id="addressType" class="field-input"></select></label>
@@ -355,6 +362,8 @@
                 </fieldset>
 
 
+                </div>
+                <div class="fields-col fields-col-d">
                 <h4 class="fields-group">Notes</h4>
                 <label class="block"><span class="field-label">Notes</span><textarea id="notes" rows="2" class="field-input"></textarea></label>
                 <!-- Categories (MOD05): tags typed by the person, comma separated; written as the vCard's CATEGORIES -->
@@ -377,6 +386,7 @@
                     <p id="fieldsUnknownTitle" class="field-label">Unknown: tap to file</p>
                     <p id="fieldsUnknownHelp" class="fields-hint" aria-live="polite"></p>
                     <ul id="fieldsUnknownList" class="fields-unknown-list"></ul>
+                </div>
                 </div>
             </div>
             <button id="fieldsAddBtn" type="button" class="fields-add" aria-controls="fieldsMore" aria-expanded="false">+ Add a field</button>

@@ -1831,7 +1831,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const r = (id) => document.getElementById(id).getBoundingClientRect(), label = document.querySelector('#fieldsForm label:has(#jobTitle) .field-label').getBoundingClientRect();
       const box = document.getElementById('jobTitle'), wide = ['laptop', 'monitor', 'wide'].includes(document.documentElement.dataset.tier);
       const short = wide && innerHeight <= 760;   // a short wide window (a 1366 x 768 laptop) uses 44 px boxes so Details fits
-      return { groups: Array.from(document.querySelectorAll('#fieldsForm > .fields-group')).filter(h => h.offsetHeight).map(h => h.textContent).join(), radius: getComputedStyle(box).borderTopLeftRadius,
+      return { groups: Array.from(document.querySelectorAll('#fieldsForm .fields-col > .fields-group')).filter(h => h.offsetHeight).map(h => h.textContent).join(), radius: getComputedStyle(box).borderTopLeftRadius,
         h: Math.round(r('jobTitle').height), labelAbove: label.bottom <= r('jobTitle').top + 1, pair: Math.abs(r('firstName').top - r('lastName').top) < 1 && r('lastName').left > r('firstName').right,
         // (one column on a phone or tablet; on a laptop or wider the groups sit in columns: Name and Work, then Reach, then
         // Address and Notes, with the sample list and Clear under Work and "+ Add a field" under Notes)

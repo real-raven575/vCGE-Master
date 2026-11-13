@@ -6,6 +6,9 @@
    uses two panes (the picture or the card on the left, its tools on the right) so nothing on a 1080p monitor or a laptop
    needs a scroll. Phones and tablets keep their layout. Sheets (Vault, Settings) keep their phone width. */
 
+/* The Details columns (index.html .fields-col) step aside on a phone: the groups stay one list, as before */
+.fields-col { display: contents; }
+
 :root[data-tier="laptop"] { --sh-frame: 80rem; }
 :root[data-tier="monitor"] { --sh-frame: 84rem; }
 :root[data-tier="wide"] { --sh-frame: 96rem; }
@@ -37,25 +40,29 @@
 :root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #welcomeBody.r2-hero > * + * { margin-top: 10px; }
 :root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #welcomeBody.r2-hero > #welcomeArt { display: block; }
 
-/* Details: the fields in columns, one group per column (Name and Work | Reach | Address and Notes), so the
-   form fits the screen; a laptop gives Notes a fourth column. Forced column breaks keep a group together. */
-:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields #fieldsForm { display: block; column-count: 3; column-gap: 32px; }
-:root[data-tier="laptop"] #cardFields #fieldsForm { column-count: 4; column-gap: 24px; }
-:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields #fieldsForm > * { break-inside: avoid; margin: 0 0 14px; }
-:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields #fieldsForm > h4 { break-after: avoid; margin-bottom: 6px; }
-:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields #fieldsForm > h4:has(+ .fields-list), :root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields #fieldsForm > .fields-address { break-before: column; }
-:root[data-tier="laptop"] #cardFields #fieldsForm > .fields-address + h4 { break-before: column; }
-/* ...and "Add a field", the sample contacts and Clear sit at the foot of a short column: under Name and Work, or on a
-   laptop "Add a field" moves under Notes */
+/* Details: the groups in columns (Name and Work | Reach | Address | Notes, index.html .fields-col), so the form fits
+   the screen; a monitor puts Notes under Address. Plain grid, no multi-column flow (Firefox, CI 11-13). */
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields #fieldsForm { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-areas: "a b c" "a b d";
+    gap: 0 32px; align-items: start; margin-bottom: 0; }
+:root[data-tier="laptop"] #cardFields #fieldsForm { grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-areas: "a b c d"; gap: 0 24px; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .fields-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .fields-col > h4 { margin-bottom: -8px; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .fields-col-a { grid-area: a; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .fields-col-b { grid-area: b; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .fields-col-c { grid-area: c; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .fields-col-d { grid-area: d; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .fields-col-d > :first-child { margin-top: 14px; }
+:root[data-tier="laptop"] #cardFields .fields-col-d > :first-child { margin-top: 0; }
+/* ...and "Add a field", the sample contacts and Clear sit at the foot of the first column, under Name and Work (on a
+   laptop "Add a field" sits under Notes) */
 :root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .deck-card-body { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 32px; align-content: start; }
 :root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .deck-card-body > * { grid-column: 1; grid-row: 1; }
-:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .deck-card-body > #fieldsForm { grid-column: 1 / -1; margin-bottom: 0; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .deck-card-body > #fieldsForm { grid-column: 1 / -1; }
 :root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .deck-card-body > :not(#fieldsForm) { align-self: end; position: relative; z-index: 1; }
 :root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .deck-card-body > #fieldsAddBtn { margin-bottom: 72px; }
 :root[data-tier="laptop"] #cardFields .deck-card-body { grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: 24px; }
 :root[data-tier="laptop"] #cardFields .deck-card-body > #fieldsAddBtn { grid-column: 4; }
 :root[data-tier="laptop"] #cardFields .deck-card-body > #fieldsAddBtn { margin-bottom: 0; }
-
 
 /* Your card: the card big on the left (it stays in view), the design tools on the right */
 :root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardCard .r4-card { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); column-gap: 40px; align-content: start; }
@@ -80,13 +87,18 @@
     :root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .field-input { min-height: 44px; border-radius: 14px; }
     :root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .fields-list,
     :root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .fields-rows { gap: 6px; }
-    :root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields #fieldsForm > * { margin-bottom: 6px; }
+    :root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .fields-col { gap: 6px; }
+    :root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .fields-col > h4 { margin-bottom: -4px; }
     :root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) .vcge-dock { padding-top: 4px; padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px)); }
 }
 
 /* Tablets and an open Fold: Details in two columns (Name, Work and Reach | Address and Notes), so the form is about half
    as tall. Capture and Read keep the big photo on top (raven575's Fold pick, 2026-10-22). */
-:root:is([data-tier="small-tablet"], [data-tier="large-tablet"]) #cardFields #fieldsForm { display: block; column-count: 2; column-gap: 24px; }
-:root:is([data-tier="small-tablet"], [data-tier="large-tablet"]) #cardFields #fieldsForm > * { break-inside: avoid; margin: 0 0 16px; }
-:root:is([data-tier="small-tablet"], [data-tier="large-tablet"]) #cardFields #fieldsForm > h4 { break-after: avoid; margin-bottom: 6px; }
-:root:is([data-tier="small-tablet"], [data-tier="large-tablet"]) #cardFields #fieldsForm > .fields-address { break-before: column; }
+:root:is([data-tier="small-tablet"], [data-tier="large-tablet"]) #cardFields #fieldsForm { grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas: "a c" "b c" "b d"; gap: 0 24px; align-items: start; }
+:root:is([data-tier="small-tablet"], [data-tier="large-tablet"]) #cardFields .fields-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+:root:is([data-tier="small-tablet"], [data-tier="large-tablet"]) #cardFields .fields-col > h4 { margin-bottom: -10px; }
+:root:is([data-tier="small-tablet"], [data-tier="large-tablet"]) #cardFields .fields-col-a { grid-area: a; }
+:root:is([data-tier="small-tablet"], [data-tier="large-tablet"]) #cardFields .fields-col-b { grid-area: b; margin-top: 16px; }
+:root:is([data-tier="small-tablet"], [data-tier="large-tablet"]) #cardFields .fields-col-c { grid-area: c; }
+:root:is([data-tier="small-tablet"], [data-tier="large-tablet"]) #cardFields .fields-col-d { grid-area: d; margin-top: 16px; }
