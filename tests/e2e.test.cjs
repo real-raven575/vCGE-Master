@@ -3201,7 +3201,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       pG.on('pageerror', e => pageErrors.push(e.message));
       pG.on('console', m => { if (m.type() === 'error' && !/SyntaxError|Unexpected/.test(m.text())) pageErrors.push(m.text()); });
       await setup(ctxG, pG);
-      await pG.goto(base); await pG.waitForTimeout(800);
+      // The gate's "cannot run" page can come a moment after the page's load event (a SyntaxError is only seen once the
+      // entry script is read, and a slow phone engine reads it after load): wait for it up to 5 s, then at least 800 ms
+      await pG.goto(base);
+      await Promise.all([pG.waitForURL(/unsupported\/index\.html#/, { timeout: 5000 }).catch(() => {}), pG.waitForTimeout(800)]);
       const url = pG.url();
       const shown = url.includes('src/modules/mod01-shell/unsupported/index.html#') && url.includes(reason);
       const reasons = shown ? await pG.$$eval('#reasonList li', els => els.map(el => el.getAttribute('data-reason'))) : [];
