@@ -17,6 +17,10 @@ import { isShelved } from '../mod01-shell/edition.js';
 import { visibleSourceRect, cardFrameRect, tween, nextSeen, chipFor } from './viewfinder.js';
 import { findCardQuad, SMALL_SIDE } from './cardFinder.js';
 import { readyClick, playShutterClick } from './shutterClick.js';
+import {
+    BURST_MS, SCORE_WIDTH, KEEP, WASH_LEVEL, toLuma, sharpness, glareShare, frameScore, keepBest,
+    alignShift, pickAligned, medianBlend, shouldBlend, meanLuma, glareAdvice,
+} from './smartBurst.js';
 
 // A web page cannot claim the camera for itself, so the camera is turned off and the user told whenever another app
 // shows up: it holds the camera (start fails), takes it away mid-scan (the feed ends or stays muted), or sits in front of
@@ -33,9 +37,11 @@ export const IRIS_WINK_MS = 700;     // one wink when Iris is tapped on the empt
 export const ZOOM_MAX = 4;            // the most the fader or a pinch zooms, the camera's own zoom or the digital one
                                       // (raven575, 2026-10-24: a phone's 8x was too close to help)
 export const FIRST_FRAME_WAIT_MS = 1500;   // how long a shutter press waits for the camera's first picture
+export const FRAME_WAIT_MS = 120;     // Smart burst: the longest it waits for the next camera frame before it looks anyway
 export const WATCH_MS = 600;          // how often the live picture is looked at for a card (the corners and the shutter turn green)
 export const HINT_LOOKING = 'Fit the card inside the corners';
 export const HINT_FOUND = 'Hold still, then tap the shutter';
+export const HINT_BURST = 'Hold still…';
 
 // The page's element by id, or null where there is no page (the unit tests build the camera from stand-ins)
 const byId = (id) => (typeof document !== 'undefined' ? document.getElementById(id) : null);
@@ -60,6 +66,7 @@ export class VCGEActiveCamera {
         this.hint = config.hint || byId('camHint');
         this.shutterLabel = config.shutterLabel || byId('shutLbl');
         this.startButton = config.startButton || byId('startCameraBtn');
+        this.lightButton = config.lightButton || byId('lightBtn');
 
         this.currentFacingMode = config.facingMode || 'environment';
         this.activeStream = null;
@@ -78,6 +85,10 @@ export class VCGEActiveCamera {
         this.watchTimer = null;       // the look for a card in the live picture
         this.watchCanvas = null;
         this.seen = { found: false, run: 0 };
+        this.bursting = false;        // a Smart burst is running: more presses wait for it
+        this.hasLight = false;        // the camera has a light (torch) the page may turn on
+        this.lightOn = false;
+        this.wantLight = false;       // the person turned the light on: it comes back on when the camera opens again (Retake)
 
         this.initListeners();
     }
@@ -118,6 +129,7 @@ export class VCGEActiveCamera {
             }
             this.watchTrack(track);
             this.setupZoom(track);
+            this.setupLight(track);
             this.startWatch();
         } catch (err) {
             this.starting = false;
@@ -224,6 +236,9 @@ export class VCGEActiveCamera {
             // is still in view (Android Chrome), which read as another app taking the camera: the viewfinder closed and the
             // in-use notice popped up under the picker. A feed we stop ourselves sends no mute or ended event.
             this.uploadInput.addEventListener('click', () => { this.pickerOpenUntil = Date.now() + PICKER_GRACE_MS; this.closeCamera(); });
+        }
+        if (this.lightButton) {
+            this.lightButton.addEventListener('click', () => { this.wantLight = !this.lightOn; this.setLight(this.wantLight); });
         }
         if (this.irisPeek) {
             // A hidden delight: one slow wink per tap, never repeated on its own, and skipped under reduce motion.
@@ -444,7 +459,37 @@ export class VCGEActiveCamera {
             this.activeStream = null;
         }
         this.stopWatch();
+        this.lightOn = false;                               // a stopped camera's light is off
+        this.hasLight = false;
+        if (this.lightButton) { this.lightButton.classList.add('hidden'); this.lightButton.setAttribute('aria-pressed', 'false'); }
         if (this.videoEl) { this.videoEl.srcObject = null; this.videoEl.style.transform = ''; }
+    }
+
+    // The light (raven575, 22:16 UTC 11-10): a button over the viewfinder, shown only when the camera has a torch the
+    // page may switch. It comes back on when the camera opens again if the person had it on.
+    setupLight(track) {
+        let caps = {};
+        try { caps = track && typeof track.getCapabilities === 'function' ? track.getCapabilities() || {} : {}; } catch (e) { caps = {}; }
+        this.hasLight = !!caps.torch;
+        this.lightOn = false;
+        if (this.lightButton) {
+            if (this.hasLight) this.lightButton.classList.remove('hidden'); else this.lightButton.classList.add('hidden');
+            this.lightButton.setAttribute('aria-pressed', 'false');
+        }
+        if (this.hasLight && this.wantLight) this.setLight(true);
+    }
+
+    async setLight(on) {
+        const track = this.activeStream && this.activeStream.getVideoTracks()[0];
+        if (!track || !this.hasLight) return false;
+        try {
+            await track.applyConstraints({ advanced: [{ torch: !!on }] });
+            this.lightOn = !!on;
+        } catch (e) {
+            this.toast(on ? 'The light would not turn on.' : 'The light would not turn off.');
+        }
+        if (this.lightButton) this.lightButton.setAttribute('aria-pressed', String(this.lightOn));
+        return this.lightOn === !!on;
     }
 
     closeCamera() {
@@ -505,21 +550,93 @@ export class VCGEActiveCamera {
         timer = setTimeout(() => done(false), FIRST_FRAME_WAIT_MS);
     }
 
+    // Smart burst (CAM-0028, raven575 03:32 UTC 11-13: put the new camera in the app). The press watches the camera for
+    // BURST_MS: every frame of the same visible window is scored on a small copy and the best KEEP are held; the sharpest
+    // becomes the photo, blended with the others only when it shows shine. One click at the press; more presses wait.
+    // If the camera closes meanwhile (Close, a lock, a wipe) everything is dropped and no photo is made.
     takeShot() {
-        const videoW = this.videoEl.videoWidth || 1280, videoH = this.videoEl.videoHeight || 720;
+        if (this.bursting) return;
+        this.bursting = true;
+        playShutterClick();
+        if (this.hint) this.hint.textContent = HINT_BURST;
+        const video = this.videoEl;
+        const videoW = video.videoWidth || 1280, videoH = video.videoHeight || 720;
         const viewW = this.viewfinderArea ? this.viewfinderArea.clientWidth : videoW;
         const viewH = this.viewfinderArea ? this.viewfinderArea.clientHeight : videoH;
         const r = visibleSourceRect(viewW, viewH, videoW, videoH, this.zoomMode === 'css' ? this.currentZoom : 1);
-        const ctx = this.canvasEl.getContext('2d');
-        this.canvasEl.width = r.width;
-        this.canvasEl.height = r.height;
-        ctx.drawImage(this.videoEl, r.x, r.y, r.width, r.height, 0, 0, r.width, r.height);
-        this.capturedImageDataUrl = this.canvasEl.toDataURL('image/png');
-        this.canvasEl.width = this.canvasEl.height = 0;     // no second copy of the photo left in the canvas
-        this.lastSource = 'camera';
-        playShutterClick();
-        this.closeCamera();                                 // the shot is taken; Retake opens the camera again
-        this.publishCapture(this.capturedImageDataUrl, 'HARDWARE_STREAM_SNAP');
+        const doc = this.canvasEl.ownerDocument || document;
+        const scale = Math.min(1, SCORE_WIDTH / r.width);
+        const sw = Math.max(3, Math.round(r.width * scale)), sh = Math.max(3, Math.round(r.height * scale));
+        const small = doc.createElement('canvas');
+        small.width = sw; small.height = sh;
+        const sctx = small.getContext('2d', { willReadFrequently: true });
+        let kept = [];
+        const spare = [];                                   // canvases of dropped frames, reused for the next frame
+        let frames = 0;
+        const started = performance.now();
+        const free = () => {
+            for (const c of [...kept.map(k => k.full), ...spare, small]) c.width = c.height = 0;
+            kept = []; spare.length = 0;
+            this.bursting = false;
+        };
+        const grab = () => {
+            if (!this.activeStream) { free(); return; }
+            try {
+                const full = spare.pop() || doc.createElement('canvas');
+                full.width = r.width; full.height = r.height;
+                full.getContext('2d').drawImage(video, r.x, r.y, r.width, r.height, 0, 0, r.width, r.height);
+                sctx.drawImage(full, 0, 0, sw, sh);
+                const px = sctx.getImageData(0, 0, sw, sh).data;
+                const glare = glareShare(px);
+                frames++;
+                const { dropped } = keepBest(kept, { full, px, glare, score: frameScore(sharpness(px, sw, sh), glare) }, KEEP);
+                if (dropped) spare.push(dropped.full);
+            } catch (e) {
+                free();
+                this.logEvent(`Smart burst stopped: ${e.message}`);
+                this.toast('The photo could not be taken. Try again.');
+                return;
+            }
+            if (performance.now() - started >= BURST_MS) finish(); else next();
+        };
+        // The next camera frame (requestVideoFrameCallback), or a short wait where there is none or no frame comes
+        const next = () => {
+            let done = false, timer = null;
+            const go = () => { if (done) return; done = true; clearTimeout(timer); grab(); };
+            timer = setTimeout(go, FRAME_WAIT_MS);
+            if (typeof video.requestVideoFrameCallback === 'function') video.requestVideoFrameCallback(go);
+        };
+        const finish = () => {
+            const best = kept[0];
+            let used = 1;                                   // frames in the photo: 1, or how many were blended
+            const ctx = this.canvasEl.getContext('2d');
+            this.canvasEl.width = r.width;
+            this.canvasEl.height = r.height;
+            if (shouldBlend(best.glare, kept.length) && sw >= 64 && sh >= 64) {
+                const ref = toLuma(best.px, sw, sh);
+                const shifts = kept.map((f, i) => (i === 0 ? { ref: true, dx: 0, dy: 0, err: 0 } : alignShift(ref, toLuma(f.px, sw, sh), sw, sh)));
+                const use = pickAligned(shifts);
+                const k = r.width / sw;
+                const chosen = kept.map((f, i) => ({ f, s: shifts[i] })).filter((_, i) => use[i]);
+                if (shouldBlend(best.glare, chosen.length)) {
+                    const data = medianBlend(chosen.map(({ f, s }) => ({
+                        data: f.full.getContext('2d').getImageData(0, 0, r.width, r.height).data, dx: Math.round(s.dx * k), dy: Math.round(s.dy * k),
+                    })), r.width, r.height);
+                    ctx.putImageData(new ImageData(data, r.width, r.height), 0, 0);
+                    used = chosen.length;
+                }
+            }
+            if (used === 1) ctx.drawImage(best.full, 0, 0);
+            const advice = glareAdvice(best.glare, this.lightOn, meanLuma(best.px), this.hasLight, glareShare(best.px, WASH_LEVEL));
+            this.capturedImageDataUrl = this.canvasEl.toDataURL('image/png');
+            this.canvasEl.width = this.canvasEl.height = 0;     // no second copy of the photo left in the canvas
+            free();
+            this.lastSource = 'camera';
+            this.closeCamera();                                 // the shot is taken; Retake opens the camera again
+            this.publishCapture(this.capturedImageDataUrl, used > 1 ? `SMART_BURST: ${used} frames blended of ${frames}` : `SMART_BURST: best of ${frames} frames`);
+            if (advice) this.toast(advice.kind === 'light-on' || advice.kind === 'light-off' ? `${advice.text} Tap Retake, then the light button.` : advice.text);
+        };
+        grab();
     }
 
     // The captured image stays in memory and is handed only to the crop editor; the bus gets a signal, never the photo.

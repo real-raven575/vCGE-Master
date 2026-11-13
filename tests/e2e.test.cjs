@@ -2841,6 +2841,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const clicks = await pV.evaluate(() => window.__clicks);
     const clickSpan = clicks.length ? Math.max(...clicks.map(c => c.stop)) - Math.min(...clicks.map(c => c.start)) : -1;
     ok('shutter: the shot plays one short click (two taps, over in 0.08 s), and opening, zoom and the press made no sound', clicksBefore === 0 && clicks.length === 2 && clicks.every(c => !c.loop) && clickSpan > 0 && clickSpan <= 0.0801, JSON.stringify({ clicksBefore, clicks }));
+    // Smart burst (CAM-0028): the press watches the camera for a moment (BURST_MS) before the photo opens
+    await pV.waitForSelector('#captureReview', { state: 'visible', timeout: 5000 }).catch(() => {});
+    const burstLog = await pV.textContent('#eventLog');
+    const burstFrames = Number((/best of (\d+) frames/.exec(burstLog) || [])[1] || 0);
+    ok('shutter: Smart burst looked at several frames and kept the best (a clean feed is never blended)', burstFrames >= 2, burstLog);
+    ok('shutter: a camera with no light shows no light button', !(await pV.isVisible('#lightBtn')));
     ok('shutter: the shot opens the crop step and the camera closes', await pV.isVisible('#captureReview') && (await pV.evaluate(() => document.getElementById('cameraPanel').classList.contains('hidden') && document.getElementById('cameraStream').srcObject === null)) && (await card()) === 'capture');
     // The 390 x 464-ish portrait view covers the 640 x 360 feed (scale by height), zoomed 2x: the window is the middle of it
     const shot = await pV.evaluate(() => new Promise(resolve => {
@@ -2870,10 +2876,17 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pV.click('#captureBtn'); await pV.waitForTimeout(200);
     const heldBack = await pV.isVisible('#cameraPanel') && !(await pV.isVisible('#captureReview'));
     await pV.evaluate(() => { const v = document.getElementById('cameraStream'); delete v.videoWidth; v.dispatchEvent(new Event('loadeddata')); });
-    await pV.waitForTimeout(300);
+    await pV.waitForSelector('#captureReview', { state: 'visible', timeout: 5000 }).catch(() => {});
     ok('shutter before the first picture: the shot is taken as soon as the picture comes', heldBack && await pV.isVisible('#captureReview') && !(await pV.isVisible('#cameraPanel')));
     await pV.evaluate(() => document.getElementById('retakePhotoBtn').classList.remove('hidden'));
     await pV.click('#retakePhotoBtn'); await pV.waitForTimeout(300);
+    // Closing the camera in the middle of a burst drops every frame: no photo, nothing left behind
+    await pV.waitForFunction(() => document.getElementById('cameraStream').videoWidth > 0, null, { timeout: 5000 }).catch(() => {});
+    await pV.evaluate(() => { document.getElementById('captureBtn').click(); setTimeout(() => document.getElementById('stopCameraBtn').click(), 150); });
+    await pV.waitForTimeout(1500);
+    ok('Smart burst: closing the camera mid-burst makes no photo and leaves nothing in the capture canvas', !(await pV.isVisible('#captureReview')) && !(await pV.getAttribute('#reviewImage', 'src'))
+      && (await pV.$eval('#captureCanvas', c => c.width + c.height)) === 0 && (await pV.evaluate(() => document.getElementById('cameraPanel').classList.contains('hidden'))));
+    await pV.click('#startCameraBtn').catch(() => {}); await pV.waitForTimeout(500);
     await pV.click('#stopCameraBtn');
     ok('Close camera stops the feed', await pV.evaluate(() => document.getElementById('cameraStream').srcObject === null && document.getElementById('cameraPanel').classList.contains('hidden')));
     }
