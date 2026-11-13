@@ -24,16 +24,29 @@ export const FACES = ['away', 'one', 'both', 'wink', 'shades'];
 /** How long the sunglasses stay on and the lock screen takes to dissolve (vault.css: 45 % hold, then the fade). */
 export const FAREWELL_MS = 1000;
 
-/** Puts the paws and Ghost's eyes in step with the PIN box. Call after anything sets #vaultPin's value. */
-export function syncLockFace() {
-    const input = $('vaultPin');
+/** Puts one PIN box's paw prints and its pop-up's Ghost in step with the digits typed in it. */
+function syncFace(inputId, pawsId, modalId) {
+    const input = $(inputId);
     if (!input) return 0;
     const typed = Math.min(PIN_LENGTH, input.value.length);
-    const paws = $('vaultPinPaws');
+    const paws = $(pawsId);
     if (paws) paws.dataset.filled = String(typed);
-    const modal = $('vaultModal');
+    const modal = $(modalId);
     if (modal) modal.dataset.face = FACES[typed];
     return typed;
+}
+
+/** Puts the paws and Ghost's eyes in step with the PIN box. Call after anything sets #vaultPin's value. */
+export function syncLockFace() {
+    return syncFace('vaultPin', 'vaultPinPaws', 'vaultModal');
+}
+
+/**
+ * The same faces and paw prints on the Session PIN setup pop-up (raven575 2026-11-13: the old plain pop-up gets Ghost's
+ * look). Call after anything sets #sessionPinInput's value.
+ */
+export function syncSetupFace() {
+    return syncFace('sessionPinInput', 'quickSetupPaws', 'quickSetupModal');
 }
 
 /**

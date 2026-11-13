@@ -1046,10 +1046,28 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('Vault page: Off switches have the knob on the left (PIN and fingerprint), with the right or the left hand set', pinOff8.knob === 'left' && bioOff8.knob === 'left' && (await handSwap8('pinSwitch')) === 'left' && (await handSwap8('biometricSwitch')) === 'left', JSON.stringify([pinOff8, bioOff8]));
     ok('Vault page: the title has its lock icon on the left', await p8.$eval('#vaultPageTitle', h => h.firstElementChild && h.firstElementChild.tagName === 'svg' && h.textContent.trim() === 'Vault'));
     await p8.click('#pinSwitch');
-    await p8.fill('#sessionPinInput', '12'); await p8.click('#quickSetupSaveBtn');
+    // The PIN setup pop-up has Ghost's look (raven575 2026-11-13): the Vault page's colours, Ghost and four paw prints
+    const setup8 = () => p8.evaluate(() => {
+      const shown = (id) => { const el = document.getElementById(id); return !!el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0; };
+      const form = document.getElementById('quickSetupForm'), page = document.querySelector('#vaultPage .vcge-sheet-panel');
+      return { face: document.getElementById('quickSetupModal').dataset.face, filled: document.getElementById('quickSetupPaws').dataset.filled,
+        ghost: shown('quickSetupGhost'), paws: shown('quickSetupPaws'), title: document.getElementById('quickSetupTitle').textContent.trim(),
+        bg: getComputedStyle(form).backgroundColor, pageBg: getComputedStyle(page).backgroundColor,
+        save: document.getElementById('quickSetupSaveBtn').className, skip: document.getElementById('quickSetupSkipBtn').className,
+        pinColor: getComputedStyle(document.getElementById('sessionPinInput')).color };
+    });
+    const s0 = await setup8();
+    ok('PIN setup pop-up: the Vault page\'s colours and buttons, titled "Session PIN"', s0.title === 'Session PIN' && s0.bg === s0.pageBg && s0.save === 'vault-btn' && s0.skip === 'vault-btn-quiet', JSON.stringify(s0));
+    if (EDITION_PLAIN) ok('plain edition: no Ghost and no paw prints on the PIN setup pop-up; the PIN box shows its own dots', !s0.ghost && !s0.paws && s0.pinColor !== 'rgba(0, 0, 0, 0)', JSON.stringify(s0));
+    else ok('PIN setup pop-up: Ghost looks away over four empty paw prints', s0.ghost && s0.paws && s0.face === 'away' && s0.filled === '0', JSON.stringify(s0));
+    await p8.fill('#sessionPinInput', '12');
+    const s2 = await setup8();
+    ok('PIN setup pop-up: two digits typed, both paws over the eyes and two paw prints fill', s2.face === 'both' && s2.filled === '2', JSON.stringify(s2));
+    await p8.click('#quickSetupSaveBtn');
     ok('session PIN: too-short PIN refused', (await t8('quickSetupError')) === 'Use exactly 4 digits.', await t8('quickSetupError'));
     await p8.fill('#sessionPinInput', '2468'); await p8.click('#quickSetupSaveBtn');
     await p8.waitForSelector('#quickSetupModal', { state: 'hidden' });
+    ok('PIN setup pop-up: once the PIN is set, Ghost and the paw prints are back to the start for next time', (await setup8()).filled === '0' && (await setup8()).face === 'away');
     ok('session PIN set: Security panel shows it and Lock appears', (await t8('sessionPinStatus')) === 'Session PIN: set' && await lockOffered(p8));
     const pinOn8 = await sw8('pinSwitch');
     ok('Vault page: the PIN switch turns green with "On" in green (the theme\'s good colour), Change and Lock now appear, the note goes', pinOn8.on === 'true' && pinOn8.word === 'On' && ['rgb(46, 125, 79)', 'rgb(127, 211, 158)'].includes(pinOn8.bg) && pinOn8.wordColor === pinOn8.bg
