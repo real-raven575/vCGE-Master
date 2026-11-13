@@ -3522,7 +3522,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       && seen.styleChips === 2 && seen.logoChips === 0 && seen.paperChips === 0
       && await pT.$eval('#cardTabs [data-tab="paper"]', b => b.getAttribute('aria-pressed') === 'true'), JSON.stringify(seen));
     await pT.click('#cardTabs [data-tab="logo"]'); await pT.waitForTimeout(150);
+    // (the card shrinks with a transition: WebKit runs none on a page that is not in front, as for the logo guide)
+    await pT.bringToFront();
     await pT.$eval('#cardCard .r4-card', b => b.scrollTo(0, b.scrollHeight)); await pT.waitForTimeout(500);
+    await pT.waitForFunction(() => document.getElementById('card3DFlipper').getBoundingClientRect().width < 200, null, { timeout: 3000 }).catch(() => {});
     const mini = await pT.evaluate(() => { const body = document.querySelector('#cardCard .r4-card'), c = document.getElementById('card3DFlipper').getBoundingClientRect(), v = body.getBoundingClientRect();
       return { mini: body.dataset.mini, scrolled: body.scrollTop > 0, inView: c.top >= v.top - 1 && c.bottom <= v.bottom && c.width > 60, small: c.width < 200, w: Math.round(c.width) }; });
     ok('mini card: with a long box scrolled, the card stays in view, shrunk into the corner', mini.mini === 'on' && mini.scrolled && mini.inView && mini.small, JSON.stringify(mini));
