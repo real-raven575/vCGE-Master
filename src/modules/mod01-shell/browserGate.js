@@ -108,13 +108,19 @@
 
     // Loads the app as an ES module after the page has been read (as the old deferred module tag did), never once
     // the "cannot run" page is opening.
-    function startApp(env) {
+    // `settled` runs once the entry script has run or failed (its load or error event), so the gate stops watching
+    // for code the browser cannot read at that point, and not before.
+    function startApp(env, settled) {
         var doc = env.document;
         function load() {
             if (env.__vcgeGateBlocked) return;
             var script = doc.createElement('script');
             script.type = 'module';
             script.src = appEntry(doc);
+            if (settled && script.addEventListener) {
+                script.addEventListener('load', settled);
+                script.addEventListener('error', settled);
+            }
             doc.body.appendChild(script);
         }
         if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', load);
@@ -134,15 +140,16 @@
         var blocked = blockReasons(env);
         if (blocked.length) { showUnsupported(env, blocked); return; }
         // An engine that cannot read vCGE's code (a SyntaxError while its scripts load) must not leave a blank page.
-        // Only until the page has loaded: scripts are parsed by then, and a later error must never wipe a card.
+        // Only until the app's entry script has run (its load event comes after the browser reports a SyntaxError in it
+        // or in anything it imports): a later error must never wipe a card. The page's own load event is not used: a
+        // slow engine can fire it before the entry script is read, and a SyntaxError then left a blank page.
         function onError(e) {
             var err = e && e.error;
             var syntax = (err && err.name === 'SyntaxError') || /SyntaxError/.test(String(e && e.message));
             if (syntax) showUnsupported(env, ['script']);
         }
         env.addEventListener('error', onError, true);
-        env.addEventListener('load', function () { env.removeEventListener('error', onError, true); });
-        startApp(env);
+        startApp(env, function () { env.setTimeout(function () { env.removeEventListener('error', onError, true); }, 0); });
         var warn = warnReasons(env);
         if (!warn.length) return;
         if (env.document.readyState === 'loading') env.document.addEventListener('DOMContentLoaded', function () { showBanner(env, warn); });

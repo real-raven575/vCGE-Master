@@ -1556,6 +1556,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   gate.startApp(envB); envB.__vcgeGateBlocked = true; docB.waiting[0][1]();
   const docC = fakeDoc('complete'); gate.startApp({ document: docC, __vcgeGateBlocked: true });
   ok('gate: once blocked, the app is never loaded', docB.added.length === 0 && docC.added.length === 0);
+  { const ev = []; const docS = fakeDoc('complete'); docS.createElement = () => ({ addEventListener: (t, fn) => ev.push([t, fn]) });
+    let settled = 0; gate.startApp({ document: docS }, () => { settled++; });
+    ev.find(([t]) => t === 'load')[1]();
+    ok('gate: the syntax watch ends when the entry script has run or failed (its load or error), not on the page\'s load',
+      docS.added.length === 1 && ev.map(([t]) => t).sort().join() === 'error,load' && settled === 1, JSON.stringify(ev.map(([t]) => t))); }
   const page = fs.readFileSync(`${R}/../index.html`, 'utf8');
   ok('index.html has no script tag for the app, only the one entry the gate reads, after the gate',
     !/<script[^>]*type="module"/.test(page) && !/<script[^>]*main\.js/.test(page) && page.split('<meta name="vcge-app" content="src/main.js">').length === 2
