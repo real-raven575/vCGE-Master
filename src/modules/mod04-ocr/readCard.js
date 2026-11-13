@@ -166,7 +166,7 @@ export const CHECK_LEAD = 'Check this line.';
  * role picker itself (a native list laid over the chip), so a tap opens the system's own list and the roles stay
  * MOD05's LINE_ROLES. A flagged line says in words what to check, under its box.
  */
-export function renderReviewRows(lines, { roles, iconNames, onEdit = () => {}, onRole = () => {} }) {
+export function renderReviewRows(lines, { roles, iconNames, onEdit = () => {}, onRole = () => {}, onRedo = null }) {
     return lines.map((line, i) => {
         const item = document.createElement('div');
         item.className = 'read-line';
@@ -252,10 +252,35 @@ export function renderReviewRows(lines, { roles, iconNames, onEdit = () => {}, o
             text.classList.remove('border-amber-500', 'dark:border-amber-400', 'read-flagged');
             text.removeAttribute('aria-describedby');
             flag.remove();
+            pick.remove();
             ok.remove();
         };
         // Edited means checked: the note goes away at once.
         text.addEventListener('input', () => { line.text = text.value; clearCaution(); onEdit(line, i); });
+
+        // Step 3 (easy + premium): big buttons under the flag, so a shaky word takes one tap, not fine typing. The two
+        // or three guesses the reader nearly read (MOD05 passes them on), "Type it" and, while the photo is still on
+        // the Capture card, "Take it again". A guess fills the line and counts as checked, like an edit.
+        const pick = document.createElement('div');
+        pick.className = 'read-guesses';
+        pick.setAttribute('role', 'group');
+        pick.setAttribute('aria-label', `Line ${i + 1}: other readings`);
+        const button = (cls, label, act, aria) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = cls;
+            b.textContent = label;
+            if (aria) b.setAttribute('aria-label', aria);
+            b.addEventListener('click', act);
+            pick.append(b);
+            return b;
+        };
+        (line.guesses || []).forEach((g, k) => {
+            button('read-guess', g, () => { text.value = g; line.text = g; clearCaution(); pick.remove(); onEdit(line, i); text.focus(); }, `Use ${g}`).id = `ocrLineGuess${i}_${k}`;
+        });
+        button('read-guess-alt', '⌨️ Type it', () => { text.focus(); text.select(); }, `Line ${i + 1}: type it`).id = `ocrLineType${i}`;
+        if (onRedo) button('read-guess-alt', '📸 Take it again', () => onRedo(), 'Take the photo again').id = `ocrLineRedo${i}`;
+        item.append(pick);
         // Ticked means "this is right": green, a short hold, then the box fades; the note goes a few frames before it.
         ok.addEventListener('change', async () => {
             if (!ok.checked || cleared) return;

@@ -13,6 +13,7 @@
  */
 
 import { NAME_PREFIXES, NAME_SUFFIXES, REGIONS, DEFAULT_COUNTRY, SOCIAL_HOSTS, splitStreetUnit, websiteTypeFor, socialProfileUrl } from '../../share/contactOptions.js';
+import { wordSwaps, guessesFor } from '../mod04-ocr/guesses.js';
 
 export class ContactFormMapper {
     constructor() {
@@ -59,11 +60,15 @@ export class ContactFormMapper {
     classifyLines(input) {
         const raw = Array.isArray(input) ? input : String(input || '').split('\n').map(text => ({ text, icon: null }));
         const lines = raw
-            .map(l => ({ text: applySecondGuesses(String(l.text || ''), l.alts).replace(/[“”]/g, '"').replace(/[‘’]/g, "'").replace(/\s+/g, ' ').trim(), icon: l.icon || null, unsure: Array.isArray(l.unsure) && l.unsure.length > 0 }))
+            .map(l => {
+                const read = applySecondGuesses(String(l.text || ''), l.alts);
+                // (the words the reader nearly read otherwise, for the review's guess buttons: MOD04 guesses.js)
+                return { text: read.replace(/[“”]/g, '"').replace(/[‘’]/g, "'").replace(/\s+/g, ' ').trim(), icon: l.icon || null, unsure: Array.isArray(l.unsure) && l.unsure.length > 0, swaps: wordSwaps(read, l.alts) };
+            })
             .filter(l => l.text.length > 0)
-            .map(({ text, icon, unsure }) => {
+            .map(({ text, icon, unsure, swaps }) => {
                 const parsed = splitLabel(text);
-                return { text, icon, unsure, ...parsed, label: parsed.label || ICON_LABEL[icon] || null, role: null };
+                return { text, icon, unsure, swaps, ...parsed, label: parsed.label || ICON_LABEL[icon] || null, role: null };
             });
         const free = (line) => line.role === null;
 
@@ -197,10 +202,12 @@ export class ContactFormMapper {
         // role, and email and web addresses with their OCR slips repaired. Lines with several numbers keep their labels.
         // An email domain one or two OCR slips away from the web address takes the web address's spelling.
         const site = (lines.map(l => l.role === 'website' && reviewText(l)).find(w => w && !websiteTypeFor(w))) || '';
-        return lines.map(line => ({
-            text: line.role === 'email' ? matchEmailToWebsite(reviewText(line), site, true) : reviewText(line), role: line.role || 'ignore', icon: line.icon,
-            ...(line.check ? { check: line.check } : {})
-        }));
+        // A line the reader was unsure of also offers two or three guesses from the letters it nearly read (step 3).
+        return lines.map(line => {
+            const text = line.role === 'email' ? matchEmailToWebsite(reviewText(line), site, true) : reviewText(line);
+            const guesses = line.check && line.unsure ? guessesFor(text, line.swaps) : [];
+            return { text, role: line.role || 'ignore', icon: line.icon, ...(line.check ? { check: line.check } : {}), ...(guesses.length ? { guesses } : {}) };
+        });
     }
 
     /**

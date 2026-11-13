@@ -2221,6 +2221,47 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const row2 = (await pZ.$$eval('#ocrLines select', s => s.map(x => x.value))).indexOf('cityStateZip');
     await pZ.fill(`#ocrLineText${row2}`, 'Portage, MI 49024');
     ok('editing a flagged line clears its note and box at once', !(await pZ.$(`#ocrLineCheck${row2}`)) && !(await pZ.$(`#ocrLineOk${row2}`)) && (await pZ.textContent('#ocrSummary')).includes('49024'));
+    // Easy + premium step 3: a flagged line offers big buttons under its flag. The ZIP line has no guesses, so it shows
+    // "Type it" (puts the cursor in the line) and, with the photo still on the Capture card, "Take it again".
+    await pZ.click('#ocrBackBtn');
+    await pZ.click('#runOcrBtn');
+    await readEnds(pZ);
+    const row3 = (await pZ.$$eval('#ocrLines select', s => s.map(x => x.value))).indexOf('cityStateZip');
+    const pickLook = await pZ.evaluate((r) => {
+      const item = document.getElementById(`ocrLineCheck${r}`).closest('.read-line'), flag = item.querySelector('.read-flag');
+      const bs = [...item.querySelectorAll('.read-guesses button')];
+      return { labels: bs.map(b => b.textContent), small: bs.filter(b => b.getBoundingClientRect().height < 48).length, guesses: item.querySelectorAll('.read-guess').length,
+        under: bs.length > 0 && bs[0].getBoundingClientRect().top >= flag.getBoundingClientRect().bottom };
+    }, row3);
+    ok('step 3: a flagged line with no guesses offers "Type it" and "Take it again" as big buttons (48 px) under its flag',
+      pickLook.labels.join('|') === '⌨️ Type it|📸 Take it again' && pickLook.small === 0 && pickLook.guesses === 0 && pickLook.under, JSON.stringify(pickLook));
+    await pZ.click(`#ocrLineType${row3}`);
+    ok('step 3: "Type it" puts the cursor in the line, with the flag still up until the line is changed',
+      (await pZ.evaluate(() => document.activeElement && document.activeElement.id)) === `ocrLineText${row3}` && !!(await pZ.$(`#ocrLineCheck${row3}`)));
+    await pZ.click(`#ocrLineRedo${row3}`); await pZ.waitForTimeout(400);
+    ok('step 3: "Take it again" goes back to the photo on the Capture card, as Back to the photo does',
+      (await pZ.evaluate(() => document.documentElement.dataset.card)) === 'capture' && await pZ.isVisible('#runOcrBtn'));
+    // Guesses come from the letters the reader nearly read (unit-tested from the reader's output to the review lines);
+    // here the review's own drawing is given a line with two guesses, the way MOD05 hands them on.
+    if (process.env.SERVE_DIR) notRunHere('step 3: a guess button fills the line in one tap', 'the built app has no /src modules to draw with');
+    else {
+      await pZ.click('#runOcrBtn');
+      await readEnds(pZ);
+      const picked = await pZ.evaluate(async () => {
+        const { renderReviewRows } = await import('/src/modules/mod04-ocr/readCard.js');
+        const line = { text: 'Dana Whitlcck', role: 'name', check: 'The reader was not sure of some letters here. Please check them.', guesses: ['Dana Whitlock', 'Dana Whitleck'] };
+        let edited = 0;
+        document.getElementById('ocrLines').replaceChildren(...renderReviewRows([line], { roles: [['name', 'Name'], ['ignore', 'Ignore']], iconNames: {}, onEdit: () => { edited++; } }));
+        const bs = [...document.querySelectorAll('#ocrLines .read-guesses button')];
+        const before = { labels: bs.map(b => b.textContent), tall: bs.every(b => b.getBoundingClientRect().height >= 48), named: document.getElementById('ocrLineGuess0_0').getAttribute('aria-label') };
+        document.getElementById('ocrLineGuess0_0').click();
+        return { ...before, value: document.getElementById('ocrLineText0').value, kept: line.text, edited, flag: !!document.getElementById('ocrLineCheck0'), box: !!document.getElementById('ocrLineOk0'), buttons: document.querySelectorAll('#ocrLines .read-guesses').length };
+      });
+      ok('step 3: a shaky line shows its guesses first, then Type it (no Take it again without a photo hand-off), all 48 px tall and named',
+        picked.labels.join('|') === 'Dana Whitlock|Dana Whitleck|⌨️ Type it' && picked.tall && picked.named === 'Use Dana Whitlock', JSON.stringify(picked));
+      ok('step 3: a guess fills the line in one tap and counts as checked (flag and box gone, the review told)',
+        picked.value === 'Dana Whitlock' && picked.kept === 'Dana Whitlock' && picked.edited === 1 && !picked.flag && !picked.box && picked.buttons === 0, JSON.stringify(picked));
+    }
     await ctxZ.close();
   });
 
