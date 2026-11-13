@@ -167,6 +167,8 @@
                             <span class="cap-corner tl"></span><span class="cap-corner tr"></span><span class="cap-corner br"></span><span class="cap-corner bl"></span>
                         </div>
                         <div id="camHint" class="r2-hint" aria-live="polite">Fit the card inside the corners</div>
+                        <!-- The light (Smart burst, CAM-0028): shown only when the camera has a torch the page may switch (camera.js setupLight) -->
+                        <button id="lightBtn" type="button" class="r2-light hidden" aria-pressed="false" aria-label="Light" title="Light"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 3L5 14h6l-1 7 8-11h-6z"/></svg></button>
                         <button id="stopCameraBtn" type="button" class="r2-close" aria-label="Close camera" title="Close camera"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
                         <!-- Zoom: three chips over the foot of the picture. They drive the same zoom as before (camera.js pickZoom: the
                              slider below, kept as the zoom's value, eases into each change); a pinch still zooms anywhere in between. -->
