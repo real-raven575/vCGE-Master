@@ -297,6 +297,13 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
           await p.$eval(DOCK[to], b => b.click());
           await p.waitForFunction((to) => document.documentElement.dataset.card === to && document.getElementById('deck').dataset.deck === 'still', to, { timeout: 5000 }).catch(() => {});
         }
+        // (the card maker shows one category at a time: a person taps Colour, Logo, Style or Paper to reach a control)
+        if (typeof sel === 'string') await p.evaluate((sel) => {
+          let el = null; try { el = document.querySelector(sel); } catch { return; }
+          if (!el || !el.closest('#cardCard .r4-card') || el.closest('#cardTabs') || el.getClientRects().length) return;
+          for (const b of document.querySelectorAll('#cardTabs .r4-tab')) { b.click(); if (el.getClientRects().length) return; }
+          document.querySelector('#cardTabs .r4-tab').click();
+        }, sel).catch(() => {});
         return f(sel, ...rest);
       };
     }
@@ -3482,7 +3489,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       ok(`wide ${w} x ${h}: the title sits in the top bar, the dock is one row and the screens use the width`, shell.titleInBar && shell.dockOneRow && shell.wide > 1000, JSON.stringify(shell));
       await pW.$eval(DOCK.card, b => b.click()); await deckSettled(pW);
       const cardSide = await pW.evaluate(() => { const c = document.getElementById('card3DFlipper').getBoundingClientRect(), t = document.getElementById('paletteListContainer').getBoundingClientRect(), f = document.getElementById('flipCardBtn').getBoundingClientRect();
-        return { side: c.right <= t.left && f.left >= c.right, cardW: Math.round(c.width) }; });
+        return { side: c.right <= t.left && f.left >= c.right && document.getElementById('cardTabs').getBoundingClientRect().left >= c.right, cardW: Math.round(c.width) }; });
       ok(`wide ${w} x ${h}: Your card shows the card on the left and its design tools beside it, the card bigger than on a phone`, cardSide.side && cardSide.cardW > 360, JSON.stringify(cardSide));
       await pW.$eval(DOCK.share, b => b.click()); await deckSettled(pW);
       const shareSide = await pW.evaluate(() => { const a = document.getElementById('downloadVcfBtn').getBoundingClientRect(), b = document.getElementById('shareNativeBtn').getBoundingClientRect();
@@ -3490,6 +3497,50 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       ok(`wide ${w} x ${h}: Share shows Save and Send side by side`, shareSide.side, JSON.stringify(shareSide));
       await ctxW.close();
     }
+  }
+
+  // Card maker categories (easy + premium plan, step 2): Colour, Logo, Style and Paper picture buttons over one box that
+  // shows only that category; on a phone the card stays pinned at the top and shrinks to a mini card once the box
+  // scrolls, and a tap on the mini card scrolls back to the whole card (no spin).
+  {
+    const ctxT = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
+    const pT = await ctxT.newPage();
+    await pT.goto(ORIGIN); await pT.waitForTimeout(500);
+    await pT.$eval(DOCK.card, b => b.click()); await deckSettled(pT);
+    const tabLook = await pT.$$eval('#cardTabs .r4-tab', bs => bs.map(b => { const r = b.getBoundingClientRect(); return { t: b.dataset.tab, word: b.textContent.trim(), icon: !!b.querySelector('svg'), h: Math.round(r.height), w: Math.round(r.width), pressed: b.getAttribute('aria-pressed') }; }));
+    ok('card tabs: four picture buttons with a word under each (Colour, Logo, Style, Paper), at least 44 px, Colour picked first',
+      tabLook.map(t => t.word).join() === 'Colour,Logo,Style,Paper' && tabLook.every(t => t.icon && t.h >= 44 && t.w >= 44) && tabLook.map(t => t.pressed).join() === 'true,false,false,false', JSON.stringify(tabLook));
+    const shown = () => pT.evaluate(() => ['paletteListContainer', 'avatarUpload', 'flipCardBtn', 'cardFinishSelect', 'logoPresetSelect'].filter(id => {
+      const el = document.getElementById(id); const box = id === 'avatarUpload' ? el.closest('label') : (el.closest('.r4-look-group') || el);
+      return box.getClientRects().length > 0 && !el.closest('details:not([open])'); }).join());
+    const seen = {};
+    seen.colour = await shown();
+    for (const t of ['logo', 'style', 'paper']) { await pT.click(`#cardTabs [data-tab="${t}"]`); await pT.waitForTimeout(150); seen[t] = await shown();
+      seen[t + 'Chips'] = await pT.evaluate(() => ['cardIconsBtn', 'cardFontSelect'].filter(id => document.getElementById(id).closest('.r4-chips > *').getClientRects().length > 0).length); }
+    ok('card tabs: each shows only its own controls (Colour the swatches; Logo the upload and ready-made logos; Style the icons, type and size; Paper the finish), with Flip card in every one',
+      seen.colour === 'paletteListContainer,flipCardBtn' && seen.logo === 'avatarUpload,flipCardBtn,logoPresetSelect' && seen.style === 'flipCardBtn' && seen.paper === 'flipCardBtn,cardFinishSelect'
+      && seen.styleChips === 2 && seen.logoChips === 0 && seen.paperChips === 0
+      && await pT.$eval('#cardTabs [data-tab="paper"]', b => b.getAttribute('aria-pressed') === 'true'), JSON.stringify(seen));
+    await pT.click('#cardTabs [data-tab="logo"]'); await pT.waitForTimeout(150);
+    // (the card shrinks with a transition: WebKit runs none on a page that is not in front, as for the logo guide)
+    await pT.bringToFront();
+    await pT.$eval('#cardCard .r4-card', b => b.scrollTo(0, b.scrollHeight)); await pT.waitForTimeout(500);
+    await pT.waitForFunction(() => document.getElementById('card3DFlipper').getBoundingClientRect().width < 200, null, { timeout: 3000 }).catch(() => {});
+    const mini = await pT.evaluate(() => { const body = document.querySelector('#cardCard .r4-card'), c = document.getElementById('card3DFlipper').getBoundingClientRect(), v = body.getBoundingClientRect();
+      return { mini: body.dataset.mini, scrolled: body.scrollTop > 0, inView: c.top >= v.top - 1 && c.bottom <= v.bottom && c.width > 60, small: c.width < 200, w: Math.round(c.width) }; });
+    ok('mini card: with a long box scrolled, the card stays in view, shrunk into the corner', mini.mini === 'on' && mini.scrolled && mini.inView && mini.small, JSON.stringify(mini));
+    const turnedBefore = await pT.$eval('#card3DFlipper', el => el.style.transform);
+    const cb = await pT.locator('#card3DFlipper').boundingBox();
+    await pT.touchscreen.tap(cb.x + cb.width * 0.8, cb.y + cb.height / 2); await pT.waitForTimeout(900);
+    const back = await pT.evaluate(() => ({ top: document.querySelector('#cardCard .r4-card').scrollTop, mini: document.querySelector('#cardCard .r4-card').dataset.mini || 'off', turn: document.getElementById('card3DFlipper').style.transform }));
+    ok('mini card: a tap on it scrolls back to the whole card and does not spin it', back.top === 0 && back.mini === 'off' && back.turn === turnedBefore, JSON.stringify(back));
+    // Flip card from a scrolled box turns the card at full size: the box scrolls back up as it flips
+    await pT.$eval('#cardCard .r4-card', b => b.scrollTo(0, b.scrollHeight)); await pT.waitForTimeout(500);
+    const miniAgain = await pT.$eval('#cardCard .r4-card', b => b.dataset.mini);
+    await pT.$eval('#flipCardBtn', b => b.click()); await pT.waitForTimeout(1100);
+    const flipped = await pT.evaluate(() => ({ top: document.querySelector('#cardCard .r4-card').scrollTop, mini: document.querySelector('#cardCard .r4-card').dataset.mini || 'off', turn: document.getElementById('card3DFlipper').style.transform }));
+    ok('mini card: Flip card brings the whole card back and turns it', miniAgain === 'on' && flipped.top === 0 && flipped.mini === 'off' && flipped.turn !== turnedBefore, JSON.stringify({ miniAgain, ...flipped }));
+    await ctxT.close();
   }
 
   // MOD01 shared look: MOD-XX tags in Sixtyfour on every panel, 44 px buttons with 2 px outlines, the near-miss rim for taps
@@ -3856,7 +3907,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('toast: still there 2.5 s after the release', !(await p6.$eval('#toast', t => t.classList.contains('opacity-0'))));
     await p6.waitForTimeout(800);
     ok('toast: gone 3 s after the release', await p6.$eval('#toast', t => t.classList.contains('opacity-0')));
-    // The Logo controls live on this card: upload on the right by its preview, Remove on the far left once there is a logo
+    // The Logo controls live on this card (under its Logo button): upload on the right by its preview, Remove on the far left once there is a logo
+    await p6.click('#cardTabs [data-tab="logo"]'); await p6.waitForTimeout(150);
     const ctl = await p6.evaluate(() => { const r = (id) => document.getElementById(id).getBoundingClientRect(); const card = r('cardCard'); return { upload: r('avatarUpload').width === 0 ? document.getElementById('avatarUpload').parentElement.getBoundingClientRect().left : 0, remove: r('removeAvatarBtn'), preview: r('formAvatarPreview'), inCard: document.getElementById('cardCard').contains(document.getElementById('avatarUpload')) && !document.getElementById('cardFields').contains(document.getElementById('avatarUpload')), cardLeft: card.left, cardW: card.width, label: document.getElementById('avatarUpload').parentElement.textContent.trim() }; });
     ok('logo: the upload reads "Logo", sits on the 3D Card (not the Fields card), on the right with its preview', ctl.inCard && ctl.label === 'Logo' && ctl.upload > ctl.cardLeft + ctl.cardW / 2 && ctl.preview.left < ctl.upload, JSON.stringify(ctl));
     ok('logo: no Remove button while there is no logo', !(await p6.isVisible('#removeAvatarBtn')));
@@ -3900,7 +3952,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const vcf6 = fs.readFileSync(await dl6.path(), 'utf8');
     const email6 = EDITION_PLAIN ? `${s1First}.${s1Last}@example.com`.toLowerCase() : 'vcge.app+ghost@gmail.com';
     ok(`sample: the .vcf carries the ${EDITION_PLAIN ? 'logo' : 'animal'} as a JPEG photo and the 555-01 number`, /PHOTO;TYPE=JPEG;ENCODING=b:/.test(vcf6) && vcf6.includes('+1 (202) 555-0102') && vcf6.includes(email6), vcf6.split('\r\n').filter(l => /^(TEL|EMAIL|PHOTO)/.test(l)).map(l => l.slice(0, 40)).join(' | '));
-    await p6.click('#navCard'); await p6.waitForTimeout(500);
+    await p6.click('#navCard'); await p6.waitForTimeout(500); await p6.click('#cardTabs [data-tab="logo"]'); await p6.waitForTimeout(150);
     const sides = await p6.evaluate(() => { const r = document.getElementById('removeAvatarBtn').getBoundingClientRect(), u = document.getElementById('avatarUpload').parentElement.getBoundingClientRect(); return { gap: u.left - r.right, removeText: document.getElementById('removeAvatarBtn').textContent.trim() }; });
     ok('logo: "Remove logo" sits well away from the upload (on the far left)', sides.removeText === 'Remove logo' && sides.gap > 80, JSON.stringify(sides));
     // Remove logo asks first (video finding #83): No keeps the logo, Yes removes it
@@ -3918,14 +3970,16 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p6.waitForTimeout(300);
     ok('sample: Undo after Clear brings the sample back without its logo (removed before) and with its theme', (await p6.inputValue('#firstName')) === s1First && (await p6.textContent('#currentPaletteLabel')) === 'Twilight' && !(await p6.$(LOGO6)));
     // The logo's look and the card's finish (raven575 test report, 2026-10-22)
-    await p6.click('#navCard'); await p6.waitForTimeout(300);
-    ok('card: the paper and logo controls start folded under "Paper & logo", so the card stays in view on a phone', !(await p6.$eval('#cardLookPanel', d => d.open)) && !(await p6.isVisible('#cardLookPanel .vcge-pick-btn')) && (await p6.textContent('#cardLookPanel summary')).trim() === 'Paper & logo');
+    await p6.click('#navCard'); await p6.waitForTimeout(300); await p6.click('#cardTabs [data-tab="colour"]');
+    // (easy + premium step 2: the card maker opens on Colour; Logo and Paper each have their own picture button)
+    ok('card: on Colour the paper and logo controls are out of sight, so the card stays in view on a phone', !(await p6.$eval('#cardLookPanel', d => d.open)) && !(await p6.isVisible('#cardLookPanel .vcge-pick-btn'))
+      && (await p6.getAttribute('#cardTabs [data-tab="colour"]', 'aria-pressed')) === 'true' && (await p6.textContent('#cardTabs [data-tab="logo"]')).trim() === 'Logo' && (await p6.textContent('#cardTabs [data-tab="paper"]')).trim() === 'Paper');
     ok('card: Card design says it changes this card only, over the card colours', (await p6.textContent('#cardDesignNote')).trim() === 'Changes this card only. The app keeps its look.' && await p6.isVisible('#cardDesignHead'));
     // (the guide fades in: WebKit runs no transitions on a page that is not in front, CI 11-02)
     await p6.bringToFront();
-    await p6.click('#cardLookPanel summary'); await p6.waitForTimeout(400);
+    await p6.click('#cardTabs [data-tab="logo"]'); await p6.waitForTimeout(400);
     await p6.waitForFunction(() => parseFloat(getComputedStyle(document.querySelector('#cardFront .r4-safe-guide')).opacity) > 0.3, null, { timeout: 3000 }).catch(() => {});
-    ok('0.8 card: with Logo & finish open the card shows its logo safe-area guide (a dashed outline inside the rounded corners)', await p6.$eval('#cardFront .r4-safe-guide', g => { const cs = getComputedStyle(g), r = g.getBoundingClientRect(), f = document.getElementById('cardFront').getBoundingClientRect(); return parseFloat(cs.opacity) > 0.3 && cs.borderTopStyle === 'dashed' && r.left - f.left >= 8 && f.bottom - r.bottom >= 8 && cs.pointerEvents === 'none' && g.getAttribute('aria-hidden') === 'true'; }),
+    ok('0.8 card: with Logo open the card shows its logo safe-area guide (a dashed outline inside the rounded corners)', await p6.$eval('#cardFront .r4-safe-guide', g => { const cs = getComputedStyle(g), r = g.getBoundingClientRect(), f = document.getElementById('cardFront').getBoundingClientRect(); return parseFloat(cs.opacity) > 0.3 && cs.borderTopStyle === 'dashed' && r.left - f.left >= 8 && f.bottom - r.bottom >= 8 && cs.pointerEvents === 'none' && g.getAttribute('aria-hidden') === 'true'; }),
       await p6.$eval('#cardFront .r4-safe-guide', g => { const cs = getComputedStyle(g), r = g.getBoundingClientRect(), f = document.getElementById('cardFront').getBoundingClientRect(); return JSON.stringify({ open: document.getElementById('cardLookPanel').open, opacity: cs.opacity, border: cs.borderTopStyle, left: Math.round(r.left - f.left), bottom: Math.round(f.bottom - r.bottom), pe: cs.pointerEvents }); }).catch(e => String(e).slice(0, 120)));
     const presets = await p6.$$eval('#logoPresetSelect optgroup', gs => gs.map(g => g.label + ':' + g.children.length));
     ok(EDITION_PLAIN ? 'plain edition: the ready-made logos are the eight palette pictures, with no team characters' : 'logo: the ready-made logos are every Team vCGE character (one per sample) and a picture for each of the eight palettes',
@@ -4159,6 +4213,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pV.setInputFiles('#avatarUpload', { name: 'striped.png', mimeType: 'image/png', buffer: Buffer.from(busy.split(',')[1], 'base64') });
     // The tile is drawn again once the logo's shape is read: wait for the picture with its tile colour (not the initials)
     await pV.waitForFunction(() => ['previewAvatar', 'formAvatarPreview'].every(id => { const b = document.getElementById(id); return b.querySelector('img') && b.style.background !== ''; }), null, { timeout: 5000 });
+    await pV.$eval('#cardTabs [data-tab="logo"]', b => b.click());   // the small preview sits under the card maker's Logo button
     const fit = await pV.evaluate(() => ['previewAvatar', 'formAvatarPreview'].map(id => {
       const box = document.getElementById(id), r = box.getBoundingClientRect(), i = box.firstElementChild.getBoundingClientRect(), rad = parseFloat(getComputedStyle(box).borderTopLeftRadius);
       const inArc = (x, y) => { const cx = x < r.left + rad ? r.left + rad : x > r.right - rad ? r.right - rad : x, cy = y < r.top + rad ? r.top + rad : y > r.bottom - rad ? r.bottom - rad : y; return Math.hypot(x - cx, y - cy) <= rad + 0.01; };
