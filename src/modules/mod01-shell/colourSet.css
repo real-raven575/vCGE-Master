@@ -1,0 +1,42 @@
+/**
+ * vCard Generator Engine (vCGE)
+ * Copyright (c) 2026 raven575, Herd of Helpers (claude) & gemini
+ *
+ * Repository: https://github.com/real-raven575/vCGE-Master
+ * This source code is licensed under the MIT License found in the
+ * LICENSE file in the root directory of this source tree.
+ */
+
+/* The named colour set (easy + premium step 6, colour vision re-tint). Every colour that means "go / yes / done" (good)
+   or "stop / no / wipe" (stop) is one step of these two ramps, never a hex of its own, so a colour-vision choice in
+   Settings swaps the whole ramp at once: red-weak and green-weak get blue and orange, blue-weak teal and pink, No colour
+   two greys. Nothing else moves: the card photo, the card's own colours and the pilots' art keep their colours, and no
+   filter is laid over the page. The steps are Tailwind's (green / red, blue / orange, teal / pink, zinc / stone). */
+:root {
+    --good-50: #f0fdf4; --good-100: #dcfce7; --good-200: #bbf7d0; --good-300: #86efac; --good-400: #4ade80; --good-500: #22c55e;
+    --good-600: #16a34a; --good-700: #15803d; --good-800: #166534; --good-900: #14532d; --good-950: #052e16;
+    --stop-50: #fef2f2; --stop-100: #fee2e2; --stop-200: #fecaca; --stop-300: #fca5a5; --stop-400: #f87171; --stop-500: #ef4444;
+    --stop-600: #dc2626; --stop-700: #b91c1c; --stop-800: #991b1b; --stop-900: #7f1d1d; --stop-950: #450a0a;
+}
+html:is([data-cvd="protan"], [data-cvd="deutan"]) {
+    --good-50: #eff6ff; --good-100: #dbeafe; --good-200: #bfdbfe; --good-300: #93c5fd; --good-400: #60a5fa; --good-500: #3b82f6;
+    --good-600: #2563eb; --good-700: #1d4ed8; --good-800: #1e40af; --good-900: #1e3a8a; --good-950: #172554;
+    --stop-50: #fff7ed; --stop-100: #ffedd5; --stop-200: #fed7aa; --stop-300: #fdba74; --stop-400: #fb923c; --stop-500: #f97316;
+    --stop-600: #ea580c; --stop-700: #c2410c; --stop-800: #9a3412; --stop-900: #7c2d12; --stop-950: #431407;
+    --good-found: var(--good-300); --good-shut: var(--good-700); --good-ios: var(--good-500); --stop-shut: var(--stop-700);
+}
+html[data-cvd="tritan"] {
+    --good-50: #f0fdfa; --good-100: #ccfbf1; --good-200: #99f6e4; --good-300: #5eead4; --good-400: #2dd4bf; --good-500: #14b8a6;
+    --good-600: #0d9488; --good-700: #0f766e; --good-800: #115e59; --good-900: #134e4a; --good-950: #042f2e;
+    --stop-50: #fdf2f8; --stop-100: #fce7f3; --stop-200: #fbcfe8; --stop-300: #f9a8d4; --stop-400: #f472b6; --stop-500: #ec4899;
+    --stop-600: #db2777; --stop-700: #be185d; --stop-800: #9d174d; --stop-900: #831843; --stop-950: #500724;
+    --good-found: var(--good-300); --good-shut: var(--good-700); --good-ios: var(--good-500); --stop-shut: var(--stop-700);
+}
+/* No colour: good is the dark grey, stop the lighter warm grey; the words and marks (always on here) carry the meaning */
+html[data-cvd="mono"] {
+    --good-50: #fafafa; --good-100: #f4f4f5; --good-200: #e4e4e7; --good-300: #d4d4d8; --good-400: #a1a1aa; --good-500: #71717a;
+    --good-600: #52525b; --good-700: #3f3f46; --good-800: #27272a; --good-900: #18181b; --good-950: #09090b;
+    --stop-50: #fafaf9; --stop-100: #f5f5f4; --stop-200: #e7e5e4; --stop-300: #d6d3d1; --stop-400: #a8a29e; --stop-500: #78716c;
+    --stop-600: #57534e; --stop-700: #44403c; --stop-800: #292524; --stop-900: #1c1917; --stop-950: #0c0a09;
+    --good-found: var(--good-300); --good-shut: var(--good-700); --good-ios: var(--good-500); --stop-shut: var(--stop-700);
+}

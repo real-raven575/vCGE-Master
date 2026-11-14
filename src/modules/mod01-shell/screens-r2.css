@@ -8,7 +8,7 @@
     --r2-glass: radial-gradient(120% 90% at 30% 20%, #3b4a3c, #1d2420 60%, #121614);   /* the viewfinder before the camera starts */
     --r2-scrim: rgba(10, 12, 10, 0.62);       /* the hint's and the chips' ground over the picture */
     --r2-on-glass: #ffffff;
-    --r2-found: #7fe0a2;                     /* the corners with a card in them (mock-up) */
+    --r2-found: var(--good-found, #7fe0a2);                     /* the corners with a card in them (mock-up) */
     --r2-chip-on: #ffe38a;                   /* the zoom chip in use (mock-up) */
     --r2-display: ui-rounded, "SF Pro Rounded", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
 }
