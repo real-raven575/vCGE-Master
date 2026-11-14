@@ -124,6 +124,12 @@ export const SPLASH_END_MS = 2250, SPLASH_END_REDUCED_MS = 750, NO_SPLASH_MS = 3
 export function firstRunDelay(splashOff, reducedMotion) {
     return splashOff ? NO_SPLASH_MS : reducedMotion ? SPLASH_END_REDUCED_MS : SPLASH_END_MS;
 }
+/** True when the opening splash no longer shows: switched off, ended by a tap, or its fade has finished. */
+export function splashGone(splash) {
+    if (splash.classList.contains('vcge-splash-off') || document.documentElement.dataset.splash === 'off') return true;
+    const cs = getComputedStyle(splash);
+    return cs.display === 'none' || cs.visibility === 'hidden' || Number(cs.opacity) === 0;
+}
 /** True when the tour should open by itself: never seen, still on the Welcome card, nothing else open over it. */
 export function shouldAutoTour({ seen, card, busy }) { return !seen && card === 'welcome' && !busy; }
 
@@ -135,10 +141,21 @@ function scheduleFirstRunTour() {
     let moved = false;
     const watch = new MutationObserver(() => { if (root.dataset.card && root.dataset.card !== 'welcome') moved = true; });
     watch.observe(root, { attributes: true, attributeFilter: ['data-card'] });
-    setTimeout(() => {
+    const decide = () => {
         watch.disconnect();
         const busy = moved || !!document.querySelector('.vcge-sheet:not(.hidden), .vcge-modal:not(.hidden), #thankYouPage:not(.hidden)') || !!layer;
         if (shouldAutoTour({ seen: tourSeen(), card: current(), busy })) startTour();
+    };
+    setTimeout(() => {
+        // A slow phone can start the splash's CSS fade later than this timer: then wait for the fade's own end (at most 1 s
+        // more), so the tour never opens under a splash that is still showing
+        const splash = document.getElementById('vcgeSplash');
+        if (!splash || splashGone(splash)) { decide(); return; }
+        let done = false;
+        const once = () => { if (done) return; done = true; splash.removeEventListener('animationend', onEnd); decide(); };
+        const onEnd = (e) => { if (e.target === splash) once(); };
+        splash.addEventListener('animationend', onEnd);
+        setTimeout(once, 1000);
     }, firstRunDelay(root.dataset.splash === 'off', reduced));
 }
 

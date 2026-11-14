@@ -1674,6 +1674,22 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     && !welcome.shouldAutoTour({ seen: false, card: 'capture', busy: false }) && !welcome.shouldAutoTour({ seen: false, card: 'welcome', busy: true }));
   ok('first-run tour: waits for the splash to go (2.25 s; 0.75 s under reduced motion; 0.3 s with the splash off)',
     welcome.firstRunDelay(false, false) === 2250 && welcome.firstRunDelay(false, true) === 750 && welcome.firstRunDelay(true, false) === 300 && welcome.firstRunDelay(true, true) === 300);
+  {
+    // A slow phone can start the splash fade after the timer: the tour then waits until the splash really is gone
+    const realGCS = globalThis.getComputedStyle, realDoc = globalThis.document;
+    const look = { display: 'grid', visibility: 'visible', opacity: '0.4' };
+    globalThis.getComputedStyle = () => look;
+    globalThis.document = { ...(realDoc || {}), documentElement: { dataset: {} } };
+    const splash = (off) => ({ classList: { contains: (c) => off && c === 'vcge-splash-off' } });
+    const fading = welcome.splashGone(splash(false));
+    look.opacity = '0'; const faded = welcome.splashGone(splash(false));
+    look.opacity = '1'; look.visibility = 'hidden'; const hidden = welcome.splashGone(splash(false));
+    look.visibility = 'visible'; const tapped = welcome.splashGone(splash(true));
+    globalThis.document.documentElement.dataset.splash = 'off'; const switchedOff = welcome.splashGone(splash(false));
+    globalThis.getComputedStyle = realGCS; globalThis.document = realDoc;
+    ok('first-run tour: a splash still fading counts as showing; faded, hidden, ended by a tap or switched off counts as gone',
+      fading === false && faded && hidden && tapped && switchedOff, JSON.stringify({ fading, faded, hidden, tapped, switchedOff }));
+  }
   ok('first-run tour: finishing or skipping (every way the tour closes) remembers it once', /if \(!tourSeen\(\)\) rememberTourSeen\(\);/.test(code));
   const art = await import(`${R}/modules/mod01-shell/tourArt.js`);
   ok('tour art: each of the six steps names a pilot with a slot (Iris, Pidge, Flipside, Airlock, Ghost, Cornerstone; CRTV-0059)',
