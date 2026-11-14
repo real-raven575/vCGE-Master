@@ -1082,8 +1082,10 @@ function wireEgress() {
     ['downloadVcfBtn', 'emailBtn', 'smsBtn', 'shareNativeBtn', 'copyVcardBtn']
         .forEach(id => $(id).addEventListener('click', expectExternalApp, true));
     $('downloadVcfBtn').addEventListener('click', () => {
-        if (!egressController.downloadVcf()) return;
-        cardView.showToast(`Saved ${egressController.fileName('.vcf')}.`);
+        const saved = egressController.downloadVcf();
+        if (!saved) return;
+        if (saved === 'failed') { cardView.showToast('No app on this phone opens a contact card.'); return; }
+        cardView.showToast(saved === 'contacts' ? 'Opening Contacts: tap Save there to add this contact.' : `Saved ${egressController.fileName('.vcf')}.`);
         flyFalcon();
     });
     // QR PNG: the Export QR pop-up (colours, dots, frame, centre logo) with a live preview; Save PNG downloads it as previewed.

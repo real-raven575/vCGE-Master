@@ -1022,6 +1022,27 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await ctx2.close();
   }
 
+  // The Android app (raven575's phone run, 2026-11-14: Save .vcf said "saved", but no contact was added): its WebView
+  // cannot download, so MainActivity.kt gives the page "vcgeAndroid" and Save .vcf hands the card to Contacts. A stand-in
+  // bridge here records what the page hands over.
+  {
+    const ctxA = await newContext();
+    await ctxA.addInitScript(() => { window.__handed = []; window.vcgeAndroid = { addContact: (vcard, name) => { window.__handed.push({ vcard, name }); return window.__contactsApp !== false; } }; });
+    const pA = await ctxA.newPage();
+    await pA.goto(ORIGIN); await pA.waitForTimeout(400);
+    await pA.fill('#firstName', 'Lena'); await pA.fill('#lastName', 'Testcase'); await pA.waitForTimeout(400);
+    let downloads = 0; pA.on('download', () => { downloads++; });
+    await pA.$eval('#downloadVcfBtn', b => b.click()); await pA.waitForTimeout(300);
+    const handed = await pA.evaluate(() => window.__handed);
+    ok('Android app: Save .vcf hands the vCard to Contacts by name, with no download', handed.length === 1 && handed[0].name === 'Lena Testcase.vcf'
+      && handed[0].vcard.includes('FN:Lena Testcase') && handed[0].vcard.endsWith('END:VCARD\r\n') && downloads === 0, JSON.stringify({ n: handed.length, name: handed[0] && handed[0].name, downloads }));
+    ok('Android app: the message says Contacts is opening, not "Saved"', (await pA.textContent('#toastMessage')).includes('Opening Contacts'), await pA.textContent('#toastMessage'));
+    await pA.evaluate(() => { window.__contactsApp = false; });
+    await pA.$eval('#downloadVcfBtn', b => b.click()); await pA.waitForTimeout(300);
+    ok('Android app: with no app for contact cards it says so, never "Saved"', (await pA.textContent('#toastMessage')).includes('No app on this phone opens a contact card'), await pA.textContent('#toastMessage'));
+    await ctxA.close();
+  }
+
   // Quick unlock: 4-digit session PIN after a lock (idle, screen off, Lock button); the card is held in memory only,
   // and 7 minutes without activity wipe it
   {

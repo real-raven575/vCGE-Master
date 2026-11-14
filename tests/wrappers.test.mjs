@@ -31,6 +31,20 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
   ok('Android: no other build type adds permissions',
     ['release', 'profile'].every(t => !existsSync(ROOT + ANDROID + t + '/AndroidManifest.xml')));
 
+  // raven575's phone run (2026-11-14): the top of the app was under the status bar, and Save .vcf added no contact
+  const activity = read(ANDROID + 'main/java/app/vcge/vcge/MainActivity.kt');
+  ok('Android: the app is padded clear of the status bar, navigation bar and camera cut-out (edge to edge draws under them)',
+    /enableEdgeToEdge\(\)/.test(activity) && /setOnApplyWindowInsetsListener/.test(activity)
+      && /Type\.systemBars\(\)\s+or\s+WindowInsetsCompat\.Type\.displayCutout\(\)/.test(activity) && /setPadding\(bars\.left,\s*bars\.top,\s*bars\.right/.test(activity));
+  ok('Android: the open keyboard pads the bottom too, so a field being typed in stays in view', /Type\.ime\(\)/.test(activity) && /maxOf\(bars\.bottom,\s*keyboard\.bottom\)/.test(activity));
+  ok('Android: Save .vcf hands the card to Contacts (vcgeAndroid.addContact opens a text/x-vcard through the FileProvider)',
+    /addJavascriptInterface\(ContactBridge\(\),\s*"vcgeAndroid"\)/.test(activity) && /@JavascriptInterface\s+fun addContact\(vcard: String, fileName: String\): Boolean/.test(activity)
+      && /Intent\.ACTION_VIEW/.test(activity) && /"text\/x-vcard"/.test(activity) && /FileProvider\.getUriForFile/.test(activity) && /FLAG_GRANT_READ_URI_PERMISSION/.test(activity));
+  ok('Android: the handed-over card is kept only in the app cache and deleted on return to vCGE and at start',
+    /File\(cacheDir,\s*"contact"\)/.test(activity) && /override fun onResume\(\)\s*\{\s*super\.onResume\(\)\s*clearContactFiles\(\)/.test(activity)
+      && (activity.match(/clearContactFiles\(\)/g) || []).length >= 5);
+  const paths = read(ANDROID + 'main/res/xml/file_paths.xml');
+  ok('Android: the FileProvider shares the app cache, where the card is written', /<cache-path\s+name="[^"]+"\s+path="\."/.test(paths) && /\$\{applicationId\}\.fileprovider/.test(main));
   const gradle = read('src-tauri/gen/android/app/build.gradle.kts');
   ok('Android: release builds refuse cleartext traffic', /defaultConfig\s*\{[^}]*usesCleartextTraffic"\]\s*=\s*"false"/.test(gradle));
   ok('Android: package id matches the desktop identifier', /applicationId\s*=\s*"app\.vcge\.vcge"/.test(gradle));

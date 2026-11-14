@@ -226,10 +226,18 @@ export class EgressController {
     }
 
     /**
-     * Saves the current vCard as a .vcf file.
+     * Saves the current vCard as a .vcf file (true), or in the Android app hands it to Contacts ('contacts' or 'failed').
      */
     downloadVcf() {
         if (!this.currentVCard) return false;
+        // The Android app: its WebView cannot download files, so the card goes to the phone's Contacts app instead
+        // (MainActivity.kt's "vcgeAndroid"). 'contacts' when Contacts opened, 'failed' when it could not.
+        const android = typeof window !== 'undefined' ? window.vcgeAndroid : null;
+        if (android && typeof android.addContact === 'function') {
+            const opened = android.addContact(this.currentVCard, this.fileName('.vcf')) === true;
+            audit('android_contact', { opened });
+            return opened ? 'contacts' : 'failed';
+        }
         const { url, filename } = this.generateDownloadBlob();
         clickDownload(url, filename);
         setTimeout(() => URL.revokeObjectURL(url), 1000);

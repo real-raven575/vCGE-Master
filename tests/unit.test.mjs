@@ -2275,6 +2275,25 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   homeOnly.setPayload('BEGIN:VCARD', { firstName: 'Kai', addressType: 'other', city: 'Boise', websites: [{ type: 'other', value: 'kai.dev' }] }, { hasDetails: true });
   ok('MOD08 summary: an "Other" website and address read "Website" and "Address"', homeOnly.contactSummary() === 'Kai\nWebsite:  kai.dev\nAddress:  Boise', JSON.stringify(homeOnly.contactSummary()));
 
+  // Save .vcf in the Android app (raven575's phone run, 2026-11-14: "saved", but no contact): the WebView cannot download,
+  // so the card goes to the phone's Contacts app through MainActivity.kt's "vcgeAndroid"
+  {
+    const handed = [];
+    const androidEvents = [];
+    const offA = share.globalEventBus.subscribe(share.Events.EXPORT_DISPATCHED, (d) => androidEvents.push(d));
+    globalThis.vcgeAndroid = { addContact: (vcard, name) => { handed.push({ vcard, name }); return true; } };
+    const opened = e.downloadVcf();
+    ok('MOD08 Android app: Save .vcf hands the folded vCard and "Dana Quill.vcf" to Contacts, and says so', opened === 'contacts' && handed.length === 1
+      && handed[0].vcard === e.currentVCard && handed[0].name === 'Dana Quill.vcf', JSON.stringify({ opened, n: handed.length, name: handed[0] && handed[0].name }));
+    globalThis.vcgeAndroid = { addContact: () => false };
+    ok('MOD08 Android app: when no app opens a contact card, Save .vcf says it failed (no false "Saved")', e.downloadVcf() === 'failed');
+    ok('MOD08 Android app: the audit event names the action and whether Contacts opened, never the contact',
+      androidEvents.map(d => `${d.method}:${d.opened}`).join() === 'android_contact:true,android_contact:false' && !JSON.stringify(androidEvents).includes('Dana'), JSON.stringify(androidEvents));
+    delete globalThis.vcgeAndroid;
+    offA();
+    ok('MOD08 Android app: an empty card hands nothing over', new EgressController().downloadVcf() === false && handed.length === 1);
+  }
+
   // The share sheet and the audit events, with a stand-in navigator
   const realNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
   const setNavigator = (nav) => Object.defineProperty(globalThis, 'navigator', { value: nav, configurable: true, writable: true });
