@@ -524,7 +524,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   ok('US state picker shown with 56 states and territories', await visible('stateSelect') && !(await visible('stateText')) && (await page.$$eval('#stateSelect option', o => o.length)) === 57 && (await text('stateLabel')) === 'State');
   // 0.8 redo R3: the rarer boxes wait behind "+ Add a field" until it is pressed (or one of them holds something)
   ok('0.8 Details: prefix, suffix, middle name, nickname and birthday wait behind "+ Add a field"', !(await visible('namePrefix')) && !(await visible('birthday')) && await visible('fieldsAddBtn')
-    && (await page.getAttribute('#fieldsAddBtn', 'aria-expanded')) === 'false' && (await text('fieldsAddBtn')) === '+ Add a field');
+    && (await page.getAttribute('#fieldsAddBtn', 'aria-expanded')) === 'false' && (await text('fieldsAddBtn')) === 'Add a field');
   await page.click('#fieldsAddBtn');
   ok('0.8 Details: "+ Add a field" shows them under a "More" heading, puts the cursor in the first and steps aside', await visible('namePrefix') && await visible('middleName') && await visible('nameSuffix') && await visible('nickname') && await visible('birthday')
     && (await page.evaluate(() => document.activeElement.id)) === 'namePrefix' && !(await visible('fieldsAddBtn')) && (await text('fieldsMoreTitle')) === 'More');
@@ -592,7 +592,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   const bar = await page.evaluate(() => window.__ocrBar);
   ok(SHELVED ? 'OK moves to the Read card, where the photo shows still while it is read (0.8 shelf: no shimmer), the label says the reader is being prepared, and the wash is full before the review opens'
     : 'OK moves to the Read card, where the photo shimmers while it is read, the label says the reader is being prepared, and the wash is full before the review opens', bar.shown && bar.shimmer === !SHELVED && bar.photo && bar.values.includes(100) && bar.labels.includes('Preparing the reader…') && !(await visible('ocrProgress')) && (await visible('ocrStepText')) && (await page.evaluate(() => document.documentElement.dataset.card)) === 'read', JSON.stringify({ shown: bar.shown, shimmer: bar.shimmer, photo: bar.photo, max: Math.max(...bar.values), labels: [...new Set(bar.labels)] }));
-  ok('the reading indicator shows no number (no visible digits, screen readers hear text)', !/\d/.test(await page.$eval('#ocrProgress', el => el.innerText)) && (await page.getAttribute('#ocrProgressBar', 'aria-valuetext')) === 'Reading the card', await page.$eval('#ocrProgress', el => el.innerText));
+  // (one look, so the detail shows exactly what was checked: WebKit CI failed this now and then with no detail)
+  const ind = await page.evaluate(() => ({ text: document.getElementById('ocrProgress').innerText, valuetext: document.getElementById('ocrProgressBar').getAttribute('aria-valuetext'),
+    hidden: document.getElementById('ocrProgress').classList.contains('hidden'), label: document.getElementById('ocrProgressLabel').textContent }));
+  ok('the reading indicator shows no number (no visible digits, screen readers hear text)', !/\d/.test(ind.text) && ind.valuetext === 'Reading the card', JSON.stringify(ind));
   ok('after the read the photo under the shimmer is dropped', !(await page.getAttribute('#ocrReadPhoto', 'src')));
   ok('first scan counts the reader\'s start-up up in percent (a slow first load is seen moving, 0.8 phone run 2026-11-03)', bar.labels.some(l => /^Preparing the reader… \d+%$/.test(l)), [...new Set(bar.labels)].join(' | '));
   ok('first scan says the reader is being prepared, then extracting', bar.labels.indexOf('Preparing the reader…') >= 0 && bar.labels.indexOf('Extracting…', bar.labels.indexOf('Preparing the reader…')) > 0, [...new Set(bar.labels)].join(' | '));
@@ -2328,6 +2331,54 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
         picked.value === 'Dana Whitlock' && picked.kept === 'Dana Whitlock' && picked.edited === 1 && !picked.flag && !picked.box && picked.buttons === 0, JSON.stringify(picked));
     }
     await ctxZ.close();
+  });
+
+  // Go (easy + premium step 4): the big green circle on Welcome. You give it a photo; it is read straight away (no OK
+  // press) and the review opens with two ways out: Just the contact fills the form and goes to Share, Make it fancy
+  // fills it and goes to the card maker. Step by step shows neither.
+  await rerunIfPageCrashed('Go', async () => {
+    const ctxG = await browser.newContext();
+    const pG = await ctxG.newPage();
+    await pG.goto(ORIGIN); await pG.click('#navWelcome').catch(() => {});
+    await pG.waitForFunction(() => { const b = document.getElementById('welcomeGoBtn'); return b && b.getBoundingClientRect().width >= 96; }, null, { timeout: 10000 }).catch(() => {});
+    const goLook = await pG.evaluate(() => { const b = document.getElementById('welcomeGoBtn').getBoundingClientRect(), cs = getComputedStyle(document.getElementById('welcomeGoBtn'));
+      return { w: Math.round(b.width), h: Math.round(b.height), round: cs.borderRadius === '50%', note: !!document.getElementById('welcomeGoBtn').getAttribute('aria-describedby') }; });
+    ok('step 4: Welcome has a big round Go button (96 px) that says what it does', goLook.w >= 96 && goLook.h >= 96 && goLook.round && goLook.note, JSON.stringify({ ...goLook, card: await pG.evaluate(() => document.documentElement.dataset.card) }));
+    const cardPng = await pG.evaluate(() => {
+      const c = document.createElement('canvas'); c.width = 1050; c.height = 600; const x = c.getContext('2d');
+      x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111';
+      x.font = 'bold 52px Arial'; x.fillText('Nora Lindqvist', 60, 90); x.font = '32px Arial'; x.fillText('General Manager', 60, 145);
+      ['nora@harborworks.com', 'T 616.555.0142'].forEach((t, i) => x.fillText(t, 60, 250 + i * 70));
+      return c.toDataURL('image/png');
+    });
+    const upload = () => pG.setInputFiles('#imageUpload', { name: 'go.png', mimeType: 'image/png', buffer: Buffer.from(cardPng.split(',')[1], 'base64') });
+    await pG.click('#welcomeGoBtn'); await pG.waitForTimeout(500);
+    ok('step 4: Go moves to the Capture card', (await pG.evaluate(() => document.documentElement.dataset.card)) === 'capture');
+    await upload();
+    await readEnds(pG);
+    ok('step 4: with Go the photo is read without pressing OK, and the review shows Go\'s two ways out', await pG.isVisible('#goExits') && await pG.isVisible('#goPlainBtn') && await pG.isVisible('#goFancyBtn'));
+    await pG.click('#goPlainBtn');
+    await pG.waitForFunction(() => document.documentElement.dataset.card === 'share', null, { timeout: 5000 }).catch(() => {});
+    ok('step 4: Just the contact fills the form and goes straight to Share; Go is then over',
+      (await pG.evaluate(() => document.documentElement.dataset.card)) === 'share' && (await pG.inputValue('#lastName')) === 'Lindqvist' && (await pG.evaluate(() => document.documentElement.dataset.go)) === undefined,
+      JSON.stringify({ card: await pG.evaluate(() => document.documentElement.dataset.card), last: await pG.inputValue('#lastName') }));
+    // Again, the fancy way: the card maker, already filled in
+    await pG.click('#navWelcome').catch(() => {});
+    await pG.evaluate(() => document.getElementById('welcomeGoBtn').click()); await pG.waitForTimeout(500);
+    await upload();
+    await readEnds(pG);
+    await pG.click('#goFancyBtn');
+    await pG.waitForFunction(() => document.documentElement.dataset.card === 'card', null, { timeout: 5000 }).catch(() => {});
+    ok('step 4: Make it fancy fills the form and opens the card maker',
+      (await pG.evaluate(() => document.documentElement.dataset.card)) === 'card' && (await pG.inputValue('#lastName')) === 'Lindqvist', await pG.evaluate(() => document.documentElement.dataset.card));
+    // Step by step: OK still has to be pressed, and the review has no Go buttons
+    await pG.click('#navCapture').catch(() => {});
+    await upload(); await pG.waitForTimeout(1500);
+    const stillCrop = (await pG.evaluate(() => document.documentElement.dataset.card)) === 'capture' && !(await pG.isVisible('#ocrStepText')) && !(await pG.isVisible('#ocrProgress'));
+    await pG.click('#runOcrBtn');
+    await readEnds(pG);
+    ok('step 4: step by step waits for OK and its review shows no Go buttons', stillCrop && !(await pG.isVisible('#goExits')), JSON.stringify({ stillCrop }));
+    await ctxG.close();
   });
 
   // Second look (bench run 2026-10-18): a web line leaning backwards was read as "noriinvind.comiSeat\e" and flagged;

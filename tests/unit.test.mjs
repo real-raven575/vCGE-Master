@@ -2453,5 +2453,28 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('QR read: the bundled jsQR loads from the app\'s own files, after the QR maker', /<script src="src\/vendor\/qrcode-generator\/qrcode\.js"><\/script>\s*<script src="src\/vendor\/jsqr\/jsQR\.js"><\/script>/.test(html) && fsQ.existsSync(`${R}/vendor/jsqr/jsQR.js`) && fsQ.existsSync(`${R}/vendor/jsqr/LICENSE`));
 }
 
+// Buttons that explain themselves (easy + premium step 5): every action button carries a line picture from the app's own
+// Tabler sprite and a word (its spoken label); no emoji stands in for a picture, and every picture asked for is in the sprite.
+{
+  const fsB = await import('node:fs');
+  const html = fsB.readFileSync(`${R}/../index.html`, 'utf8');
+  const sprite = fsB.readFileSync(`${R}/vendor/icons/app/sprite.svg`, 'utf8');
+  const have = new Set([...sprite.matchAll(/<symbol id="([^"]+)"/g)].map(m => m[1]));
+  const used = [...new Set([...html.matchAll(/sprite\.svg#([\w-]+)/g)].map(m => m[1]))];
+  ok('icons: every picture the page asks the sprite for is in it', used.length > 0 && used.every(n => have.has(n)), JSON.stringify(used.filter(n => !have.has(n))));
+  const ACTIONS = ['captureBtn', 'runOcrBtn', 'retakePhotoBtn', 'snapCardBtn', 'typeItInBtn', 'applyOcrBtn', 'addPhoneBtn', 'addEmailBtn', 'addWebsiteBtn',
+    'fieldsAddBtn', 'clearFormBtn', 'flipCardBtn', 'downloadVcfBtn', 'shareNativeBtn', 'exportQrBtn', 'printCardBtn', 'copyVcardBtn', 'readyToShareBtn',
+    'welcomeTourBtn', 'welcomePinBtn', 'welcomeSampleBtn', 'reopenScanBtn', 'ocrBackBtn', 'exportQrSaveBtn', 'printThemedBtn', 'printBwBtn',
+    'ocrTryAgainBtn', 'ocrFixByHandBtn', 'ocrAnotherPhotoBtn', 'thankYouStartOverBtn', 'lockVaultBtn', 'goFancyBtn', 'goPlainBtn'];
+  const bad = ACTIONS.filter(id => {
+    const m = new RegExp(`<button\\b[^>]*\\bid="${id}"[^>]*>([\\s\\S]*?)</button>`).exec(html);
+    if (!m) return true;
+    const word = m[1].split(/<[^>]*>/).join('').trim();   // the text between the tags (the icons carry none)
+    const label = /aria-label="[^"]+"/.test(m[0]);
+    return !/<svg\b/.test(m[1]) || !(word || label) || /[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}]/u.test(word);
+  });
+  ok('icons: every action button has a line picture and a spoken word, and no emoji in place of a picture', bad.length === 0, JSON.stringify(bad));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;

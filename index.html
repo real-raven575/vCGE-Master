@@ -73,7 +73,7 @@
                 <span id="vaultBadgeText">Vault: LOCKED</span>
             </span>
             <button id="navVault" type="button" class="vcge-iconbtn vcge-session" data-open-sheet="vaultPage" aria-label="Vault: PIN and fingerprint (Ghost)" title="Vault: PIN and fingerprint (Ghost)"><span class="vcge-lockdot"><svg class="vcge-ring" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15"></circle><circle id="sessArc" class="vcge-ring-arc" cx="18" cy="18" r="15" stroke-dasharray="94.2" stroke-dashoffset="0"></circle></svg><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#lock"></use></svg></span><span id="sessTxt" class="vcge-sess-txt"></span></button>
-            <button id="lockVaultBtn" type="button" class="hidden vcge-lockbtn">🔒 Lock</button>
+            <button id="lockVaultBtn" type="button" class="hidden vcge-lockbtn"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#lock"></use></svg>Lock</button>
             <button id="navSettings" type="button" class="vcge-iconbtn" data-open-sheet="settingsSheet" aria-label="Settings" title="Settings"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#settings"></use></svg></button>
         </div>
         <div id="vaultTimerStrip" class="hidden absolute left-0 right-0 top-full pointer-events-none">
@@ -87,7 +87,7 @@
             <div class="flex justify-center px-4 pt-2">
                 <p id="vaultTimerNote" role="status" class="invisible opacity-0 -translate-y-1 motion-safe:transition motion-safe:duration-500 pointer-events-auto flex items-center gap-3 px-4 py-2 rounded-xl border text-xs shadow-sm bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950 dark:text-amber-300 dark:border-amber-800/60">
                     <span>Still there? Tap anywhere to keep working.</span>
-                    <button id="vaultTimerKeepBtn" type="button" class="font-semibold text-brand-700 dark:text-brand-400 hover:underline">Keep open</button>
+                    <button id="vaultTimerKeepBtn" type="button" class="font-semibold text-brand-700 dark:text-brand-400 hover:underline"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#lock-open"></use></svg>Keep open</button>
                 </p>
             </div>
         </div>
@@ -110,14 +110,21 @@
                     <h3 id="welcomeTitle">Scan a card. Keep the contact.</h3>
                     <p class="r2-lede">Point your camera at a business card. vCGE reads it on this device and helps you save it.</p>
                     <div class="r2-privacy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5c0 5-3.5 8.5-7 10-3.5-1.5-7-5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg><span>Nothing is saved. Your card stays in memory and is wiped after you lock or close the app.</span></div>
+                    <!-- Go (easy + premium step 4): the big green circle runs the steps for you. You take the photo; it is read
+                         straight away and you land on one page to check every line, then pick how fancy the card gets. The
+                         dock's "Scan a card" stays the step-by-step way. -->
+                    <div class="r2-go">
+                        <button id="welcomeGoBtn" type="button" class="r2-go-btn" aria-describedby="welcomeGoNote"><span aria-hidden="true">GO</span><span class="vcge-sr-only">Go</span></button>
+                        <p id="welcomeGoNote" class="r2-go-note">Take the photo and the app does the rest. Or press Scan a card to go step by step.</p>
+                    </div>
                     <p id="welcomeTagline" class="r2-tag">Operation: Never Lose Contact</p>
                     <!-- "Made by" and the Herd of Helpers maker mark, in both editions (plain: the HoH Block mark), CRTV-0020 -->
                     <div class="vcge-maker"><small>Made by</small><span class="vcge-hoh" role="img" aria-label="Herd of Helpers"></span></div>
                     <div class="r2-more">
-                        <button id="welcomeTourBtn" type="button" class="r2-quiet">Take a Tour</button>
-                        <button id="welcomePinBtn" type="button" class="r2-quiet">Set Up PIN/BIO Lock Now</button>
-                        <button id="welcomeSampleBtn" type="button" class="r2-quiet">Play with sample fields</button>
-                        <button id="welcomeCancelBtn" type="button" class="r2-quiet r2-quiet-stop">CANCEL</button>
+                        <button id="welcomeTourBtn" type="button" class="r2-quiet"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#route"></use></svg>Take a Tour</button>
+                        <button id="welcomePinBtn" type="button" class="r2-quiet"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#lock"></use></svg>Set Up PIN/BIO Lock Now</button>
+                        <button id="welcomeSampleBtn" type="button" class="r2-quiet"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#id"></use></svg>Play with sample fields</button>
+                        <button id="welcomeCancelBtn" type="button" class="r2-quiet r2-quiet-stop"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#x"></use></svg>CANCEL</button>
                     </div>
                     <p class="r2-fine">This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data: it keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look, the opening splash, and whether you have seen the tour), and nothing you scan, upload or type is ever saved.</p>
                 </div>
@@ -127,7 +134,7 @@
             <div class="deck-card-body r2-capbody">
                 <h2 class="text-sm font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400">Scan a business card</h2>
                 <p id="photoCountNote" class="hidden r2-note" role="status"></p>
-                <button id="reopenScanBtn" type="button" class="hidden r2-reopen">Reopen last scan (fix lines and fill again, no new OCR)</button>
+                <button id="reopenScanBtn" type="button" class="hidden r2-reopen"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#history"></use></svg>Reopen last scan (fix lines and fill again, no new OCR)</button>
                 <!-- Capture (0.8 redo R2, CRTV-0020 mock-up; MOD03 Iris): the viewfinder first, nearly full width, with card-shaped
                      corners that turn green when a card is in them, the hint and the zoom chips; under it the shutter in the middle
                      (a red ring that turns green) with Photo (upload) and Flip camera either side. It fits one screen: the
@@ -198,10 +205,10 @@
                             <button id="rotateLeftBtn" type="button" class="cap-quiet" aria-label="Rotate left 90°, counter-clockwise" title="Rotate left 90° (counter-clockwise)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#rotate-2"></use></svg><span>Left</span></button>
                             <button id="rotateRightBtn" type="button" class="cap-quiet" aria-label="Rotate right 90°, clockwise" title="Rotate right 90° (clockwise)"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#rotate-clockwise-2"></use></svg><span>Right</span></button>
                         </span>
-                        <button id="snapCardBtn" type="button" class="cap-quiet">Snap to card</button>
-                        <button id="retakePhotoBtn" type="button" class="cap-quiet hidden">Retake photo</button>
-                        <button id="typeItInBtn" type="button" class="cap-quiet hidden">Type it in</button>
-                        <button id="cancelReviewBtn" type="button" class="cap-quiet">Cancel</button>
+                        <button id="snapCardBtn" type="button" class="cap-quiet"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#crop"></use></svg>Snap to card</button>
+                        <button id="retakePhotoBtn" type="button" class="cap-quiet hidden"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#refresh"></use></svg>Retake photo</button>
+                        <button id="typeItInBtn" type="button" class="cap-quiet hidden"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#keyboard"></use></svg>Type it in</button>
+                        <button id="cancelReviewBtn" type="button" class="cap-quiet"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#x"></use></svg>Cancel</button>
                         <button id="runOcrBtn" type="button" class="cap-ok"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#circle-check"></use></svg><span>OK</span></button>
                     </div>
                 </div>
@@ -229,7 +236,7 @@
                         <!-- Glyph (Creative movable-v1) reads along: his pupils follow the wash and close when the read is done (read.css); hidden in plain -->
                         <svg id="ocrReadOwl" class="read-owl owl-art" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160"><defs><filter id="c-glyph-reading-along" x="-6%" y="-6%" width="112%" height="112%"><feTurbulence type="fractalNoise" baseFrequency="1.1" numOctaves="2" seed="4" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="1.8"/></filter></defs><g filter="url(#c-glyph-reading-along)"><path d="M30 160 q-2 -66 50 -68 q52 2 50 68 z" fill="#26325c" stroke="#151d3a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M60 96 l20 16 l20 -16" fill="none" stroke="#3d4c80" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M50 48 l-5 -18 l18 9 z M110 48 l5 -18 l-18 9 z" fill="#c4c3bf" stroke="#5d5c5a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><ellipse cx="80" cy="62" rx="35" ry="32" fill="#c4c3bf" stroke="#5d5c5a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M75 31 q5 12 10 0" fill="#c0913e" stroke="#5d5c5a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M53 43 h54" stroke="#c0913e" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="68" cy="42" r="6.5" fill="#e8d7a6" stroke="#c0913e" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="92" cy="42" r="6.5" fill="#e8d7a6" stroke="#c0913e" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M106 50 l15 -9" stroke="#e9c23a" stroke-width="4.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M121 41 l3 -2" stroke="#f0b0a0" stroke-width="4.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="67" cy="65" r="11" fill="#f1d98a" stroke="#5d5c5a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="93" cy="65" r="11" fill="#f1d98a" stroke="#5d5c5a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><g class="glyph-pupils"><circle cx="67" cy="67" r="5" fill="#2b2533"/><circle cx="68.5" cy="65.4" r="1.6" fill="#fff"/><circle cx="93" cy="67" r="5" fill="#2b2533"/><circle cx="94.5" cy="65.4" r="1.6" fill="#fff"/></g><g class="glyph-eyes-closed" visibility="hidden"><circle cx="67" cy="65" r="11.4" fill="#c4c3bf" stroke="#5d5c5a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="93" cy="65" r="11.4" fill="#c4c3bf" stroke="#5d5c5a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M60 67 q7 5 14 0 M86 67 q7 5 14 0" fill="none" stroke="#5d5c5a" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></g><path d="M75 74 l5 7 l5 -7 z" fill="#c0913e" stroke="#5d5c5a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M36 118 q22 -8 44 4 q22 -12 44 -4 v30 q-22 -8 -44 4 q-22 -12 -44 -4 z" fill="#fffdf6" stroke="#5d5c5a" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M80 122 v30" stroke="#5d5c5a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M44 128 q14 -4 28 2 M44 136 q14 -4 28 2 M88 130 q14 -6 28 -2 M88 138 q14 -6 28 -2" fill="none" stroke="#b9b9c2" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><ellipse cx="38" cy="132" rx="8" ry="10" fill="#c4c3bf" stroke="#5d5c5a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><ellipse cx="122" cy="132" rx="8" ry="10" fill="#c4c3bf" stroke="#5d5c5a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></g></svg>
                         <p id="ocrProgressLabel" class="read-progress-label" aria-live="polite">Extracting…</p>
-                        <button id="ocrStopBtn" type="button" class="read-quiet-btn">Cancel</button>
+                        <button id="ocrStopBtn" type="button" class="read-quiet-btn"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#x"></use></svg>Cancel</button>
                     </div>
                 </div>
             </div>
@@ -247,11 +254,16 @@
                     <summary>What fills in</summary>
                     <dl id="ocrSummary" class="read-will-list"></dl>
                 </details>
+                <!-- Go's two ways out of the review (shown only when Go ran the steps): the card maker, or straight to Share -->
+                <div id="goExits" class="read-go hidden" role="group" aria-label="When the lines look right">
+                    <button id="goFancyBtn" type="button" class="read-go-btn"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#palette"></use></svg>Make it fancy</button>
+                    <button id="goPlainBtn" type="button" class="read-go-btn"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#bolt"></use></svg>Just the contact</button>
+                </div>
                 <div class="read-tools">
-                    <button id="ocrBackBtn" type="button" class="read-quiet-btn">Back to the photo</button>
-                    <button id="ocrCancelBtn" type="button" class="read-quiet-btn">Cancel</button>
+                    <button id="ocrBackBtn" type="button" class="read-quiet-btn"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#arrow-back-up"></use></svg>Back to the photo</button>
+                    <button id="ocrCancelBtn" type="button" class="read-quiet-btn"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#x"></use></svg>Cancel</button>
                     <!-- The dock's "Fill details" presses this one (deck.js data-next); it is not shown on its own -->
-                    <button id="applyOcrBtn" type="button" class="read-apply">Fill details</button>
+                    <button id="applyOcrBtn" type="button" class="read-apply"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#forms"></use></svg>Fill details</button>
                 </div>
             </div>
                 </div>
@@ -264,8 +276,8 @@
             <div class="deck-card-body">
             <!-- Fields card (MOD05, Pidge): the details land here after the Read card's hand-off and pop in all at once.
                  0.8 redo R3 (Creative's mock-up): rounded boxes with the label above, grouped Name / Work / Reach / Notes, and
-                 "+ Add a field" for the rarer boxes. Next is the dock's "Make the card" (#fieldsDoneBtn). The sample list and
-                 Clear form have no place in the mock-up, so they sit last, under "+ Add a field". -->
+                 "Add a field" for the rarer boxes. Next is the dock's "Make the card" (#fieldsDoneBtn). The sample list and
+                 Clear form have no place in the mock-up, so they sit last, under "Add a field". -->
 
             <!-- Option lists (prefixes, suffixes, unit types, countries, regions) are filled from share/contactOptions.js -->
             <datalist id="namePrefixOptions"></datalist>
@@ -298,17 +310,17 @@
                         <label class="fields-cc"><span>Number style</span><select id="phoneFormatSelect" class="field-input" aria-label="Phone number style"></select></label>
                         <label class="fields-cc"><input id="phoneCountryCode" type="checkbox" class="vcge-switch" checked><span>Include +1</span></label>
                     </div>
-                    <button id="addPhoneBtn" type="button" class="fields-add-row">+ Add phone</button>
+                    <button id="addPhoneBtn" type="button" class="fields-add-row"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#phone-plus"></use></svg>Add phone</button>
                 </fieldset>
                 <fieldset class="fields-list">
                     <legend class="field-label">Emails</legend>
                     <div id="emailList" class="fields-rows"></div>
-                    <button id="addEmailBtn" type="button" class="fields-add-row">+ Add email</button>
+                    <button id="addEmailBtn" type="button" class="fields-add-row"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#mail-plus"></use></svg>Add email</button>
                 </fieldset>
                 <fieldset class="fields-list">
                     <legend class="field-label">Websites &amp; social profiles</legend>
                     <div id="websiteList" class="fields-rows"></div>
-                    <button id="addWebsiteBtn" type="button" class="fields-add-row">+ Add website</button>
+                    <button id="addWebsiteBtn" type="button" class="fields-add-row"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#world-plus"></use></svg>Add website</button>
                 </fieldset>
 
                 </div>
@@ -342,7 +354,7 @@
                 <label class="block"><span class="field-label">Categories</span><input id="categories" type="text" autocomplete="off" class="field-input" placeholder="Client, Plumber, Met at expo" aria-describedby="categoriesHint"></label>
                 <p id="categoriesHint" class="fields-hint">Separate them with commas. Google Contacts and Outlook show them as labels; iPhone Contacts leaves them out.</p>
 
-                <!-- The rarer boxes (fieldsCard.js): shown by "+ Add a field", and always while one of them holds something -->
+                <!-- The rarer boxes (fieldsCard.js): shown by "Add a field", and always while one of them holds something -->
                 <div id="fieldsMore" class="fields-more hidden" role="group" aria-labelledby="fieldsMoreTitle">
                     <h4 id="fieldsMoreTitle" class="fields-group">More</h4>
                     <div class="fields-pair">
@@ -361,16 +373,16 @@
                 </div>
                 </div>
             </div>
-            <button id="fieldsAddBtn" type="button" class="fields-add" aria-controls="fieldsMore" aria-expanded="false">+ Add a field</button>
+            <button id="fieldsAddBtn" type="button" class="fields-add" aria-controls="fieldsMore" aria-expanded="false"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#plus"></use></svg>Add a field</button>
             <!-- "Sample vCGE pilot contact": the nine pilots (MOD06 supplies them as data; fieldsCard.js fills the list), and Clear form -->
             <div class="fields-tools">
                 <label class="fields-fake"><select id="fakeContactSelect" class="field-input" aria-label="Sample vCGE pilot contact"></select></label>
-                <button id="clearFormBtn" type="button" class="fields-clear">Clear form</button>
+                <button id="clearFormBtn" type="button" class="fields-clear"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#eraser"></use></svg>Clear form</button>
             </div>
             </div>
             <div class="deck-card-foot">
                 <!-- The dock's "Make the card" presses this one (deck.js data-next; fieldsCard.js labels it). It is not shown on its own -->
-                <button id="fieldsDoneBtn" type="button" class="fields-ok">Everything's correct</button>
+                <button id="fieldsDoneBtn" type="button" class="fields-ok"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#circle-check"></use></svg>Everything's correct</button>
             </div>
         </section>
         <section id="cardCard" class="deck-card" data-card="card" data-step="Step 4 of 5 · Card" data-pilot-emoji="🦎" data-pilot="Flipside" data-title="Your card" data-next="#readyToShareBtn" data-next-label="Share" aria-label="3D card">
@@ -443,11 +455,11 @@
                     <!-- Logo (MOD06): upload on the right with the preview; Remove on the far left, away from it.
                          Remove logo asks first (raven575, 2026-10-17 test): No keeps it, Yes removes it -->
                     <div class="r4-logo-row">
-                        <button id="removeAvatarBtn" type="button" class="hidden r4-pill r4-pill-stop">Remove logo</button>
+                        <button id="removeAvatarBtn" type="button" class="hidden r4-pill r4-pill-stop"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg>Remove logo</button>
                         <div id="removeLogoConfirm" role="group" aria-label="Remove the logo?" class="hidden r4-confirm">
                         <span class="r4-confirm-q">Remove the logo?</span>
-                        <button id="removeLogoYes" type="button" class="r4-pill r4-pill-danger">Yes, remove</button>
-                        <button id="removeLogoNo" type="button" class="r4-pill">No, keep it</button>
+                        <button id="removeLogoYes" type="button" class="r4-pill r4-pill-danger"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg>Yes, remove</button>
+                        <button id="removeLogoNo" type="button" class="r4-pill"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#check"></use></svg>No, keep it</button>
                     </div>
                         <div class="r4-logo-pick">
                             <div id="formAvatarPreview" class="w-11 h-11"></div>
@@ -495,7 +507,7 @@
                 </section>
             </div>
             <div class="deck-card-foot">
-                <button id="readyToShareBtn" type="button" class="share-ready" aria-describedby="readyLightsText">Ready to share<span class="ready-lights" aria-hidden="true"><span class="ready-light"></span><span class="ready-light"></span><span class="ready-light"></span></span></button>
+                <button id="readyToShareBtn" type="button" class="share-ready" aria-describedby="readyLightsText"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#send"></use></svg>Ready to share<span class="ready-lights" aria-hidden="true"><span class="ready-light"></span><span class="ready-light"></span><span class="ready-light"></span></span></button>
                 <span id="readyLightsText" class="ready-lights-text">Lit: none yet.</span>
             </div>
         </section>
@@ -569,7 +581,7 @@
                     <div class="r5-sw-row vault-row">
                         <span id="sessionPinStatus" class="vault-sr-only">Session PIN: not set</span>
                         <span class="r5-lbl"><b id="pinSwitchLabel">Session PIN</b><small>4 digits, forgotten when you leave. <span id="pinOffNote">Turn on to lock the card instead of wiping it when you step away.</span></small></span>
-                        <button id="setSessionPinBtn" type="button" class="r5-chip r5-change hidden">Change</button>
+                        <button id="setSessionPinBtn" type="button" class="r5-chip r5-change hidden"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#key"></use></svg>Change</button>
                         <button id="pinSwitch" type="button" role="switch" aria-checked="false" aria-labelledby="pinSwitchLabel" class="vault-switch r5-switch"><span class="vault-switch-word">Off</span><span class="r5-track" aria-hidden="true"><span class="vault-switch-knob"></span></span></button>
                     </div>
                     <div id="biometricRow" class="r5-sw-row vault-row hidden">
@@ -687,8 +699,8 @@
                     <div id="plainConfirm" class="r5-plain-confirm hidden" role="group" aria-labelledby="plainConfirmText">
                         <span id="plainConfirmText">Switching starts vCGE fresh and clears your current contacts. Are you sure?</span>
                         <span class="r5-plain-confirm-btns">
-                            <button id="plainYesBtn" type="button" class="r5-mini">Yes, switch</button>
-                            <button id="plainNoBtn" type="button" class="r5-mini">Keep them</button>
+                            <button id="plainYesBtn" type="button" class="r5-mini"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#check"></use></svg>Yes, switch</button>
+                            <button id="plainNoBtn" type="button" class="r5-mini"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#x"></use></svg>Keep them</button>
                         </span>
                     </div>
                 </div>
@@ -806,8 +818,8 @@
                 </div>
             </div>
             <div class="export-qr-actions">
-                <button id="exportQrCancelBtn" type="button" class="export-qr-cancel">Cancel</button>
-                <button id="exportQrSaveBtn" type="button" class="export-qr-save" disabled>Save PNG</button>
+                <button id="exportQrCancelBtn" type="button" class="export-qr-cancel"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#x"></use></svg>Cancel</button>
+                <button id="exportQrSaveBtn" type="button" class="export-qr-save" disabled><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#download"></use></svg>Save PNG</button>
             </div>
             <p class="export-qr-file">Saved exactly as previewed, as <span id="exportQrFileName">Contact QR.png</span>.</p>
         </div>
@@ -822,9 +834,9 @@
             </div>
             <p class="print-choice-lead">One 6 &times; 3.5 inch page (bigger if the card or a 5 cm QR needs it): the card at business-card size with its QR code beside it, in the look and size picked under Save QR image. Choose Save as PDF in the print dialog for a file.</p>
             <div class="print-choice-actions">
-                <button id="printThemedBtn" type="button" class="print-choice print-choice-themed">Themed</button>
-                <button id="printBwBtn" type="button" class="print-choice print-choice-bw">Black &amp; White</button>
-                <button id="printCancelBtn" type="button" class="print-choice-cancel">Cancel</button>
+                <button id="printThemedBtn" type="button" class="print-choice print-choice-themed"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#palette"></use></svg>Themed</button>
+                <button id="printBwBtn" type="button" class="print-choice print-choice-bw"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#contrast"></use></svg>Black &amp; White</button>
+                <button id="printCancelBtn" type="button" class="print-choice-cancel"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#x"></use></svg>Cancel</button>
             </div>
             <label class="print-choice-name"><input id="printNameFile" type="checkbox"> Name the PDF after the contact</label>
             <p class="print-choice-name-note">Off by default. The PDF's name comes from the browser tab's title, so the contact's name is put there while printing and may stay in the browser's history.</p>
@@ -839,8 +851,8 @@
             <h2 id="thankYouTitle">Thanks for visiting.</h2>
             <p id="thankYouText">We'll be here the next time you need us!</p>
             <div class="thank-you-actions">
-                <button id="thankYouStartOverBtn" type="button" class="thank-you-go">START OVER</button>
-                <button id="thankYouCloseBtn" type="button" class="thank-you-alt">CLOSE WINDOW</button>
+                <button id="thankYouStartOverBtn" type="button" class="thank-you-go"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#refresh"></use></svg>START OVER</button>
+                <button id="thankYouCloseBtn" type="button" class="thank-you-alt"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#x"></use></svg>CLOSE WINDOW</button>
             </div>
             <p id="thankYouNote" class="thank-you-note" role="status"></p>
         </div>
@@ -852,8 +864,8 @@
             <h2 id="ocrTimeoutTitle" class="text-lg font-bold">The reader didn't finish</h2>
             <p id="ocrTimeoutText" class="text-sm text-slate-600 dark:text-slate-300">Reading this photo took longer than 55 seconds, so the reader was restarted. A closer, well-lit photo helps.</p>
             <div class="flex justify-end gap-2">
-                <button id="ocrTimeoutCancelBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Cancel</button>
-                <button id="ocrTryAgainBtn" type="button" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Try Again</button>
+                <button id="ocrTimeoutCancelBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#x"></use></svg>Cancel</button>
+                <button id="ocrTryAgainBtn" type="button" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#refresh"></use></svg>Try Again</button>
             </div>
         </div>
     </div>
@@ -869,8 +881,8 @@
             <p id="ocrMorePhotoText" class="text-sm text-slate-600 dark:text-slate-300"></p>
             <p id="ocrMorePhotoCount" class="text-xs text-slate-500 dark:text-slate-400"></p>
             <div class="flex justify-end gap-2">
-                <button id="ocrFixByHandBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition">Fix it by hand</button>
-                <button id="ocrAnotherPhotoBtn" type="button" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Take another photo</button>
+                <button id="ocrFixByHandBtn" type="button" class="px-4 py-2 rounded-lg bg-slate-200 hover:bg-slate-300 dark:bg-slate-800 dark:hover:bg-slate-700 text-sm transition"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#keyboard"></use></svg>Fix it by hand</button>
+                <button id="ocrAnotherPhotoBtn" type="button" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#camera"></use></svg>Take another photo</button>
             </div>
         </div>
     </div>
@@ -911,7 +923,7 @@
             </div>
             <p id="quickUnlockCountdown" class="text-[11px] text-center text-slate-500 dark:text-slate-400"></p>
             <div class="flex justify-center">
-                <button id="vaultStartOverBtn" type="button" class="vault-btn-quiet vault-btn-danger">Wipe and start over</button>
+                <button id="vaultStartOverBtn" type="button" class="vault-btn-quiet vault-btn-danger"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg>Wipe and start over</button>
             </div>
         </form>
     </div>
@@ -929,8 +941,8 @@
             <label class="block"><span class="field-label">Choose a 4-digit PIN</span><span class="vault-pin-wrap"><input id="sessionPinInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-bwignore data-form-type="other" class="field-input"><span id="quickSetupPaws" class="vault-pin-paws" data-filled="0" aria-hidden="true"><svg class="vault-paw"><use href="#vaultPawPrint"></use></svg><svg class="vault-paw"><use href="#vaultPawPrint"></use></svg><svg class="vault-paw"><use href="#vaultPawPrint"></use></svg><svg class="vault-paw"><use href="#vaultPawPrint"></use></svg></span></span></label>
             <p id="quickSetupError" class="vault-setup-error" role="alert"></p>
             <div class="vault-setup-actions">
-                <button id="quickSetupSkipBtn" type="button" class="vault-btn-quiet">Not now</button>
-                <button id="quickSetupSaveBtn" type="submit" class="vault-btn">Set PIN</button>
+                <button id="quickSetupSkipBtn" type="button" class="vault-btn-quiet"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#player-skip-forward"></use></svg>Not now</button>
+                <button id="quickSetupSaveBtn" type="submit" class="vault-btn"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#lock"></use></svg>Set PIN</button>
             </div>
         </form>
     </div>
@@ -941,8 +953,8 @@
             <h2 id="leaveModalTitle" class="text-lg font-bold">Leave vCGE?</h2>
             <p class="text-xs text-slate-500 dark:text-slate-400">Nothing is saved, so leaving wipes the card, the photo and the scan.</p>
             <div class="flex justify-between gap-2">
-                <button id="leaveConfirmBtn" type="button" class="px-3 py-2 rounded-lg text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white transition">Wipe and leave</button>
-                <button id="leaveStayBtn" type="button" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Stay</button>
+                <button id="leaveConfirmBtn" type="button" class="px-3 py-2 rounded-lg text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white transition"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#trash"></use></svg>Wipe and leave</button>
+                <button id="leaveStayBtn" type="button" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#arrow-back-up"></use></svg>Stay</button>
             </div>
         </div>
     </div>

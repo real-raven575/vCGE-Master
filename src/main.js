@@ -959,6 +959,23 @@ async function applyOcrReview() {
     }
 }
 
+// Go (easy + premium step 4): on while Go is running the steps; the review then shows Go's two ways out. A wipe, an idle
+// purge, Cancel on the review or either way out ends it.
+let goMode = false;
+function setGo(on) {
+    goMode = !!on;
+    if (goMode) document.documentElement.dataset.go = 'on'; else delete document.documentElement.dataset.go;
+    $('goExits').classList.toggle('hidden', !goMode);
+}
+// Make it fancy (the card maker) or Just the contact (Share): the lines fill the form as Fill details does, then the deck
+// moves on to that card.
+async function goExit(to) {
+    if (!ocrReview) return;
+    await applyOcrReview();
+    setGo(false);
+    await showCard(to);
+}
+
 // Opens the review step again with the last scan's lines (as last edited), without running OCR again.
 function reopenLastScan() {
     if (!lastScan) return;
@@ -1022,6 +1039,15 @@ function wireIntake() {
     $('switchCameraBtn').addEventListener('click', () => camera.switchCamera());
     $('stopCameraBtn').addEventListener('click', () => camera.closeCamera());
     $('runOcrBtn').addEventListener('click', runOcr);
+    // Go (easy + premium step 4): the camera opens; once a photo is in, it is read straight away and the review opens
+    // with Go's two ways out. Step by step (the dock's Scan a card) is untouched.
+    $('welcomeGoBtn').addEventListener('click', async () => {
+        setGo(true);
+        await showCard('capture');
+        if ($('startCameraBtn').offsetParent) $('startCameraBtn').click();
+    });
+    $('goFancyBtn').addEventListener('click', () => goExit('card'));
+    $('goPlainBtn').addEventListener('click', () => goExit('share'));
     $('ocrStopBtn').addEventListener('click', stopOcr);
     $('ocrTryAgainBtn').addEventListener('click', () => closeTimeoutPrompt(true));
     $('ocrTimeoutCancelBtn').addEventListener('click', () => closeTimeoutPrompt(false));
@@ -1062,7 +1088,13 @@ function wireIntake() {
         else $('imageUpload').click();
     });
     // A new photo starts over at the crop step on the Capture card and drops any text extracted from the previous one.
-    globalEventBus.subscribe(Events.IMAGE_CAPTURED, () => { showRetakePrompt(false); closeReviewDialog(); forgetLastScan(); $('ocrBackBtn').classList.remove('hidden'); showCard('capture'); });
+    globalEventBus.subscribe(Events.IMAGE_CAPTURED, () => {
+        showRetakePrompt(false); closeReviewDialog(); forgetLastScan(); $('ocrBackBtn').classList.remove('hidden'); showCard('capture');
+        // Go: read the photo as soon as it is on the crop step (its whole frame, as OK would)
+        if (goMode) $('reviewImage').addEventListener('load', () => setTimeout(() => { if (goMode && !$('runOcrBtn').disabled) runOcr(); }, 0), { once: true });
+    });
+    globalEventBus.subscribe(Events.VAULT_WIPED, () => setGo(false));
+    globalEventBus.subscribe(Events.MEMORY_PURGED, () => setGo(false));
 }
 
 // ---- Egress (MOD08 only) ---------------------------------------------------------------------------------------
