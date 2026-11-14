@@ -524,7 +524,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   ok('US state picker shown with 56 states and territories', await visible('stateSelect') && !(await visible('stateText')) && (await page.$$eval('#stateSelect option', o => o.length)) === 57 && (await text('stateLabel')) === 'State');
   // 0.8 redo R3: the rarer boxes wait behind "+ Add a field" until it is pressed (or one of them holds something)
   ok('0.8 Details: prefix, suffix, middle name, nickname and birthday wait behind "+ Add a field"', !(await visible('namePrefix')) && !(await visible('birthday')) && await visible('fieldsAddBtn')
-    && (await page.getAttribute('#fieldsAddBtn', 'aria-expanded')) === 'false' && (await text('fieldsAddBtn')) === '+ Add a field');
+    && (await page.getAttribute('#fieldsAddBtn', 'aria-expanded')) === 'false' && (await text('fieldsAddBtn')) === 'Add a field');
   await page.click('#fieldsAddBtn');
   ok('0.8 Details: "+ Add a field" shows them under a "More" heading, puts the cursor in the first and steps aside', await visible('namePrefix') && await visible('middleName') && await visible('nameSuffix') && await visible('nickname') && await visible('birthday')
     && (await page.evaluate(() => document.activeElement.id)) === 'namePrefix' && !(await visible('fieldsAddBtn')) && (await text('fieldsMoreTitle')) === 'More');
