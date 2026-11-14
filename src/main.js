@@ -769,7 +769,9 @@ function renderOcrSummary() {
 
 // One row per OCR line: editable text, role picker, and the "please check" note with its Looks right box (drawn by MOD04).
 function renderOcrLines() {
-    const rows = renderReviewRows(ocrReview.lines, { roles: LINE_ROLES, iconNames: ICON_NAMES, onEdit: renderOcrSummary, onRole: renderOcrSummary });
+    // "Take it again" on a flagged line only while the photo is still on the Capture card (as Back to the photo)
+    const onRedo = $('reviewImage').getAttribute('src') ? backToPhoto : null;
+    const rows = renderReviewRows(ocrReview.lines, { roles: LINE_ROLES, iconNames: ICON_NAMES, onEdit: renderOcrSummary, onRole: renderOcrSummary, onRedo });
     $('ocrLines').replaceChildren(...rows);
     renderOcrSummary();
 }

@@ -1835,6 +1835,26 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     ok('card tabs: a pick shows that category alone, opens the Paper & logo panel only for Logo and Paper, and ignores an unknown name',
       seen.join('|') === 'logo:true:logo|style:false:style|paper:true:paper|paper:true:paper|colour:false:colour', seen.join('|'));
   }
+  // Easy + premium step 3 (guesses.js): two or three guesses from the letters the reader nearly read
+  const gs = await import(`${R}/modules/mod04-ocr/guesses.js`);
+  const swaps = gs.wordSwaps('Dana Wh1tlock', [{ at: 7, chars: ['1', 'i', 'l'] }]);
+  ok('guesses: each letter the reader nearly read is a word swap, surest first, then all first choices at once (no repeat)',
+    swaps.map(s => `${s.from}>${s.to}`).join('|') === 'Wh1tlock>Whitlock|Wh1tlock>Whltlock', JSON.stringify(swaps));
+  ok('guesses: no alts, a letter that no longer matches, or a single choice give no swap',
+    gs.wordSwaps('Dana', []).length === 0 && gs.wordSwaps('Dana', [{ at: 1, chars: ['x', 'y'] }]).length === 0 && gs.wordSwaps('Dana', [{ at: 1, chars: ['a'] }]).length === 0);
+  const two = gs.wordSwaps('J0hn Sm1th', [{ at: 1, chars: ['0', 'o'] }, { at: 7, chars: ['1', 'i'] }]);
+  ok('guesses: two shaky words give one guess each and one with both fixed, three at most',
+    gs.guessesFor('J0hn Sm1th', two).join('|') === 'John Sm1th|J0hn Smith', gs.guessesFor('J0hn Sm1th', two).join('|'));
+  ok('guesses: a swap whose word is gone from the shown line is dropped, the line itself is never a guess, and the cap holds',
+    gs.guessesFor('Whitlock', swaps).length === 0 && gs.guessesFor('Wh1tlock', [{ from: 'Wh1tlock', to: 'Wh1tlock' }]).length === 0
+    && gs.guessesFor('a b c d', [{ from: 'a', to: 'A' }, { from: 'b', to: 'B' }, { from: 'c', to: 'C' }, { from: 'd', to: 'D' }]).length === gs.MAX_GUESSES);
+  {
+    const { ContactFormMapper: FM } = await import(`${R}/modules/mod05-form/formMapper.js`);
+    const lines = new FM().classifyLines([{ text: 'Dana Whitlcck', alts: [{ at: 10, chars: ['c', 'o', 'e'] }], unsure: ['Whitlcck'] }, { text: 'dwhitlock@example.com' }, { text: '616.555.0142' }]);
+    const name = lines.find(l => l.role === 'name');
+    ok('guesses: a name the reader was unsure of comes to the review with its check and its guesses; a sure line has none',
+      !!name && !!name.check && (name.guesses || []).join('|') === 'Dana Whitlock|Dana Whitleck' && !lines.find(l => l.role === 'email').guesses, JSON.stringify(lines));
+  }
   // Layout step 1 (tier.js): the screen tier is the width over the text size; 21:9 from monitor width is wide
   const tier = await import(`${R}/modules/mod01-shell/tier.js`);
   const tiers = (pairs, size) => pairs.map(([w, h]) => tier.tierFor(w, h, size)).join();
