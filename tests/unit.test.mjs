@@ -2310,6 +2310,48 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     ok('MOD08 Android app: an empty card hands nothing over', new EgressController().downloadVcf() === false && handed.length === 1);
   }
 
+  // raven575's second phone run (2026-11-14 22:2x UTC): Email and Text message replaced the app with "Webpage not
+  // available" (mailto:/sms: in the WebView), Share said "not available", Save QR image saved nothing. The bridge does them.
+  {
+    const calls = [];
+    let answer = true;
+    const androidEvents = [];
+    const offA = share.globalEventBus.subscribe(share.Events.EXPORT_DISPATCHED, (d) => androidEvents.push(d));
+    globalThis.vcgeAndroid = {
+      shareContact: (vcard, name, title) => { calls.push({ m: 'share', vcard, name, title }); return answer; },
+      email: (subject, body) => { calls.push({ m: 'email', subject, body }); return answer; },
+      sms: (body) => { calls.push({ m: 'sms', body }); return answer; },
+      savePng: (b64, name) => { calls.push({ m: 'png', b64, name }); return answer; }
+    };
+    let navigated = 0;
+    const realNavigate = e.navigate;
+    e.navigate = () => { navigated++; };
+    const shared = await e.triggerQuickShare();
+    ok('MOD08 Android app: Share hands the folded vCard as "Dana Quill.vcf" to the share menu', shared.success && shared.method === 'android_file'
+      && calls[0].m === 'share' && calls[0].vcard === e.currentVCard && calls[0].name === 'Dana Quill.vcf' && calls[0].title === 'Contact: Dana Quill', JSON.stringify(shared));
+    const mailed = await e.triggerEmailShare();
+    ok('MOD08 Android app: Email opens the mail app with the subject and the mailto body (no PHOTO), never a mailto: page', mailed.success && calls[1].m === 'email'
+      && calls[1].subject === 'Contact: Dana Quill' && calls[1].body === e.emailParts().body && calls[1].body.includes('BEGIN:VCARD') && !/^PHOTO/m.test(calls[1].body)
+      && decodeURIComponent(e.mailtoUrl().split('body=')[1]) === calls[1].body && navigated === 0);
+    const texted = e.triggerSmsShare();
+    ok('MOD08 Android app: Text message opens the messaging app with the readable summary, never an sms: page', texted.success && calls[2].m === 'sms'
+      && calls[2].body === e.contactSummary() && navigated === 0);
+    const canvas = { toDataURL: () => 'data:image/png;base64,iVBORw0KGgo=' };
+    const png = e.exportQRPNG(canvas, { real: true });
+    ok('MOD08 Android app: Save QR image hands the PNG bytes (base64, no data: prefix) and "Dana Quill QR.png" to Downloads', png.success
+      && calls[3].m === 'png' && calls[3].b64 === 'iVBORw0KGgo=' && calls[3].name === 'Dana Quill QR.png', JSON.stringify(png));
+    answer = false;
+    const failed = [await e.triggerQuickShare(), await e.triggerEmailShare(), e.triggerSmsShare(), e.exportQRPNG(canvas, { real: true })];
+    ok('MOD08 Android app: when no app takes it (or the save fails) each one says so, never a false success',
+      failed.map(r => `${r.success}:${r.reason}`).join() === 'false:share_failed,false:no_app,false:no_app,false:save_failed', JSON.stringify(failed));
+    ok('MOD08 Android app: the audit events say what was done and whether it worked, never the contact',
+      androidEvents.map(d => `${d.method}:${d.opened ?? d.saved}`).join() === 'android_share:true,email:true,sms:true,android_png:true,android_share:false,email:false,sms:false,android_png:false'
+      && !JSON.stringify(androidEvents).includes('Dana'), JSON.stringify(androidEvents));
+    e.navigate = realNavigate;
+    delete globalThis.vcgeAndroid;
+    offA();
+  }
+
   // The share sheet and the audit events, with a stand-in navigator
   const realNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
   const setNavigator = (nav) => Object.defineProperty(globalThis, 'navigator', { value: nav, configurable: true, writable: true });

@@ -1027,7 +1027,16 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   // bridge here records what the page hands over.
   {
     const ctxA = await newContext();
-    await ctxA.addInitScript(() => { window.__handed = []; window.vcgeAndroid = { addContact: (vcard, name) => { window.__handed.push({ vcard, name }); return window.__contactsApp !== false; } }; });
+    await ctxA.addInitScript(() => {
+      window.__handed = []; window.__calls = []; window.__printed = 0;
+      const took = (m, args) => { window.__calls.push({ m, args }); return window.__phoneApps !== false; };
+      window.vcgeAndroid = {
+        addContact: (vcard, name) => { window.__handed.push({ vcard, name }); return window.__contactsApp !== false; },
+        shareContact: (...args) => took('share', args), email: (...args) => took('email', args), sms: (...args) => took('sms', args),
+        savePng: (...args) => took('png', args), print: (...args) => took('print', args)
+      };
+      window.print = () => { window.__printed++; };
+    });
     const pA = await ctxA.newPage();
     await pA.goto(ORIGIN); await pA.waitForTimeout(400);
     await pA.fill('#firstName', 'Lena'); await pA.fill('#lastName', 'Testcase'); await pA.waitForTimeout(400);
@@ -1040,6 +1049,36 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pA.evaluate(() => { window.__contactsApp = false; });
     await pA.$eval('#downloadVcfBtn', b => b.click()); await pA.waitForTimeout(300);
     ok('Android app: with no app for contact cards it says so, never "Saved"', (await pA.textContent('#toastMessage')).includes('No app on this phone opens a contact card'), await pA.textContent('#toastMessage'));
+    // raven575's second phone run (22:2x UTC): Email and Text message replaced vCGE with "Webpage not available",
+    // Share said "not available", Print did nothing. Each now goes through the bridge and vCGE stays on screen.
+    const startUrl = pA.url();
+    const callsOf = (m) => pA.evaluate((m) => window.__calls.filter(c => c.m === m).map(c => c.args), m);
+    await pA.$eval('#emailBtn', b => b.click()); await pA.waitForTimeout(300);
+    await pA.$eval('#smsBtn', b => b.click()); await pA.waitForTimeout(300);
+    await pA.$eval('#shareNativeBtn', b => b.click()); await pA.waitForTimeout(300);
+    const [mail, text, sent] = [await callsOf('email'), await callsOf('sms'), await callsOf('share')];
+    ok('Android app: Email, Text message and Share go to the phone\'s apps and vCGE stays on its page', mail.length === 1 && text.length === 1 && sent.length === 1
+      && pA.url() === startUrl && await pA.evaluate(() => !!document.getElementById('downloadVcfBtn')), JSON.stringify({ url: pA.url(), n: [mail.length, text.length, sent.length] }));
+    ok('Android app: the email holds the name in its subject and the vCard in its body; the text holds the readable summary',
+      mail[0][0] === 'Contact: Lena Testcase' && mail[0][1].includes('BEGIN:VCARD') && text[0][0].startsWith('Lena Testcase') && !text[0][0].includes('BEGIN:VCARD')
+      && sent[0][1] === 'Lena Testcase.vcf' && sent[0][0].includes('FN:Lena Testcase'), JSON.stringify({ subject: mail[0][0], text: text[0][0] }));
+    await pA.$eval('#exportQrBtn', b => b.click()); await pA.waitForSelector('#exportQrSheet', { state: 'visible' }); await pA.waitForTimeout(400);
+    let pngDownloads = 0; pA.on('download', () => { pngDownloads++; });
+    await pA.click('#exportQrSaveBtn'); await pA.waitForTimeout(300);
+    const png = await callsOf('png');
+    ok('Android app: Save QR image hands the PNG to Downloads through the bridge (no browser download)', png.length === 1 && png[0][1] === 'Lena Testcase QR.png'
+      && /^iVBOR/.test(png[0][0]) && pngDownloads === 0, JSON.stringify({ n: png.length, name: png[0] && png[0][1], pngDownloads }));
+    await pA.$eval('#printCardBtn', b => b.click()); await pA.waitForSelector('#printChoiceSheet', { state: 'visible' });
+    await pA.click('#printThemedBtn'); await pA.waitForTimeout(800);
+    const prints = await callsOf('print');
+    ok('Android app: Print opens Android\'s print screen through the bridge, with the card and QR on the print sheet', prints.length === 1 && prints[0][0] === 'vCGE card'
+      && await pA.evaluate(() => window.__printed) === 0 && await pA.evaluate(() => !!document.querySelector('#printSheet .print-card') && !!document.querySelector('#printSheet .print-qr img')),
+      JSON.stringify({ prints, printed: await pA.evaluate(() => window.__printed) }));
+    await pA.evaluate(() => { window.__phoneApps = false; });
+    await pA.$eval('#emailBtn', b => b.click()); await pA.waitForTimeout(300);
+    ok('Android app: with no email app it says so', (await pA.textContent('#toastMessage')).includes('No email app on this phone'), await pA.textContent('#toastMessage'));
+    await pA.$eval('#smsBtn', b => b.click()); await pA.waitForTimeout(300);
+    ok('Android app: with no messaging app it says so', (await pA.textContent('#toastMessage')).includes('No messaging app on this phone'), await pA.textContent('#toastMessage'));
     await ctxA.close();
   }
 

@@ -270,7 +270,12 @@ export class ExportQrDialog {
         if (!this.last.ok) return;
         if (this.hooks.beforeExternal) this.hooks.beforeExternal();
         const result = egressController.exportQRPNG(this.el.canvas, { real: true });
-        if (!result.success) { this.say(result.reason === 'empty' ? 'Add a contact first.' : 'Too much information for one QR code: use .vcf or Share instead.'); return; }
+        if (!result.success) {
+            this.say(result.reason === 'empty' ? 'Add a contact first.'
+                : result.reason === 'save_failed' ? 'The picture could not be saved to Downloads on this phone: use Share instead.'
+                : 'Too much information for one QR code: use .vcf or Share instead.');
+            return;
+        }
         let onCard = false;
         if (this.choices.useOnCard && this.upload) onCard = egressController.offerLogoToCard(this.upload);
         this.say(`Saved ${result.filename}.${onCard ? ' The logo is on your card too.' : ''}`);

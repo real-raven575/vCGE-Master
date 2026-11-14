@@ -43,6 +43,21 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
   ok('Android: the handed-over card is kept only in the app cache and deleted on return to vCGE and at start',
     /File\(cacheDir,\s*"contact"\)/.test(activity) && /override fun onResume\(\)\s*\{\s*super\.onResume\(\)\s*clearContactFiles\(\)/.test(activity)
       && (activity.match(/clearContactFiles\(\)/g) || []).length >= 5);
+  // raven575's second phone run (2026-11-14 22:2x UTC): Email, Text message, Share, Save QR image and Print failed in the WebView
+  ok('Android: Email and Text message open the phone\'s apps (SENDTO mailto:/smsto:), never a link in the WebView',
+    /fun email\(subject: String, body: String\): Boolean/.test(activity) && /ACTION_SENDTO,\s*Uri\.parse\("mailto:"\)/.test(activity) && /EXTRA_SUBJECT/.test(activity)
+      && /fun sms\(body: String\): Boolean/.test(activity) && /ACTION_SENDTO,\s*Uri\.parse\("smsto:"\)\)\.putExtra\("sms_body"/.test(activity));
+  ok('Android: Share hands the .vcf to the share menu through the FileProvider, with read permission',
+    /fun shareContact\(vcard: String, fileName: String, title: String\): Boolean/.test(activity) && /Intent\.ACTION_SEND\)/.test(activity)
+      && /EXTRA_STREAM/.test(activity) && /Intent\.createChooser/.test(activity) && /File\(cacheDir,\s*"share"\)/.test(activity));
+  ok('Android: shared cards are cleared at start and before the next share (not on return: the app may still be reading)',
+    /clearContactFiles\(\)\s*clearShareFiles\(\)/.test(activity) && !/onResume\(\)\s*\{[^}]*clearShareFiles/.test(activity));
+  ok('Android: Save QR image writes the PNG to Downloads through MediaStore (no storage permission), Android 10 and later',
+    /fun savePng\(base64: String, fileName: String\): Boolean/.test(activity) && /MediaStore\.Downloads\.EXTERNAL_CONTENT_URI/.test(activity)
+      && /VERSION_CODES\.Q/.test(activity) && /IS_PENDING, 0/.test(activity) && !/WRITE_EXTERNAL_STORAGE/.test(main));
+  ok('Android: Print opens Android\'s print screen for the page on the UI thread, named by the page',
+    /fun print\(jobName: String\): Boolean/.test(activity) && /runOnUiThread/.test(activity) && /PrintManager/.test(activity) && /createPrintDocumentAdapter\(name\)/.test(activity));
+  ok('Android: the bridge still never loads a page or opens a web link (no ACTION_VIEW on http)', !/https?:\/\//.test(activity.replace(/\/\/.*$/gm, '')));
   const paths = read(ANDROID + 'main/res/xml/file_paths.xml');
   ok('Android: the FileProvider shares the app cache, where the card is written', /<cache-path\s+name="[^"]+"\s+path="\."/.test(paths) && /\$\{applicationId\}\.fileprovider/.test(main));
   const gradle = read('src-tauri/gen/android/app/build.gradle.kts');

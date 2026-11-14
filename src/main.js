@@ -1125,8 +1125,15 @@ function wireEgress() {
         refresh();
         markActivity();
     });
-    $('emailBtn').addEventListener('click', () => egressController.triggerEmailShare());
-    $('smsBtn').addEventListener('click', () => egressController.triggerSmsShare());
+    // In the Android app these go through the bridge, which says when no app on the phone can take them.
+    $('emailBtn').addEventListener('click', async () => {
+        const result = await egressController.triggerEmailShare();
+        if (result && result.reason === 'no_app') cardView.showToast('No email app on this phone opens a new message.');
+    });
+    $('smsBtn').addEventListener('click', () => {
+        const result = egressController.triggerSmsShare();
+        if (result && result.reason === 'no_app') cardView.showToast('No messaging app on this phone opens a new text.');
+    });
     // Print / PDF: Themed or Black & White, then one 6 x 3.5 in page through the browser's print dialog.
     $('printCardBtn').addEventListener('click', () => {
         if (egressController.isEmpty()) { cardView.showToast('Add a contact first.'); return; }
@@ -1149,6 +1156,7 @@ function wireEgress() {
             qr.width = qr.height = 0;
             const printed = await printing;
             if (printed && printed.success && !warned) { cardView.showToast('Sent to the print dialog.'); flyFalcon(); }
+            else if (printed && printed.reason === 'no_print') cardView.showToast('Printing is not available on this phone.');
         }
     });
     $('shareNativeBtn').addEventListener('click', async () => {

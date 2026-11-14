@@ -95,6 +95,16 @@ function audit(method, detail = {}) {
     globalEventBus.publish(Events.EXPORT_DISPATCHED, { module: 'vCGE-MOD08', method, timestamp: Date.now(), ...detail });
 }
 
+/**
+ * The Android app's bridge (MainActivity.kt's "vcgeAndroid"), or null in a browser or the desktop app. Its WebView opens
+ * no mailto:/sms: link, share menu, download or print screen by itself, so those go through the bridge.
+ * @param {string} method  the bridge method the caller needs
+ */
+export function androidBridge(method) {
+    const bridge = typeof window !== 'undefined' ? window.vcgeAndroid : null;
+    return bridge && typeof bridge[method] === 'function' ? bridge : null;
+}
+
 function clickDownload(href, filename) {
     const link = document.createElement('a');
     link.href = href;
@@ -179,6 +189,14 @@ export class EgressController {
     async triggerQuickShare() {
         if (!this.currentVCard) return false;
 
+        // The Android app: the .vcf goes to Android's share menu.
+        const android = androidBridge('shareContact');
+        if (android) {
+            const opened = android.shareContact(this.currentVCard, this.fileName('.vcf'), `Contact: ${this.displayName()}`) === true;
+            audit('android_share', { opened });
+            return opened ? { success: true, method: 'android_file' } : { success: false, reason: 'share_failed' };
+        }
+
         if (navigator.share) {
             try {
                 const file = this.vcfFile();
@@ -232,8 +250,8 @@ export class EgressController {
         if (!this.currentVCard) return false;
         // The Android app: its WebView cannot download files, so the card goes to the phone's Contacts app instead
         // (MainActivity.kt's "vcgeAndroid"). 'contacts' when Contacts opened, 'failed' when it could not.
-        const android = typeof window !== 'undefined' ? window.vcgeAndroid : null;
-        if (android && typeof android.addContact === 'function') {
+        const android = androidBridge('addContact');
+        if (android) {
             const opened = android.addContact(this.currentVCard, this.fileName('.vcf')) === true;
             audit('android_contact', { opened });
             return opened ? 'contacts' : 'failed';
@@ -255,6 +273,13 @@ export class EgressController {
     exportQRPNG(canvas, { real = this.qrReal, filename = this.fileName(' QR.png') } = {}) {
         if (this.isEmpty()) return { success: false, reason: 'empty' };
         if (!canvas || !real) return { success: false, reason: 'qr_too_large' };
+        // The Android app: the WebView cannot download, so the picture goes to Downloads through the bridge.
+        const android = androidBridge('savePng');
+        if (android) {
+            const saved = android.savePng(canvas.toDataURL('image/png').split(',')[1], filename) === true;
+            audit('android_png', { saved });
+            return saved ? { success: true, filename } : { success: false, reason: 'save_failed' };
+        }
         clickDownload(canvas.toDataURL('image/png'), filename);
         audit('export_png');
         return { success: true, filename };
@@ -299,9 +324,16 @@ export class EgressController {
      * hand-off to the mail app drops (raven575 test 2026-10-22). The .vcf file and the share sheet still carry it.
      */
     mailtoUrl() {
-        const subject = encodeURIComponent(`Contact: ${this.displayName()}`);
-        const body = encodeURIComponent(`${this.contactSummary()}\n\nTo add this contact, save the text below as a .vcf file (or use the .vcf button in vCGE):\n\n${withoutPhoto(this.currentVCard)}`);
-        return `mailto:?subject=${subject}&body=${body}`;
+        const { subject, body } = this.emailParts();
+        return `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    }
+
+    /** The email's subject and body (the body leaves the PHOTO out, see mailtoUrl). */
+    emailParts() {
+        return {
+            subject: `Contact: ${this.displayName()}`,
+            body: `${this.contactSummary()}\n\nTo add this contact, save the text below as a .vcf file (or use the .vcf button in vCGE):\n\n${withoutPhoto(this.currentVCard)}`
+        };
     }
 
     smsUrl() {
@@ -319,6 +351,14 @@ export class EgressController {
      */
     async triggerEmailShare() {
         if (!this.currentVCard) return false;
+        // The Android app: its WebView cannot open mailto: (it showed "Webpage not available" in place of vCGE).
+        const android = androidBridge('email');
+        if (android) {
+            const { subject, body } = this.emailParts();
+            const opened = android.email(subject, body) === true;
+            audit('email', { opened });
+            return opened ? { success: true, method: 'android_email' } : { success: false, reason: 'no_app' };
+        }
         const file = this.vcfFile();
         if (navigator.canShare && navigator.share && navigator.canShare({ files: [file] })) {
             try {
@@ -336,6 +376,13 @@ export class EgressController {
 
     /** SMS with the readable summary (every phone, email, website and the address). */
     triggerSmsShare() {
+        // The Android app: its WebView cannot open sms: either.
+        const android = androidBridge('sms');
+        if (android) {
+            const opened = android.sms(this.contactSummary()) === true;
+            audit('sms', { opened });
+            return opened ? { success: true, method: 'android_sms' } : { success: false, reason: 'no_app' };
+        }
         this.navigate(this.smsUrl());
         audit('sms');
         return true;
@@ -420,6 +467,13 @@ export class EgressController {
         const pageWidthIn = printPageWidth(qrCm);
         const pageHeightIn = sheet ? this.fitPrintPage(sheet, pageWidthIn) : PRINT_PAGE_IN.height;
         audit('print', { themed });
+        // The Android app: window.print() does nothing in its WebView, so Android's own print screen opens through the
+        // bridge; the job name is the PDF's name, so no page title is changed.
+        const android = androidBridge('print');
+        if (android) {
+            if (android.print(nameFile ? this.fileName('') : 'vCGE card') !== true) return { success: false, reason: 'no_print' };
+            return { success: true, pageHeightIn, pageWidthIn };
+        }
         if (nameFile) this.setPrintTitle(this.fileName(''));
         window.print();
         return { success: true, pageHeightIn, pageWidthIn };
