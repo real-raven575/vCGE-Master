@@ -2326,7 +2326,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const bad = ACTIONS.filter(id => {
     const m = new RegExp(`<button\\b[^>]*\\bid="${id}"[^>]*>([\\s\\S]*?)</button>`).exec(html);
     if (!m) return true;
-    const word = m[1].replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]+>/g, '').trim();
+    const word = m[1].split(/<[^>]*>/).join('').trim();   // the text between the tags (the icons carry none)
     const label = /aria-label="[^"]+"/.test(m[0]);
     return !/<svg\b/.test(m[1]) || !(word || label) || /[\u{1F000}-\u{1FFFF}\u{2600}-\u{27BF}]/u.test(word);
   });
