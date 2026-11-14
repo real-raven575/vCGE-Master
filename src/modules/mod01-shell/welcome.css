@@ -52,6 +52,3 @@ html[data-edition="plain"] .vcge-tour-art { display: none; }
 /* Creative's drawings tint their soft disc with --color-soft: the theme's own soft colour */
 .vcge-tour-art, #welcomeArt { --color-soft: var(--sh-soft, #f3ece0); }
 #welcomeArt { width: 160px; height: 160px; margin-inline: auto; }
-/* The pilots' slow sway runs only on the screen in front. The deck keeps its other screens drawn, and a drawing with a
-   paper filter that keeps moving is repainted every frame: off screen that only slowed the card flip on phones. */
-html:not([data-card="welcome"]) #cardWelcome [class^="m-"], html:not([data-card="capture"]) #cardCapture [class^="m-"] { animation: none; }

@@ -3123,8 +3123,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
         return { h: r.height, above: r.bottom <= c.top + 1, inside: r.top >= v.top && r.bottom <= v.bottom }; });
       ok('Iris peeks over a card in the empty viewfinder, above Start the camera', await pI.isVisible('#capIris') && irisBox.h > 30 && irisBox.above && irisBox.inside, JSON.stringify(irisBox));
       ok('the camera screen\'s Iris is Creative\'s, the same drawing as the tour\'s (raven575 2026-11-11: the characters match)', !!(await pI.$('#capIris .o-01-scan-iris')));
-      // Her slow sway runs only while Capture is in front: the deck keeps the other screens drawn, and a filtered drawing
-      // that keeps moving off screen slowed the card flip on phones
+      // Her slow sway runs only while Capture is in front (the deck hides the other screens, so nothing moves behind them)
       const sways = () => pI.evaluate(() => document.getAnimations().filter(a => a.playState === 'running' && /^s-/.test(a.animationName || '')).map(a => a.animationName));
       const onCapture = await sways();
       await pI.$eval(DOCK.card, b => b.click()); await deckSettled(pI); await pI.waitForTimeout(200);
