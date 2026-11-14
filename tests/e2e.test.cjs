@@ -3123,6 +3123,16 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
         return { h: r.height, above: r.bottom <= c.top + 1, inside: r.top >= v.top && r.bottom <= v.bottom }; });
       ok('Iris peeks over a card in the empty viewfinder, above Start the camera', await pI.isVisible('#capIris') && irisBox.h > 30 && irisBox.above && irisBox.inside, JSON.stringify(irisBox));
       ok('the camera screen\'s Iris is Creative\'s, the same drawing as the tour\'s (raven575 2026-11-11: the characters match)', !!(await pI.$('#capIris .o-01-scan-iris')));
+      // Her slow sway runs only while Capture is in front: the deck keeps the other screens drawn, and a filtered drawing
+      // that keeps moving off screen slowed the card flip on phones
+      const sways = () => pI.evaluate(() => document.getAnimations().filter(a => a.playState === 'running' && /^s-/.test(a.animationName || '')).map(a => a.animationName));
+      const onCapture = await sways();
+      await pI.$eval(DOCK.card, b => b.click()); await deckSettled(pI); await pI.waitForTimeout(200);
+      const onCard = await sways();
+      await pI.$eval(DOCK.capture, b => b.click()); await deckSettled(pI); await pI.waitForTimeout(200);
+      const backOnCapture = await sways();
+      ok('Iris sways only while Capture is in front: no pilot drawing moves behind the Card screen', onCapture.includes('s-01-scan-iris') && onCard.length === 0 && backOnCapture.includes('s-01-scan-iris'),
+        JSON.stringify({ onCapture, onCard, backOnCapture }));
       await pI.click('#capIris');
       const wunk = await winking();
       await pI.waitForTimeout(900);
