@@ -60,7 +60,7 @@ jobs:
   browsers:
     name: Browser e2e (${{ matrix.name }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45   # WebKit on the iPhone profile ran 23-30 min by 2026-11-14 and was cut off at 30
     strategy:
       fail-fast: false
       matrix:
