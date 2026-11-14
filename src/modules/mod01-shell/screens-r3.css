@@ -206,3 +206,14 @@
 
 /* The in-screen "Everything's correct": the dock's "Make the card" presses it, so it is not shown on its own */
 #cardFields #fieldsDoneBtn { display: none; }
+
+/* Go's two ways out of the review (easy + premium step 4): two big buttons, side by side when there is room */
+#cardRead .read-go { display: flex; flex-wrap: wrap; gap: 12px; margin: 16px 0 8px; }
+#cardRead .read-go.hidden { display: none; }
+#cardRead .read-go-btn {
+    flex: 1 1 12rem; min-height: 56px; padding: 12px 20px; border-radius: 16px; font: inherit; font-weight: 700; font-size: 1.1em; cursor: pointer;
+    border: 2px solid var(--sh-line); background: var(--sh-surface); color: var(--sh-ink);
+}
+#cardRead .read-go-btn:focus-visible { outline: 3px solid var(--sh-ink); outline-offset: 2px; }
+#cardRead #goPlainBtn { background: var(--r3-good); border-color: var(--r3-good); color: var(--sh-surface); }
+@media (forced-colors: active) { #cardRead .read-go-btn { border-color: ButtonText; } }
