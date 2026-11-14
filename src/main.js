@@ -28,7 +28,7 @@ import { BiometricUnlock, biometricAvailable } from './modules/mod02-vault/biome
 import { maskSecretInputs } from './modules/mod02-vault/secretInputs.js';
 import { LockHandoff } from './modules/mod02-vault/lockHandoff.js';
 import { WipeDialog, startFresh } from './modules/mod02-vault/wipeDialog.js';
-import { syncLockFace, farewell } from './modules/mod02-vault/lockFace.js';
+import { syncLockFace, syncSetupFace, farewell } from './modules/mod02-vault/lockFace.js';
 import { VCGEActiveCamera } from './modules/mod03-camera/camera.js';
 import { CropEditor } from './modules/mod03-camera/cropEditor.js';
 import { executeOCRScan, shutdownOCREngine } from './modules/mod04-ocr/ocrWorker.js';
@@ -40,6 +40,7 @@ import { PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES } from './share/contactOptions.
 import { AddressAutocompleteEngine } from './modules/mod05-form/addressAutocomplete.js';
 import { initFieldsCard, SAMPLE_PROMPT, PLAIN_SAMPLE_PROMPT, unplacedLines, showUnknownLines, clearUnknownLines } from './modules/mod05-form/fieldsCard.js';
 import { CardView, PRESETS, PLAIN_PRESETS, THEMES, themeKeyOf, prepareLogo } from './modules/mod06-gui/card3dView.js';
+import { initCardTabs } from './modules/mod06-gui/cardTabs.js';
 import { vcgeQREngine } from './modules/mod07-qr/qrGenerator.js';
 import { egressController, PRINT_QR_PX } from './modules/mod08-egress/egressController.js';
 import { pictureSelect } from './modules/mod01-shell/pictureSelect.js';
@@ -395,6 +396,7 @@ function openQuickSetup() {
     $('quickSetupHint').textContent = `Choose a ${PIN_LENGTH}-digit PIN for this session. When the screen turns off or after ${IDLE_PURGE_SECONDS / 60} minutes without activity, the card is locked and the PIN brings it back. ${wipeSeconds() / 60} minutes after the lock, or after ${MAX_PIN_ATTEMPTS} wrong tries, everything is wiped. The PIN is forgotten when you leave or reload.`;
     $('quickSetupError').textContent = '';
     $('sessionPinInput').value = '';
+    syncSetupFace();
     $('quickSetupModal').classList.remove('hidden');
     $('sessionPinInput').focus();
 }
@@ -408,6 +410,7 @@ async function saveSessionPin(event) {
     }
     await sessionPin.set(pin);
     $('sessionPinInput').value = '';
+    syncSetupFace();
     $('quickSetupModal').classList.add('hidden');
     globalEventBus.publish(Events.VAULT_UNLOCK_METHOD_CHANGED, { change: 'Session PIN set', timestamp: Date.now() });
     setVaultIndicator();
@@ -417,6 +420,7 @@ async function saveSessionPin(event) {
 
 function closeQuickSetup() {
     $('sessionPinInput').value = '';
+    syncSetupFace();
     $('quickSetupModal').classList.add('hidden');
 }
 
@@ -765,7 +769,9 @@ function renderOcrSummary() {
 
 // One row per OCR line: editable text, role picker, and the "please check" note with its Looks right box (drawn by MOD04).
 function renderOcrLines() {
-    const rows = renderReviewRows(ocrReview.lines, { roles: LINE_ROLES, iconNames: ICON_NAMES, onEdit: renderOcrSummary, onRole: renderOcrSummary });
+    // "Take it again" on a flagged line only while the photo is still on the Capture card (as Back to the photo)
+    const onRedo = $('reviewImage').getAttribute('src') ? backToPhoto : null;
+    const rows = renderReviewRows(ocrReview.lines, { roles: LINE_ROLES, iconNames: ICON_NAMES, onEdit: renderOcrSummary, onRole: renderOcrSummary, onRedo });
     $('ocrLines').replaceChildren(...rows);
     renderOcrSummary();
 }
@@ -1046,6 +1052,7 @@ function wireIntake() {
     initFieldsCard({ samples: isPlain() ? PLAIN_PRESETS : PRESETS, prompt: isPlain() ? PLAIN_SAMPLE_PROMPT : SAMPLE_PROMPT, onSample: (preset) => cardView.loadSample(preset), onDone: () => showCard('card'), onBeforeChange: beforeCardChange, plain: isPlain(),
         phoneFormats: PHONE_FORMATS, phoneStyle: formMapper.phoneStyle,
         onPhoneStyle: (style) => { formMapper.phoneStyle = style; for (let i = 0; i < $('phoneList').children.length; i++) cardView.tidyListValue('phones', i); } });
+    initCardTabs();   // the card maker's Colour / Logo / Style / Paper buttons and the mini card (MOD06)
     $('reopenScanBtn').addEventListener('click', reopenLastScan);
     // Retake: a camera shot opens the camera again; an upload opens the picker again (on phones it also offers the camera).
     $('retakePhotoBtn').addEventListener('click', () => {
@@ -1215,6 +1222,7 @@ function boot() {
     $('lockVaultBtn').addEventListener('click', () => { if (sessionPin.isSet()) quickLock('Lock button'); });
     $('vaultLockNowBtn').addEventListener('click', () => { if (sessionPin.isSet()) { closeSheet('vaultPage'); quickLock('Lock button'); lockedFromVault = true; } });
     $('quickSetupForm').addEventListener('submit', saveSessionPin);
+    $('sessionPinInput').addEventListener('input', syncSetupFace);
     $('quickSetupSkipBtn').addEventListener('click', closeQuickSetup);
     $('setSessionPinBtn').addEventListener('click', openQuickSetup);
     $('pinSwitch').addEventListener('click', togglePin);

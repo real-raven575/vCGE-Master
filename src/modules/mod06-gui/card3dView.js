@@ -937,7 +937,7 @@ export class CardView {
     wireSpin() {
         const flipper = $('card3DFlipper');
         // When a press last turned the card or ended a drag: its own click, if the browser sends one, is then left alone.
-        let start = null, dragging = false, handledAt = -Infinity;
+        let start = null, dragging = false, handledAt = -Infinity, edgeId = null;
         flipper.addEventListener('pointerdown', (e) => {
             if (e.button !== undefined && e.button !== 0) return;
             if (this.stopSpin) this.stopSpin();
@@ -945,14 +945,15 @@ export class CardView {
             // tap there still does.
             const edge = e.clientX < EDGE_PX || e.clientX > window.innerWidth - EDGE_PX;
             start = { x: e.clientX, angle: this.angle, id: e.pointerId, width: Math.max(1, flipper.getBoundingClientRect().width), edge };
-            dragging = false;
+            dragging = false; edgeId = null;
         });
         flipper.addEventListener('pointermove', (e) => {
             if (!start || e.pointerId !== start.id) return;
             const dx = e.clientX - start.x;
             if (!dragging) {
                 if (Math.abs(dx) < SPIN_TAP_PX) return;
-                if (start.edge) { start = null; return; }
+                // (its own click, if one follows, is left alone too: the card may start inside the edge strip)
+                if (start.edge) { edgeId = start.id; start = null; return; }
                 dragging = true;
                 flipper.dataset.spin = 'drag';
                 if (flipper.setPointerCapture) { try { flipper.setPointerCapture(e.pointerId); } catch (err) { /* a pointer that is already gone */ } }
@@ -961,6 +962,7 @@ export class CardView {
             this.setAngle(start.angle + dx / start.width * 180);
         });
         const end = (e) => {
+            if (!start && edgeId !== null && e.pointerId === edgeId) { edgeId = null; handledAt = performance.now(); return; }
             if (!start || (e.pointerId !== undefined && e.pointerId !== start.id)) return;
             const wasDragging = dragging;
             start = null; dragging = false;

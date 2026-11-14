@@ -297,6 +297,13 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
           await p.$eval(DOCK[to], b => b.click());
           await p.waitForFunction((to) => document.documentElement.dataset.card === to && document.getElementById('deck').dataset.deck === 'still', to, { timeout: 5000 }).catch(() => {});
         }
+        // (the card maker shows one category at a time: a person taps Colour, Logo, Style or Paper to reach a control)
+        if (typeof sel === 'string') await p.evaluate((sel) => {
+          let el = null; try { el = document.querySelector(sel); } catch { return; }
+          if (!el || !el.closest('#cardCard .r4-card') || el.closest('#cardTabs') || el.getClientRects().length) return;
+          for (const b of document.querySelectorAll('#cardTabs .r4-tab')) { b.click(); if (el.getClientRects().length) return; }
+          document.querySelector('#cardTabs .r4-tab').click();
+        }, sel).catch(() => {});
         return f(sel, ...rest);
       };
     }
@@ -749,16 +756,20 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const cardEm = document.querySelector('.deck-card.is-current > .vcge-emblem');
     return { field: document.documentElement.dataset.emblemField, whole: !!r && r.width > 100 && r.left >= 0 && r.right <= innerWidth && r.top >= 0, beyond: !!r && (r.right > d.right || r.left < d.left), card: (document.querySelector('.deck-card.is-current') || {}).dataset?.card, at: r ? [Math.round(r.left), Math.round(r.right), Math.round(d.left), Math.round(d.right)].join() : '',
       marks: marks.length, clear: marks.every(m => m.right < d.left - 40 || m.left > d.right + 40), tileShown: getComputedStyle(document.querySelector('.vcge-field-tile')).display !== 'none',
-      cardCopy: cardEm ? getComputedStyle(cardEm).visibility : 'none', width: innerWidth, tier: document.documentElement.dataset.tier, taps: getComputedStyle(document.querySelector('.vcge-field')).pointerEvents }; });
+      cardCopy: cardEm ? getComputedStyle(cardEm).visibility : 'none', width: innerWidth, tier: document.documentElement.dataset.tier, taps: getComputedStyle(document.querySelector('.vcge-field')).pointerEvents,
+      deckWide: d.width > 1000, noRoom: Math.max(d.left, innerWidth - d.right) - 48 < 220 * 1.5 }; });
   ok('wide window: the current card\'s emblem shows whole past an edge of the deck (its clipped copy steps aside), and a sparse tile of whole small copies keeps clear of the deck, taking no taps',
-    wide.field === 'on' && wide.whole && wide.beyond && wide.cardCopy === 'hidden' && wide.tileShown && wide.marks >= 2 && wide.clear && wide.taps === 'none', JSON.stringify(wide));
+    // (since the easy + premium layout, step 1, the deck itself spreads across a monitor, so the emblem sits whole inside
+    // its wider column and the tile only has room in the narrow bands beside it; a phone-sized deck still shows it past the edge)
+    wide.field === 'on' && wide.whole && (wide.beyond || wide.deckWide) && wide.cardCopy === 'hidden' && wide.tileShown && (wide.marks >= 2 || wide.noRoom) && wide.clear && wide.taps === 'none', JSON.stringify(wide));
   // (the layer must never widen the page: a phone browser zooms out to fit anything past the edge, and the page then
   // stays wide; iPhone CI 11-04 kept the 1920 tier after going to 1280)
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.waitForFunction(() => document.documentElement.dataset.tier === 'laptop', null, { timeout: 5000 }).catch(() => {});
   const laptop = await page.evaluate(() => ({ field: document.documentElement.dataset.emblemField, tileShown: getComputedStyle(document.querySelector('.vcge-field-tile')).display !== 'none',
     tier: document.documentElement.dataset.tier, width: innerWidth, page: document.documentElement.scrollWidth }));
-  ok('laptop window: the whole emblem still shows, the small tile does not (only from 1600 px)', laptop.field === 'on' && !laptop.tileShown && laptop.width === 1280 && laptop.page <= 1280, JSON.stringify(laptop));
+  // (a laptop's deck now fills the window, so the card keeps its own emblem and no page layer is needed)
+  ok('laptop window: the deck fills the width, so the card keeps its own emblem; the small tile does not show (only from 1600 px)', laptop.field === 'off' && !laptop.tileShown && laptop.width === 1280 && laptop.page <= 1280, JSON.stringify(laptop));
   if (vpWas) { await page.setViewportSize(vpWas); await page.waitForTimeout(300); }
   await setHand(page, true);
   const headerOrder = () => page.evaluate(() => ['navSettings', 'navVault', 'navWelcome', 'navCapture', 'navShare'].map(id => document.getElementById(id).getBoundingClientRect().left));
@@ -1046,10 +1057,28 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('Vault page: Off switches have the knob on the left (PIN and fingerprint), with the right or the left hand set', pinOff8.knob === 'left' && bioOff8.knob === 'left' && (await handSwap8('pinSwitch')) === 'left' && (await handSwap8('biometricSwitch')) === 'left', JSON.stringify([pinOff8, bioOff8]));
     ok('Vault page: the title has its lock icon on the left', await p8.$eval('#vaultPageTitle', h => h.firstElementChild && h.firstElementChild.tagName === 'svg' && h.textContent.trim() === 'Vault'));
     await p8.click('#pinSwitch');
-    await p8.fill('#sessionPinInput', '12'); await p8.click('#quickSetupSaveBtn');
+    // The PIN setup pop-up has Ghost's look (raven575 2026-11-13): the Vault page's colours, Ghost and four paw prints
+    const setup8 = () => p8.evaluate(() => {
+      const shown = (id) => { const el = document.getElementById(id); return !!el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0; };
+      const form = document.getElementById('quickSetupForm'), page = document.querySelector('#vaultPage .vcge-sheet-panel');
+      return { face: document.getElementById('quickSetupModal').dataset.face, filled: document.getElementById('quickSetupPaws').dataset.filled,
+        ghost: shown('quickSetupGhost'), paws: shown('quickSetupPaws'), title: document.getElementById('quickSetupTitle').textContent.trim(),
+        bg: getComputedStyle(form).backgroundColor, pageBg: getComputedStyle(page).backgroundColor,
+        save: document.getElementById('quickSetupSaveBtn').className, skip: document.getElementById('quickSetupSkipBtn').className,
+        pinColor: getComputedStyle(document.getElementById('sessionPinInput')).color };
+    });
+    const s0 = await setup8();
+    ok('PIN setup pop-up: the Vault page\'s colours and buttons, titled "Session PIN"', s0.title === 'Session PIN' && s0.bg === s0.pageBg && s0.save === 'vault-btn' && s0.skip === 'vault-btn-quiet', JSON.stringify(s0));
+    if (EDITION_PLAIN) ok('plain edition: no Ghost and no paw prints on the PIN setup pop-up; the PIN box shows its own dots', !s0.ghost && !s0.paws && s0.pinColor !== 'rgba(0, 0, 0, 0)', JSON.stringify(s0));
+    else ok('PIN setup pop-up: Ghost looks away over four empty paw prints', s0.ghost && s0.paws && s0.face === 'away' && s0.filled === '0', JSON.stringify(s0));
+    await p8.fill('#sessionPinInput', '12');
+    const s2 = await setup8();
+    ok('PIN setup pop-up: two digits typed, both paws over the eyes and two paw prints fill', s2.face === 'both' && s2.filled === '2', JSON.stringify(s2));
+    await p8.click('#quickSetupSaveBtn');
     ok('session PIN: too-short PIN refused', (await t8('quickSetupError')) === 'Use exactly 4 digits.', await t8('quickSetupError'));
     await p8.fill('#sessionPinInput', '2468'); await p8.click('#quickSetupSaveBtn');
     await p8.waitForSelector('#quickSetupModal', { state: 'hidden' });
+    ok('PIN setup pop-up: once the PIN is set, Ghost and the paw prints are back to the start for next time', (await setup8()).filled === '0' && (await setup8()).face === 'away');
     ok('session PIN set: Security panel shows it and Lock appears', (await t8('sessionPinStatus')) === 'Session PIN: set' && await lockOffered(p8));
     const pinOn8 = await sw8('pinSwitch');
     ok('Vault page: the PIN switch turns green with "On" in green (the theme\'s good colour), Change and Lock now appear, the note goes', pinOn8.on === 'true' && pinOn8.word === 'On' && ['rgb(46, 125, 79)', 'rgb(127, 211, 158)'].includes(pinOn8.bg) && pinOn8.wordColor === pinOn8.bg
@@ -1811,15 +1840,20 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // 0.8 Details layout (Creative's mock-up): groups Name, Work, Reach, Notes; labels above rounded boxes; first and last name side by side
     const look = await pF.evaluate(() => {
       const r = (id) => document.getElementById(id).getBoundingClientRect(), label = document.querySelector('#fieldsForm label:has(#jobTitle) .field-label').getBoundingClientRect();
-      const box = document.getElementById('jobTitle');
-      return { groups: Array.from(document.querySelectorAll('#fieldsForm > .fields-group')).filter(h => h.offsetHeight).map(h => h.textContent).join(), radius: getComputedStyle(box).borderTopLeftRadius,
+      const box = document.getElementById('jobTitle'), wide = ['laptop', 'monitor', 'wide'].includes(document.documentElement.dataset.tier);
+      const short = wide && innerHeight <= 760;   // a short wide window (a 1366 x 768 laptop) uses 44 px boxes so Details fits
+      return { groups: Array.from(document.querySelectorAll('#fieldsForm .fields-col > .fields-group')).filter(h => h.offsetHeight).map(h => h.textContent).join(), radius: getComputedStyle(box).borderTopLeftRadius,
         h: Math.round(r('jobTitle').height), labelAbove: label.bottom <= r('jobTitle').top + 1, pair: Math.abs(r('firstName').top - r('lastName').top) < 1 && r('lastName').left > r('firstName').right,
-        order: r('firstName').top < r('jobTitle').top && r('jobTitle').top < r('organization').top && r('organization').top < r('phoneList').top && r('phoneList').top < r('notes').top,
-        add: r('fieldsAddBtn').top > r('notes').bottom, tools: r('fakeContactSelect').top > r('fieldsAddBtn').bottom && r('clearFormBtn').top > r('fieldsAddBtn').bottom,
-        topBar: !document.querySelector('.vcge-bar #fakeContactSelect, .vcge-bar #clearFormBtn, .vcge-head #fakeContactSelect, .vcge-head #clearFormBtn') };
+        // (one column on a phone or tablet; on a laptop or wider the groups sit in columns: Name and Work, then Reach, then
+        // Address and Notes, with the sample list and Clear under Work and "+ Add a field" under Notes)
+        wideTier: wide, order: wide ? r('firstName').top < r('jobTitle').top && r('jobTitle').top < r('organization').top && r('phoneList').left > r('organization').right && r('notes').left > r('phoneList').right
+            : r('firstName').top < r('jobTitle').top && r('jobTitle').top < r('organization').top && r('organization').top < r('phoneList').top && r('phoneList').top < r('notes').top,
+        add: r('fieldsAddBtn').top > r('notes').bottom, tools: wide ? r('fakeContactSelect').top > r('organization').bottom && r('clearFormBtn').top > r('organization').bottom
+            : r('fakeContactSelect').top > r('fieldsAddBtn').bottom && r('clearFormBtn').top > r('fieldsAddBtn').bottom,
+        short, topBar: !document.querySelector('.vcge-bar #fakeContactSelect, .vcge-bar #clearFormBtn, .vcge-head #fakeContactSelect, .vcge-head #clearFormBtn') };
     });
     ok('fields (0.8): grouped Name, Work, Reach, Notes; labels above 16 px rounded boxes; first and last name side by side; "+ Add a field" under Notes; the sample list and Clear form last, off the top',
-      look.groups === 'Name,Work,Reach,Notes' && look.radius === '16px' && look.h >= 52 && look.labelAbove && look.pair && look.order && look.add && look.tools && look.topBar, JSON.stringify(look));
+      look.groups === 'Name,Work,Reach,Notes' && look.radius === (look.short ? '14px' : '16px') && look.h >= (look.short ? 44 : 52) && look.labelAbove && look.pair && look.order && look.add && look.tools && look.topBar, JSON.stringify(look));
     // The class goes on animationend, which a slow phone engine on CI can deliver well after 0.32 s: wait for it (3 s cap)
     const popEnded = await pF.waitForFunction(() => !document.getElementById('fieldsForm').classList.contains('is-popping'), null, { timeout: 3000 }).then(() => true, () => false);
     ok('fields: the pop class is gone once the animation ends', popEnded && !(await pF.$eval('#fieldsForm', f => f.classList.contains('is-popping'))));
@@ -2192,6 +2226,47 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const row2 = (await pZ.$$eval('#ocrLines select', s => s.map(x => x.value))).indexOf('cityStateZip');
     await pZ.fill(`#ocrLineText${row2}`, 'Portage, MI 49024');
     ok('editing a flagged line clears its note and box at once', !(await pZ.$(`#ocrLineCheck${row2}`)) && !(await pZ.$(`#ocrLineOk${row2}`)) && (await pZ.textContent('#ocrSummary')).includes('49024'));
+    // Easy + premium step 3: a flagged line offers big buttons under its flag. The ZIP line has no guesses, so it shows
+    // "Type it" (puts the cursor in the line) and, with the photo still on the Capture card, "Take it again".
+    await pZ.click('#ocrBackBtn');
+    await pZ.click('#runOcrBtn');
+    await readEnds(pZ);
+    const row3 = (await pZ.$$eval('#ocrLines select', s => s.map(x => x.value))).indexOf('cityStateZip');
+    const pickLook = await pZ.evaluate((r) => {
+      const item = document.getElementById(`ocrLineCheck${r}`).closest('.read-line'), flag = item.querySelector('.read-flag');
+      const bs = [...item.querySelectorAll('.read-guesses button')];
+      return { labels: bs.map(b => b.textContent), small: bs.filter(b => b.getBoundingClientRect().height < 48).length, guesses: item.querySelectorAll('.read-guess').length,
+        under: bs.length > 0 && bs[0].getBoundingClientRect().top >= flag.getBoundingClientRect().bottom };
+    }, row3);
+    ok('step 3: a flagged line with no guesses offers "Type it" and "Take it again" as big buttons (48 px) under its flag',
+      pickLook.labels.join('|') === '⌨️ Type it|📸 Take it again' && pickLook.small === 0 && pickLook.guesses === 0 && pickLook.under, JSON.stringify(pickLook));
+    await pZ.click(`#ocrLineType${row3}`);
+    ok('step 3: "Type it" puts the cursor in the line, with the flag still up until the line is changed',
+      (await pZ.evaluate(() => document.activeElement && document.activeElement.id)) === `ocrLineText${row3}` && !!(await pZ.$(`#ocrLineCheck${row3}`)));
+    await pZ.click(`#ocrLineRedo${row3}`); await pZ.waitForTimeout(400);
+    ok('step 3: "Take it again" goes back to the photo on the Capture card, as Back to the photo does',
+      (await pZ.evaluate(() => document.documentElement.dataset.card)) === 'capture' && await pZ.isVisible('#runOcrBtn'));
+    // Guesses come from the letters the reader nearly read (unit-tested from the reader's output to the review lines);
+    // here the review's own drawing is given a line with two guesses, the way MOD05 hands them on.
+    if (process.env.SERVE_DIR) notRunHere('step 3: a guess button fills the line in one tap', 'the built app has no /src modules to draw with');
+    else {
+      await pZ.click('#runOcrBtn');
+      await readEnds(pZ);
+      const picked = await pZ.evaluate(async () => {
+        const { renderReviewRows } = await import('/src/modules/mod04-ocr/readCard.js');
+        const line = { text: 'Dana Whitlcck', role: 'name', check: 'The reader was not sure of some letters here. Please check them.', guesses: ['Dana Whitlock', 'Dana Whitleck'] };
+        let edited = 0;
+        document.getElementById('ocrLines').replaceChildren(...renderReviewRows([line], { roles: [['name', 'Name'], ['ignore', 'Ignore']], iconNames: {}, onEdit: () => { edited++; } }));
+        const bs = [...document.querySelectorAll('#ocrLines .read-guesses button')];
+        const before = { labels: bs.map(b => b.textContent), tall: bs.every(b => b.getBoundingClientRect().height >= 48), named: document.getElementById('ocrLineGuess0_0').getAttribute('aria-label') };
+        document.getElementById('ocrLineGuess0_0').click();
+        return { ...before, value: document.getElementById('ocrLineText0').value, kept: line.text, edited, flag: !!document.getElementById('ocrLineCheck0'), box: !!document.getElementById('ocrLineOk0'), buttons: document.querySelectorAll('#ocrLines .read-guesses').length };
+      });
+      ok('step 3: a shaky line shows its guesses first, then Type it (no Take it again without a photo hand-off), all 48 px tall and named',
+        picked.labels.join('|') === 'Dana Whitlock|Dana Whitleck|⌨️ Type it' && picked.tall && picked.named === 'Use Dana Whitlock', JSON.stringify(picked));
+      ok('step 3: a guess fills the line in one tap and counts as checked (flag and box gone, the review told)',
+        picked.value === 'Dana Whitlock' && picked.kept === 'Dana Whitlock' && picked.edited === 1 && !picked.flag && !picked.box && picked.buttons === 0, JSON.stringify(picked));
+    }
     await ctxZ.close();
   });
 
@@ -2829,6 +2904,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const clicks = await pV.evaluate(() => window.__clicks);
     const clickSpan = clicks.length ? Math.max(...clicks.map(c => c.stop)) - Math.min(...clicks.map(c => c.start)) : -1;
     ok('shutter: the shot plays one short click (two taps, over in 0.08 s), and opening, zoom and the press made no sound', clicksBefore === 0 && clicks.length === 2 && clicks.every(c => !c.loop) && clickSpan > 0 && clickSpan <= 0.0801, JSON.stringify({ clicksBefore, clicks }));
+    // Smart burst (CAM-0028): the press watches the camera for a moment (BURST_MS) before the photo opens
+    await pV.waitForSelector('#captureReview', { state: 'visible', timeout: 5000 }).catch(() => {});
+    const burstLog = await pV.textContent('#eventLog');
+    const burstFrames = Number((/best of (\d+) frames/.exec(burstLog) || [])[1] || 0);
+    ok('shutter: Smart burst looked at several frames and kept the best (a clean feed is never blended)', burstFrames >= 2, burstLog);
+    ok('shutter: a camera with no light shows no light button', !(await pV.isVisible('#lightBtn')));
     ok('shutter: the shot opens the crop step and the camera closes', await pV.isVisible('#captureReview') && (await pV.evaluate(() => document.getElementById('cameraPanel').classList.contains('hidden') && document.getElementById('cameraStream').srcObject === null)) && (await card()) === 'capture');
     // The 390 x 464-ish portrait view covers the 640 x 360 feed (scale by height), zoomed 2x: the window is the middle of it
     const shot = await pV.evaluate(() => new Promise(resolve => {
@@ -2858,10 +2939,17 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pV.click('#captureBtn'); await pV.waitForTimeout(200);
     const heldBack = await pV.isVisible('#cameraPanel') && !(await pV.isVisible('#captureReview'));
     await pV.evaluate(() => { const v = document.getElementById('cameraStream'); delete v.videoWidth; v.dispatchEvent(new Event('loadeddata')); });
-    await pV.waitForTimeout(300);
+    await pV.waitForSelector('#captureReview', { state: 'visible', timeout: 5000 }).catch(() => {});
     ok('shutter before the first picture: the shot is taken as soon as the picture comes', heldBack && await pV.isVisible('#captureReview') && !(await pV.isVisible('#cameraPanel')));
     await pV.evaluate(() => document.getElementById('retakePhotoBtn').classList.remove('hidden'));
     await pV.click('#retakePhotoBtn'); await pV.waitForTimeout(300);
+    // Closing the camera in the middle of a burst drops every frame: no photo, nothing left behind
+    await pV.waitForFunction(() => document.getElementById('cameraStream').videoWidth > 0, null, { timeout: 5000 }).catch(() => {});
+    await pV.evaluate(() => { document.getElementById('captureBtn').click(); setTimeout(() => document.getElementById('stopCameraBtn').click(), 150); });
+    await pV.waitForTimeout(1500);
+    ok('Smart burst: closing the camera mid-burst makes no photo and leaves nothing in the capture canvas', !(await pV.isVisible('#captureReview')) && !(await pV.getAttribute('#reviewImage', 'src'))
+      && (await pV.$eval('#captureCanvas', c => c.width + c.height)) === 0 && (await pV.evaluate(() => document.getElementById('cameraPanel').classList.contains('hidden'))));
+    await pV.click('#startCameraBtn').catch(() => {}); await pV.waitForTimeout(500);
     await pV.click('#stopCameraBtn');
     ok('Close camera stops the feed', await pV.evaluate(() => document.getElementById('cameraStream').srcObject === null && document.getElementById('cameraPanel').classList.contains('hidden')));
     }
@@ -3314,8 +3402,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('welcome: buttons read Set Up PIN/BIO Lock Now, Take a Tour, CANCEL; the primary is the dock\'s "Scan a card" (no Start button in the card)', (await pH.textContent('#welcomePinBtn')) === 'Set Up PIN/BIO Lock Now' && (await pH.textContent('#dockNext')) === 'Scan a card'
       && !(await pH.$('#welcomeStartBtn')) && (await pH.textContent('#welcomeTourBtn')) === 'Take a Tour' && (await pH.textContent('#welcomeCancelBtn')) === 'CANCEL');
     // The mock-up's order: Shutout, the promise, the line under it, the privacy line with its shield, the tagline, "Made by"
-    const order = await pH.evaluate(() => ['#welcomeArt', '#welcomeTitle', '.r2-lede', '.r2-privacy', '#welcomeTagline', '#cardWelcome .vcge-maker'].map(q => document.querySelector(q)).filter(Boolean).map(e => Math.round(e.getBoundingClientRect().top)));
-    ok('welcome (0.8): the mock-up\'s order, top to bottom, with the shield in the privacy line', order.length === (EDITION_PLAIN ? 4 : 6) && order.every((t, i) => !i || t > order[i - 1])
+    // (in reading order: on a laptop or wider the screen has two columns, so the order runs down the left one, then the right)
+    const order = await pH.evaluate(() => { const mid = document.querySelector('#cardWelcome .deck-card-body').getBoundingClientRect(); const half = mid.left + mid.width / 2;
+      return ['#welcomeArt', '#welcomeTitle', '.r2-lede', '.r2-privacy', '#welcomeTagline', '#cardWelcome .vcge-maker'].map(q => document.querySelector(q)).filter(Boolean)
+        .map(e => { const r = e.getBoundingClientRect(); return [r.left + r.width / 2 > half ? 1 : 0, Math.round(r.top)]; }); });
+    ok('welcome (0.8): the mock-up\'s order, top to bottom (column by column on a wide screen), with the shield in the privacy line', order.length === (EDITION_PLAIN ? 4 : 6)
+      && order.every(([c, t], i) => !i || c > order[i - 1][0] || (c === order[i - 1][0] && t > order[i - 1][1]))
       && await pH.$eval('.r2-privacy', p => !!p.querySelector('svg') && p.textContent.includes('Nothing is saved.')), JSON.stringify(order));
     ok('0.8 shell: the screens out of view are hidden (from sight, taps and assistive tech); only Welcome shows', await pH.evaluate(() => document.querySelectorAll('.deck-card[aria-hidden="true"]').length === 5 && document.getElementById('cardWelcome').getAttribute('aria-hidden') === 'false'
       && Array.from(document.querySelectorAll('.deck-card')).filter(c => getComputedStyle(c).display !== 'none').map(c => c.id).join() === 'cardWelcome'));
@@ -3466,6 +3558,93 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pS2.evaluate(() => { const t = document.getElementById('splashToggle'); t.checked = true; t.dispatchEvent(new Event('change', { bubbles: true })); });
     ok('splash: back On takes splash=1 out of the entry', await pS2.evaluate(() => document.documentElement.dataset.splash === undefined && localStorage.getItem('vcge_settings') === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0'));
     await ctxS.close();
+  }
+
+  // MOD01 wide screens (easy + premium plan, step 1, raven575 2026-11-13): on a 1080p monitor and on a 1366 x 768 laptop
+  // every screen fits with no scrolling, the step's title sits in the top bar, the dock is one row, the card and its
+  // design tools sit side by side, and Share's two groups too. (Phones keep their own layout: this runs without a device.)
+  if (!process.env.VCGE_DEVICE) {
+    for (const [w, h, tier] of [[1920, 969, 'monitor'], [1366, 657, 'laptop']]) {
+      const ctxW = await browser.newContext({ viewport: { width: w, height: h } });
+      const pW = await ctxW.newPage();
+      await pW.goto(ORIGIN); await pW.waitForTimeout(500);
+      ok(`wide ${w} x ${h}: the screen counts as a ${tier}`, (await pW.getAttribute('html', 'data-tier')) === tier);
+      await pW.fill('#firstName', 'Wide'); await pW.fill('#lastName', 'Screen');
+      const over = [];
+      for (const screen of ['welcome', 'capture', 'read', 'fields', 'card', 'share']) {
+        await pW.$eval(DOCK[screen], b => b.click()); await deckSettled(pW);
+        await pW.waitForFunction((s) => document.documentElement.dataset.card === s, screen, { timeout: 5000 }).catch(() => {});
+        const o = await pW.evaluate((s) => {
+          const card = document.querySelector(`.deck-card[data-card="${s}"]`);
+          const scrolls = [card, ...card.querySelectorAll('*')].filter(e => e.offsetParent !== null && /(auto|scroll)/.test(getComputedStyle(e).overflowY) && e.scrollHeight > e.clientHeight + 1)
+            .map(e => `${e.id || e.className.toString().split(' ')[0]} ${e.scrollHeight}/${e.clientHeight}`);
+          const page = document.scrollingElement.scrollHeight > innerHeight + 1 ? [`page ${document.scrollingElement.scrollHeight}/${innerHeight}`] : [];
+          return scrolls.concat(page);
+        }, screen);
+        if (o.length) over.push(`${screen}: ${o.join(', ')}`);
+      }
+      ok(`wide ${w} x ${h}: every screen (Welcome, Capture, Read, Details, Card, Share) fits with no scrolling`, over.length === 0, over.join(' | '));
+      const shell = await pW.evaluate(() => {
+        const r = (sel) => document.querySelector(sel).getBoundingClientRect();
+        const bar = r('.vcge-bar'), title = r('#hTitle'), steps = r('.vcge-steps'), next = r('#dockNext');
+        return { titleInBar: title.top >= bar.top && title.bottom <= bar.bottom + 2, dockOneRow: Math.abs((steps.top + steps.bottom) / 2 - (next.top + next.bottom) / 2) < 12 && steps.right <= next.left,
+          wide: Math.round(r('.deck').width) };
+      });
+      ok(`wide ${w} x ${h}: the title sits in the top bar, the dock is one row and the screens use the width`, shell.titleInBar && shell.dockOneRow && shell.wide > 1000, JSON.stringify(shell));
+      await pW.$eval(DOCK.card, b => b.click()); await deckSettled(pW);
+      const cardSide = await pW.evaluate(() => { const c = document.getElementById('card3DFlipper').getBoundingClientRect(), t = document.getElementById('paletteListContainer').getBoundingClientRect(), f = document.getElementById('flipCardBtn').getBoundingClientRect();
+        return { side: c.right <= t.left && f.left >= c.right && document.getElementById('cardTabs').getBoundingClientRect().left >= c.right, cardW: Math.round(c.width) }; });
+      ok(`wide ${w} x ${h}: Your card shows the card on the left and its design tools beside it, the card bigger than on a phone`, cardSide.side && cardSide.cardW > 360, JSON.stringify(cardSide));
+      await pW.$eval(DOCK.share, b => b.click()); await deckSettled(pW);
+      const shareSide = await pW.evaluate(() => { const a = document.getElementById('downloadVcfBtn').getBoundingClientRect(), b = document.getElementById('shareNativeBtn').getBoundingClientRect();
+        return { side: a.right <= b.left && Math.abs(a.top - b.top) < 2 }; });
+      ok(`wide ${w} x ${h}: Share shows Save and Send side by side`, shareSide.side, JSON.stringify(shareSide));
+      await ctxW.close();
+    }
+  }
+
+  // Card maker categories (easy + premium plan, step 2): Colour, Logo, Style and Paper picture buttons over one box that
+  // shows only that category; on a phone the card stays pinned at the top and shrinks to a mini card once the box
+  // scrolls, and a tap on the mini card scrolls back to the whole card (no spin).
+  {
+    const ctxT = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
+    const pT = await ctxT.newPage();
+    await pT.goto(ORIGIN); await pT.waitForTimeout(500);
+    await pT.$eval(DOCK.card, b => b.click()); await deckSettled(pT);
+    const tabLook = await pT.$$eval('#cardTabs .r4-tab', bs => bs.map(b => { const r = b.getBoundingClientRect(); return { t: b.dataset.tab, word: b.textContent.trim(), icon: !!b.querySelector('svg'), h: Math.round(r.height), w: Math.round(r.width), pressed: b.getAttribute('aria-pressed') }; }));
+    ok('card tabs: four picture buttons with a word under each (Colour, Logo, Style, Paper), at least 44 px, Colour picked first',
+      tabLook.map(t => t.word).join() === 'Colour,Logo,Style,Paper' && tabLook.every(t => t.icon && t.h >= 44 && t.w >= 44) && tabLook.map(t => t.pressed).join() === 'true,false,false,false', JSON.stringify(tabLook));
+    const shown = () => pT.evaluate(() => ['paletteListContainer', 'avatarUpload', 'flipCardBtn', 'cardFinishSelect', 'logoPresetSelect'].filter(id => {
+      const el = document.getElementById(id); const box = id === 'avatarUpload' ? el.closest('label') : (el.closest('.r4-look-group') || el);
+      return box.getClientRects().length > 0 && !el.closest('details:not([open])'); }).join());
+    const seen = {};
+    seen.colour = await shown();
+    for (const t of ['logo', 'style', 'paper']) { await pT.click(`#cardTabs [data-tab="${t}"]`); await pT.waitForTimeout(150); seen[t] = await shown();
+      seen[t + 'Chips'] = await pT.evaluate(() => ['cardIconsBtn', 'cardFontSelect'].filter(id => document.getElementById(id).closest('.r4-chips > *').getClientRects().length > 0).length); }
+    ok('card tabs: each shows only its own controls (Colour the swatches; Logo the upload and ready-made logos; Style the icons, type and size; Paper the finish), with Flip card in every one',
+      seen.colour === 'paletteListContainer,flipCardBtn' && seen.logo === 'avatarUpload,flipCardBtn,logoPresetSelect' && seen.style === 'flipCardBtn' && seen.paper === 'flipCardBtn,cardFinishSelect'
+      && seen.styleChips === 2 && seen.logoChips === 0 && seen.paperChips === 0
+      && await pT.$eval('#cardTabs [data-tab="paper"]', b => b.getAttribute('aria-pressed') === 'true'), JSON.stringify(seen));
+    await pT.click('#cardTabs [data-tab="logo"]'); await pT.waitForTimeout(150);
+    // (the card shrinks with a transition: WebKit runs none on a page that is not in front, as for the logo guide)
+    await pT.bringToFront();
+    await pT.$eval('#cardCard .r4-card', b => b.scrollTo(0, b.scrollHeight)); await pT.waitForTimeout(500);
+    await pT.waitForFunction(() => document.getElementById('card3DFlipper').getBoundingClientRect().width < 200, null, { timeout: 3000 }).catch(() => {});
+    const mini = await pT.evaluate(() => { const body = document.querySelector('#cardCard .r4-card'), c = document.getElementById('card3DFlipper').getBoundingClientRect(), v = body.getBoundingClientRect();
+      return { mini: body.dataset.mini, scrolled: body.scrollTop > 0, inView: c.top >= v.top - 1 && c.bottom <= v.bottom && c.width > 60, small: c.width < 200, w: Math.round(c.width) }; });
+    ok('mini card: with a long box scrolled, the card stays in view, shrunk into the corner', mini.mini === 'on' && mini.scrolled && mini.inView && mini.small, JSON.stringify(mini));
+    const turnedBefore = await pT.$eval('#card3DFlipper', el => el.style.transform);
+    const cb = await pT.locator('#card3DFlipper').boundingBox();
+    await pT.touchscreen.tap(cb.x + cb.width * 0.8, cb.y + cb.height / 2); await pT.waitForTimeout(900);
+    const back = await pT.evaluate(() => ({ top: document.querySelector('#cardCard .r4-card').scrollTop, mini: document.querySelector('#cardCard .r4-card').dataset.mini || 'off', turn: document.getElementById('card3DFlipper').style.transform }));
+    ok('mini card: a tap on it scrolls back to the whole card and does not spin it', back.top === 0 && back.mini === 'off' && back.turn === turnedBefore, JSON.stringify(back));
+    // Flip card from a scrolled box turns the card at full size: the box scrolls back up as it flips
+    await pT.$eval('#cardCard .r4-card', b => b.scrollTo(0, b.scrollHeight)); await pT.waitForTimeout(500);
+    const miniAgain = await pT.$eval('#cardCard .r4-card', b => b.dataset.mini);
+    await pT.$eval('#flipCardBtn', b => b.click()); await pT.waitForTimeout(1100);
+    const flipped = await pT.evaluate(() => ({ top: document.querySelector('#cardCard .r4-card').scrollTop, mini: document.querySelector('#cardCard .r4-card').dataset.mini || 'off', turn: document.getElementById('card3DFlipper').style.transform }));
+    ok('mini card: Flip card brings the whole card back and turns it', miniAgain === 'on' && flipped.top === 0 && flipped.mini === 'off' && flipped.turn !== turnedBefore, JSON.stringify({ miniAgain, ...flipped }));
+    await ctxT.close();
   }
 
   // MOD01 shared look: MOD-XX tags in Sixtyfour on every panel, 44 px buttons with 2 px outlines, the near-miss rim for taps
@@ -3836,7 +4015,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('toast: still there 2.5 s after the release', !(await p6.$eval('#toast', t => t.classList.contains('opacity-0'))));
     await p6.waitForTimeout(800);
     ok('toast: gone 3 s after the release', await p6.$eval('#toast', t => t.classList.contains('opacity-0')));
-    // The Logo controls live on this card: upload on the right by its preview, Remove on the far left once there is a logo
+    // The Logo controls live on this card (under its Logo button): upload on the right by its preview, Remove on the far left once there is a logo
+    await p6.click('#cardTabs [data-tab="logo"]'); await p6.waitForTimeout(150);
     const ctl = await p6.evaluate(() => { const r = (id) => document.getElementById(id).getBoundingClientRect(); const card = r('cardCard'); return { upload: r('avatarUpload').width === 0 ? document.getElementById('avatarUpload').parentElement.getBoundingClientRect().left : 0, remove: r('removeAvatarBtn'), preview: r('formAvatarPreview'), inCard: document.getElementById('cardCard').contains(document.getElementById('avatarUpload')) && !document.getElementById('cardFields').contains(document.getElementById('avatarUpload')), cardLeft: card.left, cardW: card.width, label: document.getElementById('avatarUpload').parentElement.textContent.trim() }; });
     ok('logo: the upload reads "Logo", sits on the 3D Card (not the Fields card), on the right with its preview', ctl.inCard && ctl.label === 'Logo' && ctl.upload > ctl.cardLeft + ctl.cardW / 2 && ctl.preview.left < ctl.upload, JSON.stringify(ctl));
     ok('logo: no Remove button while there is no logo', !(await p6.isVisible('#removeAvatarBtn')));
@@ -3880,7 +4060,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const vcf6 = fs.readFileSync(await dl6.path(), 'utf8');
     const email6 = EDITION_PLAIN ? `${s1First}.${s1Last}@example.com`.toLowerCase() : 'vcge.app+ghost@gmail.com';
     ok(`sample: the .vcf carries the ${EDITION_PLAIN ? 'logo' : 'animal'} as a JPEG photo and the 555-01 number`, /PHOTO;TYPE=JPEG;ENCODING=b:/.test(vcf6) && vcf6.includes('+1 (202) 555-0102') && vcf6.includes(email6), vcf6.split('\r\n').filter(l => /^(TEL|EMAIL|PHOTO)/.test(l)).map(l => l.slice(0, 40)).join(' | '));
-    await p6.click('#navCard'); await p6.waitForTimeout(500);
+    await p6.click('#navCard'); await p6.waitForTimeout(500); await p6.click('#cardTabs [data-tab="logo"]'); await p6.waitForTimeout(150);
     const sides = await p6.evaluate(() => { const r = document.getElementById('removeAvatarBtn').getBoundingClientRect(), u = document.getElementById('avatarUpload').parentElement.getBoundingClientRect(); return { gap: u.left - r.right, removeText: document.getElementById('removeAvatarBtn').textContent.trim() }; });
     ok('logo: "Remove logo" sits well away from the upload (on the far left)', sides.removeText === 'Remove logo' && sides.gap > 80, JSON.stringify(sides));
     // Remove logo asks first (video finding #83): No keeps the logo, Yes removes it
@@ -3898,14 +4078,16 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p6.waitForTimeout(300);
     ok('sample: Undo after Clear brings the sample back without its logo (removed before) and with its theme', (await p6.inputValue('#firstName')) === s1First && (await p6.textContent('#currentPaletteLabel')) === 'Twilight' && !(await p6.$(LOGO6)));
     // The logo's look and the card's finish (raven575 test report, 2026-10-22)
-    await p6.click('#navCard'); await p6.waitForTimeout(300);
-    ok('card: the paper and logo controls start folded under "Paper & logo", so the card stays in view on a phone', !(await p6.$eval('#cardLookPanel', d => d.open)) && !(await p6.isVisible('#cardLookPanel .vcge-pick-btn')) && (await p6.textContent('#cardLookPanel summary')).trim() === 'Paper & logo');
+    await p6.click('#navCard'); await p6.waitForTimeout(300); await p6.click('#cardTabs [data-tab="colour"]');
+    // (easy + premium step 2: the card maker opens on Colour; Logo and Paper each have their own picture button)
+    ok('card: on Colour the paper and logo controls are out of sight, so the card stays in view on a phone', !(await p6.$eval('#cardLookPanel', d => d.open)) && !(await p6.isVisible('#cardLookPanel .vcge-pick-btn'))
+      && (await p6.getAttribute('#cardTabs [data-tab="colour"]', 'aria-pressed')) === 'true' && (await p6.textContent('#cardTabs [data-tab="logo"]')).trim() === 'Logo' && (await p6.textContent('#cardTabs [data-tab="paper"]')).trim() === 'Paper');
     ok('card: Card design says it changes this card only, over the card colours', (await p6.textContent('#cardDesignNote')).trim() === 'Changes this card only. The app keeps its look.' && await p6.isVisible('#cardDesignHead'));
     // (the guide fades in: WebKit runs no transitions on a page that is not in front, CI 11-02)
     await p6.bringToFront();
-    await p6.click('#cardLookPanel summary'); await p6.waitForTimeout(400);
+    await p6.click('#cardTabs [data-tab="logo"]'); await p6.waitForTimeout(400);
     await p6.waitForFunction(() => parseFloat(getComputedStyle(document.querySelector('#cardFront .r4-safe-guide')).opacity) > 0.3, null, { timeout: 3000 }).catch(() => {});
-    ok('0.8 card: with Logo & finish open the card shows its logo safe-area guide (a dashed outline inside the rounded corners)', await p6.$eval('#cardFront .r4-safe-guide', g => { const cs = getComputedStyle(g), r = g.getBoundingClientRect(), f = document.getElementById('cardFront').getBoundingClientRect(); return parseFloat(cs.opacity) > 0.3 && cs.borderTopStyle === 'dashed' && r.left - f.left >= 8 && f.bottom - r.bottom >= 8 && cs.pointerEvents === 'none' && g.getAttribute('aria-hidden') === 'true'; }),
+    ok('0.8 card: with Logo open the card shows its logo safe-area guide (a dashed outline inside the rounded corners)', await p6.$eval('#cardFront .r4-safe-guide', g => { const cs = getComputedStyle(g), r = g.getBoundingClientRect(), f = document.getElementById('cardFront').getBoundingClientRect(); return parseFloat(cs.opacity) > 0.3 && cs.borderTopStyle === 'dashed' && r.left - f.left >= 8 && f.bottom - r.bottom >= 8 && cs.pointerEvents === 'none' && g.getAttribute('aria-hidden') === 'true'; }),
       await p6.$eval('#cardFront .r4-safe-guide', g => { const cs = getComputedStyle(g), r = g.getBoundingClientRect(), f = document.getElementById('cardFront').getBoundingClientRect(); return JSON.stringify({ open: document.getElementById('cardLookPanel').open, opacity: cs.opacity, border: cs.borderTopStyle, left: Math.round(r.left - f.left), bottom: Math.round(f.bottom - r.bottom), pe: cs.pointerEvents }); }).catch(e => String(e).slice(0, 120)));
     const presets = await p6.$$eval('#logoPresetSelect optgroup', gs => gs.map(g => g.label + ':' + g.children.length));
     ok(EDITION_PLAIN ? 'plain edition: the ready-made logos are the eight palette pictures, with no team characters' : 'logo: the ready-made logos are every Team vCGE character (one per sample) and a picture for each of the eight palettes',
@@ -4139,6 +4321,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pV.setInputFiles('#avatarUpload', { name: 'striped.png', mimeType: 'image/png', buffer: Buffer.from(busy.split(',')[1], 'base64') });
     // The tile is drawn again once the logo's shape is read: wait for the picture with its tile colour (not the initials)
     await pV.waitForFunction(() => ['previewAvatar', 'formAvatarPreview'].every(id => { const b = document.getElementById(id); return b.querySelector('img') && b.style.background !== ''; }), null, { timeout: 5000 });
+    await pV.$eval('#cardTabs [data-tab="logo"]', b => b.click());   // the small preview sits under the card maker's Logo button
     const fit = await pV.evaluate(() => ['previewAvatar', 'formAvatarPreview'].map(id => {
       const box = document.getElementById(id), r = box.getBoundingClientRect(), i = box.firstElementChild.getBoundingClientRect(), rad = parseFloat(getComputedStyle(box).borderTopLeftRadius);
       const inArc = (x, y) => { const cx = x < r.left + rad ? r.left + rad : x > r.right - rad ? r.right - rad : x, cy = y < r.top + rad ? r.top + rad : y > r.bottom - rad ? r.bottom - rad : y; return Math.hypot(x - cx, y - cy) <= rad + 0.01; };

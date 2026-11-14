@@ -687,6 +687,36 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('zoom chips: the chip for the zoom asked for, none for a zoom between them', chipFor(1, [0.5, 1, 2]) === 1 && chipFor(2.02, [0.5, 1, 2]) === 2 && chipFor(0.5, [0.5, 1, 2]) === 0 && chipFor(1.5, [0.5, 1, 2]) === -1 && chipFor(NaN, [1]) === -1);
 }
 
+// Smart burst (MOD03, 🐈 Iris, CAM-0028): the shutter watches the camera for a moment and keeps the best frame; the maths
+// ported from the lab measure page, which raven575's phone runs (11-11, 11-12) tuned
+{
+  const sb = await import(`${R}/modules/mod03-camera/smartBurst.js`);
+  const img = (w, h, fn) => { const px = new Uint8ClampedArray(w * h * 4); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const v = fn(x, y), i = (y * w + x) * 4; px[i] = px[i + 1] = px[i + 2] = v; px[i + 3] = 255; } return px; };
+  ok('smart burst: flat grey has no sharpness, stripes are sharp', sb.sharpness(img(20, 20, () => 128), 20, 20) === 0 && sb.sharpness(img(20, 20, x => (x % 2 ? 0 : 255)), 20, 20) > 1000);
+  const crisp = img(40, 20, x => (x % 8 < 4 ? 0 : 255)), soft = img(40, 20, x => 128 + 127 * Math.sin((x / 8) * 2 * Math.PI));
+  ok('smart burst: a blurred frame scores well under a crisp one', sb.sharpness(crisp, 40, 20) > sb.sharpness(soft, 40, 20) * 5);
+  ok('smart burst: glare counts blown-out pixels only', sb.glareShare(img(10, 10, (x, y) => (y < 2 ? 255 : 200))) === 0.2 && sb.glareShare(img(10, 10, () => 249)) === 0);
+  ok('smart burst: shine pulls a frame\'s score down', sb.frameScore(100, 0) === 100 && sb.frameScore(100, 0.1) <= 50 && sb.frameScore(100, 0.02) < sb.frameScore(100, 0.01));
+  let kept = []; const dropped = [];
+  for (const score of [5, 1, 9, 3, 7, 2, 8, 6]) { const r = sb.keepBest(kept, { score }, 3); kept = r.kept; if (r.dropped) dropped.push(r.dropped.score); }
+  ok('smart burst: keeps the best frames and hands back each one it drops (so its copy is freed at once)', kept.map(k => k.score).join() === '9,8,7' && dropped.length === 5 && sb.KEEP === 4, JSON.stringify({ kept, dropped }));
+  const w = 160, h = 100, pat = (x, y) => 128 + 60 * Math.sin(x / 5) * Math.cos(y / 7) + 40 * Math.sin((x + 2 * y) / 11);
+  const make = (sx, sy) => { const o = new Float32Array(w * h); for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) o[y * w + x] = pat(x - sx, y - sy); return o; };
+  const a = make(0, 0), s1 = sb.alignShift(a, make(14, -10), w, h, 24);
+  ok('smart burst: lines up a hand move of 14 px and flags one past its reach', s1.dx === 14 && s1.dy === -10 && !s1.edge && sb.alignShift(a, make(40, 0), w, h, 24).edge, JSON.stringify(s1));
+  ok('smart burst: blends only frames that line up well', JSON.stringify(sb.pickAligned([{ ref: true, err: 0 }, { err: 10 }, { err: 12 }, { err: 11 }, { err: 90 }, { err: 9, edge: true }])) === '[true,true,true,true,false,false]');
+  const base = img(10, 10, () => 120), shiny = img(10, 10, (x, y) => (x < 5 && y < 5 ? 255 : 120));
+  const blended = sb.medianBlend([{ data: shiny, dx: 0, dy: 0 }, { data: base, dx: 0, dy: 0 }, { data: base, dx: 0, dy: 0 }], 10, 10);
+  ok('smart burst: the blend removes shine that sits in only one of three frames', sb.glareShare(shiny) === 0.25 && sb.glareShare(blended) === 0 && blended[0] === 120 && blended[3] === 255);
+  const shifted = sb.medianBlend([{ data: img(4, 1, x => x * 10), dx: 0, dy: 0 }, { data: img(4, 1, x => x * 10 + 10), dx: -1, dy: 0 }], 4, 1);
+  ok('smart burst: the blend reads each frame at its shift, and a pixel a frame does not cover leaves that frame out', Array.from(shifted.filter((_, i) => i % 4 === 0)).join() === '0,10,20,30', Array.from(shifted).join());
+  ok('smart burst: a clean frame is never blended; shine on it with three frames lined up is', !sb.shouldBlend(0.001, 4) && !sb.shouldBlend(0.02, 2) && sb.shouldBlend(0.02, 3) && sb.shouldBlend(sb.BLEND_GLARE, 3));
+  ok('smart burst advice: light on with shine or washout asks to turn it off', sb.glareAdvice(0.36, true).kind === 'light-off' && sb.glareAdvice(0.03, true).kind === 'light-off' && sb.glareAdvice(0.0002, true, 180, true, 0.25).kind === 'light-off' && sb.glareAdvice(0.005, true) === null && sb.glareAdvice(0.0002, false, 180, true, 0.25) === null);
+  ok('smart burst advice: heavy shine with the light off asks to tilt the card', sb.glareAdvice(0.08, false).kind === 'tilt' && sb.glareAdvice(0.007, false) === null);
+  ok('smart burst advice: too dark offers the light, or more light when there is none', sb.glareAdvice(0, false, 40, true).kind === 'light-on' && sb.glareAdvice(0, false, 40, false).kind === 'dark' && sb.glareAdvice(0, true, 40, true).kind === 'dark' && sb.glareAdvice(0, false, 150, true) === null);
+  ok('smart burst advice: a bit dark asks softly, only where there is a light', sb.glareAdvice(0, false, 90, true).text === 'A bit dark. The light could help. Turn it on?' && sb.glareAdvice(0, false, 90, false) === null && Math.round(sb.meanLuma(img(8, 8, () => 100))) === 100);
+}
+
 // The live camera's own zoom (MOD03, raven575, Chrome on Android, 2026-10-24: the fader skipped, jumped back and forth
 // and once stopped at an old zoom): at most 4x, one request at a time, and the newest zoom is always the last one sent
 {
@@ -727,6 +757,29 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('card found: the hint and the shutter label say so in words', cam2.hint.textContent === 'Hold still, then tap the shutter' && cam2.shutterLabel.textContent === 'Card found');
   cam2.stopWatch();
   ok('camera off: the corners and the shutter go back, and the label says the camera is off', cam2.hint.textContent === 'Fit the card inside the corners' && cam2.shutterLabel.textContent === 'Camera off' && cam2.watchTimer === null);
+  // The light (Smart burst, CAM-0028): shown only for a camera with a torch, switched through the track, and back on
+  // after Retake when the person had it on
+  const attrs = {}, cls = new Set(['hidden']);
+  const lightBtn = { ...el(), setAttribute(k, v) { attrs[k] = v; }, classList: { add: c => cls.add(c), remove: c => cls.delete(c), contains: c => cls.has(c) } };
+  const cam3 = new VCGEActiveCamera({ ...cfg, lightButton: lightBtn, hint: el(), shutterLabel: el() });
+  const torch = [];
+  const lit = { getCapabilities: () => ({ torch: true }), applyConstraints(c) { torch.push(c.advanced[0].torch); return Promise.resolve(); } };
+  cam3.activeStream = { getVideoTracks: () => [lit], getTracks: () => [] };
+  cam3.setupLight({ getCapabilities: () => ({}) });
+  ok('light: a camera with no torch keeps the light button hidden', cls.has('hidden') && !cam3.hasLight);
+  cam3.setupLight(lit);
+  ok('light: a camera with a torch shows the light button, off', !cls.has('hidden') && cam3.hasLight && !cam3.lightOn && attrs['aria-pressed'] === 'false');
+  cam3.wantLight = true; await cam3.setLight(true);
+  ok('light: turning it on switches the torch and shows the button pressed', JSON.stringify(torch) === '[true]' && cam3.lightOn && attrs['aria-pressed'] === 'true', JSON.stringify(torch));
+  cam3.stopCamera();
+  ok('light: closing the camera turns the light off and hides the button', !cam3.lightOn && cls.has('hidden') && attrs['aria-pressed'] === 'false');
+  cam3.activeStream = { getVideoTracks: () => [lit], getTracks: () => [] };
+  cam3.setupLight(lit); await new Promise(r => setTimeout(r, 0));
+  ok('light: when the camera opens again (Retake) the light comes back on if it was on', JSON.stringify(torch) === '[true,true]' && cam3.lightOn, JSON.stringify(torch));
+  const toasts = []; cam3.toast = (m) => toasts.push(m);
+  cam3.activeStream = { getVideoTracks: () => [{ applyConstraints: () => Promise.reject(new Error('no')) }], getTracks: () => [] };
+  ok('light: a camera that refuses says so and keeps the light as it was', (await cam3.setLight(false)) === false && cam3.lightOn && toasts[0] === 'The light would not turn off.', JSON.stringify(toasts));
+  cam3.activeStream = null;
   globalThis.addEventListener = savedAdd;
 }
 
@@ -1822,6 +1875,39 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     hop.at01 < 0.1 && hop.past > 2 && hop.past < 0.2 * 120 && hop.settledAt !== null && hop.settledAt < 3 && hop.x === 120, JSON.stringify(hop));
   ok('shell art: the turtle has a top speed, so a long way takes him a while, and he still gets there',
     far.top <= art.WALK.maxSpeed && far.settledAt > 2 && far.settledAt < 6 && far.x === 0, JSON.stringify(far));
+  // Easy + premium step 2 (cardTabs.js): one category at a time; the mini card once the box has scrolled 40% of the card
+  const tabs = await import(`${R}/modules/mod06-gui/cardTabs.js`);
+  ok('card tabs: Colour, Logo, Style and Paper, in that order', tabs.CARD_TABS.join() === 'colour,logo,style,paper');
+  ok('card tabs: the mini card shows only once the box has scrolled more than 40% of the card\'s height',
+    !tabs.miniWanted(0, 240) && !tabs.miniWanted(96, 240) && tabs.miniWanted(97, 240) && !tabs.miniWanted(500, 0));
+  {
+    const btn = (t) => ({ dataset: { tab: t }, attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } });
+    const bs = tabs.CARD_TABS.map(btn), body = { dataset: { tab: 'colour' } }, look = { open: false };
+    const fakeDoc = { querySelector: () => body, querySelectorAll: () => bs, getElementById: (id) => id === 'cardLookPanel' ? look : null };
+    const seen = ['logo', 'style', 'paper', 'nonsense', 'colour'].map(t => `${tabs.showCardTab(fakeDoc, t)}:${look.open}:${bs.filter(b => b.attrs['aria-pressed'] === 'true').map(b => b.dataset.tab)}`);
+    ok('card tabs: a pick shows that category alone, opens the Paper & logo panel only for Logo and Paper, and ignores an unknown name',
+      seen.join('|') === 'logo:true:logo|style:false:style|paper:true:paper|paper:true:paper|colour:false:colour', seen.join('|'));
+  }
+  // Easy + premium step 3 (guesses.js): two or three guesses from the letters the reader nearly read
+  const gs = await import(`${R}/modules/mod04-ocr/guesses.js`);
+  const swaps = gs.wordSwaps('Dana Wh1tlock', [{ at: 7, chars: ['1', 'i', 'l'] }]);
+  ok('guesses: each letter the reader nearly read is a word swap, surest first, then all first choices at once (no repeat)',
+    swaps.map(s => `${s.from}>${s.to}`).join('|') === 'Wh1tlock>Whitlock|Wh1tlock>Whltlock', JSON.stringify(swaps));
+  ok('guesses: no alts, a letter that no longer matches, or a single choice give no swap',
+    gs.wordSwaps('Dana', []).length === 0 && gs.wordSwaps('Dana', [{ at: 1, chars: ['x', 'y'] }]).length === 0 && gs.wordSwaps('Dana', [{ at: 1, chars: ['a'] }]).length === 0);
+  const two = gs.wordSwaps('J0hn Sm1th', [{ at: 1, chars: ['0', 'o'] }, { at: 7, chars: ['1', 'i'] }]);
+  ok('guesses: two shaky words give one guess each and one with both fixed, three at most',
+    gs.guessesFor('J0hn Sm1th', two).join('|') === 'John Sm1th|J0hn Smith', gs.guessesFor('J0hn Sm1th', two).join('|'));
+  ok('guesses: a swap whose word is gone from the shown line is dropped, the line itself is never a guess, and the cap holds',
+    gs.guessesFor('Whitlock', swaps).length === 0 && gs.guessesFor('Wh1tlock', [{ from: 'Wh1tlock', to: 'Wh1tlock' }]).length === 0
+    && gs.guessesFor('a b c d', [{ from: 'a', to: 'A' }, { from: 'b', to: 'B' }, { from: 'c', to: 'C' }, { from: 'd', to: 'D' }]).length === gs.MAX_GUESSES);
+  {
+    const { ContactFormMapper: FM } = await import(`${R}/modules/mod05-form/formMapper.js`);
+    const lines = new FM().classifyLines([{ text: 'Dana Whitlcck', alts: [{ at: 10, chars: ['c', 'o', 'e'] }], unsure: ['Whitlcck'] }, { text: 'dwhitlock@example.com' }, { text: '616.555.0142' }]);
+    const name = lines.find(l => l.role === 'name');
+    ok('guesses: a name the reader was unsure of comes to the review with its check and its guesses; a sure line has none',
+      !!name && !!name.check && (name.guesses || []).join('|') === 'Dana Whitlock|Dana Whitleck' && !lines.find(l => l.role === 'email').guesses, JSON.stringify(lines));
+  }
   // Layout step 1 (tier.js): the screen tier is the width over the text size; 21:9 from monitor width is wide
   const tier = await import(`${R}/modules/mod01-shell/tier.js`);
   const tiers = (pairs, size) => pairs.map(([w, h]) => tier.tierFor(w, h, size)).join();

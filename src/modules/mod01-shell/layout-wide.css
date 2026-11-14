@@ -1,0 +1,104 @@
+/* vCGE-MOD01: wide screens (easy + premium plan, step 1; raven575 approved 2026-11-13 03:48 UTC)
+   Created by raven575, Herd of Helpers (claude) & gemini
+
+   On a laptop, a monitor or a wider screen (html[data-tier], tier.js) the app stops being a phone-sized column in the
+   middle: the frame spreads out, the step's title moves up into the top bar, the dock becomes one row, and each screen
+   uses two panes (the picture or the card on the left, its tools on the right) so nothing on a 1080p monitor or a laptop
+   needs a scroll. Phones and tablets keep their layout. Sheets (Vault, Settings) keep their phone width. */
+
+/* The Details columns (index.html .fields-col) step aside on a phone: the groups stay one list, as before */
+.fields-col { display: contents; }
+
+:root[data-tier="laptop"] { --sh-frame: 80rem; }
+:root[data-tier="monitor"] { --sh-frame: 84rem; }
+:root[data-tier="wide"] { --sh-frame: 96rem; }
+
+/* ---- The frame: bar, deck and dock as wide as the screen allows ---- */
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) .vcge-bar, :root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) .deck { max-width: var(--sh-frame); }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) .vcge-bar { padding-left: 24px; padding-right: 24px; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) .vcge-sheet-panel { max-width: 40rem; }
+
+/* ---- The head sits in the middle of the top bar (the bar is otherwise empty there on a wide screen) ---- */
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) .vcge-head { position: absolute; z-index: 2; top: 0; left: 50%; transform: translateX(-50%);
+    width: auto; max-width: min(40rem, calc(100% - 34rem)); height: 68px; padding: 8px 0 0; box-sizing: border-box;
+    display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) .vcge-head h2 { font-size: 1.5rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) .vcge-eyebrow { justify-content: center; }
+
+/* ---- The dock: the five steps and Back / Next on one row ---- */
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) .vcge-dock { display: flex; align-items: center; gap: 24px; padding: 8px 24px calc(10px + env(safe-area-inset-bottom, 0px)); }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) .vcge-dock > * { width: 100%; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) .vcge-steps { flex: 1 1 auto; max-width: 36rem; margin: 0 0 0 auto; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) .vcge-actions { flex: 0 1 30rem; max-width: 30rem; margin: 0 auto 0 0; }
+
+/* ---- Each screen: two panes ---- */
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) .deck-card-body { padding: 8px 24px 16px; }
+
+/* Welcome: the hello on the left, what the app promises and who made it on the right */
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #welcomeBody.r2-hero { display: block; columns: 2; column-gap: 48px; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #welcomeBody.r2-hero > * { break-inside: avoid; margin-left: auto; margin-right: auto; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #welcomeBody.r2-hero > * + * { margin-top: 10px; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #welcomeBody.r2-hero > #welcomeArt { display: block; }
+
+/* Details: the groups in columns (Name and Work | Reach | Address | Notes, index.html .fields-col), so the form fits
+   the screen; a monitor puts Notes under Address. Plain grid, no multi-column flow (Firefox, CI 11-13). */
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields #fieldsForm { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-areas: "a b c" "a b d";
+    gap: 0 32px; align-items: start; margin-bottom: 0; }
+:root[data-tier="laptop"] #cardFields #fieldsForm { grid-template-columns: repeat(4, minmax(0, 1fr)); grid-template-areas: "a b c d"; gap: 0 24px; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .fields-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .fields-col > h4 { margin-bottom: -8px; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .fields-col-a { grid-area: a; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .fields-col-b { grid-area: b; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .fields-col-c { grid-area: c; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .fields-col-d { grid-area: d; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .fields-col-d > :first-child { margin-top: 14px; }
+:root[data-tier="laptop"] #cardFields .fields-col-d > :first-child { margin-top: 0; }
+/* ...and "Add a field", the sample contacts and Clear sit at the foot of the first column, under Name and Work (on a
+   laptop "Add a field" sits under Notes) */
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .deck-card-body { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); column-gap: 32px; align-content: start; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .deck-card-body > * { grid-column: 1; grid-row: 1; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .deck-card-body > #fieldsForm { grid-column: 1 / -1; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .deck-card-body > :not(#fieldsForm) { align-self: end; position: relative; z-index: 1; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .deck-card-body > #fieldsAddBtn { margin-bottom: 72px; }
+:root[data-tier="laptop"] #cardFields .deck-card-body { grid-template-columns: repeat(4, minmax(0, 1fr)); column-gap: 24px; }
+:root[data-tier="laptop"] #cardFields .deck-card-body > #fieldsAddBtn { grid-column: 4; }
+:root[data-tier="laptop"] #cardFields .deck-card-body > #fieldsAddBtn { margin-bottom: 0; }
+
+/* Your card: the card big on the left (it stays in view), the design tools on the right */
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardCard .r4-card { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); column-gap: 40px; align-content: start; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardCard .r4-card > * { grid-column: 2; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardCard .r4-card > .r4-stage { grid-column: 1; grid-row: 1 / 4; align-self: start; position: sticky; top: 8px;
+    width: 100%; max-width: 520px; margin: 24px auto 0; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardCard .r4-card > .r4-flipnote { grid-column: 1; grid-row: 4; align-self: start; margin-top: 4px; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardCard .r4-card > .r4-group { margin-bottom: 0; }
+
+/* Share: what to keep on the left, where to send it on the right */
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardShare .r4-share { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 28px; align-content: start; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardShare .r4-share > :not(.r4-group) { grid-column: 1 / -1; }
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardShare .r4-share > .r4-group { margin-bottom: 16px; }
+
+/* Capture and Read keep one column (the photo is the point), just a little wider than a phone */
+:root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardCapture .deck-card-body, :root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardRead .deck-card-body { max-width: 52rem; margin: 0 auto; width: 100%; }
+
+/* A short wide window (a 1366 x 768 laptop leaves about 650 px for the page): less padding and 44 px boxes (still the
+   touch-size floor), so Details fits too */
+@media (max-height: 760px) {
+    :root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) .deck-card-body { padding-top: 4px; padding-bottom: 4px; }
+    :root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .field-input { min-height: 44px; border-radius: 14px; }
+    :root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .fields-list,
+    :root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .fields-rows { gap: 6px; }
+    :root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .fields-col { gap: 6px; }
+    :root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) #cardFields .fields-col > h4 { margin-bottom: -4px; }
+    :root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) .vcge-dock { padding-top: 4px; padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px)); }
+}
+
+/* Tablets and an open Fold: Details in two columns (Name, Work and Reach | Address and Notes), so the form is about half
+   as tall. Capture and Read keep the big photo on top (raven575's Fold pick, 2026-10-22). */
+:root:is([data-tier="small-tablet"], [data-tier="large-tablet"]) #cardFields #fieldsForm { grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-areas: "a c" "b c" "b d"; gap: 0 24px; align-items: start; }
+:root:is([data-tier="small-tablet"], [data-tier="large-tablet"]) #cardFields .fields-col { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+:root:is([data-tier="small-tablet"], [data-tier="large-tablet"]) #cardFields .fields-col > h4 { margin-bottom: -10px; }
+:root:is([data-tier="small-tablet"], [data-tier="large-tablet"]) #cardFields .fields-col-a { grid-area: a; }
+:root:is([data-tier="small-tablet"], [data-tier="large-tablet"]) #cardFields .fields-col-b { grid-area: b; margin-top: 16px; }
+:root:is([data-tier="small-tablet"], [data-tier="large-tablet"]) #cardFields .fields-col-c { grid-area: c; }
+:root:is([data-tier="small-tablet"], [data-tier="large-tablet"]) #cardFields .fields-col-d { grid-area: d; margin-top: 16px; }

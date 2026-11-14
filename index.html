@@ -49,6 +49,8 @@
     <link rel="stylesheet" href="src/modules/mod05-form/fields.css">
     <!-- MOD01 the pilots' drawings (Creative CRTV-0059): round line ends and the slow sway, off under reduced motion -->
     <link rel="stylesheet" href="src/modules/mod01-shell/tour-art.css">
+    <!-- MOD01 wide screens: laptop, monitor and wider get two panes and no scrolling (easy + premium plan, step 1) -->
+    <link rel="stylesheet" href="src/modules/mod01-shell/layout-wide.css">
 </head>
 <body class="bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100 h-screen flex flex-col antialiased overflow-hidden">
     <!-- Opening splash (MOD01, CRTV-0020): the Herd of Helpers maker mark, "presents", then the vCGE logo (plain: the
@@ -144,6 +146,8 @@
                             <span class="cap-corner tl"></span><span class="cap-corner tr"></span><span class="cap-corner br"></span><span class="cap-corner bl"></span>
                         </div>
                         <div id="camHint" class="r2-hint" aria-live="polite">Fit the card inside the corners</div>
+                        <!-- The light (Smart burst, CAM-0028): shown only when the camera has a torch the page may switch (camera.js setupLight) -->
+                        <button id="lightBtn" type="button" class="r2-light hidden" aria-pressed="false" aria-label="Light" title="Light"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 3L5 14h6l-1 7 8-11h-6z"/></svg></button>
                         <button id="stopCameraBtn" type="button" class="r2-close" aria-label="Close camera" title="Close camera"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
                         <!-- Zoom: three chips over the foot of the picture. They drive the same zoom as before (camera.js pickZoom: the
                              slider below, kept as the zoom's value, eases into each change); a pinch still zooms anywhere in between. -->
@@ -269,6 +273,9 @@
             <datalist id="unitTypeOptions"></datalist>
 
             <div id="fieldsForm" class="fields-form">
+                <!-- Four columns on a wide screen (layout-wide.css): Name and Work | Reach | Address | Notes. On a phone the
+                     columns step aside (display: contents) and the groups run down the screen as before. -->
+                <div class="fields-col fields-col-a">
                 <h4 class="fields-group">Name</h4>
                 <div class="fields-pair">
                     <label class="block"><span class="field-label">First name</span><input id="firstName" type="text" autocomplete="off" class="field-input"></label>
@@ -279,6 +286,8 @@
                 <label class="block"><span class="field-label">Job title</span><input id="jobTitle" type="text" autocomplete="off" class="field-input"></label>
                 <label class="block"><span class="field-label">Company</span><input id="organization" type="text" autocomplete="off" class="field-input"></label>
 
+                </div>
+                <div class="fields-col fields-col-b">
                 <h4 class="fields-group">Reach</h4>
                 <!-- Typed lists (MOD06 builds the rows): each row is a value box, its type and a remove button -->
                 <fieldset class="fields-list">
@@ -302,6 +311,8 @@
                     <button id="addWebsiteBtn" type="button" class="fields-add-row">+ Add website</button>
                 </fieldset>
 
+                </div>
+                <div class="fields-col fields-col-c">
                 <fieldset class="fields-address">
                     <legend class="field-label">Address</legend>
                     <label class="block"><span class="field-label">Type</span><select id="addressType" class="field-input"></select></label>
@@ -323,6 +334,8 @@
                 </fieldset>
 
 
+                </div>
+                <div class="fields-col fields-col-d">
                 <h4 class="fields-group">Notes</h4>
                 <label class="block"><span class="field-label">Notes</span><textarea id="notes" rows="2" class="field-input"></textarea></label>
                 <!-- Categories (MOD05): tags typed by the person, comma separated; written as the vCard's CATEGORIES -->
@@ -346,6 +359,7 @@
                     <p id="fieldsUnknownHelp" class="fields-hint" aria-live="polite"></p>
                     <ul id="fieldsUnknownList" class="fields-unknown-list"></ul>
                 </div>
+                </div>
             </div>
             <button id="fieldsAddBtn" type="button" class="fields-add" aria-controls="fieldsMore" aria-expanded="false">+ Add a field</button>
             <!-- "Sample vCGE pilot contact": the nine pilots (MOD06 supplies them as data; fieldsCard.js fills the list), and Clear form -->
@@ -360,7 +374,7 @@
             </div>
         </section>
         <section id="cardCard" class="deck-card" data-card="card" data-step="Step 4 of 5 · Card" data-pilot-emoji="🦎" data-pilot="Flipside" data-title="Your card" data-next="#readyToShareBtn" data-next-label="Share" aria-label="3D card">
-            <div class="deck-card-body r4-card">
+            <div class="deck-card-body r4-card" data-tab="colour">
                 <!-- 0.8 Card (Creative's mock-up, gap list row 17): one card, front and QR back, first; a tap on its left side spins
                      it left and on its right side spins it right (620 ms, soft ease out; card3dView.js), a sideways drag
                      still turns it. Below: round colour swatches, the logo tip with its safe-area guide, then the card's
@@ -413,6 +427,14 @@
                 <div class="r4-design-head" id="cardDesignHead">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="6" width="18" height="12" rx="2.5"/><path d="M7 11h6M7 14h4"/></svg>
                     <b>Card design</b><small id="cardDesignNote">Changes this card only. The app keeps its look.</small>
+                </div>
+                <!-- What to change (easy + premium plan, step 2; raven575 2026-11-13): one category at a time, picked by a picture
+                     button, so the box below stays short and the card stays in view. cardTabs.js (MOD06) wires them. -->
+                <div id="cardTabs" class="r4-tabs" role="group" aria-label="What to change on the card">
+                    <button type="button" class="r4-tab" data-tab="colour" aria-pressed="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="9"/><circle cx="8.5" cy="10" r="1.3"/><circle cx="12" cy="7.5" r="1.3"/><circle cx="15.5" cy="10" r="1.3"/><path d="M12 21c-1.5 0-2-1.2-2-2.2 0-1.4 1.2-2 2.6-2H15"/></svg><span>Colour</span></button>
+                    <button type="button" class="r4-tab" data-tab="logo" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="4" width="18" height="16" rx="3"/><circle cx="9" cy="10" r="2"/><path d="m21 16-5-5-9 9"/></svg><span>Logo</span></button>
+                    <button type="button" class="r4-tab" data-tab="style" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M3 19 8 5l5 14M4.8 14h6.4"/><circle cx="17.5" cy="15.5" r="3.5"/><path d="M21 12v7"/></svg><span>Style</span></button>
+                    <button type="button" class="r4-tab" data-tab="paper" aria-pressed="false"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M6 3h8l5 5v13H6z"/><path d="M14 3v5h5M9 13h7M9 17h5"/></svg><span>Paper</span></button>
                 </div>
                 <div id="paletteListContainer" class="r4-swatches" role="group" aria-label="Card colours" aria-describedby="cardDesignNote"></div>
                 <p class="vcge-sr-only" aria-live="polite">Card colour: <span id="currentPaletteLabel">Ocean Blue</span></p>
@@ -894,16 +916,21 @@
         </form>
     </div>
 
-    <!-- Session PIN setup (MOD02): from the Security panel -->
-    <div id="quickSetupModal" class="hidden fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4">
-        <form id="quickSetupForm" class="bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-sm w-full space-y-3 shadow-2xl">
-            <h2 class="text-lg font-bold">Session PIN</h2>
-            <p id="quickSetupHint" class="text-xs text-slate-500 dark:text-slate-400"></p>
-            <label class="block"><span class="field-label">4-digit PIN</span><input id="sessionPinInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-bwignore data-form-type="other" class="field-input"></label>
-            <p id="quickSetupError" class="text-xs text-rose-600 dark:text-rose-400 min-h-4" role="alert"></p>
-            <div class="flex justify-between gap-2">
-                <button id="quickSetupSkipBtn" type="button" class="px-3 py-2 rounded-lg text-xs text-slate-500 hover:text-slate-900 dark:hover:text-white transition">Not now</button>
-                <button id="quickSetupSaveBtn" type="submit" class="px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition">Set PIN</button>
+    <!-- Session PIN setup (MOD02): from the Vault page's PIN switch and its Change button. Ghost's look, like the lock
+         screen (raven575 2026-11-13): Ghost and the paw prints follow the digits typed; the plain edition shows neither. -->
+    <div id="quickSetupModal" class="hidden fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4" data-face="away">
+        <form id="quickSetupForm" class="vault-setup" aria-labelledby="quickSetupTitle" aria-describedby="quickSetupHint">
+            <div class="vault-setup-head">
+                <h2 id="quickSetupTitle" class="vault-title"><svg class="vcge-icon" aria-hidden="true"><use href="src/vendor/icons/app/sprite.svg#lock"></use></svg>Session PIN</h2>
+                <span class="vcge-pilot-chip" title="Ghost the Raccoon keeps the Vault"><i aria-hidden="true">🦝</i><span>Ghost</span></span>
+            </div>
+            <p id="quickSetupHint" class="vault-setup-hint"></p>
+            <svg id="quickSetupGhost" class="vault-ghost" aria-hidden="true" focusable="false" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 160 160"><defs><filter id="c-ghost-lock-guard-setup" x="-6%" y="-6%" width="112%" height="112%"><feTurbulence type="fractalNoise" baseFrequency="1.1" numOctaves="2" seed="4" result="n"/><feDisplacementMap in="SourceGraphic" in2="n" scale="1.8"/></filter></defs><g filter="url(#c-ghost-lock-guard-setup)"><path d="M30 156 q-26 -6 -22 -42" fill="none" stroke="#2f3036" stroke-width="19" stroke-linecap="round" stroke-linejoin="round"/><path d="M30 156 q-26 -6 -22 -42" fill="none" stroke="#73757e" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/><path d="M16 150 l-8 4 M10 136 l-9 1 M9 122 l-9 -2" stroke="#3c4093" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/><path d="M40 160 q-2 -48 40 -50 q42 2 40 50 z" fill="#a7a9b0" stroke="#2f3036" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><rect x="70" y="132" width="20" height="18" rx="4" fill="#8d8f97" stroke="#2f3036" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M76 132 v-5 q0 -6 4 -6 q4 0 4 6 v5" fill="none" stroke="#2f3036" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M44 110 q36 14 72 0 q2 10 -6 14 q-30 8 -60 0 q-8 -4 -6 -14 z" fill="#3c4093" stroke="#2f3036" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M52 50 l-8 -24 l24 12 z M108 50 l8 -24 l-24 12 z" fill="#73757e" stroke="#2f3036" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M53 46 l-3 -10 l10 6 z M107 46 l3 -10 l-10 6 z" fill="#c9a0a8"/><circle cx="80" cy="66" r="32" fill="#73757e" stroke="#2f3036" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M78 34 q2 12 7 16 q2 -10 -2 -16" fill="#f4f6fa"/><path d="M48 66 q16 -16 32 -4 q16 -12 32 4 q-7 14 -32 7 q-25 7 -32 -7 z" fill="#2b2b33"/><ellipse cx="80" cy="80" rx="17" ry="11" fill="#e9eaee"/><circle cx="80" cy="75" r="3.4" fill="#2b2533"/><path d="M74 84 q6 5 12 0" fill="none" stroke="#2f3036" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><g class="ghost-eyes"><circle cx="68" cy="66" r="6.2" fill="#3fb0a8"/><circle cx="68" cy="66" r="4.4" fill="#2b2533"/><circle cx="69.5" cy="64.4" r="1.5" fill="#fff"/><circle cx="92" cy="66" r="6.2" fill="#3fb0a8"/><circle cx="92" cy="66" r="4.4" fill="#2b2533"/><circle cx="93.5" cy="64.4" r="1.5" fill="#fff"/></g><g class="ghost-wink" visibility="hidden"><circle cx="92" cy="66" r="7" fill="#2b2b33"/><path d="M86 67 q6 -6 12 0" fill="none" stroke="#e9eaee" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/></g><g class="ghost-brows"><path d="M61 54 q7 -5 14 -1 M85 53 q7 -4 14 1" fill="none" stroke="#e9eaee" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></g><g class="ghost-shades" visibility="hidden"><path d="M46 62 h68" stroke="#2f3036" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><path d="M57 61 h20 q0 13 -10 13 q-10 0 -10 -13 z M83 61 h20 q0 13 -10 13 q-10 0 -10 -13 z" fill="#1d1d26" stroke="#2f3036" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><path d="M61 64 l5 0 M87 64 l5 0" stroke="#8fd3e8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></g><g class="ghost-paw-right"><path d="M54 134 q-6 -20 -18 -30" fill="none" stroke="#2f3036" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/><path d="M54 134 q-6 -20 -18 -30" fill="none" stroke="#3c4093" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/><ellipse cx="36" cy="100" rx="10" ry="11" fill="#3c4093" stroke="#2f3036" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M31 91 v-4 M36 90 v-5 M41 91 v-4" stroke="#d9dce4" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></g><g class="ghost-paw-left"><path d="M106 134 q6 -20 18 -30" fill="none" stroke="#2f3036" stroke-width="15" stroke-linecap="round" stroke-linejoin="round"/><path d="M106 134 q6 -20 18 -30" fill="none" stroke="#3c4093" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/><ellipse cx="124" cy="100" rx="10" ry="11" fill="#3c4093" stroke="#2f3036" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M119 91 v-4 M124 90 v-5 M129 91 v-4" stroke="#d9dce4" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></g></g></svg>
+            <label class="block"><span class="field-label">Choose a 4-digit PIN</span><span class="vault-pin-wrap"><input id="sessionPinInput" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="4" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" data-lpignore="true" data-1p-ignore data-bwignore data-form-type="other" class="field-input"><span id="quickSetupPaws" class="vault-pin-paws" data-filled="0" aria-hidden="true"><svg class="vault-paw"><use href="#vaultPawPrint"></use></svg><svg class="vault-paw"><use href="#vaultPawPrint"></use></svg><svg class="vault-paw"><use href="#vaultPawPrint"></use></svg><svg class="vault-paw"><use href="#vaultPawPrint"></use></svg></span></span></label>
+            <p id="quickSetupError" class="vault-setup-error" role="alert"></p>
+            <div class="vault-setup-actions">
+                <button id="quickSetupSkipBtn" type="button" class="vault-btn-quiet">Not now</button>
+                <button id="quickSetupSaveBtn" type="submit" class="vault-btn">Set PIN</button>
             </div>
         </form>
     </div>

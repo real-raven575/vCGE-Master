@@ -86,7 +86,11 @@ async function stopDriver(driver) {
     await sheetsSettled();
     // WebKitWebDriver scrolls only the page before a click, not the card's own scrolling body, so a button low on a
     // long card is scrolled into view first, as a person would. It must still be the element under the tap.
-    await js(`document.querySelector(arguments[0]).scrollIntoView({ block: 'nearest', inline: 'nearest' });`, css);
+    // A sheet that has just been unhidden may not have started its slide yet (no animation to wait for), so the button
+    // can still sit below the window: scroll again until its centre is inside the window (Vault PIN switch, Linux CI).
+    await until(() => js(`const el = document.querySelector(arguments[0]); el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      const r = el.getBoundingClientRect(), x = r.left + r.width / 2, y = r.top + r.height / 2;
+      return x >= 0 && y >= 0 && x <= innerWidth && y <= innerHeight;`, css), 3000);
     // A toast over the button takes the tap (a tap on it dismisses it), so the click waits for it to go, as Playwright's
     // own clicks do in the browser runs (a 3 s toast; 8 s with Undo)
     await until(() => js(`const el = document.querySelector(arguments[0]), r = el.getBoundingClientRect();

@@ -94,6 +94,16 @@
 #cardRead .read-flag .read-note { color: var(--sh-ink); }
 #cardRead .read-flag-icon { width: 18px; height: 18px; flex: none; margin-top: 2px; fill: none; stroke: var(--r3-warn); stroke-width: 2.2; stroke-linecap: round; }
 @media (forced-colors: active) { #cardRead .read-flag { border: 1px solid CanvasText; } }
+/* Step 3 (easy + premium): the guesses under the flag are big buttons, one tap each, no fine typing needed */
+#cardRead .read-guesses { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+#cardRead .read-guesses button {
+    min-height: 48px; padding: 8px 16px; border-radius: 14px; font: inherit; font-size: 1.1em; cursor: pointer;
+    border: 2px solid var(--sh-line); background: var(--sh-surface); color: var(--sh-ink); overflow-wrap: anywhere; text-align: start;
+}
+#cardRead .read-guesses .read-guess { font-weight: 600; border-color: var(--r3-warn); }
+#cardRead .read-guesses .read-guess-alt { font-size: 1em; }
+#cardRead .read-guesses button:focus-visible { outline: 3px solid var(--sh-ink); outline-offset: 2px; }
+@media (forced-colors: active) { #cardRead .read-guesses button { border-color: ButtonText; } }
 
 /* The "Looks right" box (read.css draws it) takes the warning tone of the flag */
 #cardRead .read-ok:not(.is-ok):not(:checked)::before { border-color: var(--r3-warn); background: var(--sh-surface); }
