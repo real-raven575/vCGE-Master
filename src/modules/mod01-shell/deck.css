@@ -205,10 +205,13 @@ html[data-edition="plain"] .vcge-chip-pilot { display: none; }
 
 /* ---- Toast: a pill above the dock ---------------------------------------------------------------------------- */
 .vcge-toast { position: fixed; left: 50%; bottom: calc(150px + env(safe-area-inset-bottom, 0px)); top: auto; z-index: 50;
-    transform: translate(-50%, 0); max-width: calc(100vw - 2rem); padding: 10px 16px; border-radius: 999px;
+    transform: translate3d(-50%, 0, 1000px); max-width: calc(100vw - 2rem); padding: 10px 16px; border-radius: 999px;
     background: var(--sh-ink); color: var(--sh-bg); font: 600 14px system-ui, sans-serif; box-shadow: var(--sh-shadow-lift);
     display: flex; align-items: center; gap: 12px; cursor: pointer; user-select: none; transition: opacity 200ms, transform 260ms var(--ease-out); }
-.vcge-toast.opacity-0 { transform: translate(-50%, 16px); }
+.vcge-toast.opacity-0 { transform: translate3d(-50%, 16px, 1000px); }
+/* The 1000px depth draws nothing different (no perspective above the toast), but WebKit (iPhone CI, PR #22, 2026-11-15)
+   hit-tested the card's 3D layer (preserve-3d) above the toast, so a tap meant for the toast landed on the card and could
+   flip it. A depth well in front of the card keeps the toast first in line for the tap. */
 .vcge-toast #toastAction { color: var(--sh-soft); }
 
 /* ---- Welcome card: its 0.8 layout is in screens-r2.css (0.8 redo R2) ---- */

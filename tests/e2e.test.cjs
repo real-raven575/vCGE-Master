@@ -4222,6 +4222,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p6.waitForTimeout(700);
     ok('toast: gone after 3 s', await p6.$eval('#toast', t => t.classList.contains('opacity-0')));
     await p6.click('#paletteListContainer [data-theme="maple"]');
+    await p6.waitForTimeout(400);   // after the slide-in: what a tap at the toast's middle reaches (logged, for WebKit)
+    console.log('toast hit:', JSON.stringify(await p6.evaluate(() => { const r = document.getElementById('toastMessage').getBoundingClientRect();
+      const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return { hit: el && (el.id || el.className), r: [r.x, r.y, r.width, r.height].map(Math.round), vw: innerWidth, sw: document.documentElement.scrollWidth }; })));
     await p6.click('#toastMessage');
     ok('toast: a tap dismisses it at once', await p6.$eval('#toast', t => t.classList.contains('opacity-0')));
     await p6.click('#paletteListContainer [data-theme="spruce"]');
