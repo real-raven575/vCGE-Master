@@ -386,6 +386,7 @@ button.vcge-pick-btn:disabled { opacity: .55; cursor: default; }
    round, Go and the shutter half as big again; the wipe's Yes is a tap (wipeDialog.js), so it reads "Yes, wipe". ---- */
 html[data-easy="on"] button:not([role="option"]):not(.vcge-pick-row) { min-height: 56px; }
 html[data-easy="on"] button.vcge-iconbtn { width: 56px; height: 56px; min-width: 56px; }
-html[data-easy="on"] .r2-go-btn { width: 132px; height: 132px; font-size: 2.25rem; }
+html[data-easy="on"] .r2-go-btn { width: 132px; }
+@media (max-width: 700px) { html[data-easy="on"] .r2-go-btn { width: max(132px, min(55vw, 40vh)); } }
 html[data-easy="on"] .r5-toggle { transform: scale(1.25); }
 html[data-easy="on"] #cardCapture .r2-shutter { width: 104px; height: 104px; min-width: 104px; min-height: 104px; }
