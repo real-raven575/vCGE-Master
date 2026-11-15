@@ -803,7 +803,14 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   const cvd = await page.evaluate(() => ({ cvd: document.documentElement.dataset.cvd, cb: document.documentElement.dataset.cb, good: document.documentElement.style.getPropertyValue('--vcge-good'), entry: localStorage.getItem('vcge_settings') }));
   ok('colour vision: five choices with a picture each, big enough for a finger; Red-weak saves cb=2, keeps words and marks and moves "good" to blue',
     cvdRows === 'Typical:true|Red-weak (protan):true|Green-weak (deutan):true|Blue-weak (tritan):true|No colour:true' && cvd.cvd === 'protan' && cvd.cb === '1' && /^#(1d4ed8|8ab4ff)$/.test(cvd.good) && /cb=2;/.test(cvd.entry), JSON.stringify({ cvdRows, cvd }));
+  // Step 6 (easy + premium): the named colour set follows the choice: a real "go" (a pressed switch) and a real "stop"
+  // (the wipe dialog's No) turn blue and orange, and nothing is laid over the page, so the photo and card stay true
+  const swatch = (v) => page.evaluate((name) => { const d = document.createElement('i'); d.style.color = `var(${name})`; document.body.append(d); const c = getComputedStyle(d).color; d.remove(); return c; }, v);
+  const cvdSet = { good: await swatch('--good-600'), stop: await swatch('--stop-600'), filter: await page.evaluate(() => getComputedStyle(document.documentElement).filter) };
+  ok('colour vision (step 6): Red-weak swaps the named set (go blue, stop orange) and lays no filter over the page',
+    cvdSet.good === 'rgb(37, 99, 235)' && cvdSet.stop === 'rgb(234, 88, 12)' && cvdSet.filter === 'none', JSON.stringify(cvdSet));
   await page.selectOption('#cvdSelect', '0');
+  ok('colour vision (step 6): Typical gives the named set back its green and red', (await swatch('--good-600')) === 'rgb(22, 163, 74)' && (await swatch('--stop-600')) === 'rgb(220, 38, 38)');
   ok('colour vision: Typical goes back to plain colour-blind mode (cb=1)', !(await page.evaluate(() => document.documentElement.dataset.cvd)) && /cb=1;/.test((await htmlState()).entry));
   ok('App look says it changes the app, never the card, and points to Card design', (await page.textContent('#appThemesLabel')).trim() === 'App look' && /Your card keeps its own design/.test(await page.textContent('#appLookNote')) && await page.isVisible('#cardDesignLink'));
   await page.selectOption('#fontSelect', { label: 'Lexend' });

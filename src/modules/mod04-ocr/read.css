@@ -68,8 +68,8 @@
 }
 .dark .read-ok::before { background: #0f172a; border-color: #fbbf24; }
 .read-ok:hover::before { border-color: #b45309; }
-.read-ok:focus-visible { outline: 2px solid #22c55e; outline-offset: -4px; border-radius: 0.5rem; }
-.read-ok.is-ok::before, .read-ok:checked::before { background: #16a34a; border-color: #15803d; color: #ffffff; }
+.read-ok:focus-visible { outline: 2px solid var(--good-500); outline-offset: -4px; border-radius: 0.5rem; }
+.read-ok.is-ok::before, .read-ok:checked::before { background: var(--good-600); border-color: var(--good-700); color: #ffffff; }
 html[data-cb="1"] .read-ok.is-ok::before, html[data-cb="1"] .read-ok:checked::before { background: #2563eb; border-color: #1d4ed8; }
 
 /* Branded edition: a ticked box shows a feather check (still a check mark, so the shape carries it, not the colour). */
