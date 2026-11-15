@@ -118,5 +118,24 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
   ok('Version: Cargo.toml matches package.json', read('src-tauri/Cargo.toml').split(/\r?\n/).includes(`version = "${v}"`));
 }
 
+// Download names (raven575, 2026-11-15): version, platform letter and build number on every test download
+{
+  const { downloadName, buildTag } = await import('../scripts/name-downloads.mjs');
+  ok('Downloads: Tauri installer names become vCGE-<version>-<platform><build>, keeping the chip and kind',
+    downloadName('vCGE_0.8.1_x64-setup.exe', '0.8.1', 'W', 417) === 'vCGE-0.8.1-W417_x64-setup.exe'
+      && downloadName('vCGE_0.8.1_x64_en-US.msi', '0.8.1', 'W', 417) === 'vCGE-0.8.1-W417_x64_en-US.msi'
+      && downloadName('vCGE_0.8.1_aarch64.dmg', '0.8.1', 'M', 417) === 'vCGE-0.8.1-M417_aarch64.dmg'
+      && downloadName('vCGE_0.8.1_amd64.deb', '0.8.1', 'L', 417) === 'vCGE-0.8.1-L417_amd64.deb');
+  ok('Downloads: another file gets the tag and keeps its ending; a named file is left alone',
+    downloadName('vcge.AppImage', '0.8.1', 'L', 9) === 'vCGE-0.8.1-L9.AppImage' && downloadName('vCGE-0.8.1-L9_amd64.deb', '0.8.1', 'L', 9) === 'vCGE-0.8.1-L9_amd64.deb');
+  let bad = 0;
+  for (const [p, b] of [['X', 1], ['W', 'abc']]) { try { buildTag('0.8.1', p, b); } catch (e) { bad++; } }
+  ok('Downloads: only the letters A, I, W, L, M and a whole build number are taken', bad === 2 && buildTag('0.8.1', 'I', 3) === '0.8.1-I3');
+  const ci = read('.github/workflows/ci.yml');
+  ok('Downloads: CI names the desktop installers and the APK, and the artifacts carry the same tag',
+    /name-downloads\.mjs src-tauri\/target\/release\/bundle "\$P" "\$\{\{ github\.run_number \}\}"/.test(ci) && /Windows\) P=W ;; macOS\) P=M ;; \*\) P=L/.test(ci)
+      && /name: vCGE-\$\{\{ steps\.names\.outputs\.tag \}\}/.test(ci) && /-A\$\{\{ github\.run_number \}\}/.test(ci) && /--out "apk\/vCGE-\$TAG\.apk"/.test(ci) && /name: vCGE-\$\{\{ env\.APK_TAG \}\}/.test(ci));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;
