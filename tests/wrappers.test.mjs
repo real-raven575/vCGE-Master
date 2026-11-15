@@ -132,9 +132,9 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
   for (const [p, b] of [['X', 1], ['W', 'abc']]) { try { buildTag('0.8.1', p, b); } catch (e) { bad++; } }
   ok('Downloads: only the letters A, I, W, L, M and a whole build number are taken', bad === 2 && buildTag('0.8.1', 'I', 3) === '0.8.1-I3');
   const ci = read('.github/workflows/ci.yml');
-  ok('Downloads: CI names the desktop installers and the APK, and the artifacts carry the same tag',
+  ok('Downloads: CI names the desktop installers and the APK, and the artifacts carry the same tag (${P}: bash read $P418 as one unset name)',
     /name-downloads\.mjs src-tauri\/target\/release\/bundle "\$P" "\$\{\{ github\.run_number \}\}"/.test(ci) && /Windows\) P=W ;; macOS\) P=M ;; \*\) P=L/.test(ci)
-      && /name: vCGE-\$\{\{ steps\.names\.outputs\.tag \}\}/.test(ci) && /-A\$\{\{ github\.run_number \}\}/.test(ci) && /--out "apk\/vCGE-\$TAG\.apk"/.test(ci) && /name: vCGE-\$\{\{ env\.APK_TAG \}\}/.test(ci));
+      && /name: vCGE-\$\{\{ steps\.names\.outputs\.tag \}\}/.test(ci) && /echo "tag=[^\n]*-\$\{P\}\$\{\{ github\.run_number \}\}" >> "\$GITHUB_OUTPUT"/.test(ci) && /-A\$\{\{ github\.run_number \}\}/.test(ci) && /--out "apk\/vCGE-\$TAG\.apk"/.test(ci) && /name: vCGE-\$\{\{ env\.APK_TAG \}\}/.test(ci));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
