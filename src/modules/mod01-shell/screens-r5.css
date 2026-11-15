@@ -383,3 +383,12 @@ button.vcge-pick-btn:disabled { opacity: .55; cursor: default; }
 .r5-look-link { display: flex; align-items: center; gap: 8px; width: calc(100% - 32px); min-height: 44px; margin: 0 16px 12px; padding: 6px 12px; border: 1px dashed var(--sh-line);
     border-radius: 12px; background: transparent; color: var(--sh-muted); font: 500 .8125rem var(--r5-body); text-align: left; cursor: pointer; }
 .r5-look-link b { color: var(--sh-ink); text-decoration: underline; }
+
+/* ---- Easy touch (Settings > Accessibility, easy + premium step 7): every button at least 56 px, icon buttons 56 px
+   round, Go and the shutter half as big again; the wipe's Yes is a tap (wipeDialog.js), so it reads "Yes, wipe". ---- */
+html[data-easy="on"] button:not([role="option"]):not(.vcge-pick-row) { min-height: 56px; }
+html[data-easy="on"] button.vcge-iconbtn { width: 56px; height: 56px; min-width: 56px; }
+html[data-easy="on"] .r2-go-btn { width: 132px; }
+@media (max-width: 700px) { html[data-easy="on"] .r2-go-btn { width: max(132px, min(55vw, 40vh)); } }
+html[data-easy="on"] .r5-toggle { transform: scale(1.25); }
+html[data-easy="on"] #cardCapture .r2-shutter { width: 104px; height: 104px; min-width: 104px; min-height: 104px; }
