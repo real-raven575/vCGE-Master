@@ -3372,7 +3372,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       pG.on('pageerror', e => pageErrors.push(e.message));
       pG.on('console', m => { if (m.type() === 'error' && !/SyntaxError|Unexpected/.test(m.text())) pageErrors.push(m.text()); });
       await setup(ctxG, pG);
-      await pG.goto(base); await pG.waitForTimeout(800);
+      // WebKit can stall the first page's 'load' when the gate moves on to the 'cannot run' page, and the list can
+      // draw after a fixed wait: wait for the move and the list instead (iPhone CI, #39 and #40, 2026-11-15)
+      await pG.goto(base, { waitUntil: 'commit' });
+      await pG.waitForURL(u => u.href.includes('unsupported/index.html#'), { timeout: 20000, waitUntil: 'commit' }).catch(() => {});
+      await pG.waitForSelector('#reasonList li', { timeout: 10000 }).catch(() => {});
+      await pG.waitForTimeout(300);   // room for a stray app start to show (main.js never runs)
       const url = pG.url();
       const shown = url.includes('src/modules/mod01-shell/unsupported/index.html#') && url.includes(reason);
       const reasons = shown ? await pG.$$eval('#reasonList li', els => els.map(el => el.getAttribute('data-reason'))) : [];
