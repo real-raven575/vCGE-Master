@@ -26,6 +26,9 @@ export function holdProgress(startedAt, now, holdMs = HOLD_MS) {
 }
 
 const colourBlind = () => typeof document !== 'undefined' && document.documentElement.dataset.cb === '1';
+// Easy touch (Shell's settings, html[data-easy="on"]; easy + premium step 7): no hold. Wipe opens this box, a tap on the
+// big Yes wipes: the two taps are the safety the hold was.
+const easyTouch = () => typeof document !== 'undefined' && document.documentElement.dataset.easy === 'on';
 
 // Starts the page fresh after a wipe by loading the same address in place of the current history entry. A plain
 // location.reload() of the Back guard's entry hangs WebKit (Safari's engine) on the second wipe: a probe on
@@ -45,10 +48,11 @@ export function startFresh() {
 export class WipeDialog {
     /**
      * @param {{ onWipe: (opts: { deleteSettings: boolean }) => void, onCancel?: () => void, reload?: () => void,
-     *           now?: () => number, isColourBlind?: () => boolean }} opts
+     *           now?: () => number, isColourBlind?: () => boolean, isEasy?: () => boolean }} opts
      */
-    constructor({ onWipe, onCancel = () => {}, reload = startFresh, now = () => performance.now(), isColourBlind = colourBlind }) {
-        this.onWipe = onWipe; this.onCancel = onCancel; this.reload = reload; this.now = now; this.isColourBlind = isColourBlind;
+    constructor({ onWipe, onCancel = () => {}, reload = startFresh, now = () => performance.now(), isColourBlind = colourBlind, isEasy = easyTouch }) {
+        this.onWipe = onWipe; this.onCancel = onCancel; this.reload = reload; this.now = now; this.isColourBlind = isColourBlind; this.isEasy = isEasy;
+        this.easy = false;
         this.root = null; this.startedAt = 0; this.raf = 0; this.done = false; this.settingsConfirmed = false; this.opener = null;
     }
 
@@ -83,7 +87,7 @@ export class WipeDialog {
         this.root = root;
         const $ = (id) => root.querySelector('#' + id);
         this.el = { box: $('wipeSettingsBox'), confirm: $('wipeSettingsConfirm'), yes: $('wipeYesBtn'), no: $('wipeNoBtn'), fill: $('wipeYesFill'),
-            text: $('wipeYesText'), bar: $('wipeHoldBar'), barFill: root.querySelector('#wipeHoldBar span') };
+            text: $('wipeYesText'), hint: $('wipeHoldHint'), bar: $('wipeHoldBar'), barFill: root.querySelector('#wipeHoldBar span') };
 
         this.el.no.addEventListener('click', () => this.cancel());
         this.el.box.addEventListener('change', () => {
@@ -97,14 +101,15 @@ export class WipeDialog {
         const yes = this.el.yes;
         yes.addEventListener('contextmenu', (e) => e.preventDefault());
         yes.addEventListener('pointerdown', (e) => {
-            if (e.button !== 0 && e.pointerType === 'mouse') return;
+            if (this.easy || (e.button !== 0 && e.pointerType === 'mouse')) return;
             try { yes.setPointerCapture(e.pointerId); } catch (_) { /* a synthetic pointer: the release still reaches the button */ }
             this.beginHold();
         });
         ['pointerup', 'pointercancel', 'lostpointercapture'].forEach(t => yes.addEventListener(t, () => this.endHold()));
-        yes.addEventListener('keydown', (e) => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); this.beginHold(); } });
-        yes.addEventListener('keyup', (e) => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); this.endHold(); } });
-        yes.addEventListener('click', (e) => e.preventDefault());    // the hold decides, not a click
+        yes.addEventListener('keydown', (e) => { if (!this.easy && (e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); this.beginHold(); } });
+        yes.addEventListener('keyup', (e) => { if (!this.easy && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); this.endHold(); } });
+        // The hold decides, not a click; with Easy touch the click is the second tap and wipes
+        yes.addEventListener('click', (e) => { e.preventDefault(); if (this.easy && !this.done) this.complete(); });
 
         // A sideways swipe over the box is No. Esc is No.
         let start = null;
@@ -127,9 +132,12 @@ export class WipeDialog {
         this.el.box.checked = false; this.settingsConfirmed = false; this.el.confirm.classList.add('hidden');
         this.resetHold();
         const cb = this.isColourBlind();
+        this.easy = this.isEasy();
         this.root.classList.toggle('is-cb', cb);
-        this.el.text.textContent = cb ? 'Hold to wipe' : 'Yes';
-        this.el.bar.classList.toggle('hidden', !cb);
+        this.root.classList.toggle('is-easy', this.easy);
+        this.el.text.textContent = this.easy ? 'Yes, wipe' : cb ? 'Hold to wipe' : 'Yes';
+        this.el.hint.textContent = this.easy ? 'one tap' : 'hold 1.5 s';
+        this.el.bar.classList.toggle('hidden', !cb || this.easy);
         this.root.classList.remove('hidden');
         this.el.no.focus();
     }

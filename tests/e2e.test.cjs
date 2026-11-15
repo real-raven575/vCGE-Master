@@ -2323,6 +2323,38 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await ctxG.close();
   });
 
+  // Easy touch (easy + premium step 7): one switch in Settings > Accessibility; bigger buttons, Go as the start, and the
+  // wipe's Yes is a tap (tap Wipe, then a big Yes) instead of a hold
+  await rerunIfPageCrashed('Easy touch', async () => {
+    const ctxE = await browser.newContext();
+    const pE = await ctxE.newPage();
+    await pE.goto(ORIGIN); await pE.waitForTimeout(400);
+    await pE.click('#navSettings'); await pE.waitForSelector('#settingsSheet', { state: 'visible' });
+    await pE.click('label[for="easyToggle"]');
+    const easyOn = await pE.evaluate(() => ({ easy: document.documentElement.dataset.easy, entry: localStorage.getItem('vcge_settings') }));
+    ok('Easy touch: the switch in Accessibility turns it on and saves easy=1', easyOn.easy === 'on' && /(^|;)easy=1(;|$)/.test(easyOn.entry || ''), JSON.stringify(easyOn));
+    await pE.click('#settingsSheet [data-sheet-close]'); await pE.waitForSelector('#settingsSheet', { state: 'hidden' });
+    await pE.click('#navWelcome').catch(() => {});
+    await pE.waitForFunction(() => document.getElementById('welcomeGoBtn').getBoundingClientRect().width >= 132, null, { timeout: 5000 }).catch(() => {});
+    const sizes = await pE.evaluate(() => ({ go: Math.round(document.getElementById('welcomeGoBtn').getBoundingClientRect().width),
+      settings: Math.round(document.getElementById('navSettings').getBoundingClientRect().height), tour: Math.round(document.getElementById('welcomeTourBtn').getBoundingClientRect().height) }));
+    ok('Easy touch: buttons are bigger (56 px at least) and Go is half as big again', sizes.go >= 132 && sizes.settings >= 56 && sizes.tour >= 56, JSON.stringify(sizes));
+    await pE.click('#dockNext'); await pE.waitForTimeout(500);
+    const start = await pE.evaluate(() => ({ card: document.documentElement.dataset.card, go: document.documentElement.dataset.go }));
+    ok('Easy touch: the start ("Scan a card" on Welcome) takes the Go path', start.card === 'capture' && start.go === 'on', JSON.stringify(start));
+    await openVault(pE); await pE.click('#wipeVaultBtn');
+    const ask = { yes: (await pE.textContent('#wipeYesText')).trim(), hint: (await pE.textContent('#wipeHoldHint')).trim() };
+    ok('Easy touch: the wipe question\'s Yes says "Yes, wipe" and "one tap"', ask.yes === 'Yes, wipe' && ask.hint === 'one tap', JSON.stringify(ask));
+    await pE.evaluate(() => { window.__vcgeOldPage = true; });   // the wipe replaces the page: wait for the new one
+    await pE.click('#wipeYesBtn');
+    await pE.waitForFunction(() => !window.__vcgeOldPage && document.readyState === 'complete' && document.documentElement.dataset.easy === 'on', null, { timeout: 8000 }).catch(() => {});
+    const after = await pE.evaluate(() => ({ easy: document.documentElement.dataset.easy, go: document.documentElement.dataset.go, dialog: !!document.querySelector('#wipeDialog:not(.hidden)'), entry: localStorage.getItem('vcge_settings'), old: !!window.__vcgeOldPage, card: document.documentElement.dataset.card, url: location.href }));
+    // The harness presses "Scan a card" on every load (pressStartNow); with Easy touch on that start is Go, so the fresh page is
+    // on Capture with Go on: the setting survived the wipe and still drives the start
+    ok('Easy touch: one tap on Yes wipes and starts fresh, and the setting stays (its start is still Go)', after.easy === 'on' && !after.old && !after.dialog && after.card === 'capture' && after.go === 'on', JSON.stringify(after));
+    await ctxE.close();
+  });
+
   // Second look (bench run 2026-10-18): a web line leaning backwards was read as "noriinvind.comiSeat\e" and flagged;
   // re-read as a straightened strip it comes back right and sure. Text rendering differs between engines, so the
   // reading itself is checked in Chromium, where it was measured.
@@ -3340,7 +3372,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       pG.on('pageerror', e => pageErrors.push(e.message));
       pG.on('console', m => { if (m.type() === 'error' && !/SyntaxError|Unexpected/.test(m.text())) pageErrors.push(m.text()); });
       await setup(ctxG, pG);
-      await pG.goto(base); await pG.waitForTimeout(800);
+      // WebKit can stall the first page's 'load' when the gate moves on to the 'cannot run' page, and the list can
+      // draw after a fixed wait: wait for the move and the list instead (iPhone CI, #39 and #40, 2026-11-15)
+      await pG.goto(base, { waitUntil: 'commit' });
+      await pG.waitForURL(u => u.href.includes('unsupported/index.html#'), { timeout: 20000, waitUntil: 'commit' }).catch(() => {});
+      await pG.waitForSelector('#reasonList li', { timeout: 10000 }).catch(() => {});
+      await pG.waitForTimeout(300);   // room for a stray app start to show (main.js never runs)
       const url = pG.url();
       const shown = url.includes('src/modules/mod01-shell/unsupported/index.html#') && url.includes(reason);
       const reasons = shown ? await pG.$$eval('#reasonList li', els => els.map(el => el.getAttribute('data-reason'))) : [];
