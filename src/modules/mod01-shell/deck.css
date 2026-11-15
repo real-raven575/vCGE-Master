@@ -212,16 +212,16 @@ html[data-edition="plain"] .vcge-chip-pilot { display: none; }
 /* ---- Settings controls: a two-button group (Right / Left), a switch and a drop-down, each at least 44 px tall ---- */
 .vcge-seg { display: inline-flex; gap: var(--vcge-gap); }
 .vcge-seg button { padding: 0 0.9rem; border-radius: 0.75rem; background: #f1f5f9; color: #0f172a; border-color: #cbd5e1; font-size: 0.85rem; font-weight: 600; cursor: pointer; }
-.vcge-seg button[aria-pressed="true"] { background: #16a34a; color: #020617; border-color: #15803d; }
+.vcge-seg button[aria-pressed="true"] { background: var(--good-600); color: #020617; border-color: var(--good-700); }
 .vcge-seg button[aria-pressed="true"]::before { content: '\2713\00a0'; }
 .dark .vcge-seg button { background: #1e293b; color: #f1f5f9; border-color: #334155; }
-.dark .vcge-seg button[aria-pressed="true"] { background: #16a34a; color: #020617; border-color: #15803d; }
+.dark .vcge-seg button[aria-pressed="true"] { background: var(--good-600); color: #020617; border-color: var(--good-700); }
 .vcge-switch { appearance: none; -webkit-appearance: none; width: 3.5rem; height: 2.75rem; margin: 0; cursor: pointer; position: relative; background: transparent; }
 .vcge-switch::before { content: ''; position: absolute; left: 0; top: 0.75rem; width: 3.5rem; height: 1.25rem; border-radius: 999px; background: #cbd5e1; transition: background-color 0.15s; }
 .vcge-switch::after { content: ''; position: absolute; left: 0; top: 0.5rem; width: 1.75rem; height: 1.75rem; border-radius: 999px; background: #ffffff; border: 2px solid #94a3b8; box-sizing: border-box; transition: transform 0.15s, border-color 0.15s; }
-.vcge-switch:checked::before { background: #16a34a; }
-.vcge-switch:checked::after { transform: translateX(1.75rem); border-color: #15803d; content: '\2713'; color: #15803d; font-size: 1rem; line-height: 1.5rem; text-align: center; }
-.vcge-switch:focus-visible { outline: 2px solid #16a34a; outline-offset: 2px; border-radius: 999px; }
+.vcge-switch:checked::before { background: var(--good-600); }
+.vcge-switch:checked::after { transform: translateX(1.75rem); border-color: var(--good-700); content: '\2713'; color: var(--good-700); font-size: 1rem; line-height: 1.5rem; text-align: center; }
+.vcge-switch:focus-visible { outline: 2px solid var(--good-600); outline-offset: 2px; border-radius: 999px; }
 .dark .vcge-switch::before { background: #334155; }
 .dark .vcge-switch::after { background: #0f172a; border-color: #64748b; }
 .vcge-select { min-height: var(--vcge-tap); padding: 0 0.75rem; border-radius: 0.75rem; border: 2px solid #cbd5e1; background: #f1f5f9; color: #0f172a; font: inherit; font-size: 0.9rem; max-width: 60%; }
@@ -257,8 +257,8 @@ html[data-cb="1"] .vcge-btn-primary:not(:disabled) { background: #2563eb; color:
 .thank-you-box p { font-size: 1rem; margin: 0 0 1.25rem; }
 .thank-you-actions { display: flex; gap: 0.75rem; }
 .thank-you-actions button { flex: 1 1 0; min-height: 3.5rem; border-radius: 0.875rem; font-size: 1rem; font-weight: 700; cursor: pointer; }
-.thank-you-go { background: #16a34a; color: #020617; border-color: #15803d; }
-.thank-you-go:hover { background: #22c55e; }
+.thank-you-go { background: var(--good-600); color: #020617; border-color: var(--good-700); }
+.thank-you-go:hover { background: var(--good-500); }
 .thank-you-alt { background: #ffffff; color: #0f172a; border-color: #cbd5e1; }
 .dark .thank-you-alt { background: #1e293b; color: #f1f5f9; border-color: #334155; }
 .thank-you-note { font-size: 0.85rem; color: #64748b; margin: 1rem 0 0; min-height: 1.25rem; }

@@ -4,10 +4,10 @@
    shutter's quiet click (shutterClick.js) is the one sound in vCGE (raven575, 2026-10-24). */
 
 :root {
-    --cap-green: #16a34a;
-    --cap-green-deep: #15803d;
-    --cap-red: #dc2626;
-    --cap-red-deep: #b91c1c;
+    --cap-green: var(--good-600);
+    --cap-green-deep: var(--good-700);
+    --cap-red: var(--stop-600);
+    --cap-red-deep: var(--stop-700);
 }
 
 /* ---- Viewfinder ---------------------------------------------------------------------------------------------- */
@@ -32,23 +32,23 @@
 .cap-shutter {
     position: relative; transform: none;
     width: 4.5rem; height: 4.5rem; min-width: 4.5rem; min-height: 4.5rem; border-radius: 999px; padding: 0; cursor: pointer;
-    background: radial-gradient(circle at 50% 30%, #fca5a5 0, #ef4444 34%, var(--cap-red) 62%, var(--cap-red-deep) 100%);
+    background: radial-gradient(circle at 50% 30%, var(--stop-300) 0, var(--stop-500) 34%, var(--cap-red) 62%, var(--cap-red-deep) 100%);
     border: 3px solid rgba(255, 255, 255, 0.9); box-shadow: 0 0 0 4px rgba(2, 6, 23, 0.35), 0 10px 20px -8px rgba(0, 0, 0, 0.7);
     background-clip: padding-box;    /* no red under the see-through rim, so a pressed button is green to its edge */
     transform-origin: 50% 50%;
 }
 .cap-shutter::before {
     content: ""; position: absolute; inset: -1px; border-radius: 999px; pointer-events: none;
-    background: radial-gradient(circle at 50% 30%, #86efac 0, #4ade80 34%, var(--cap-green) 62%, var(--cap-green-deep) 100%);
+    background: radial-gradient(circle at 50% 30%, var(--good-300) 0, var(--good-400) 34%, var(--cap-green) 62%, var(--cap-green-deep) 100%);
     transform: scale(0); transition: transform 0.15s ease-out;
 }
 .cap-shutter[data-pressed]::before { transform: scale(1); }
 /* The engraving: the camera outline about 15% darker than the face under it, with a light lower lip like a pressed line */
 .cap-shutter .cap-shutter-icon {
-    position: relative; display: block; width: 2rem; height: 2rem; margin: 0 auto; color: #bb2020; --vcge-icon-stroke: 1.75;
+    position: relative; display: block; width: 2rem; height: 2rem; margin: 0 auto; color: var(--stop-shut, #bb2020); --vcge-icon-stroke: 1.75;
     filter: drop-shadow(0 1px 0 rgba(255, 255, 255, 0.35));
 }
-.cap-shutter[data-pressed] .cap-shutter-icon { color: #13893f; }
+.cap-shutter[data-pressed] .cap-shutter-icon { color: var(--good-shut, #13893f); }
 .cap-shutter:focus-visible { outline: 3px solid #fff; outline-offset: 3px; }
 
 
@@ -70,7 +70,7 @@ html[data-cb="1"] .cap-shutter[data-pressed] .cap-shutter-icon { color: #fff; fi
     border-radius: 0.875rem; font-size: 1rem; font-weight: 800; letter-spacing: 0.04em; cursor: pointer;
     background: var(--cap-green); color: #020617; border-color: var(--cap-green-deep);
 }
-.cap-ok:hover { background: #22c55e; }
+.cap-ok:hover { background: var(--good-500); }
 .cap-ok:disabled { opacity: 0.6; cursor: default; }
 html[data-cb="1"] .cap-ok { background: #2563eb; border-color: #1d4ed8; color: #fff; }
 
@@ -96,7 +96,7 @@ html[data-cb="1"] .cap-ok { background: #2563eb; border-color: #1d4ed8; color: #
 
 /* C1: the crop handles become paw prints, toes pointing out from the card's corner, with a fine dot on the exact
    corner, in the middle of the pad. The 24px button (and its touch target and focus ring) is unchanged. */
-html:not([data-edition="plain"]) .crop-handle { --paw: #16a34a; background: transparent; border-color: transparent; }
+html:not([data-edition="plain"]) .crop-handle { --paw: var(--good-600); background: transparent; border-color: transparent; }
 html:not([data-edition="plain"]) .crop-handle:not(:focus) { box-shadow: none; }
 html[data-cb="1"]:not([data-edition="plain"]) .crop-handle { --paw: #2563eb; }
 html:not([data-edition="plain"]) .crop-handle::before {

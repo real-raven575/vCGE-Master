@@ -12,8 +12,8 @@ button.share-btn {
 button.share-btn:hover { background: #e2e8f0; }
 .dark button.share-btn { background: #1e293b; color: #f1f5f9; border-color: #334155; }
 .dark button.share-btn:hover { background: #334155; }
-button.share-btn.share-primary { grid-column: 1 / -1; min-height: 3.5rem; font-size: 1rem; background: #16a34a; color: #020617; border-color: #15803d; }
-button.share-btn.share-primary:hover { background: #22c55e; }
+button.share-btn.share-primary { grid-column: 1 / -1; min-height: 3.5rem; font-size: 1rem; background: var(--good-600); color: #020617; border-color: var(--good-700); }
+button.share-btn.share-primary:hover { background: var(--good-500); }
 .share-note { font-size: 0.75rem; color: #64748b; margin: 0; }
 .dark .share-note { color: #94a3b8; }
 .share-note span { font-weight: 600; }
@@ -25,9 +25,9 @@ button.share-btn.share-primary:hover { background: #22c55e; }
 /* "Ready to share" on the 3D Card's foot takes the person to this card */
 button.share-ready {
     min-height: 3rem; padding: 0 1.25rem; border-radius: 0.875rem; font-size: 0.95rem; font-weight: 700; cursor: pointer;
-    background: #16a34a; color: #020617; border-color: #15803d;
+    background: var(--good-600); color: #020617; border-color: var(--good-700);
 }
-button.share-ready:hover { background: #22c55e; }
+button.share-ready:hover { background: var(--good-500); }
 
 /* ---- Export QR pop-up ------------------------------------------------------------------------------------------- */
 #exportQrSheet .vcge-sheet-panel { width: min(40rem, 100%); }   /* wider than other sheets, for a bigger preview */
@@ -51,8 +51,8 @@ select.export-qr-select { max-width: 100%; min-height: 3rem; font-size: 0.95rem;
 }
 .dark .export-qr-choices label { background: #1e293b; color: #f1f5f9; border-color: #334155; }
 .export-qr-choices input { position: absolute; opacity: 0; width: 1px; height: 1px; margin: 0; }
-.export-qr-choices label:has(input:checked) { background: #16a34a; color: #020617; border-color: #15803d; }
-.export-qr-choices label:has(input:focus-visible) { outline: 2px solid #16a34a; outline-offset: 2px; }
+.export-qr-choices label:has(input:checked) { background: var(--good-600); color: #020617; border-color: var(--good-700); }
+.export-qr-choices label:has(input:focus-visible) { outline: 2px solid var(--good-600); outline-offset: 2px; }
 .export-qr-choices label:has(input:disabled) { opacity: 0.45; cursor: not-allowed; }
 html[data-cb="1"] .export-qr-choices label:has(input:checked) { background: #2563eb; color: #ffffff; border-color: #1d4ed8; }
 html[data-cb="1"] .export-qr-choices label:has(input:checked)::before { content: '\2713\00a0'; }
@@ -60,10 +60,10 @@ html[data-cb="1"] .export-qr-choices label:has(input:checked)::before { content:
 .dark .export-qr-reason { color: #94a3b8; }
 .export-qr-use { display: flex; align-items: center; gap: 0.6rem; font-size: 0.85rem; min-height: var(--vcge-tap, 2.75rem); cursor: pointer; }
 .export-qr-use.hidden { display: none; }
-.export-qr-use input { width: 1.25rem; height: 1.25rem; accent-color: #16a34a; }
+.export-qr-use input { width: 1.25rem; height: 1.25rem; accent-color: var(--good-600); }
 .export-qr-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--vcge-gap, 0.5rem); margin-top: 0.75rem; }
-button.export-qr-save { min-height: 3.5rem; border-radius: 1rem; font-size: 1rem; font-weight: 700; background: #16a34a; color: #020617; border-color: #15803d; cursor: pointer; }
-button.export-qr-save:hover { background: #22c55e; }
+button.export-qr-save { min-height: 3.5rem; border-radius: 1rem; font-size: 1rem; font-weight: 700; background: var(--good-600); color: #020617; border-color: var(--good-700); cursor: pointer; }
+button.export-qr-save:hover { background: var(--good-500); }
 button.export-qr-save:disabled { opacity: 0.45; cursor: not-allowed; }
 button.export-qr-cancel { min-height: 3.5rem; border-radius: 1rem; font-size: 1rem; font-weight: 600; background: transparent; color: inherit; border-color: #cbd5e1; cursor: pointer; }
 .dark button.export-qr-cancel { border-color: #475569; }
@@ -76,8 +76,8 @@ button.export-qr-cancel { min-height: 3.5rem; border-radius: 1rem; font-size: 1r
 .dark .print-choice-lead { color: #cbd5e1; }
 .print-choice-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--vcge-gap, 0.5rem); }
 button.print-choice { min-height: 3.5rem; border-radius: 1rem; font-size: 1rem; font-weight: 700; cursor: pointer; }
-button.print-choice-themed { background: #16a34a; color: #020617; border-color: #15803d; }
-button.print-choice-themed:hover { background: #22c55e; }
+button.print-choice-themed { background: var(--good-600); color: #020617; border-color: var(--good-700); }
+button.print-choice-themed:hover { background: var(--good-500); }
 button.print-choice-bw { background: #ffffff; color: #0f172a; border-color: #0f172a; }
 button.print-choice-bw:hover { background: #f1f5f9; }
 .dark button.print-choice-bw { background: #f8fafc; color: #0f172a; border-color: #e2e8f0; }
@@ -98,7 +98,7 @@ button.share-btn { display: inline-flex; align-items: center; justify-content: c
 .hatch.is-open .hatch-door { transform: scaleX(0.05); }
 /* The pressed button gets a soft green ring while its door is open, and air lines blow out of the door */
 button.share-btn { position: relative; transition: background-color 0.15s, box-shadow 0.2s; }
-button.share-btn.is-launching { box-shadow: 0 0 0 3px #16a34a; }
+button.share-btn.is-launching { box-shadow: 0 0 0 3px var(--good-600); }
 .hatch::after { content: ''; position: absolute; left: 100%; top: 20%; width: 0; height: 60%; border-top: 2px solid currentColor; border-bottom: 2px solid currentColor; opacity: 0; }
 @keyframes hatch-whoosh { from { width: 0; opacity: 0.9; } to { width: 0.7rem; opacity: 0; } }
 .hatch.is-open { overflow: visible; }
