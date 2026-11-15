@@ -1172,7 +1172,7 @@ function wireEgress() {
         printChoiceDialog.open();
     });
     printChoiceDialog.init({
-        onChoose: async (themed, { nameFile = false } = {}) => {
+        onChoose: async (themed, { nameFile = false, content = 'both' } = {}) => {
             expectExternalApp();
             const qr = document.createElement('canvas');
             // The QR is printed in the look chosen in Export QR (colours, dots, corners, dot size, frame, print size), as
@@ -1181,14 +1181,15 @@ function wireEgress() {
             const options = themed ? renderOptions(look) : { ...renderOptions(look), themed: false, ink: null, pair: null };
             const drawn = renderExportQr(qr, { ...options, size: PRINT_QR_PX });
             const wanted = themed && look.colour !== 'bw';
-            const warned = wanted && drawn.ok && !drawn.themed;
+            const warned = content !== 'card' && wanted && drawn.ok && !drawn.themed;
             if (warned) cardView.showToast('Those QR colours are not scannable, so the QR is printed in black and white.');
             // The sheet takes a PNG copy of the QR at once, so the drawing canvas can be emptied before the wait for it.
-            const printing = egressController.triggerPhysicalPrint({ themed, qrCanvas: drawn.ok ? qr : null, nameFile, qrCm: look.printCm });
+            const printing = egressController.triggerPhysicalPrint({ themed, qrCanvas: drawn.ok ? qr : null, nameFile, qrCm: look.printCm, content });
             qr.width = qr.height = 0;
             const printed = await printing;
             if (printed && printed.success && !warned) { cardView.showToast('Sent to the print dialog.'); flyFalcon(); }
             else if (printed && printed.reason === 'no_print') cardView.showToast('Printing is not available on this phone.');
+            else if (printed && printed.reason === 'qr_too_large') cardView.showToast('Too much information for one QR code: print the card instead.');
         }
     });
     $('shareNativeBtn').addEventListener('click', async () => {

@@ -285,7 +285,7 @@ export class ExportQrDialog {
 }
 
 export class PrintChoiceDialog {
-    /** @param {{ onChoose: (themed: boolean, options: { nameFile: boolean }) => void|Promise<void> }} hooks */
+    /** @param {{ onChoose: (themed: boolean, options: { nameFile: boolean, content: 'both'|'card'|'qr' }) => void|Promise<void> }} hooks */
     constructor(hooks = {}) {
         this.hooks = hooks;
         this.root = null;
@@ -310,6 +310,9 @@ export class PrintChoiceDialog {
         // Naming the PDF after the contact is asked for each print: the box always starts unticked (raven575, 2026-10-18)
         const box = $('printNameFile');
         if (box) box.checked = false;
+        // What goes on the page starts at Card and QR each time (raven575, 2026-11-15: card, QR or both)
+        const both = this.root.querySelector('input[name="printContent"][value="both"]');
+        if (both) both.checked = true;
         $('printThemedBtn').focus();
     }
 
@@ -318,8 +321,10 @@ export class PrintChoiceDialog {
     choose(themed) {
         const box = $('printNameFile');
         const nameFile = !!(box && box.checked);
+        const picked = this.root.querySelector('input[name="printContent"]:checked');
+        const content = picked && ['card', 'qr'].includes(picked.value) ? picked.value : 'both';
         this.close();
-        if (this.hooks.onChoose) this.hooks.onChoose(themed, { nameFile });
+        if (this.hooks.onChoose) this.hooks.onChoose(themed, { nameFile, content });
     }
 }
 

@@ -832,7 +832,13 @@
                 <h2 id="printChoiceTitle">Print / PDF</h2>
                 <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close">&#x2715;</button>
             </div>
-            <p class="print-choice-lead">One 6 &times; 3.5 inch page (bigger if the card or a 5 cm QR needs it): the card at business-card size with its QR code beside it, in the look and size picked under Save QR image. Choose Save as PDF in the print dialog for a file.</p>
+            <p class="print-choice-lead">One 6 &times; 3.5 inch page (bigger if the card or a 5 cm QR needs it). Pick what goes on it: the card at business-card size, its QR code in the look and size picked under Save QR image, or both side by side. Choose Save as PDF in the print dialog for a file.</p>
+            <fieldset class="print-choice-what">
+                <legend>On the page</legend>
+                <label><input type="radio" name="printContent" value="both" checked> <span>Card and QR</span></label>
+                <label><input type="radio" name="printContent" value="card"> <span>Card only</span></label>
+                <label><input type="radio" name="printContent" value="qr"> <span>QR only</span></label>
+            </fieldset>
             <div class="print-choice-actions">
                 <button id="printThemedBtn" type="button" class="print-choice print-choice-themed"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#palette"></use></svg>Themed</button>
                 <button id="printBwBtn" type="button" class="print-choice print-choice-bw"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#contrast"></use></svg>Black &amp; White</button>

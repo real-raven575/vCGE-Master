@@ -2198,6 +2198,19 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const namedAgain = await p9.title();
     await p9.mouse.click(5, 5);
     ok('PDF name: the box is unticked again on the next print, and a tap also puts the title back', !boxAgain && namedAgain === 'Maria Gonzalez' && (await p9.title()) === appTitle, `${boxAgain} ${namedAgain} / ${await p9.title()}`);
+    // What goes on the page (raven575, 2026-11-15, decision card): Card and QR (default), Card only, or QR only
+    const sheetNow = () => p9.evaluate(() => ({ cards: document.querySelectorAll('#printSheet .print-card').length, qr: document.querySelectorAll('#printSheet .print-qr img').length,
+      name: (document.querySelector('#printSheet .print-qr') || { textContent: '' }).textContent, content: document.getElementById('printSheet').dataset.content }));
+    await p9.click('#printCardBtn');
+    const startsBoth = await p9.isChecked('input[name="printContent"][value="both"]');
+    await p9.click('label:has(input[name="printContent"][value="card"])'); await p9.click('#printThemedBtn'); await printed9(4);
+    const cardOnly = await sheetNow();
+    ok('Print / PDF: "On the page" starts at Card and QR; Card only prints the card with no QR', startsBoth && cardOnly.cards === 1 && cardOnly.qr === 0 && cardOnly.content === 'card', JSON.stringify(cardOnly));
+    await p9.click('#printCardBtn');
+    const backToBoth = await p9.isChecked('input[name="printContent"][value="both"]');
+    await p9.click('label:has(input[name="printContent"][value="qr"])'); await p9.click('#printBwBtn'); await printed9(5);
+    const qrOnly = await sheetNow();
+    ok('Print / PDF: QR only prints the code with the name under it and no card; the choice is back at Card and QR on the next print', backToBoth && qrOnly.cards === 0 && qrOnly.qr === 1 && qrOnly.name.includes('Maria Gonzalez') && qrOnly.content === 'qr', JSON.stringify(qrOnly));
     ok('tester round 1: no page errors', errors9.length === 0, errors9.join(' | '));
     await ctx9.close();
   });

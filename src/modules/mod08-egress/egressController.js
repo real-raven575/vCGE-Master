@@ -411,8 +411,11 @@ export class EgressController {
      * the PDF never shows an empty square where the QR goes. A clear (idle purge, lock, wipe) during that wait cancels.
      * @returns {Promise<{ success: boolean, reason?: 'empty'|'cleared', pageHeightIn?: number }>}
      */
-    async triggerPhysicalPrint({ themed = false, qrCanvas = null, nameFile = false, qrCm = PRINT_QR_CM } = {}) {
+    async triggerPhysicalPrint({ themed = false, qrCanvas = null, nameFile = false, qrCm = PRINT_QR_CM, content = 'both' } = {}) {
         if (this.isEmpty()) return { success: false, reason: 'empty' };
+        // content (raven575, 2026-11-15): 'both' (the card with its QR beside it), 'card' (the card alone) or 'qr' (the
+        // QR alone, with the name under it). A QR-only page with no code that fits is refused rather than printed empty.
+        if (content === 'qr' && !qrCanvas) return { success: false, reason: 'qr_too_large' };
         const sheet = document.getElementById('printSheet'), front = document.getElementById('cardFront');
         if (sheet && front) {
             const frontCopy = front.cloneNode(true);
@@ -454,7 +457,8 @@ export class EgressController {
             const name = document.createElement('p');
             name.textContent = this.displayName();
             side.append(name);
-            sheet.replaceChildren(frontCopy, side);
+            sheet.replaceChildren(...(content === 'qr' ? [side] : content === 'card' ? [frontCopy] : [frontCopy, side]));
+            sheet.dataset.content = content;
             // Export QR's print size: the code is drawn qrCm wide (print.css reads the variable), the page widens to fit
             sheet.style.setProperty('--print-qr-size', `${qrCm}cm`);
             sheet.style.setProperty('--print-qr-column', `${Math.max(1.5, qrCm / 2.54).toFixed(3)}in`);

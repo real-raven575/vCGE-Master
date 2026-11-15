@@ -2347,6 +2347,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     ok('MOD08 Android app: the audit events say what was done and whether it worked, never the contact',
       androidEvents.map(d => `${d.method}:${d.opened ?? d.saved}`).join() === 'android_share:true,email:true,sms:true,android_png:true,android_share:false,email:false,sms:false,android_png:false'
       && !JSON.stringify(androidEvents).includes('Dana'), JSON.stringify(androidEvents));
+    const qrOnlyNoCode = await e.triggerPhysicalPrint({ content: 'qr', qrCanvas: null });
+    ok('MOD08 print: QR only with no code that fits is refused (never an empty page)', qrOnlyNoCode.success === false && qrOnlyNoCode.reason === 'qr_too_large', JSON.stringify(qrOnlyNoCode));
     e.navigate = realNavigate;
     delete globalThis.vcgeAndroid;
     offA();
