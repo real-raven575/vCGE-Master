@@ -153,13 +153,17 @@ html[data-edition="plain"] .vcge-chip-pilot { display: none; }
 
 /* ---- Short screens (under 500 px tall: a phone held sideways; tier.js sets data-short): the mock-up is an upright
    phone, so here the bar and the head tighten and the dock puts its steps and its two buttons on one row, every
-   button still 44 px. The screen keeps more than half the height. -------------------------------------------------- */
+   button still 44 px. The screen keeps more than half the height. The one-row dock needs 560 px of width: an upright
+   phone is also under 500 px tall while its keyboard is open, and there one row ran 22 px past the right edge, so the
+   page slid sideways when a box took focus (raven575's S24 run, 2026-11-14: the PIN box and the Details buttons). ---- */
 @media (max-height: 499.98px) {
     .vcge-bar { padding: 4px 16px 0; }
     button.vcge-iconbtn { width: 44px; height: 44px; min-height: 44px; min-width: 44px; }
     .vcge-session { width: auto; }
     .vcge-head { padding: 0 20px 4px; display: flex; align-items: baseline; gap: 12px; }
     .vcge-head h2 { font-size: 1.25rem; margin: 0; order: -1; }
+}
+@media (max-height: 499.98px) and (min-width: 560px) {
     .vcge-dock { display: flex; align-items: center; gap: 10px; padding: 4px 16px calc(4px + env(safe-area-inset-bottom, 0px)); }
     .vcge-steps { flex: 1 1 auto; margin: 0; }
     .vcge-actions { flex: 0 0 auto; width: min(20rem, 45%); margin: 0; }
@@ -201,10 +205,13 @@ html[data-edition="plain"] .vcge-chip-pilot { display: none; }
 
 /* ---- Toast: a pill above the dock ---------------------------------------------------------------------------- */
 .vcge-toast { position: fixed; left: 50%; bottom: calc(150px + env(safe-area-inset-bottom, 0px)); top: auto; z-index: 50;
-    transform: translate(-50%, 0); max-width: calc(100vw - 2rem); padding: 10px 16px; border-radius: 999px;
+    transform: translate3d(-50%, 0, 1000px); max-width: calc(100vw - 2rem); padding: 10px 16px; border-radius: 999px;
     background: var(--sh-ink); color: var(--sh-bg); font: 600 14px system-ui, sans-serif; box-shadow: var(--sh-shadow-lift);
     display: flex; align-items: center; gap: 12px; cursor: pointer; user-select: none; transition: opacity 200ms, transform 260ms var(--ease-out); }
-.vcge-toast.opacity-0 { transform: translate(-50%, 16px); }
+.vcge-toast.opacity-0 { transform: translate3d(-50%, 16px, 1000px); }
+/* The 1000px depth draws nothing different (no perspective above the toast), but WebKit (iPhone CI, PR #22, 2026-11-15)
+   hit-tested the card's 3D layer (preserve-3d) above the toast, so a tap meant for the toast landed on the card and could
+   flip it. A depth well in front of the card keeps the toast first in line for the tap. */
 .vcge-toast #toastAction { color: var(--sh-soft); }
 
 /* ---- Welcome card: its 0.8 layout is in screens-r2.css (0.8 redo R2) ---- */

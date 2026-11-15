@@ -1569,6 +1569,10 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 {
   const fs = await import('node:fs');
   const gate = require(`${R}/modules/mod01-shell/browserGate.js`);
+  const ls = (line, boom) => ({ localStorage: { getItem: () => { if (boom) throw new Error('blocked'); return line; } } });
+  ok('gate: reads the splash switch (splash=1 is Off) from vcge_settings, and only that; blocked storage keeps the splash',
+    gate.splashOff(ls('hand=0;cb=0;theme=0;font=0;size=0;wipe=0;splash=1')) && gate.splashOff(ls('splash=1')) && !gate.splashOff(ls('splash=10'))
+    && !gate.splashOff(ls('hand=0;splash=0')) && !gate.splashOff(ls(null)) && !gate.splashOff(ls('x', true)) && !gate.splashOff({}));
   const lockedFetch = () => {}; lockedFetch[Symbol.for('vcge.netLock')] = true;
   const env = (over = {}) => Object.assign({
     document: { createElement: () => ({ noModule: false }) }, SecurityPolicyViolationEvent: function () {}, isSecureContext: true,
@@ -1605,6 +1609,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   gate.startApp(envB); envB.__vcgeGateBlocked = true; docB.waiting[0][1]();
   const docC = fakeDoc('complete'); gate.startApp({ document: docC, __vcgeGateBlocked: true });
   ok('gate: once blocked, the app is never loaded', docB.added.length === 0 && docC.added.length === 0);
+  { const ev = []; const docS = fakeDoc('complete'); docS.createElement = () => ({ addEventListener: (t, fn) => ev.push([t, fn]) });
+    let settled = 0; gate.startApp({ document: docS }, () => { settled++; });
+    ev.find(([t]) => t === 'load')[1]();
+    ok('gate: the syntax watch ends when the entry script has run or failed (its load or error), not on the page\'s load',
+      docS.added.length === 1 && ev.map(([t]) => t).sort().join() === 'error,load' && settled === 1, JSON.stringify(ev.map(([t]) => t))); }
   const page = fs.readFileSync(`${R}/../index.html`, 'utf8');
   ok('index.html has no script tag for the app, only the one entry the gate reads, after the gate',
     !/<script[^>]*type="module"/.test(page) && !/<script[^>]*main\.js/.test(page) && page.split('<meta name="vcge-app" content="src/main.js">').length === 2
@@ -1657,7 +1666,67 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('welcome: a tall area puts the card above it, or over it as a last resort', welcome.placeTip({ left: 16, top: 600, right: 374, bottom: 830 }, 358, 220, 390, 844).side === 'above'
     && welcome.placeTip({ left: 16, top: 0, right: 374, bottom: 844 }, 358, 220, 390, 844).side === 'over');
   const code = fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-  ok('welcome: stores nothing and publishes nothing (no storage, cookies or bus)', !/localStorage|sessionStorage|indexedDB|document\.cookie|globalEventBus|innerHTML/.test(code));
+  ok('welcome: touches no storage itself (the tour flag goes through settings.js), publishes nothing', !/localStorage|sessionStorage|indexedDB|document\.cookie|globalEventBus|innerHTML/.test(code)
+    && /rememberTourSeen\(\)/.test(code));
+  // First-run tour (raven575, 2026-11-11): opens by itself only on the very first start, after the splash, on the Welcome card
+  ok('first-run tour: opens only when never seen, still on the Welcome card and nothing open over it',
+    welcome.shouldAutoTour({ seen: false, card: 'welcome', busy: false }) && !welcome.shouldAutoTour({ seen: true, card: 'welcome', busy: false })
+    && !welcome.shouldAutoTour({ seen: false, card: 'capture', busy: false }) && !welcome.shouldAutoTour({ seen: false, card: 'welcome', busy: true }));
+  ok('first-run tour: waits for the splash to go (2.25 s; 0.75 s under reduced motion; 0.3 s with the splash off)',
+    welcome.firstRunDelay(false, false) === 2250 && welcome.firstRunDelay(false, true) === 750 && welcome.firstRunDelay(true, false) === 300 && welcome.firstRunDelay(true, true) === 300);
+  {
+    // A slow phone can start the splash fade after the timer: the tour then waits until the splash really is gone
+    const realGCS = globalThis.getComputedStyle, realDoc = globalThis.document;
+    const look = { display: 'grid', visibility: 'visible', opacity: '0.4' };
+    globalThis.getComputedStyle = () => look;
+    globalThis.document = { ...(realDoc || {}), documentElement: { dataset: {} } };
+    const splash = (off) => ({ classList: { contains: (c) => off && c === 'vcge-splash-off' } });
+    const fading = welcome.splashGone(splash(false));
+    look.opacity = '0'; const faded = welcome.splashGone(splash(false));
+    look.opacity = '1'; look.visibility = 'hidden'; const hidden = welcome.splashGone(splash(false));
+    look.visibility = 'visible'; const tapped = welcome.splashGone(splash(true));
+    globalThis.document.documentElement.dataset.splash = 'off'; const switchedOff = welcome.splashGone(splash(false));
+    globalThis.getComputedStyle = realGCS; globalThis.document = realDoc;
+    ok('first-run tour: a splash still fading counts as showing; faded, hidden, ended by a tap or switched off counts as gone',
+      fading === false && faded && hidden && tapped && switchedOff, JSON.stringify({ fading, faded, hidden, tapped, switchedOff }));
+  }
+  ok('first-run tour: finishing or skipping (every way the tour closes) remembers it once', /if \(!tourSeen\(\)\) rememberTourSeen\(\);/.test(code));
+  const art = await import(`${R}/modules/mod01-shell/tourArt.js`);
+  ok('tour art: each of the six steps names a pilot with a slot (Iris, Pidge, Flipside, Airlock, Ghost, Cornerstone; CRTV-0059)',
+    welcome.TOUR_STEPS.map(s => s.pilot).join() === 'iris,pidge,flipside,airlock,ghost,cornerstone' && welcome.TOUR_STEPS.every(s => art.TOUR_ART[s.pilot] && art.TOUR_ART[s.pilot].emoji));
+  ok('tour art: every pilot has Creative\'s drawing, and each passes the safety check (no text, title, style, script or outside link)',
+    Object.values(art.TOUR_ART).every(a => art.safeSvg(a.svg) && !/<(text|title)\b|\sstyle=|https?:\/\/(?!www\.w3\.org\/2000\/svg")/.test(a.svg)));
+  { const allIds = Object.values(art.TOUR_ART).flatMap(a => [...a.svg.matchAll(/\sid="([^"]+)"/g)].map(m => m[1]));
+    const css = fs.readFileSync(`${R}/modules/mod01-shell/tour-art.css`, 'utf8');
+    ok('tour art: no two drawings share an id; the sway lives in tour-art.css and stops under reduced motion', new Set(allIds).size === allIds.length
+      && /@media \(prefers-reduced-motion:reduce\)/.test(css) && !/url\(|@import/.test(css)); }
+  ok('tour art: a plain drawing is let in; scripts, handlers, outside links, foreignObject, animation and <style> are not',
+    art.safeSvg('<svg viewBox="0 0 10 10"><defs><linearGradient id="g"/></defs><circle r="4" fill="url(#g)"/><use href="#g"/></svg>')
+    && !art.safeSvg('<svg><script>x</script></svg>') && !art.safeSvg('<svg onload="x()"></svg>') && !art.safeSvg('<svg><image href="https://x.test/a.png"/></svg>')
+    && !art.safeSvg('<svg><foreignObject/></svg>') && !art.safeSvg('<svg><animate/></svg>') && !art.safeSvg('<svg><style>*{}</style></svg>')
+    && !art.safeSvg('<svg><rect fill="url(https://x.test/p)"/></svg>') && !art.safeSvg('<div></div>') && !art.safeSvg(''));
+  { const svgs = await import(`${R}/modules/mod01-shell/tourArtSvgs.js`);
+    ok('helper art: Creative\'s five helper drawings are built in and each passes the safety check',
+      Object.keys(svgs.HELPER_SVGS).sort().join() === 'airlock-share-failed,ghost-pin-wrong,glyph-cant-read,iris-camera-busy,shutout-cannot-run'
+      && Object.values(svgs.HELPER_SVGS).every(m => art.safeSvg(m) && !/<(text|title)\b|\sstyle=/.test(m))); }
+  { const svgs = await import(`${R}/modules/mod01-shell/tourArtSvgs.js`);
+    const m = svgs.MOVABLE_SVGS;
+    ok('movable art: Creative\'s Ghost and Glyph (movable-v1) pass the safety check and name their moving parts by class, not id',
+      Object.keys(m).sort().join() === 'ghost-lock-guard,glyph-reading-along' && Object.values(m).every(x => art.safeSvg(x) && !/<(text|title)\b|\sstyle=/.test(x))
+      && ['ghost-eyes', 'ghost-wink', 'ghost-brows', 'ghost-shades', 'ghost-paw-right', 'ghost-paw-left'].every(c => m['ghost-lock-guard'].includes(`class="${c}"`))
+      && ['glyph-pupils', 'glyph-eyes-closed'].every(c => m['glyph-reading-along'].includes(`class="${c}"`))
+      && Object.values(m).every(x => [...x.matchAll(/\sid="([^"]+)"/g)].every(([, id]) => id.startsWith('c-')))); }
+  { const html = fs.readFileSync(`${R}/../index.html`, 'utf8');
+    ok('old pilot drawings are gone (raven575 2026-11-11, SWAP): Iris, Ghost and Glyph are Creative\'s (Ghost and the reading Glyph movable); no toast falcon',
+      /id="capIris"[\s\S]{0,900}?class="o-01-scan-iris"/.test(html) && /id="vaultGhost"[^>]*>[\s\S]{0,3000}?class="ghost-eyes"/.test(html)
+      && /id="ocrMorePhotoOwl"[^>]*>[\s\S]{0,1200}?class="o-glyph-cant-read"/.test(html) && /id="ocrReadOwl"[^>]*>[\s\S]{0,2500}?class="glyph-pupils"/.test(html) && !html.includes('id="toastFalcon"')
+      && !/class="(owl-body|vg-head|falcon-body)"/.test(html)); }
+  const fakeDoc = { createElement: () => ({ dataset: {}, setAttribute(k, v) { this[k] = v; }, className: '', textContent: '', innerHTML: '' }) };
+  const slot = art.tourArtEl('iris', fakeDoc, false);
+  ok('tour art: the slot holds the drawing, hidden from screen readers; none in plain or for no pilot',
+    slot.innerHTML.startsWith('<svg') && slot.dataset.art === 'svg' && slot['aria-hidden'] === 'true' && art.tourArtEl('iris', fakeDoc, true) === null && art.tourArtEl(undefined, fakeDoc, false) === null);
+  const artCode = fs.readFileSync(`${R}/modules/mod01-shell/tourArt.js`, 'utf8');
+  ok('tour art: fetches and stores nothing', !/fetch\(|XMLHttpRequest|localStorage|sessionStorage|indexedDB|https?:\/\//.test(artCode.replace(/\/\*[\s\S]*?\*\//g, '')));
 }
 
 // MOD01 shared look (ui.js / ui.css): breakpoints, the near-miss rim, bundled fonts and icons with their licences
@@ -1711,7 +1780,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const welcomeHtml = html.slice(html.indexOf('<section id="cardWelcome"'), html.indexOf('</section>', html.indexOf('<section id="cardWelcome"')));
   const r2Css = fs.readFileSync(`${R}/modules/mod01-shell/screens-r2.css`, 'utf8');
   ok('logo: the Welcome card shows Shutout and the tagline, both left out in plain; "Made by" and the maker mark show in both; the Thank You logo is the bundled file',
-    /<svg id="welcomeArt" class="r2-art" viewBox="0 0 200 150" role="img" aria-label="Shutout the Box Turtle waving">/.test(welcomeHtml)
+    /<svg id="welcomeArt" class="r2-art" xmlns="http:\/\/www\.w3\.org\/2000\/svg" viewBox="0 0 160 160" role="img" aria-label="Shutout the Box Turtle waving">/.test(welcomeHtml)
     && /<p id="welcomeTagline" class="r2-tag">Operation: Never Lose Contact<\/p>/.test(welcomeHtml)
     && /if \(isPlain\(\)\) \['welcomeArt', 'welcomeTagline'\]\.forEach\(id => \{ const n = document\.getElementById\(id\); if \(n\) n\.remove\(\); \}\);/.test(fs.readFileSync(`${R}/modules/mod01-shell/welcome.js`, 'utf8'))
     && /html\[data-edition="plain"\] #welcomeArt, html\[data-edition="plain"\] #welcomeTagline \{ display: none; \}/.test(r2Css)
@@ -1891,7 +1960,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const st = await import(`${R}/modules/mod01-shell/settings.js`);
   const ui = await import(`${R}/modules/mod01-shell/ui.js`);
   localStorage.clear();
-  ok('settings: one key, defaults right hand, colour-blind off, dark theme, Inter, normal text size', st.SETTINGS_KEY === 'vcge_settings' && JSON.stringify(st.DEFAULTS) === '{"hand":0,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"easy":0}' && st.fontFor(0) === 'Inter' && st.scaleFor(0) === 1);
+  ok('settings: one key, defaults right hand, colour-blind off, dark theme, Inter, normal text size', st.SETTINGS_KEY === 'vcge_settings' && JSON.stringify(st.DEFAULTS) === '{"hand":0,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0}' && st.fontFor(0) === 'Inter' && st.scaleFor(0) === 1);
   ok('settings: the wipe after the lock is 7, 10 or 15 minutes, codes 0, 1, 2; 7 is the default and an unknown code is 7', st.WIPE_TIMES.map(t => `${t.code}:${t.minutes}`).join() === '0:7,1:10,2:15'
     && st.wipeMinutesFor(0) === 7 && st.wipeMinutesFor(1) === 10 && st.wipeMinutesFor(2) === 15 && st.wipeMinutesFor(9) === 7);
   {
@@ -1903,14 +1972,27 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('settings: text sizes Small, Normal, Large, Larger, smallest first, each with its own fixed code; an unknown code is Normal', st.TEXT_SIZES.map(t => t.name).join() === 'Small,Normal,Large,Larger'
     && st.TEXT_SIZES.every((t, i) => i === 0 || t.scale > st.TEXT_SIZES[i - 1].scale) && new Set(st.TEXT_SIZES.map(t => t.code)).size === 4 && st.scaleFor(2) === 1.25 && st.scaleFor(9) === 1);
   ok('settings: every Settings font has its own fixed code, Inter 0, no code shared', ui.UI_FONTS.every(n => Number.isInteger(st.FONT_CODES[n])) && new Set(Object.values(st.FONT_CODES)).size === ui.UI_FONTS.length && Object.keys(st.FONT_CODES).length === ui.UI_FONTS.length);
-  ok('settings: a line of name=number pairs reads back', JSON.stringify(st.parseSettings('hand=1;cb=1;theme=1;font=3;size=2;wipe=1')) === '{"hand":1,"cb":1,"theme":1,"font":3,"size":2,"wipe":1,"mode":0,"style":0,"tex":0,"look":0,"easy":0}');
-  ok('settings: an entry saved before the text size and wipe time existed reads as Normal and 7 minutes', JSON.stringify(st.parseSettings('hand=1;cb=0;theme=0;font=2')) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"easy":0}');
+  ok('settings: a line of name=number pairs reads back', JSON.stringify(st.parseSettings('hand=1;cb=1;theme=1;font=3;size=2;wipe=1')) === '{"hand":1,"cb":1,"theme":1,"font":3,"size":2,"wipe":1,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0}');
+  ok('settings: an entry saved before the text size and wipe time existed reads as Normal and 7 minutes', JSON.stringify(st.parseSettings('hand=1;cb=0;theme=0;font=2')) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0}');
   ok('settings: missing or unreadable means the defaults', JSON.stringify(st.parseSettings(null)) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('garbage')) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('')) === JSON.stringify(st.DEFAULTS));
-  ok('settings: an unknown name, an out-of-range or non-numeric value falls back to its default, the rest is kept', JSON.stringify(st.parseSettings('hand=1;name=Maria;cb=9;theme=x;font=99;size=4')) === '{"hand":1,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"easy":0}');
+  ok('settings: an unknown name, an out-of-range or non-numeric value falls back to its default, the rest is kept', JSON.stringify(st.parseSettings('hand=1;name=Maria;cb=9;theme=x;font=99;size=4')) === '{"hand":1,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0}');
   ok('settings: serialises every name in a fixed order and clamps', st.serializeSettings({ font: 2, hand: 1, size: 3 }) === 'hand=1;cb=0;theme=0;font=2;size=3;wipe=0' && st.serializeSettings({ cb: 6 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0');
   ok('settings: Plain look is look=1, written only while on (an entry nobody switched reads as before); look=2 is out of range',
     st.serializeSettings({ look: 1 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0;look=1' && st.serializeSettings({ look: 0 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0'
     && st.parseSettings('look=2').look === 0 && st.parseSettings('tex=1;look=1').look === 1);
+  ok('settings: tour=1 (first-run tour seen) and splash=1 (opening splash Off) are written only once set; 2 is out of range',
+    st.serializeSettings({ tour: 1, splash: 1 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0;tour=1;splash=1' && st.serializeSettings({ tour: 0, splash: 0 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0'
+    && st.parseSettings('tour=2;splash=2').tour === 0 && st.parseSettings('tour=2;splash=2').splash === 0);
+  {
+    const mem = new Map([['vcge_settings', 'hand=1;cb=0;theme=0;font=0;size=0;wipe=0']]);
+    const store2 = { getItem: (k) => (mem.has(k) ? mem.get(k) : null), setItem: (k, v) => mem.set(k, String(v)), removeItem: (k) => mem.delete(k) };
+    const before = st.tourSeen(store2);
+    st.rememberTourSeen(store2);
+    ok('settings: the tour flag is kept with the other choices in the one entry', !before && st.tourSeen(store2) && mem.get('vcge_settings') === 'hand=1;cb=0;theme=0;font=0;size=0;wipe=0;tour=1' && mem.size === 1);
+    const root = { dataset: {}, classList: { toggle() {} }, style: { setProperty() {}, removeProperty() {} } };
+    st.applySettings({ splash: 1 }, root); const off = root.dataset.splash; st.applySettings({ splash: 0 }, root);
+    ok('settings: splash Off puts html[data-splash="off"], On takes it away', off === 'off' && root.dataset.splash === undefined);
+  }
   st.saveSettings({ hand: 1, font: 2 });
   ok('settings: colour vision (raven575, 2026-11-10) keeps cb as one number, 2 to 5, and each choice has a name and hint',
     st.parseSettings('cb=5').cb === 5 && st.parseSettings('cb=2').cb === 2 && st.COLOUR_VISION.map(v => v.code).join() === '0,2,3,4,5'
@@ -1922,16 +2004,16 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('settings: save writes the one key and nothing else', localStorage.getItem('vcge_settings') === 'hand=1;cb=0;theme=0;font=2;size=0;wipe=0' && store.size === 1);
   ok('settings (step 7): Easy touch is easy=1, written only once it is on', st.parseSettings('easy=1').easy === 1 && st.parseSettings('').easy === 0
     && !st.serializeSettings(st.parseSettings('')).includes('easy') && /(^|;)easy=1(;|$)/.test(st.serializeSettings({ ...st.parseSettings(''), easy: 1 })));
-  ok('settings: load reads it back', JSON.stringify(st.loadSettings()) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"easy":0}');
+  ok('settings: load reads it back', JSON.stringify(st.loadSettings()) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0}');
   st.clearSettings();
   ok('settings: clear removes it', store.size === 0 && JSON.stringify(st.loadSettings()) === JSON.stringify(st.DEFAULTS));
   localStorage.setItem('vcge_theme_preference', 'light');
-  ok('settings: the old theme key is carried over once and removed', JSON.stringify(st.loadSettings()) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"easy":0}' && localStorage.getItem('vcge_theme_preference') === null && store.size === 0);
+  ok('settings: the old theme key is carried over once and removed', JSON.stringify(st.loadSettings()) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0}' && localStorage.getItem('vcge_theme_preference') === null && store.size === 0);
   const code = fs.readFileSync(`${R}/modules/mod01-shell/settings.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
   ok('settings: subscribes to SETTINGS_WIPE_REQUESTED, imports only the bus, ui.js, themes.js, edition.js and pictureSelect.js, no network, cookies or markup', /subscribe\(Events\.SETTINGS_WIPE_REQUESTED/.test(code)
     && (code.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ui.js'") || l.includes("'./themes.js'") || l.includes("'./edition.js'") || l.includes("'./pictureSelect.js'")) && !/fetch\(|document\.cookie|sessionStorage|indexedDB|innerHTML|publish\(/.test(code));
   ok('settings: the only storage key named in the code is the settings key (plus the old theme key it removes)', [...code.matchAll(/(?:getItem|setItem|removeItem)\((\w+)/g)].every(m => m[1] === 'SETTINGS_KEY' || m[1] === 'OLD_THEME_KEY'));
-  ok('settings: the Settings sheet and the Welcome card carry the one-file disclaimer', fs.readFileSync(`${R}/../index.html`, 'utf8').includes('vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look). Nothing you scan, upload or type is ever saved.')
+  ok('settings: the Settings sheet and the Welcome card carry the one-file disclaimer', fs.readFileSync(`${R}/../index.html`, 'utf8').includes('vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look, the opening splash, and whether you have seen the tour). Nothing you scan, upload or type is ever saved.')
     && /<section id="cardWelcome"[\s\S]*?remembers none of your sensitive data[\s\S]*?<\/section>/.test(fs.readFileSync(`${R}/../index.html`, 'utf8')) && !fs.existsSync(`${R}/modules/mod01-shell/themeManager.js`));
   // App themes (themes.js, theme step 1): fixed codes, readable colours, branded ones left out of plain
   const th = await import(`${R}/modules/mod01-shell/themes.js`);
@@ -1985,7 +2067,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('settings 0.8: the six styles keep fixed codes (Herd 0, Material 1, iOS 2, Windows 3, GNOME 4, KDE 5); an unknown code is Herd',
     st.STYLES.map(t => `${t.code}:${t.id}`).join() === '0:herd,1:material,2:ios,3:windows,4:gnome,5:kde' && st.styleFor(9).id === 'herd' && st.parseSettings('style=6').style === 0);
   ok('settings 0.8: an entry from 0.7 (no mode, style or tex) reads as the fixed theme, Herd style and the texture on',
-    JSON.stringify(st.parseSettings('hand=0;cb=0;theme=1;font=0;size=0;wipe=0')) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"easy":0}'
+    JSON.stringify(st.parseSettings('hand=0;cb=0;theme=1;font=0;size=0;wipe=0')) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0}'
     && st.effectiveTheme(st.parseSettings('theme=1'), true) === 1 && st.effectiveTheme(st.parseSettings('theme=0'), false) === 0);
   ok('settings 0.8: Appearance System shows the family\'s light or dark code by the device; a one-version theme stays itself',
     st.effectiveTheme({ theme: 1, mode: 1 }, true) === 0 && st.effectiveTheme({ theme: 0, mode: 1 }, false) === 1
@@ -2210,6 +2292,69 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const homeOnly = new EgressController();
   homeOnly.setPayload('BEGIN:VCARD', { firstName: 'Kai', addressType: 'other', city: 'Boise', websites: [{ type: 'other', value: 'kai.dev' }] }, { hasDetails: true });
   ok('MOD08 summary: an "Other" website and address read "Website" and "Address"', homeOnly.contactSummary() === 'Kai\nWebsite:  kai.dev\nAddress:  Boise', JSON.stringify(homeOnly.contactSummary()));
+
+  // Save .vcf in the Android app (raven575's phone run, 2026-11-14: "saved", but no contact): the WebView cannot download,
+  // so the card goes to the phone's Contacts app through MainActivity.kt's "vcgeAndroid"
+  {
+    const handed = [];
+    const androidEvents = [];
+    const offA = share.globalEventBus.subscribe(share.Events.EXPORT_DISPATCHED, (d) => androidEvents.push(d));
+    globalThis.vcgeAndroid = { addContact: (vcard, name) => { handed.push({ vcard, name }); return true; } };
+    const opened = e.downloadVcf();
+    ok('MOD08 Android app: Save .vcf hands the folded vCard and "Dana Quill.vcf" to Contacts, and says so', opened === 'contacts' && handed.length === 1
+      && handed[0].vcard === e.currentVCard && handed[0].name === 'Dana Quill.vcf', JSON.stringify({ opened, n: handed.length, name: handed[0] && handed[0].name }));
+    globalThis.vcgeAndroid = { addContact: () => false };
+    ok('MOD08 Android app: when no app opens a contact card, Save .vcf says it failed (no false "Saved")', e.downloadVcf() === 'failed');
+    ok('MOD08 Android app: the audit event names the action and whether Contacts opened, never the contact',
+      androidEvents.map(d => `${d.method}:${d.opened}`).join() === 'android_contact:true,android_contact:false' && !JSON.stringify(androidEvents).includes('Dana'), JSON.stringify(androidEvents));
+    delete globalThis.vcgeAndroid;
+    offA();
+    ok('MOD08 Android app: an empty card hands nothing over', new EgressController().downloadVcf() === false && handed.length === 1);
+  }
+
+  // raven575's second phone run (2026-11-14 22:2x UTC): Email and Text message replaced the app with "Webpage not
+  // available" (mailto:/sms: in the WebView), Share said "not available", Save QR image saved nothing. The bridge does them.
+  {
+    const calls = [];
+    let answer = true;
+    const androidEvents = [];
+    const offA = share.globalEventBus.subscribe(share.Events.EXPORT_DISPATCHED, (d) => androidEvents.push(d));
+    globalThis.vcgeAndroid = {
+      shareContact: (vcard, name, title) => { calls.push({ m: 'share', vcard, name, title }); return answer; },
+      email: (subject, body) => { calls.push({ m: 'email', subject, body }); return answer; },
+      sms: (body) => { calls.push({ m: 'sms', body }); return answer; },
+      savePng: (b64, name) => { calls.push({ m: 'png', b64, name }); return answer; }
+    };
+    let navigated = 0;
+    const realNavigate = e.navigate;
+    e.navigate = () => { navigated++; };
+    const shared = await e.triggerQuickShare();
+    ok('MOD08 Android app: Share hands the folded vCard as "Dana Quill.vcf" to the share menu', shared.success && shared.method === 'android_file'
+      && calls[0].m === 'share' && calls[0].vcard === e.currentVCard && calls[0].name === 'Dana Quill.vcf' && calls[0].title === 'Contact: Dana Quill', JSON.stringify(shared));
+    const mailed = await e.triggerEmailShare();
+    ok('MOD08 Android app: Email opens the mail app with the subject and the mailto body (no PHOTO), never a mailto: page', mailed.success && calls[1].m === 'email'
+      && calls[1].subject === 'Contact: Dana Quill' && calls[1].body === e.emailParts().body && calls[1].body.includes('BEGIN:VCARD') && !/^PHOTO/m.test(calls[1].body)
+      && decodeURIComponent(e.mailtoUrl().split('body=')[1]) === calls[1].body && navigated === 0);
+    const texted = e.triggerSmsShare();
+    ok('MOD08 Android app: Text message opens the messaging app with the readable summary, never an sms: page', texted.success && calls[2].m === 'sms'
+      && calls[2].body === e.contactSummary() && navigated === 0);
+    const canvas = { toDataURL: () => 'data:image/png;base64,iVBORw0KGgo=' };
+    const png = e.exportQRPNG(canvas, { real: true });
+    ok('MOD08 Android app: Save QR image hands the PNG bytes (base64, no data: prefix) and "Dana Quill QR.png" to Downloads', png.success
+      && calls[3].m === 'png' && calls[3].b64 === 'iVBORw0KGgo=' && calls[3].name === 'Dana Quill QR.png', JSON.stringify(png));
+    answer = false;
+    const failed = [await e.triggerQuickShare(), await e.triggerEmailShare(), e.triggerSmsShare(), e.exportQRPNG(canvas, { real: true })];
+    ok('MOD08 Android app: when no app takes it (or the save fails) each one says so, never a false success',
+      failed.map(r => `${r.success}:${r.reason}`).join() === 'false:share_failed,false:no_app,false:no_app,false:save_failed', JSON.stringify(failed));
+    ok('MOD08 Android app: the audit events say what was done and whether it worked, never the contact',
+      androidEvents.map(d => `${d.method}:${d.opened ?? d.saved}`).join() === 'android_share:true,email:true,sms:true,android_png:true,android_share:false,email:false,sms:false,android_png:false'
+      && !JSON.stringify(androidEvents).includes('Dana'), JSON.stringify(androidEvents));
+    const qrOnlyNoCode = await e.triggerPhysicalPrint({ content: 'qr', qrCanvas: null });
+    ok('MOD08 print: QR only with no code that fits is refused (never an empty page)', qrOnlyNoCode.success === false && qrOnlyNoCode.reason === 'qr_too_large', JSON.stringify(qrOnlyNoCode));
+    e.navigate = realNavigate;
+    delete globalThis.vcgeAndroid;
+    offA();
+  }
 
   // The share sheet and the audit events, with a stand-in navigator
   const realNavigator = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
