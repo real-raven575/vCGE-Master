@@ -42,3 +42,13 @@
     .vcge-tour-tip { animation: vcge-welcome-fade 0.2s ease-out; }
 }
 @keyframes vcge-welcome-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* The step's pilot (tourArt.js, CRTV-0059 Plan A): 160 px, smaller on a short screen so the words and buttons stay in view.
+   A drawing takes the theme's colours through currentColor; never flashes or moves. */
+.vcge-tour-art { display: grid; place-items: center; width: clamp(64px, 18vh, 160px); height: clamp(64px, 18vh, 160px); margin: 0 auto 0.75rem;
+    font-size: clamp(48px, 13vh, 120px); line-height: 1; color: var(--sh-accent, #16a34a); }
+.vcge-tour-art > svg { width: 100%; height: 100%; }
+html[data-edition="plain"] .vcge-tour-art { display: none; }
+/* Creative's drawings tint their soft disc with --color-soft: the theme's own soft colour */
+.vcge-tour-art, #welcomeArt { --color-soft: var(--sh-soft, #f3ece0); }
+#welcomeArt { width: 160px; height: 160px; margin-inline: auto; }

@@ -44,7 +44,7 @@ import { initCardTabs } from './modules/mod06-gui/cardTabs.js';
 import { vcgeQREngine } from './modules/mod07-qr/qrGenerator.js';
 import { egressController, PRINT_QR_PX } from './modules/mod08-egress/egressController.js';
 import { pictureSelect } from './modules/mod01-shell/pictureSelect.js';
-import { exportQrDialog, printChoiceDialog, renderOptions, LOOK_SELECTS } from './modules/mod08-egress/exportDialogs.js';
+import { exportQrDialog, printChoiceDialog, renderOptions, cleanChoices, LOOK_SELECTS } from './modules/mod08-egress/exportDialogs.js';
 import { wireHatches, wireFalcon, flyFalcon, showReadyLights } from './modules/mod08-egress/airlockTouches.js';
 import { VaultStore, READINGS } from './modules/mod02-vault/vaultStore.js';
 
@@ -103,9 +103,13 @@ function refresh(contact = cardView.getContact()) {
     // The QR payload omits the photo: base64 images exceed QR capacity.
     const hasDetails = vcgeQREngine.hasDetails(contact);
     if (!hasDetails) vcgeQREngine.renderPlaceholder($('qrCanvas'), 320);
-    // The QR is tinted to the card's theme (MOD07 checks the contrast and falls back to black on white itself).
-    const theme = THEMES[themeKeyOf(contact.themePalette)];
-    const qrOk = hasDetails && vcgeQREngine.renderQRCode($('qrCanvas'), vcgeQREngine.generateVCard30({ ...contact, avatarBase64: null }), { size: 320, theme });
+    // The QR follows Checkers' picks (QR code design under the card, shared with Save QR image and Print / PDF): the
+    // card's theme by default, else a named pair, an ink or black and white; dots and corners too. No frame or logo on
+    // the card. MOD07 checks the contrast and falls back to black on white itself.
+    const look = renderOptions(exportQrDialog.choices);
+    const theme = look.ink ? { card: look.ink } : look.themed ? THEMES[themeKeyOf(contact.themePalette)] : null;
+    const qrOk = hasDetails && vcgeQREngine.renderQRCode($('qrCanvas'), vcgeQREngine.generateVCard30({ ...contact, avatarBase64: null }),
+        { size: 320, theme, pair: look.pair, dots: look.dots, eyes: look.eyes, dotSize: look.dotSize });
     $('qrNotice').classList.toggle('hidden', qrOk || !hasDetails);
     // Checkers: the first real code after the placeholder fills in once; the hint under it shows only with a real code.
     if (qrOk && !qrShown) vcgeQREngine.reveal($('qrCanvas'));
@@ -1121,8 +1125,10 @@ function wireEgress() {
     ['downloadVcfBtn', 'emailBtn', 'smsBtn', 'shareNativeBtn', 'copyVcardBtn']
         .forEach(id => $(id).addEventListener('click', expectExternalApp, true));
     $('downloadVcfBtn').addEventListener('click', () => {
-        if (!egressController.downloadVcf()) return;
-        cardView.showToast(`Saved ${egressController.fileName('.vcf')}.`);
+        const saved = egressController.downloadVcf();
+        if (!saved) return;
+        if (saved === 'failed') { cardView.showToast('No app on this phone opens a contact card.'); return; }
+        cardView.showToast(saved === 'contacts' ? 'Opening Contacts: tap Save there to add this contact.' : `Saved ${egressController.fileName('.vcf')}.`);
         flyFalcon();
     });
     // QR PNG: the Export QR pop-up (colours, dots, frame, centre logo) with a live preview; Save PNG downloads it as previewed.
@@ -1152,6 +1158,38 @@ function wireEgress() {
             box.append(canvas);
         } });
     }
+    // QR code design under the card (QR side up): Colours, Dots and Corners, the same lists as Save QR image, dressed as
+    // picture drop-downs. A pick changes the code on the card at once and is the look the pop-up and the PDF start from.
+    const CARD_QR = { colour: 'cardQrColour', dots: 'cardQrDots', eyes: 'cardQrEyes' };
+    const paintCardQr = () => {
+        for (const [key, id] of Object.entries(CARD_QR)) {
+            const select = $(id);
+            if (!select) continue;
+            select.value = String(exportQrDialog.choices[key]);
+            if (select._picture) select._picture.refresh();
+        }
+    };
+    for (const [key, id] of Object.entries(CARD_QR)) {
+        const select = $(id), from = $(LOOK_SELECTS[key]);
+        if (!select || !from) continue;
+        select.replaceChildren(...[...from.options].map(o => new Option(o.textContent, o.value)));
+        select.value = String(exportQrDialog.choices[key]);
+        select.addEventListener('change', () => {
+            exportQrDialog.choices = cleanChoices({ ...exportQrDialog.choices, [key]: select.value });
+            from.value = String(exportQrDialog.choices[key]);   // the pop-up's own list shows it too
+            refresh();
+            paintCardQr();
+        });
+        pictureSelect(select, { render: (value, box) => {
+            const canvas = document.createElement('canvas');
+            canvas.className = 'export-qr-thumb';
+            if (!renderExportQr(canvas, { ...renderOptions({ ...exportQrDialog.choices, [key]: value }), frame: 'none', size: QR_THUMB_PX, sample: 'vCGE' }).ok) return;
+            box.append(canvas);
+        } });
+    }
+    // A pick made in Save QR image shows on the card too (and in these drop-downs), and a wipe's reset comes back here
+    for (const id of Object.values(LOOK_SELECTS)) { const el = $(id); if (el) el.addEventListener('change', () => { refresh(); paintCardQr(); }); }
+    globalEventBus.subscribe(Events.VAULT_WIPED, paintCardQr);
     // "Also use this logo on my card": Export wrote the Vault's logo slot; the card view reads it through its own handle.
     egressController.setVault(vaultStore.handle('mod08'));
     const cardVault = vaultStore.handle('mod06');
@@ -1162,15 +1200,22 @@ function wireEgress() {
         refresh();
         markActivity();
     });
-    $('emailBtn').addEventListener('click', () => egressController.triggerEmailShare());
-    $('smsBtn').addEventListener('click', () => egressController.triggerSmsShare());
+    // In the Android app these go through the bridge, which says when no app on the phone can take them.
+    $('emailBtn').addEventListener('click', async () => {
+        const result = await egressController.triggerEmailShare();
+        if (result && result.reason === 'no_app') cardView.showToast('No email app on this phone opens a new message.');
+    });
+    $('smsBtn').addEventListener('click', () => {
+        const result = egressController.triggerSmsShare();
+        if (result && result.reason === 'no_app') cardView.showToast('No messaging app on this phone opens a new text.');
+    });
     // Print / PDF: Themed or Black & White, then one 6 x 3.5 in page through the browser's print dialog.
     $('printCardBtn').addEventListener('click', () => {
         if (egressController.isEmpty()) { cardView.showToast('Add a contact first.'); return; }
         printChoiceDialog.open();
     });
     printChoiceDialog.init({
-        onChoose: async (themed, { nameFile = false } = {}) => {
+        onChoose: async (themed, { nameFile = false, content = 'both' } = {}) => {
             expectExternalApp();
             const qr = document.createElement('canvas');
             // The QR is printed in the look chosen in Export QR (colours, dots, corners, dot size, frame, print size), as
@@ -1179,13 +1224,15 @@ function wireEgress() {
             const options = themed ? renderOptions(look) : { ...renderOptions(look), themed: false, ink: null, pair: null };
             const drawn = renderExportQr(qr, { ...options, size: PRINT_QR_PX });
             const wanted = themed && look.colour !== 'bw';
-            const warned = wanted && drawn.ok && !drawn.themed;
+            const warned = content !== 'card' && wanted && drawn.ok && !drawn.themed;
             if (warned) cardView.showToast('Those QR colours are not scannable, so the QR is printed in black and white.');
             // The sheet takes a PNG copy of the QR at once, so the drawing canvas can be emptied before the wait for it.
-            const printing = egressController.triggerPhysicalPrint({ themed, qrCanvas: drawn.ok ? qr : null, nameFile, qrCm: look.printCm });
+            const printing = egressController.triggerPhysicalPrint({ themed, qrCanvas: drawn.ok ? qr : null, nameFile, qrCm: look.printCm, content });
             qr.width = qr.height = 0;
             const printed = await printing;
             if (printed && printed.success && !warned) { cardView.showToast('Sent to the print dialog.'); flyFalcon(); }
+            else if (printed && printed.reason === 'no_print') cardView.showToast('Printing is not available on this phone.');
+            else if (printed && printed.reason === 'qr_too_large') cardView.showToast('Too much information for one QR code: print the card instead.');
         }
     });
     $('shareNativeBtn').addEventListener('click', async () => {

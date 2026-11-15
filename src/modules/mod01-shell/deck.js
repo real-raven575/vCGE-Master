@@ -83,12 +83,15 @@ function setCurrent(name) {
 // The head: "Step 1 of 5 · Capture", the pilot chip and the big title, all from the screen's own data attributes.
 function paintHead(card) {
     const set = (id, text) => { const el = $(id); if (el) el.textContent = text || ''; };
+    // The Card screen with its QR side up belongs to Checkers (raven575, 2026-11-14): data-back-* name him
+    const back = cardFace === 'back' && card.dataset.backPilot ? 'back' : '';
+    const pick = (key) => card.dataset[back ? back + key[0].toUpperCase() + key.slice(1) : key];
     set('hStep', card.dataset.step);
-    set('hEmoji', card.dataset.pilotEmoji);
-    set('hName', card.dataset.pilot);
-    set('hTitle', card.dataset.title);
-    const back = $('dockBack');
-    if (back) back.disabled = currentName === CARDS[0];
+    set('hEmoji', pick('pilotEmoji'));
+    set('hName', pick('pilot'));
+    set('hTitle', pick('title'));
+    const backBtn = $('dockBack');
+    if (backBtn) backBtn.disabled = currentName === CARDS[0];
 }
 
 // The dock's five steps: done before the screen in view, now on it, todo after it (none on Welcome).
@@ -108,7 +111,11 @@ function markNav() {
 /** @param {'front'|'back'} face  the side of the 3D card that is up */
 export function setFace(face) {
     cardFace = face === 'back' ? 'back' : 'front';
+    const body = document.querySelector('#cardCard .r4-card');
+    if (body) body.dataset.face = cardFace;
     markNav();
+    const card = $('cardCard');
+    if (card && currentName === 'card') paintHead(card);
 }
 
 // The primary button names the screen's next move and is pressable only when the screen's own button is.

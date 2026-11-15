@@ -270,7 +270,12 @@ export class ExportQrDialog {
         if (!this.last.ok) return;
         if (this.hooks.beforeExternal) this.hooks.beforeExternal();
         const result = egressController.exportQRPNG(this.el.canvas, { real: true });
-        if (!result.success) { this.say(result.reason === 'empty' ? 'Add a contact first.' : 'Too much information for one QR code: use .vcf or Share instead.'); return; }
+        if (!result.success) {
+            this.say(result.reason === 'empty' ? 'Add a contact first.'
+                : result.reason === 'save_failed' ? 'The picture could not be saved to Downloads on this phone: use Share instead.'
+                : 'Too much information for one QR code: use .vcf or Share instead.');
+            return;
+        }
         let onCard = false;
         if (this.choices.useOnCard && this.upload) onCard = egressController.offerLogoToCard(this.upload);
         this.say(`Saved ${result.filename}.${onCard ? ' The logo is on your card too.' : ''}`);
@@ -280,7 +285,7 @@ export class ExportQrDialog {
 }
 
 export class PrintChoiceDialog {
-    /** @param {{ onChoose: (themed: boolean, options: { nameFile: boolean }) => void|Promise<void> }} hooks */
+    /** @param {{ onChoose: (themed: boolean, options: { nameFile: boolean, content: 'both'|'card'|'qr' }) => void|Promise<void> }} hooks */
     constructor(hooks = {}) {
         this.hooks = hooks;
         this.root = null;
@@ -305,6 +310,9 @@ export class PrintChoiceDialog {
         // Naming the PDF after the contact is asked for each print: the box always starts unticked (raven575, 2026-10-18)
         const box = $('printNameFile');
         if (box) box.checked = false;
+        // What goes on the page starts at Card and QR each time (raven575, 2026-11-15: card, QR or both)
+        const both = this.root.querySelector('input[name="printContent"][value="both"]');
+        if (both) both.checked = true;
         $('printThemedBtn').focus();
     }
 
@@ -313,8 +321,10 @@ export class PrintChoiceDialog {
     choose(themed) {
         const box = $('printNameFile');
         const nameFile = !!(box && box.checked);
+        const picked = this.root.querySelector('input[name="printContent"]:checked');
+        const content = picked && ['card', 'qr'].includes(picked.value) ? picked.value : 'both';
         this.close();
-        if (this.hooks.onChoose) this.hooks.onChoose(themed, { nameFile });
+        if (this.hooks.onChoose) this.hooks.onChoose(themed, { nameFile, content });
     }
 }
 

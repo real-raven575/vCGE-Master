@@ -148,10 +148,19 @@ jobs:
         run: |
           if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a npm run test:desktop-smoke; else npm run test:desktop-smoke; fi
 
+      # Each download says its version, platform and build: vCGE-0.8.1-W417_x64-setup.exe (raven575, 2026-11-15)
+      - name: Name the downloads
+        id: names
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in Windows) P=W ;; macOS) P=M ;; *) P=L ;; esac
+          node scripts/name-downloads.mjs src-tauri/target/release/bundle "$P" "${{ github.run_number }}"
+          echo "tag=$(node -p "require('./package.json').version")-${P}${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
       - name: Upload installers
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: vcge-${{ matrix.os }}
+          name: vCGE-${{ steps.names.outputs.tag }}
           path: src-tauri/target/release/bundle/
           if-no-files-found: error
           retention-days: 14
@@ -221,10 +230,12 @@ jobs:
             -keyalg RSA -keysize 2048 -validity 30 -dname "CN=vCGE CI test build" > /dev/null
           mkdir -p apk
           "$BT/zipalign" -f -p 4 "$IN" "$RUNNER_TEMP/aligned.apk"
-          VERSION=$(node -p "require('./package.json').version")
-          "$BT/apksigner" sign --ks "$RUNNER_TEMP/test.jks" --ks-pass env:KS_PASS --out "apk/vcge-$VERSION-android-test.apk" "$RUNNER_TEMP/aligned.apk"
+          # Named for its version, platform and build: vCGE-0.8.1-A417.apk (raven575, 2026-11-15)
+          TAG="$(node -p "require('./package.json').version")-A${{ github.run_number }}"
+          echo "APK_TAG=$TAG" >> "$GITHUB_ENV"
+          "$BT/apksigner" sign --ks "$RUNNER_TEMP/test.jks" --ks-pass env:KS_PASS --out "apk/vCGE-$TAG.apk" "$RUNNER_TEMP/aligned.apk"
           rm -f "$RUNNER_TEMP/test.jks"
-          "$BT/apksigner" verify "apk/vcge-$VERSION-android-test.apk"
+          "$BT/apksigner" verify "apk/vCGE-$TAG.apk"
           ls -l apk
 
       - name: Wait for the emulator
@@ -252,7 +263,7 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: vcge-android
+          name: vCGE-${{ env.APK_TAG }}
           path: apk/
           if-no-files-found: error
           retention-days: 14
