@@ -3779,6 +3779,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const mini = await pT.evaluate(() => { const body = document.querySelector('#cardCard .r4-card'), c = document.getElementById('card3DFlipper').getBoundingClientRect(), v = body.getBoundingClientRect();
       return { mini: body.dataset.mini, scrolled: body.scrollTop > 0, inView: c.top >= v.top - 1 && c.bottom <= v.bottom && c.width > 60, small: c.width < 200, w: Math.round(c.width) }; });
     ok('mini card: with a long box scrolled, the card stays in view, shrunk into the corner', mini.mini === 'on' && mini.scrolled && mini.inView && mini.small, JSON.stringify(mini));
+    // A category button changes the box where it is: no jump back to the top, the mini card stays (raven575's phone run, 2026-11-14)
+    await pT.click('#cardTabs [data-tab="paper"]'); await pT.waitForTimeout(400);
+    const stay = await pT.$eval('#cardCard .r4-card', b => ({ top: Math.round(b.scrollTop), mini: b.dataset.mini || 'off', tab: b.dataset.tab }));
+    ok('card tabs: a category button changes the box in place, without jumping back to the top or growing the card', stay.top > 0 && stay.mini === 'on' && stay.tab === 'paper', JSON.stringify(stay));
+    await pT.click('#cardTabs [data-tab="logo"]'); await pT.$eval('#cardCard .r4-card', b => b.scrollTo(0, b.scrollHeight)); await pT.waitForTimeout(500);
+    await pT.waitForFunction(() => document.getElementById('card3DFlipper').getBoundingClientRect().width < 200, null, { timeout: 3000 }).catch(() => {});
     const turnedBefore = await pT.$eval('#card3DFlipper', el => el.style.transform);
     const cb = await pT.locator('#card3DFlipper').boundingBox();
     await pT.touchscreen.tap(cb.x + cb.width * 0.8, cb.y + cb.height / 2); await pT.waitForTimeout(900);
@@ -3795,6 +3801,22 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pT.waitForTimeout(300);
     const flipped = await pT.evaluate(() => ({ top: document.querySelector('#cardCard .r4-card').scrollTop, mini: document.querySelector('#cardCard .r4-card').dataset.mini || 'off', turn: document.getElementById('card3DFlipper').style.transform }));
     ok('mini card: Flip card brings the whole card back and turns it', miniAgain === 'on' && flipped.top === 0 && flipped.mini === 'off' && flipped.turn !== turnedBefore, JSON.stringify({ miniAgain: String(miniAgain), ...flipped }));
+    // QR side up: Checkers takes the head and his few QR picks replace Card design (raven575's phone run, 2026-11-14)
+    await pT.waitForFunction(() => document.querySelector('#cardCard .r4-card').dataset.face === 'back', null, { timeout: 3000 }).catch(() => {});
+    const qrSide = await pT.evaluate(() => ({ face: document.querySelector('#cardCard .r4-card').dataset.face, head: [hEmoji.textContent, hName.textContent, hTitle.textContent].join('|'),
+      qr: qrDesign.getClientRects().length > 0, tabs: cardTabs.getClientRects().length > 0, swatches: paletteListContainer.getClientRects().length > 0, flip: flipCardBtn.getClientRects().length > 0,
+      lists: ['cardQrColour', 'cardQrDots', 'cardQrEyes'].map(id => [...document.getElementById(id).options].map(o => o.value).join('/')) }));
+    ok('QR side: the head says Checkers ("Your QR code") and QR code design (Colours, Dots, Corners) replaces Card design, Flip card stays',
+      qrSide.face === 'back' && (EDITION_PLAIN || qrSide.head === '🦓|Checkers|Your QR code') && qrSide.qr && !qrSide.tabs && !qrSide.swatches && qrSide.flip
+      && qrSide.lists[0].startsWith('themed/') && qrSide.lists[0].includes('/bw/') && qrSide.lists[1] === 'square/rounded/round/diamond/bars' && qrSide.lists[2] === 'square/rounded/circle', JSON.stringify(qrSide));
+    await pT.evaluate(() => { const f = document.getElementById('firstName'); f.value = 'Sam'; f.dispatchEvent(new Event('input', { bubbles: true })); }); await pT.waitForTimeout(300);
+    const qrBefore = await pT.$eval('#qrCanvas', c => c.toDataURL());
+    await pT.$eval('#cardQrDots', s => { s.value = 'round'; s.dispatchEvent(new Event('change')); }); await pT.waitForTimeout(200);
+    const qrAfter = await pT.evaluate(() => ({ changed: document.getElementById('qrCanvas').toDataURL(), dots: document.getElementById('qrDotsSelect').value }));
+    ok('QR side: a Dots pick redraws the card\'s QR at once and is the look Save QR image starts from', qrAfter.changed !== qrBefore && qrAfter.dots === 'round', qrAfter.dots);
+    await pT.$eval('#flipCardBtn', b => b.click()); await pT.waitForTimeout(1000);
+    const frontAgain = await pT.evaluate(() => ({ head: [hEmoji.textContent, hName.textContent].join('|'), qr: qrDesign.getClientRects().length > 0, tabs: cardTabs.getClientRects().length > 0 }));
+    ok('QR side: turning back to the front brings Flipside and Card design back', (EDITION_PLAIN || frontAgain.head === '🦎|Flipside') && !frontAgain.qr && frontAgain.tabs, JSON.stringify(frontAgain));
     await ctxT.close();
   }
 
@@ -3847,7 +3869,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       ok('a mouse click on the edge still works (only fingers get the near-miss guard)', turnedM === 'rotateY(180deg)', `${turnedM} (mouse-only page)`);
       await ctxM.close();
     } else {
-      await pU.mouse.click(flip.x + flip.width / 2, flip.y + 1.5); await settled(pU);
+      // (the QR side shows its own picks above Flip card, so the button is measured again where it is now)
+      await pU.locator('#flipCardBtn').scrollIntoViewIfNeeded(); await pU.waitForTimeout(200);
+      const flipB = await pU.locator('#flipCardBtn').boundingBox();
+      await pU.mouse.click(flipB.x + flipB.width / 2, flipB.y + 1.5); await settled(pU);
       ok('a mouse click on the edge still works (only fingers get the near-miss guard)', (await turned()) === 'rotateY(0deg)', await turned());
     }
     await pU.setViewportSize({ width: 390, height: 844 });
@@ -4237,6 +4262,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // (the guide fades in: WebKit runs no transitions on a page that is not in front, CI 11-02)
     await p6.bringToFront();
     await p6.click('#cardTabs [data-tab="logo"]'); await p6.waitForTimeout(400);
+    // (a category button no longer scrolls the box to the top, so the full-size card is brought back here first)
+    await p6.$eval('#cardCard .r4-card', b => b.scrollTo(0, 0)); await p6.waitForTimeout(400);
     await p6.waitForFunction(() => parseFloat(getComputedStyle(document.querySelector('#cardFront .r4-safe-guide')).opacity) > 0.3, null, { timeout: 3000 }).catch(() => {});
     ok('0.8 card: with Logo open the card shows its logo safe-area guide (a dashed outline inside the rounded corners)', await p6.$eval('#cardFront .r4-safe-guide', g => { const cs = getComputedStyle(g), r = g.getBoundingClientRect(), f = document.getElementById('cardFront').getBoundingClientRect(); return parseFloat(cs.opacity) > 0.3 && cs.borderTopStyle === 'dashed' && r.left - f.left >= 8 && f.bottom - r.bottom >= 8 && cs.pointerEvents === 'none' && g.getAttribute('aria-hidden') === 'true'; }),
       await p6.$eval('#cardFront .r4-safe-guide', g => { const cs = getComputedStyle(g), r = g.getBoundingClientRect(), f = document.getElementById('cardFront').getBoundingClientRect(); return JSON.stringify({ open: document.getElementById('cardLookPanel').open, opacity: cs.opacity, border: cs.borderTopStyle, left: Math.round(r.left - f.left), bottom: Math.round(f.bottom - r.bottom), pe: cs.pointerEvents }); }).catch(e => String(e).slice(0, 120)));

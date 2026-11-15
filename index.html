@@ -385,7 +385,7 @@
                 <button id="fieldsDoneBtn" type="button" class="fields-ok"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#circle-check"></use></svg>Everything's correct</button>
             </div>
         </section>
-        <section id="cardCard" class="deck-card" data-card="card" data-step="Step 4 of 5 · Card" data-pilot-emoji="🦎" data-pilot="Flipside" data-title="Your card" data-next="#readyToShareBtn" data-next-label="Share" aria-label="3D card">
+        <section id="cardCard" class="deck-card" data-card="card" data-step="Step 4 of 5 · Card" data-pilot-emoji="🦎" data-pilot="Flipside" data-title="Your card" data-back-pilot-emoji="🦓" data-back-pilot="Checkers" data-back-title="Your QR code" data-next="#readyToShareBtn" data-next-label="Share" aria-label="3D card">
             <div class="deck-card-body r4-card" data-tab="colour">
                 <!-- 0.8 Card (Creative's mock-up, gap list row 17): one card, front and QR back, first; a tap on its left side spins
                      it left and on its right side spins it right (620 ms, soft ease out; card3dView.js), a sideways drag
@@ -434,6 +434,20 @@
                     </div>
                 </div>
                 <p class="r4-flipnote">Tap the right side to spin right, the left side to spin left.</p>
+                <!-- QR design (raven575's phone run, 2026-11-14): with the QR side up, Checkers takes the head and these few
+                     picks replace Card design under the card. They change the code on the card and the look Save QR image and
+                     Print / PDF start from (the same choices); every pick is checked to scan. Memory only. -->
+                <section id="qrDesign" class="r4-qr" aria-labelledby="qrDesignTitle">
+                    <div class="r4-design-head">
+                        <svg class="vcge-icon" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#qrcode"></use></svg>
+                        <b id="qrDesignTitle">QR code design</b><small>Changes this card's QR code, and the QR image and PDF you save. The card's colours stay on the other side.</small>
+                    </div>
+                    <div class="r4-qr-picks">
+                        <label class="r4-qr-pick"><span>Colours</span><select id="cardQrColour" class="vcge-select" aria-label="QR colours"></select></label>
+                        <label class="r4-qr-pick"><span>Dots</span><select id="cardQrDots" class="vcge-select" aria-label="QR dots"></select></label>
+                        <label class="r4-qr-pick"><span>Corners</span><select id="cardQrEyes" class="vcge-select" aria-label="QR corner squares"></select></label>
+                    </div>
+                </section>
                 <!-- Card design (raven575, 2026-11-10): says plainly it changes this card only, never the app's look (that is
                      Settings > App look). Colour stays in view under the card; Paper and Logo fold under one opener below. -->
                 <div class="r4-design-head" id="cardDesignHead">

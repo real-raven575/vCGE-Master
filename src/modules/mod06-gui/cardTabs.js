@@ -34,9 +34,9 @@ export function initCardTabs(doc = document, win = window) {
     bar.addEventListener('click', (e) => {
         const b = e.target.closest('.r4-tab');
         if (!b) return;
+        // The box changes where it is: no jump back to the top and no full-size card (raven575's phone run, 2026-11-14);
+        // the mini card in the corner keeps showing each change
         showCardTab(doc, b.dataset.tab);
-        // A new category starts from the top, with the whole card in view (phones; a wide screen has nothing to scroll)
-        if (body.scrollTop > 0) body.scrollTop = 0;
     });
     // Arrow keys move along the row, as in any row of picture buttons
     bar.addEventListener('keydown', (e) => {

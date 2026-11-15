@@ -165,6 +165,17 @@ html[data-cb="1"] button.r4-tab[aria-pressed="true"] span { font-weight: 800; te
 .r4-card:is([data-tab="logo"], [data-tab="paper"]) .r4-look-groups { padding-top: 6px; }
 .r4-card[data-tab="logo"] > .r4-logo { margin-bottom: 12px; }
 
+/* QR side up (deck.js setFace sets .r4-card[data-face]): Checkers' few QR picks take the place of Card design, which
+   comes back with the card's front. Flip card stays, so the front is one tap away from the keyboard too. */
+.r4-card:not([data-face="back"]) > #qrDesign,
+.r4-card[data-face="back"] > :is(#cardDesignHead, #cardTabs, #paletteListContainer, .r4-logo),
+.r4-card[data-face="back"] :is(#r4StyleHead, #cardLookPanel),
+.r4-card[data-face="back"] .r4-chips > :not(#flipCardBtn) { display: none; }
+.r4-card[data-face="back"] .r4-chips { padding-top: 0; }
+.r4-qr-picks { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 10px; margin: 0 0 14px; }
+.r4-qr-pick { display: flex; flex-direction: column; gap: 4px; min-width: 0; font: 600 13px system-ui, sans-serif; color: var(--sh-ink); }
+.r4-qr-pick > select { min-height: 48px; width: 100%; }
+
 /* The card stays pinned at the top of its screen on a phone or tablet; once the box below scrolls, it shrinks to a mini
    card in the corner (tap it to scroll back to the whole card). Wide screens keep it beside the tools. */
 .r4-card > .r4-stage { position: sticky; top: 0; z-index: 4; transform-origin: 100% 0; }

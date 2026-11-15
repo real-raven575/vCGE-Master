@@ -44,7 +44,7 @@ import { initCardTabs } from './modules/mod06-gui/cardTabs.js';
 import { vcgeQREngine } from './modules/mod07-qr/qrGenerator.js';
 import { egressController, PRINT_QR_PX } from './modules/mod08-egress/egressController.js';
 import { pictureSelect } from './modules/mod01-shell/pictureSelect.js';
-import { exportQrDialog, printChoiceDialog, renderOptions, LOOK_SELECTS } from './modules/mod08-egress/exportDialogs.js';
+import { exportQrDialog, printChoiceDialog, renderOptions, cleanChoices, LOOK_SELECTS } from './modules/mod08-egress/exportDialogs.js';
 import { wireHatches, wireFalcon, flyFalcon, showReadyLights } from './modules/mod08-egress/airlockTouches.js';
 import { VaultStore, READINGS } from './modules/mod02-vault/vaultStore.js';
 
@@ -103,9 +103,13 @@ function refresh(contact = cardView.getContact()) {
     // The QR payload omits the photo: base64 images exceed QR capacity.
     const hasDetails = vcgeQREngine.hasDetails(contact);
     if (!hasDetails) vcgeQREngine.renderPlaceholder($('qrCanvas'), 320);
-    // The QR is tinted to the card's theme (MOD07 checks the contrast and falls back to black on white itself).
-    const theme = THEMES[themeKeyOf(contact.themePalette)];
-    const qrOk = hasDetails && vcgeQREngine.renderQRCode($('qrCanvas'), vcgeQREngine.generateVCard30({ ...contact, avatarBase64: null }), { size: 320, theme });
+    // The QR follows Checkers' picks (QR code design under the card, shared with Save QR image and Print / PDF): the
+    // card's theme by default, else a named pair, an ink or black and white; dots and corners too. No frame or logo on
+    // the card. MOD07 checks the contrast and falls back to black on white itself.
+    const look = renderOptions(exportQrDialog.choices);
+    const theme = look.ink ? { card: look.ink } : look.themed ? THEMES[themeKeyOf(contact.themePalette)] : null;
+    const qrOk = hasDetails && vcgeQREngine.renderQRCode($('qrCanvas'), vcgeQREngine.generateVCard30({ ...contact, avatarBase64: null }),
+        { size: 320, theme, pair: look.pair, dots: look.dots, eyes: look.eyes, dotSize: look.dotSize });
     $('qrNotice').classList.toggle('hidden', qrOk || !hasDetails);
     // Checkers: the first real code after the placeholder fills in once; the hint under it shows only with a real code.
     if (qrOk && !qrShown) vcgeQREngine.reveal($('qrCanvas'));
@@ -1147,6 +1151,38 @@ function wireEgress() {
             box.append(canvas);
         } });
     }
+    // QR code design under the card (QR side up): Colours, Dots and Corners, the same lists as Save QR image, dressed as
+    // picture drop-downs. A pick changes the code on the card at once and is the look the pop-up and the PDF start from.
+    const CARD_QR = { colour: 'cardQrColour', dots: 'cardQrDots', eyes: 'cardQrEyes' };
+    const paintCardQr = () => {
+        for (const [key, id] of Object.entries(CARD_QR)) {
+            const select = $(id);
+            if (!select) continue;
+            select.value = String(exportQrDialog.choices[key]);
+            if (select._picture) select._picture.refresh();
+        }
+    };
+    for (const [key, id] of Object.entries(CARD_QR)) {
+        const select = $(id), from = $(LOOK_SELECTS[key]);
+        if (!select || !from) continue;
+        select.replaceChildren(...[...from.options].map(o => new Option(o.textContent, o.value)));
+        select.value = String(exportQrDialog.choices[key]);
+        select.addEventListener('change', () => {
+            exportQrDialog.choices = cleanChoices({ ...exportQrDialog.choices, [key]: select.value });
+            from.value = String(exportQrDialog.choices[key]);   // the pop-up's own list shows it too
+            refresh();
+            paintCardQr();
+        });
+        pictureSelect(select, { render: (value, box) => {
+            const canvas = document.createElement('canvas');
+            canvas.className = 'export-qr-thumb';
+            if (!renderExportQr(canvas, { ...renderOptions({ ...exportQrDialog.choices, [key]: value }), frame: 'none', size: QR_THUMB_PX, sample: 'vCGE' }).ok) return;
+            box.append(canvas);
+        } });
+    }
+    // A pick made in Save QR image shows on the card too (and in these drop-downs), and a wipe's reset comes back here
+    for (const id of Object.values(LOOK_SELECTS)) { const el = $(id); if (el) el.addEventListener('change', () => { refresh(); paintCardQr(); }); }
+    globalEventBus.subscribe(Events.VAULT_WIPED, paintCardQr);
     // "Also use this logo on my card": Export wrote the Vault's logo slot; the card view reads it through its own handle.
     egressController.setVault(vaultStore.handle('mod08'));
     const cardVault = vaultStore.handle('mod06');
