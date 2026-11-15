@@ -35,8 +35,16 @@ export function initCardTabs(doc = document, win = window) {
         const b = e.target.closest('.r4-tab');
         if (!b) return;
         // The box changes where it is: no jump back to the top and no full-size card (raven575's phone run, 2026-11-14);
-        // the mini card in the corner keeps showing each change
+        // the mini card in the corner keeps showing each change. A shorter category would pull the box up (and the card
+        // back to full size), so a spacer at the end keeps the old length until the next category button.
+        const top = body.scrollTop, keep = body.querySelector(':scope > .r4-keep') || body.appendChild(Object.assign(doc.createElement('div'), { className: 'r4-keep' }));
+        const was = body.scrollHeight - keep.offsetHeight;
+        keep.style.height = '0px';
         showCardTab(doc, b.dataset.tab);
+        if (top > 0) {
+            keep.style.height = `${Math.max(0, was - body.scrollHeight)}px`;
+            body.scrollTop = top;
+        }
     });
     // Arrow keys move along the row, as in any row of picture buttons
     bar.addEventListener('keydown', (e) => {

@@ -3787,9 +3787,14 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       return { mini: body.dataset.mini, scrolled: body.scrollTop > 0, inView: c.top >= v.top - 1 && c.bottom <= v.bottom && c.width > 60, small: c.width < 200, w: Math.round(c.width) }; });
     ok('mini card: with a long box scrolled, the card stays in view, shrunk into the corner', mini.mini === 'on' && mini.scrolled && mini.inView && mini.small, JSON.stringify(mini));
     // A category button changes the box where it is: no jump back to the top, the mini card stays (raven575's phone run, 2026-11-14)
-    await pT.click('#cardTabs [data-tab="paper"]'); await pT.waitForTimeout(400);
-    const stay = await pT.$eval('#cardCard .r4-card', b => ({ top: Math.round(b.scrollTop), mini: b.dataset.mini || 'off', tab: b.dataset.tab }));
-    ok('card tabs: a category button changes the box in place, without jumping back to the top or growing the card', stay.top > 0 && stay.mini === 'on' && stay.tab === 'paper', JSON.stringify(stay));
+    // (Paper is shorter than Logo: the box keeps its length so it can stay where it is)
+    // (pressed where it is: Playwright's click would first scroll the button into view, which a finger never does)
+    const was = await pT.$eval('#cardCard .r4-card', b => Math.round(b.scrollTop));
+    await pT.$eval('#cardTabs [data-tab="paper"]', b => b.click()); await pT.waitForTimeout(400);
+    const stay = await pT.$eval('#cardCard .r4-card', b => ({ was: 0, top: Math.round(b.scrollTop), room: Math.round(b.scrollHeight - b.clientHeight), mini: b.dataset.mini || 'off', tab: b.dataset.tab }));
+    stay.was = was;
+    ok('card tabs: a category button changes the box in place, without jumping back to the top or growing the card',
+      stay.tab === 'paper' && stay.top >= was - 1 && stay.mini === 'on', JSON.stringify(stay));
     await pT.click('#cardTabs [data-tab="logo"]'); await pT.$eval('#cardCard .r4-card', b => b.scrollTo(0, b.scrollHeight)); await pT.waitForTimeout(500);
     await pT.waitForFunction(() => document.getElementById('card3DFlipper').getBoundingClientRect().width < 200, null, { timeout: 3000 }).catch(() => {});
     const turnedBefore = await pT.$eval('#card3DFlipper', el => el.style.transform);
