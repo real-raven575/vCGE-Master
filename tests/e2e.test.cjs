@@ -480,6 +480,14 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       buttons: Array.from(document.querySelectorAll('.vcge-bar button, .vcge-dock button')).filter(b => b.getClientRects().length && b.offsetWidth > 1).every(b => b.getBoundingClientRect().height >= 43.5) }));
     ok('layout: on a short screen the bar is 48 px, the dock one 52 px row (every button still 44 px) and the screen keeps over half the height',
       low.short === '1' && low.bar <= 48.5 && low.dock <= 53 && low.buttons && low.screen > 390 / 2, JSON.stringify(low));
+    // An upright phone with its keyboard open is under 500 px tall too (raven575's S24, 2026-11-14): the dock keeps its
+    // two rows there, because one row ran 22 px past the edge and the page slid sideways when the PIN box took focus
+    await page.setViewportSize({ width: 412, height: 450 }); await page.waitForTimeout(400);
+    await page.waitForFunction(() => document.documentElement.dataset.short === '1', null, { timeout: 3000 }).catch(() => {});
+    const kb = await page.evaluate(() => ({ short: document.documentElement.dataset.short, page: document.documentElement.scrollWidth, w: innerWidth,
+      dock: Math.round(Array.from(document.querySelectorAll('.vcge-dock *')).reduce((m, e) => Math.max(m, e.getBoundingClientRect().right), 0)) }));
+    ok('layout: an upright phone with its keyboard open keeps the two-row dock and nothing sticks out sideways',
+      kb.short === '1' && kb.page <= kb.w && kb.dock <= kb.w, JSON.stringify(kb));
     await page.setViewportSize(vp); await page.waitForTimeout(500);
   }
   ok('opens straight to an empty card (no passphrase dialog)', !(await visible('vaultModal')) && (await val('firstName')) === '');
@@ -697,7 +705,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   ok('the cog opens Settings (0.8 sheet): theme swatches, Appearance, the six styles, text size, font, the Left-handed, colour-blind, texture and Plain look switches, and the disclaimer', await page.isVisible('#settingsSheet') && await page.isVisible('#handToggle') && await page.isVisible('#cbToggle') && await page.isVisible('#dyslexiaToggle') && await page.isVisible('#themeSummary')
     && await page.isVisible('#appearanceChips') && (await page.$$eval('#styleChips button', bs => bs.map(b => b.textContent).join())) === 'Herd,Material,iOS,Windows,GNOME,KDE'
     && await page.isVisible('#sizeRange') && await page.isVisible('#fontSelect') && await page.isVisible('#texToggle') && await page.$eval('#plainToggle', c => c.disabled === (document.documentElement.dataset.edition === 'plain')) && (EDITION_PLAIN ? /This is the Plain edition/ : /Hides the Herd pilots and art/).test(await text('plainNote'))
-    && (await text('settingsNote')) === 'vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look). Nothing you scan, upload or type is ever saved.');
+    && (await text('settingsNote')) === 'vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look, the opening splash, and whether you have seen the tour). Nothing you scan, upload or type is ever saved.');
   // raven575 (2026-11-03): the theme box starts closed, naming the theme in use; one tap shows the 3 quick picks, More themes stays closed
   ok('the theme box starts closed and names Herd; no swatch shows until it is opened', !(await page.$eval('#themePicker', d => d.open)) && (await text('themeSummaryName')) === 'Herd'
     && !(await page.isVisible('#appThemes [data-family="herd"]')));
@@ -825,6 +833,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const l = await look(); styleRadius[id] = l.radius;
     ok(`Style ${id}: html[data-style="${id}"], its chip pressed, code ${code} saved after the six older names`, l.style === id && l.entry === `hand=0;cb=1;theme=1;font=2;size=0;wipe=0;style=${code}`
       && await page.$eval(`#styleChips [data-style="${id}"]`, b => b.getAttribute('aria-pressed') === 'true'), JSON.stringify(l));
+    // iOS and GNOME draw the chips as one segmented bar; on a phone it wraps into even rows so no name is cut or overlaps
+    const was = page.viewportSize(); await page.setViewportSize({ width: 412, height: 915 }); await page.waitForTimeout(150);
+    const cut = await page.$$eval('#styleChips button', bs => bs.filter(b => b.scrollWidth > b.clientWidth + 1).map(b => b.textContent.trim()));
+    await page.setViewportSize(was); await page.waitForTimeout(150);
+    ok(`Style ${id}: on a phone every style name fits inside its chip`, cut.length === 0, cut.join());
   }
   ok('each style shapes the sheets its own way (Material 28 px, iOS 34, Windows 8, GNOME 12, KDE 8 corners)', JSON.stringify(styleRadius) === '{"material":"28px","ios":"34px","windows":"8px","gnome":"12px","kde":"8px"}', JSON.stringify(styleRadius));
   await page.click('#styleChips [data-style="herd"]');
@@ -1032,6 +1045,66 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await ctx2.close();
   }
 
+  // The Android app (raven575's phone run, 2026-11-14: Save .vcf said "saved", but no contact was added): its WebView
+  // cannot download, so MainActivity.kt gives the page "vcgeAndroid" and Save .vcf hands the card to Contacts. A stand-in
+  // bridge here records what the page hands over.
+  {
+    const ctxA = await newContext();
+    await ctxA.addInitScript(() => {
+      window.__handed = []; window.__calls = []; window.__printed = 0;
+      const took = (m, args) => { window.__calls.push({ m, args }); return window.__phoneApps !== false; };
+      window.vcgeAndroid = {
+        addContact: (vcard, name) => { window.__handed.push({ vcard, name }); return window.__contactsApp !== false; },
+        shareContact: (...args) => took('share', args), email: (...args) => took('email', args), sms: (...args) => took('sms', args),
+        savePng: (...args) => took('png', args), print: (...args) => took('print', args)
+      };
+      window.print = () => { window.__printed++; };
+    });
+    const pA = await ctxA.newPage();
+    await pA.goto(ORIGIN); await pA.waitForTimeout(400);
+    await pA.fill('#firstName', 'Lena'); await pA.fill('#lastName', 'Testcase'); await pA.waitForTimeout(400);
+    let downloads = 0; pA.on('download', () => { downloads++; });
+    await pA.$eval('#downloadVcfBtn', b => b.click()); await pA.waitForTimeout(300);
+    const handed = await pA.evaluate(() => window.__handed);
+    ok('Android app: Save .vcf hands the vCard to Contacts by name, with no download', handed.length === 1 && handed[0].name === 'Lena Testcase.vcf'
+      && handed[0].vcard.includes('FN:Lena Testcase') && handed[0].vcard.endsWith('END:VCARD\r\n') && downloads === 0, JSON.stringify({ n: handed.length, name: handed[0] && handed[0].name, downloads }));
+    ok('Android app: the message says Contacts is opening, not "Saved"', (await pA.textContent('#toastMessage')).includes('Opening Contacts'), await pA.textContent('#toastMessage'));
+    await pA.evaluate(() => { window.__contactsApp = false; });
+    await pA.$eval('#downloadVcfBtn', b => b.click()); await pA.waitForTimeout(300);
+    ok('Android app: with no app for contact cards it says so, never "Saved"', (await pA.textContent('#toastMessage')).includes('No app on this phone opens a contact card'), await pA.textContent('#toastMessage'));
+    // raven575's second phone run (22:2x UTC): Email and Text message replaced vCGE with "Webpage not available",
+    // Share said "not available", Print did nothing. Each now goes through the bridge and vCGE stays on screen.
+    const startUrl = pA.url();
+    const callsOf = (m) => pA.evaluate((m) => window.__calls.filter(c => c.m === m).map(c => c.args), m);
+    await pA.$eval('#emailBtn', b => b.click()); await pA.waitForTimeout(300);
+    await pA.$eval('#smsBtn', b => b.click()); await pA.waitForTimeout(300);
+    await pA.$eval('#shareNativeBtn', b => b.click()); await pA.waitForTimeout(300);
+    const [mail, text, sent] = [await callsOf('email'), await callsOf('sms'), await callsOf('share')];
+    ok('Android app: Email, Text message and Share go to the phone\'s apps and vCGE stays on its page', mail.length === 1 && text.length === 1 && sent.length === 1
+      && pA.url() === startUrl && await pA.evaluate(() => !!document.getElementById('downloadVcfBtn')), JSON.stringify({ url: pA.url(), n: [mail.length, text.length, sent.length] }));
+    ok('Android app: the email holds the name in its subject and the vCard in its body; the text holds the readable summary',
+      mail[0][0] === 'Contact: Lena Testcase' && mail[0][1].includes('BEGIN:VCARD') && text[0][0].startsWith('Lena Testcase') && !text[0][0].includes('BEGIN:VCARD')
+      && sent[0][1] === 'Lena Testcase.vcf' && sent[0][0].includes('FN:Lena Testcase'), JSON.stringify({ subject: mail[0][0], text: text[0][0] }));
+    await pA.$eval('#exportQrBtn', b => b.click()); await pA.waitForSelector('#exportQrSheet', { state: 'visible' }); await pA.waitForTimeout(400);
+    let pngDownloads = 0; pA.on('download', () => { pngDownloads++; });
+    await pA.click('#exportQrSaveBtn'); await pA.waitForTimeout(300);
+    const png = await callsOf('png');
+    ok('Android app: Save QR image hands the PNG to Downloads through the bridge (no browser download)', png.length === 1 && png[0][1] === 'Lena Testcase QR.png'
+      && /^iVBOR/.test(png[0][0]) && pngDownloads === 0, JSON.stringify({ n: png.length, name: png[0] && png[0][1], pngDownloads }));
+    await pA.$eval('#printCardBtn', b => b.click()); await pA.waitForSelector('#printChoiceSheet', { state: 'visible' });
+    await pA.click('#printThemedBtn'); await pA.waitForTimeout(800);
+    const prints = await callsOf('print');
+    ok('Android app: Print opens Android\'s print screen through the bridge, with the card and QR on the print sheet', prints.length === 1 && prints[0][0] === 'vCGE card'
+      && await pA.evaluate(() => window.__printed) === 0 && await pA.evaluate(() => !!document.querySelector('#printSheet .print-card') && !!document.querySelector('#printSheet .print-qr img')),
+      JSON.stringify({ prints, printed: await pA.evaluate(() => window.__printed) }));
+    await pA.evaluate(() => { window.__phoneApps = false; });
+    await pA.$eval('#emailBtn', b => b.click()); await pA.waitForTimeout(300);
+    ok('Android app: with no email app it says so', (await pA.textContent('#toastMessage')).includes('No email app on this phone'), await pA.textContent('#toastMessage'));
+    await pA.$eval('#smsBtn', b => b.click()); await pA.waitForTimeout(300);
+    ok('Android app: with no messaging app it says so', (await pA.textContent('#toastMessage')).includes('No messaging app on this phone'), await pA.textContent('#toastMessage'));
+    await ctxA.close();
+  }
+
   // Quick unlock: 4-digit session PIN after a lock (idle, screen off, Lock button); the card is held in memory only,
   // and 7 minutes without activity wipe it
   {
@@ -1119,28 +1192,31 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       return face8Now(); };
     const face8Now = () => p8.evaluate(() => {
       const shown = (id) => { const el = document.getElementById(id); return !!el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0; };
-      const op = (sel) => getComputedStyle(document.querySelector('#vaultGhost ' + sel)).opacity;
+      // Creative's movable Ghost (movable-v1, raven575 2026-11-11): .ghost-paw-right is on the viewer's left
+      const op = (sel) => { const el = document.querySelector('#vaultGhost ' + sel); return el ? getComputedStyle(el).opacity : null; };
+      const vis = (sel) => { const el = document.querySelector('#vaultGhost ' + sel); return el ? getComputedStyle(el).visibility : null; };
+      const tf = (sel) => { const el = document.querySelector('#vaultGhost ' + sel); return el ? getComputedStyle(el).transform : null; };
       return { face: document.getElementById('vaultModal').dataset.face, filled: document.getElementById('vaultPinPaws').dataset.filled,
         ghost: shown('vaultGhost'), paws: shown('vaultPinPaws'), bands: shown('vaultTailBands'),
-        look: getComputedStyle(document.querySelector('#vaultGhost .vg-glints')).transform,
-        pawL: op('.vg-paw-l'), pawR: op('.vg-paw-r'), eyeL: op('.vg-eye-l'), wink: op('.vg-wink'), brows: op('.vg-brows'), eyes: op('.vg-eyes'), shades: op('.vg-shades'),
+        oldParts: !!document.querySelector('#vaultGhost [class^="vg-"]'), look: tf('.ghost-eyes'), browsUp: tf('.ghost-brows'),
+        pawV: op('.ghost-paw-right'), pawW: op('.ghost-paw-left'), wink: op('.ghost-wink'), winkVis: vis('.ghost-wink'), eyes: op('.ghost-eyes'), shades: op('.ghost-shades'), shadesVis: vis('.ghost-shades'),
         filledPaws: [...document.querySelectorAll('#vaultPinPaws .vault-paw')].filter(s => getComputedStyle(s).fill !== 'none').length,
         pinColor: getComputedStyle(document.getElementById('vaultPin')).color,
         ring: document.getElementById('vaultLockRing').getAttribute('stroke-dashoffset'), tail: document.getElementById('vaultTailMaskRing').getAttribute('stroke-dashoffset') };
     });
     const f0 = await face8();
     if (EDITION_PLAIN) ok('plain edition: no Ghost, no paw prints and no tail bands on the lock screen; the PIN box shows its own dots', !f0.ghost && !f0.paws && !f0.bands && f0.pinColor !== 'rgba(0, 0, 0, 0)', JSON.stringify(f0));
-    else ok('lock screen: Ghost has its eyes open but looks away, and four empty paw prints sit in the PIN box', f0.ghost && f0.paws && f0.face === 'away' && f0.look !== 'none' && f0.filled === '0' && f0.filledPaws === 0 && f0.pawL === '0' && f0.pawR === '0', JSON.stringify(f0));
+    else ok('lock screen: Creative\'s Ghost has his eyes open but looks away, paws down, over four empty paw prints in the PIN box', f0.ghost && !f0.oldParts && f0.paws && f0.face === 'away' && f0.look !== 'none' && f0.filled === '0' && f0.filledPaws === 0 && f0.pawV === '0' && f0.pawW === '0' && f0.winkVis === 'hidden' && f0.shadesVis === 'hidden', JSON.stringify(f0));
     ok('lock screen: the tail\'s bands follow the ring\'s countdown', f0.tail === f0.ring, JSON.stringify(f0));
     await p8.type('#vaultPin', '1'); await p8.waitForTimeout(500);
     const f1 = await face8();
-    ok('1st digit: one paw covers one eye and one paw print fills', f1.face === 'one' && f1.filled === '1' && (EDITION_PLAIN || (f1.filledPaws === 1 && f1.pawL === '1' && f1.pawR === '0')), JSON.stringify(f1));
+    ok('1st digit: one paw covers one eye and one paw print fills', f1.face === 'one' && f1.filled === '1' && (EDITION_PLAIN || (f1.filledPaws === 1 && f1.pawV === '1' && f1.pawW === '0')), JSON.stringify(f1));
     await p8.type('#vaultPin', '3'); await p8.waitForTimeout(500);
     const f2 = await face8();
-    ok('2nd digit: both paws cover the eyes and two paw prints fill', f2.face === 'both' && f2.filled === '2' && (EDITION_PLAIN || (f2.filledPaws === 2 && f2.pawL === '1' && f2.pawR === '1')), JSON.stringify(f2));
+    ok('2nd digit: both paws cover the eyes and two paw prints fill', f2.face === 'both' && f2.filled === '2' && (EDITION_PLAIN || (f2.filledPaws === 2 && f2.pawV === '1' && f2.pawW === '1')), JSON.stringify(f2));
     await p8.type('#vaultPin', '5'); await p8.waitForTimeout(500);
     const f3 = await face8();
-    ok('3rd digit: paws down, a wink and a raised eyebrow', f3.face === 'wink' && f3.filled === '3' && (EDITION_PLAIN || (f3.filledPaws === 3 && f3.pawL === '0' && f3.pawR === '0' && f3.eyeL === '0' && f3.wink === '1' && f3.brows === '1' && /, 2\.4\)$/.test(f3.look))), JSON.stringify(f3));
+    ok('3rd digit: paws down, a wink and raised brows; the open eye glances down', f3.face === 'wink' && f3.filled === '3' && (EDITION_PLAIN || (f3.filledPaws === 3 && f3.pawV === '0' && f3.pawW === '0' && f3.wink === '1' && f3.winkVis === 'visible' && /, -3\)$/.test(f3.browsUp) && /, 2\.4\)$/.test(f3.look))), JSON.stringify(f3));
     const box8 = await p8.evaluate(() => { const i = document.getElementById('vaultPin'); return { type: i.type, mask: i.style.webkitTextSecurity, max: i.maxLength, labels: i.labels.length, pawsHidden: document.getElementById('vaultPinPaws').getAttribute('aria-hidden'), ghostHidden: document.getElementById('vaultGhost').getAttribute('aria-hidden') }; });
     ok('the paw prints are drawing only: the PIN box is still a masked 4-digit field', (box8.type === 'password' || (box8.type === 'text' && box8.mask === 'disc')) && box8.max === 4 && box8.labels > 0 && box8.pawsHidden === 'true' && box8.ghostHidden === 'true', JSON.stringify(box8));
     await p8.fill('#vaultPin', ''); await p8.waitForTimeout(100);
@@ -1149,10 +1225,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p8.fill('#vaultPin', '1111'); await p8.waitForTimeout(300);
     ok('wrong session PIN (checked on the 4th digit) rejected with tries left', (await t8('vaultError')) === 'Wrong PIN. 4 tries left.' && (await p8.inputValue('#vaultPin')) === '', await t8('vaultError'));
     const fw = await face8();
-    ok('wrong PIN: the sunglasses come off, Ghost looks away again and the paw prints empty', fw.face === 'away' && fw.filled === '0' && (EDITION_PLAIN || (fw.shades === '0' && fw.eyes === '1')), JSON.stringify(fw));
+    ok('wrong PIN: the sunglasses come off, Ghost looks away again and the paw prints empty', fw.face === 'away' && fw.filled === '0' && (EDITION_PLAIN || (fw.shades === '0' && fw.shadesVis === 'hidden' && fw.eyes === '1')), JSON.stringify(fw));
     await p8.fill('#vaultPin', '2468'); await p8.waitForTimeout(600);   // the sunglasses are on (0.4 s); the dissolve ends at 1 s
-    const f4 = await p8.evaluate(() => { const m = document.getElementById('vaultModal'); return { face: m.dataset.face, hidden: m.classList.contains('hidden'), dissolving: m.classList.contains('vault-dissolve'),
-      shades: getComputedStyle(document.querySelector('#vaultGhost .vg-shades')).opacity, card: document.getElementById('firstName').value }; });
+    const f4 = await p8.evaluate(() => { const m = document.getElementById('vaultModal'); const sh = document.querySelector('#vaultGhost .ghost-shades');
+      return { face: m.dataset.face, hidden: m.classList.contains('hidden'), dissolving: m.classList.contains('vault-dissolve'),
+        shades: sh ? getComputedStyle(sh).opacity : null, card: document.getElementById('firstName').value }; });
     if (EDITION_PLAIN || SHELVED) ok(EDITION_PLAIN ? 'plain edition: the right PIN unlocks at once, no dissolve' : '0.8 shelf: the right PIN unlocks at once, no dissolve', f4.hidden && !f4.dissolving, JSON.stringify(f4));
     else ok('4th digit, right PIN: sunglasses on, then the lock screen dissolves before the card comes back', f4.face === 'shades' && f4.shades === '1' && f4.dissolving && !f4.hidden && f4.card === '', JSON.stringify(f4));
     await p8.waitForSelector('#vaultModal', { state: 'hidden' });
@@ -2009,7 +2086,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('Esc cancels the print choice (a sheet: a swipe would too) and nothing is printed', !(await p9.isVisible('#printChoiceSheet')) && (await p9.evaluate(() => document.getElementById('printSheet').children.length)) === 0);
     const themedPrint = await printWith(p9, '#printThemedBtn');
     ok('Airlock: the print dialog opens only once the QR picture is decoded (no blank square in the PDF)', themedPrint.qr && themedPrint.decoded, JSON.stringify(themedPrint));
-    const printFalcon = await p9.evaluate(() => ({ toast: document.getElementById('toastMessage').textContent, hidden: document.getElementById('toastFalcon').classList.contains('hidden') }));
+    // The old falcon drawing is gone (raven575 2026-11-11: only Creative's new pilot drawings); flyFalcon finds nothing to fly
+    const printFalcon = await p9.evaluate(() => ({ toast: document.getElementById('toastMessage').textContent, hidden: !document.getElementById('toastFalcon') || document.getElementById('toastFalcon').classList.contains('hidden') }));
     ok(SHELVED ? 'Airlock E2: after a print the toast says so (0.8 shelf: no falcon)' : 'Airlock E2: after a print the toast says so and the falcon is on it', printFalcon.toast === 'Sent to the print dialog.' && printFalcon.hidden === SHELVED, JSON.stringify(printFalcon));
     const sheet = await p9.evaluate(() => {
       const card = document.querySelector('#printSheet .print-card'), flipper = document.getElementById('card3DFlipper');
@@ -2140,6 +2218,19 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const namedAgain = await p9.title();
     await p9.mouse.click(5, 5);
     ok('PDF name: the box is unticked again on the next print, and a tap also puts the title back', !boxAgain && namedAgain === 'Maria Gonzalez' && (await p9.title()) === appTitle, `${boxAgain} ${namedAgain} / ${await p9.title()}`);
+    // What goes on the page (raven575, 2026-11-15, decision card): Card and QR (default), Card only, or QR only
+    const sheetNow = () => p9.evaluate(() => ({ cards: document.querySelectorAll('#printSheet .print-card').length, qr: document.querySelectorAll('#printSheet .print-qr img').length,
+      name: (document.querySelector('#printSheet .print-qr') || { textContent: '' }).textContent, content: document.getElementById('printSheet').dataset.content }));
+    await p9.click('#printCardBtn');
+    const startsBoth = await p9.isChecked('input[name="printContent"][value="both"]');
+    await p9.click('label:has(input[name="printContent"][value="card"])'); await p9.click('#printThemedBtn'); await printed9(4);
+    const cardOnly = await sheetNow();
+    ok('Print / PDF: "On the page" starts at Card and QR; Card only prints the card with no QR', startsBoth && cardOnly.cards === 1 && cardOnly.qr === 0 && cardOnly.content === 'card', JSON.stringify(cardOnly));
+    await p9.click('#printCardBtn');
+    const backToBoth = await p9.isChecked('input[name="printContent"][value="both"]');
+    await p9.click('label:has(input[name="printContent"][value="qr"])'); await p9.click('#printBwBtn'); await printed9(5);
+    const qrOnly = await sheetNow();
+    ok('Print / PDF: QR only prints the code with the name under it and no card; the choice is back at Card and QR on the next print', backToBoth && qrOnly.cards === 0 && qrOnly.qr === 1 && qrOnly.name.includes('Maria Gonzalez') && qrOnly.content === 'qr', JSON.stringify(qrOnly));
     ok('tester round 1: no page errors', errors9.length === 0, errors9.join(' | '));
     await ctx9.close();
   });
@@ -2528,16 +2619,17 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('one more photo: a reading with no name asks for another photo, saying what is missing and that it would be photo 2 of 3',
       /but not the name/.test(await pM.textContent('#ocrMorePhotoText')) && (await pM.textContent('#ocrMorePhotoCount')).includes('photo 2 of 3') && await pM.isVisible('#ocrAnotherPhotoBtn') && await pM.isVisible('#ocrFixByHandBtn'),
       await readStage(pM));
-    await pM.waitForTimeout(500);   // the owl's eyes settle (0.4 s)
-    // The reading box is hidden once the read ends, and a hidden SVG has no transform to read: show it for the measurement
+    await pM.waitForTimeout(500);   // Glyph's pupils settle (0.4 s)
+    // Creative's Glyph: the movable one reads along on the Read card (movable-v1), the helper one puzzles on "One more photo?" (raven575 2026-11-11)
     const owlM = await pM.evaluate(() => { const cs = (sel) => getComputedStyle(document.querySelector(sel)); const more = document.getElementById('ocrMorePhotoOwl');
-      const box = document.getElementById('ocrProgress'); box.classList.remove('hidden'); const pupils = cs('#ocrReadOwl .owl-pupils').transform; box.classList.add('hidden');
-      return { pupilsShown: pupils, read: cs('#ocrReadOwl').display, more: cs('#ocrMorePhotoOwl').display !== 'none' && more.getBoundingClientRect().width > 0, hidden: [document.getElementById('ocrReadOwl'), more].every(o => o.getAttribute('aria-hidden') === 'true'),
-        pupils: cs('#ocrReadOwl .owl-pupils').transform, closed: cs('#ocrReadOwl .owl-closed').display, progress: document.getElementById('ocrProgress').style.getPropertyValue('--read-progress') }; });
-    // Cute round O1 and O3 (raven575, 2026-10-21): Glyph the owl reads along and asks for the next photo; never in plain
-    ok(EDITION_PLAIN ? 'plain edition: no owl on the Read card or on "One more photo?"' : 'the owl follows the wash to the end and closes its eyes when the read is done; it holds a magnifying glass on "One more photo?"; screen readers skip it',
+      const box = document.getElementById('ocrProgress'); const was = box.classList.contains('is-done');
+      box.classList.remove('hidden', 'is-done'); const pupilsShown = cs('#ocrReadOwl .glyph-pupils').transform; if (was) box.classList.add('is-done'); box.classList.add('hidden');
+      return { pupilsShown, read: cs('#ocrReadOwl').display, more: cs('#ocrMorePhotoOwl').display !== 'none' && more.getBoundingClientRect().width > 0,
+        hidden: [document.getElementById('ocrReadOwl'), more].every(o => o.getAttribute('aria-hidden') === 'true'), helper: !!more.querySelector('.o-glyph-cant-read'),
+        pupils: cs('#ocrReadOwl .glyph-pupils').visibility, closed: cs('#ocrReadOwl .glyph-eyes-closed').visibility, progress: box.style.getPropertyValue('--read-progress') }; });
+    ok(EDITION_PLAIN ? 'plain edition: no owl on the Read card or on "One more photo?"' : 'Glyph\'s eyes follow the wash to the end and close when the read is done; he puzzles over the card on "One more photo?"; screen readers skip both',
       EDITION_PLAIN ? owlM.read === 'none' && !owlM.more
-        : owlM.read !== 'none' && owlM.more && owlM.hidden && owlM.progress === '1' && owlM.pupilsShown === 'matrix(1, 0, 0, 1, 1.5, 0)' && owlM.closed === 'inline', JSON.stringify(owlM));
+        : owlM.read !== 'none' && owlM.more && owlM.hidden && owlM.helper && owlM.progress === '1' && owlM.pupilsShown === 'matrix(1, 0, 0, 1, 4, 0)' && owlM.pupils === 'hidden' && owlM.closed === 'visible', JSON.stringify(owlM));
     ok('one more photo: the first photo is dropped once read; only its text is held, in OCR\'s vault slot', !(await pM.getAttribute('#reviewImage', 'src')) && !(await pM.evaluate(() => JSON.stringify(localStorage)).then(s => s.includes('northwind'))));
     pM.once('filechooser', () => {});
     await pM.click('#ocrAnotherPhotoBtn');
@@ -2565,9 +2657,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pH.click('#runOcrBtn');
     await readEnds(pH, '#ocrMorePhotoModal');
     const owlH = await pH.evaluate(() => { const cs = (sel) => getComputedStyle(document.querySelector(sel));
-      const box = document.getElementById('ocrProgress'); box.classList.remove('hidden'); const pupils = cs('#ocrReadOwl .owl-pupils').transform; box.classList.add('hidden');
-      return { pupils, move: cs('#ocrReadOwl .owl-pupils').transitionDuration, closed: cs('#ocrReadOwl .owl-closed').display, eyes: cs('#ocrReadOwl .owl-eye').display, done: document.getElementById('ocrProgress').classList.contains('is-done') }; });
-    ok('reduce motion: the owl is one still picture: its eyes never move or close, even when the read is done', owlH.done && owlH.pupils === 'none' && owlH.move === '0s' && owlH.closed === 'none' && owlH.eyes !== 'none', JSON.stringify(owlH));
+      const box = document.getElementById('ocrProgress'); box.classList.remove('hidden'); const pupils = cs('#ocrReadOwl .glyph-pupils').transform; box.classList.add('hidden');
+      return { pupils, move: cs('#ocrReadOwl .glyph-pupils').transitionDuration, closed: cs('#ocrReadOwl .glyph-eyes-closed').visibility, open: cs('#ocrReadOwl .glyph-pupils').visibility, done: box.classList.contains('is-done') }; });
+    ok('reduce motion: Glyph is one still picture: his eyes never move or close, even when the read is done', owlH.done && owlH.pupils === 'none' && owlH.move === '0s' && owlH.closed === 'hidden' && owlH.open === 'visible', JSON.stringify(owlH));
     await pH.click('#ocrFixByHandBtn');
     await readEnds(pH);
     const byHand = await pH.$$eval('#ocrLines input[id^="ocrLineText"]', els => els.map(e => e.value));
@@ -3185,6 +3277,16 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const irisBox = await pI.$eval('#capIris', el => { const r = el.getBoundingClientRect(), c = document.getElementById('startCameraBtn').getBoundingClientRect(), v = document.getElementById('viewfinderArea').getBoundingClientRect();
         return { h: r.height, above: r.bottom <= c.top + 1, inside: r.top >= v.top && r.bottom <= v.bottom }; });
       ok('Iris peeks over a card in the empty viewfinder, above Start the camera', await pI.isVisible('#capIris') && irisBox.h > 30 && irisBox.above && irisBox.inside, JSON.stringify(irisBox));
+      ok('the camera screen\'s Iris is Creative\'s, the same drawing as the tour\'s (raven575 2026-11-11: the characters match)', !!(await pI.$('#capIris .o-01-scan-iris')));
+      // Her slow sway runs only while Capture is in front (the deck hides the other screens, so nothing moves behind them)
+      const sways = () => pI.evaluate(() => document.getAnimations().filter(a => a.playState === 'running' && /^s-/.test(a.animationName || '')).map(a => a.animationName));
+      const onCapture = await sways();
+      await pI.$eval(DOCK.card, b => b.click()); await deckSettled(pI); await pI.waitForTimeout(200);
+      const onCard = await sways();
+      await pI.$eval(DOCK.capture, b => b.click()); await deckSettled(pI); await pI.waitForTimeout(200);
+      const backOnCapture = await sways();
+      ok('Iris sways only while Capture is in front: no pilot drawing moves behind the Card screen', onCapture.includes('s-01-scan-iris') && onCard.length === 0 && backOnCapture.includes('s-01-scan-iris'),
+        JSON.stringify({ onCapture, onCard, backOnCapture }));
       await pI.click('#capIris');
       const wunk = await winking();
       await pI.waitForTimeout(900);
@@ -3397,8 +3499,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('gate: free & open source browsers are listed first (Firefox, Firefox ESR, Brave)', noWasm.links.slice(0, 3).map(l => new URL(l.href).hostname).join() === 'www.firefox.com,support.mozilla.org,brave.com', noWasm.links.map(l => l.href).join(' '));
     ok('gate: links open in a new tab with no opener, no referrer and no query data', noWasm.links.length === 6 && noWasm.links.every(l => l.target === '_blank' && /noopener/.test(l.rel) && /noreferrer/.test(l.rel) && !new URL(l.href).search && !new URL(l.href).hash));
     ok('gate: the "cannot run" page makes no outside request and draws without errors', noWasm.external.length === 0 && noWasm.pageErrors.length === 0, noWasm.external.concat(noWasm.pageErrors).join(' | '));
-    const noLock = await blocked((ctxG, pG) => pG.route('**/src/modules/mod01-shell/netLock.js', r => r.fulfill({ contentType: 'text/javascript', body: '' })), 'netlock');
-    ok('gate fails closed: without vCGE\'s own network lock the app does not start', noLock.shown && noLock.reasons.includes('netlock'), noLock.url);
+    // Routed on the context, like the WebAssembly case: a page-level route of the page's very first script has left
+    // WebKit waiting on that script for good in CI (the page never got to its checks)
+    const noLock = await blocked((ctxG) => ctxG.route('**/src/modules/mod01-shell/netLock.js', r => r.fulfill({ contentType: 'text/javascript', body: '' })), 'netlock');
+    ok('gate fails closed: without vCGE\'s own network lock the app does not start', noLock.shown && noLock.reasons.includes('netlock'), noLock.url + ' (requested: ' + noLock.requested.filter(u => u.endsWith('.js')).map(u => u.split('/').pop()).join(' ') + ')');
     const noCsp = await blocked((ctxG) => ctxG.addInitScript(() => { delete window.SecurityPolicyViolationEvent; }), 'csp');
     ok('gate: no Content-Security-Policy support blocks the app', noCsp.shown && noCsp.reasons.includes('csp'), noCsp.url);
     if (!process.env.SERVE_DIR) {
@@ -3430,7 +3534,32 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       await p.goto(ORIGIN); await p.waitForTimeout(400);
       return p;
     };
+    // First-run tour (raven575, 2026-11-11): on the very first start it opens by itself once the splash has gone, on the
+    // Welcome card; Skip closes it and tour=1 in vcge_settings keeps it from opening by itself again (Take a Tour still works)
+    const SEEN = 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0;tour=1';
     let pH = await openH();
+    const early = await pH.evaluate(() => ({ layer: !!document.getElementById('welcomeLayer'), entry: localStorage.getItem('vcge_settings') }));
+    const autoTour = await pH.waitForSelector('#tourTip', { state: 'visible', timeout: 6000 }).then(() => true, () => false);
+    const tourFirst = await pH.evaluate(() => ({ step: (document.getElementById('tourStep') || {}).textContent, skip: !!document.getElementById('tourSkipBtn'),
+      splashGone: getComputedStyle(document.getElementById('vcgeSplash')).visibility === 'hidden' || getComputedStyle(document.getElementById('vcgeSplash')).opacity === '0',
+      art: (() => { const a = document.querySelector('#tourTip .vcge-tour-art'); return a ? { pilot: a.dataset.pilot, kind: a.dataset.art, hidden: a.getAttribute('aria-hidden'), h: a.getBoundingClientRect().height,
+        svgH: a.querySelector('svg') ? a.querySelector('svg').getBoundingClientRect().height : 0, round: a.querySelector('svg g') ? getComputedStyle(a.querySelector('svg g path')).strokeLinecap : '' } : null; })() }));
+    ok('first-run tour: not before the splash goes, then opens by itself on step 1 with Skip tour', !early.layer && early.entry === null && autoTour && tourFirst.step === 'Step 1 of 6' && tourFirst.skip && tourFirst.splashGone, JSON.stringify({ early, tourFirst }));
+    if (!EDITION_PLAIN) ok('tour art: step 1 shows Creative\'s Iris drawing, hidden from screen readers, up to 160 px, its styles from tour-art.css (round line ends)',
+      !!tourFirst.art && tourFirst.art.pilot === 'iris' && tourFirst.art.kind === 'svg' && tourFirst.art.hidden === 'true' && tourFirst.art.h >= 60 && tourFirst.art.h <= 160
+      && tourFirst.art.svgH >= 60 && tourFirst.art.round === 'round', JSON.stringify(tourFirst.art));
+    else ok('plain edition: the tour shows no pilot art', tourFirst.art === null, JSON.stringify(tourFirst.art));
+    await pH.click('#tourSkipBtn');
+    const skipped = await pH.waitForSelector('#welcomeLayer', { state: 'detached', timeout: 5000 }).then(() => true, () => false);
+    ok('first-run tour: Skip closes it and remembers it in the one entry (tour=1), nothing else', skipped
+      && (await pH.evaluate(() => [localStorage.getItem('vcge_settings'), Object.keys(localStorage).join(), sessionStorage.length])).join('|') === `${SEEN}|vcge_settings|0`);
+    { const oldH = pH; pH = await openH(); await oldH.close(); }
+    await pH.waitForTimeout(2600);
+    ok('first-run tour: the next start does not open it by itself; Take a Tour still does', !(await pH.$('#welcomeLayer'))
+      && await pH.evaluate(() => document.getElementById('cardWelcome').classList.contains('is-current'))
+      && await pH.evaluate(() => { document.getElementById('welcomeTourBtn').click(); return !!document.getElementById('tourTip'); }));
+    await pH.keyboard.press('Escape');
+    { const oldH = pH; pH = await openH(); await oldH.close(); }
     const state = () => pH.evaluate(() => ({
       card: document.documentElement.dataset.card, layer: !!document.getElementById('welcomeLayer'),
       welcomeCurrent: document.getElementById('cardWelcome').classList.contains('is-current'),
@@ -3439,7 +3568,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       focus: document.activeElement && document.activeElement.id,
       title: (document.getElementById('welcomeTitle') || {}).textContent, tagline: (document.getElementById('welcomeTagline') || {}).textContent
     }));
-    const stored = () => pH.evaluate(() => localStorage.length + sessionStorage.length + document.cookie.length);
+    // Nothing is stored beyond the first-run tour's tour=1 (checked above)
+    const stored = () => pH.evaluate((seen) => localStorage.length - (localStorage.getItem('vcge_settings') === seen ? 1 : 0) + sessionStorage.length + document.cookie.length, SEEN);
     const first = await state();
     ok('welcome: the deck opens on the Welcome card', first.welcomeCurrent && first.card === 'welcome' && !first.thanks && !first.vault, JSON.stringify(first));
     if (!EDITION_PLAIN) {
@@ -3491,7 +3621,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // own session storage is checked before it closes, so nothing a reload would have kept goes unchecked.
     const lastTab = await stored();
     const oldH = pH; pH = await openH(); await oldH.close();
-    ok('welcome: shows again on the next start (nothing remembers it was seen)', lastTab === 0 && (await state()).welcomeCurrent && (await stored()) === 0, String(lastTab));
+    ok('welcome: shows again on the next start (nothing remembers the Welcome card was seen)', lastTab === 0 && (await state()).welcomeCurrent && (await stored()) === 0, String(lastTab));
     await pH.click('#welcomePinBtn');
     ok('welcome: Set Up PIN/BIO Lock Now opens the Vault page', (await state()).vault && await pH.isVisible('#pinSwitch'));
     await pH.keyboard.press('Escape');
@@ -3592,6 +3722,29 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await ctxH.close();
   }
 
+  // Opening splash switch (raven575, 2026-11-11): the splash hides no loading, so Settings > Comfort > Opening splash turns it
+  // off (splash=1 in vcge_settings); the gate reads it before the page is drawn, so it never shows for a moment
+  {
+    const ctxS = await browser.newContext();
+    const pS1 = await ctxS.newPage();
+    await pS1.goto(ORIGIN); await pS1.waitForTimeout(400);
+    const onByDefault = await pS1.evaluate(() => ({ attr: document.documentElement.dataset.splash, display: getComputedStyle(document.getElementById('vcgeSplash')).display,
+      toggle: document.getElementById('splashToggle').checked }));
+    ok('splash: on by default (shown, switch On)', onByDefault.attr === undefined && onByDefault.display !== 'none' && onByDefault.toggle, JSON.stringify(onByDefault));
+    await pS1.evaluate(() => { const t = document.getElementById('splashToggle'); t.checked = false; t.dispatchEvent(new Event('change', { bubbles: true })); });
+    const offNow = await pS1.evaluate(() => ({ attr: document.documentElement.dataset.splash, entry: localStorage.getItem('vcge_settings') }));
+    ok('splash: switching it Off saves splash=1 in the one entry', offNow.attr === 'off' && offNow.entry === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0;splash=1', JSON.stringify(offNow));
+    const pS2 = await ctxS.newPage();
+    let firstLook = null;
+    pS2.on('domcontentloaded', async () => { firstLook = await pS2.evaluate(() => ({ attr: document.documentElement.dataset.splash, display: getComputedStyle(document.getElementById('vcgeSplash')).display })).catch(e => String(e)); });
+    await pS2.goto(ORIGIN); await pS2.waitForTimeout(500);
+    ok('splash: Off on the next start hides it from the first paint, and the switch reads Off', !!firstLook && firstLook.attr === 'off' && firstLook.display === 'none'
+      && !(await pS2.evaluate(() => document.getElementById('splashToggle').checked)), JSON.stringify(firstLook));
+    await pS2.evaluate(() => { const t = document.getElementById('splashToggle'); t.checked = true; t.dispatchEvent(new Event('change', { bubbles: true })); });
+    ok('splash: back On takes splash=1 out of the entry', await pS2.evaluate(() => document.documentElement.dataset.splash === undefined && localStorage.getItem('vcge_settings') === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0'));
+    await ctxS.close();
+  }
+
   // MOD01 wide screens (easy + premium plan, step 1, raven575 2026-11-13): on a 1080p monitor and on a 1366 x 768 laptop
   // every screen fits with no scrolling, the step's title sits in the top bar, the dock is one row, the card and its
   // design tools sit side by side, and Share's two groups too. (Phones keep their own layout: this runs without a device.)
@@ -3665,17 +3818,49 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const mini = await pT.evaluate(() => { const body = document.querySelector('#cardCard .r4-card'), c = document.getElementById('card3DFlipper').getBoundingClientRect(), v = body.getBoundingClientRect();
       return { mini: body.dataset.mini, scrolled: body.scrollTop > 0, inView: c.top >= v.top - 1 && c.bottom <= v.bottom && c.width > 60, small: c.width < 200, w: Math.round(c.width) }; });
     ok('mini card: with a long box scrolled, the card stays in view, shrunk into the corner', mini.mini === 'on' && mini.scrolled && mini.inView && mini.small, JSON.stringify(mini));
+    // A category button changes the box where it is: no jump back to the top, the mini card stays (raven575's phone run, 2026-11-14)
+    // (Paper is shorter than Logo: the box keeps its length so it can stay where it is)
+    // (pressed where it is: Playwright's click would first scroll the button into view, which a finger never does)
+    const was = await pT.$eval('#cardCard .r4-card', b => Math.round(b.scrollTop));
+    await pT.$eval('#cardTabs [data-tab="paper"]', b => b.click()); await pT.waitForTimeout(400);
+    const stay = await pT.$eval('#cardCard .r4-card', b => ({ was: 0, top: Math.round(b.scrollTop), room: Math.round(b.scrollHeight - b.clientHeight), mini: b.dataset.mini || 'off', tab: b.dataset.tab }));
+    stay.was = was;
+    ok('card tabs: a category button changes the box in place, without jumping back to the top or growing the card',
+      stay.tab === 'paper' && stay.top >= was - 1 && stay.mini === 'on', JSON.stringify(stay));
+    await pT.click('#cardTabs [data-tab="logo"]'); await pT.$eval('#cardCard .r4-card', b => b.scrollTo(0, b.scrollHeight)); await pT.waitForTimeout(500);
+    await pT.waitForFunction(() => document.getElementById('card3DFlipper').getBoundingClientRect().width < 200, null, { timeout: 3000 }).catch(() => {});
     const turnedBefore = await pT.$eval('#card3DFlipper', el => el.style.transform);
     const cb = await pT.locator('#card3DFlipper').boundingBox();
     await pT.touchscreen.tap(cb.x + cb.width * 0.8, cb.y + cb.height / 2); await pT.waitForTimeout(900);
     const back = await pT.evaluate(() => ({ top: document.querySelector('#cardCard .r4-card').scrollTop, mini: document.querySelector('#cardCard .r4-card').dataset.mini || 'off', turn: document.getElementById('card3DFlipper').style.transform }));
     ok('mini card: a tap on it scrolls back to the whole card and does not spin it', back.top === 0 && back.mini === 'off' && back.turn === turnedBefore, JSON.stringify(back));
     // Flip card from a scrolled box turns the card at full size: the box scrolls back up as it flips
-    await pT.$eval('#cardCard .r4-card', b => b.scrollTo(0, b.scrollHeight)); await pT.waitForTimeout(500);
+    // Waits on the state itself, not a fixed time: the mini flag follows the scroll a frame late, and a slow phone engine
+    // (WebKit iPhone in CI) took over 0.5 s for that frame and over 1.1 s for the smooth scroll back up
+    await pT.$eval('#cardCard .r4-card', b => b.scrollTo(0, b.scrollHeight));
+    await pT.waitForFunction(() => document.querySelector('#cardCard .r4-card').dataset.mini === 'on', null, { timeout: 3000 }).catch(() => {});
     const miniAgain = await pT.$eval('#cardCard .r4-card', b => b.dataset.mini);
-    await pT.$eval('#flipCardBtn', b => b.click()); await pT.waitForTimeout(1100);
+    await pT.$eval('#flipCardBtn', b => b.click());
+    await pT.waitForFunction(() => { const b = document.querySelector('#cardCard .r4-card'); return b.scrollTop === 0 && !b.dataset.mini; }, null, { timeout: 3000 }).catch(() => {});
+    await pT.waitForTimeout(300);
     const flipped = await pT.evaluate(() => ({ top: document.querySelector('#cardCard .r4-card').scrollTop, mini: document.querySelector('#cardCard .r4-card').dataset.mini || 'off', turn: document.getElementById('card3DFlipper').style.transform }));
-    ok('mini card: Flip card brings the whole card back and turns it', miniAgain === 'on' && flipped.top === 0 && flipped.mini === 'off' && flipped.turn !== turnedBefore, JSON.stringify({ miniAgain, ...flipped }));
+    ok('mini card: Flip card brings the whole card back and turns it', miniAgain === 'on' && flipped.top === 0 && flipped.mini === 'off' && flipped.turn !== turnedBefore, JSON.stringify({ miniAgain: String(miniAgain), ...flipped }));
+    // QR side up: Checkers takes the head and his few QR picks replace Card design (raven575's phone run, 2026-11-14)
+    await pT.waitForFunction(() => document.querySelector('#cardCard .r4-card').dataset.face === 'back', null, { timeout: 3000 }).catch(() => {});
+    const qrSide = await pT.evaluate(() => ({ face: document.querySelector('#cardCard .r4-card').dataset.face, head: [hEmoji.textContent, hName.textContent, hTitle.textContent].join('|'),
+      qr: qrDesign.getClientRects().length > 0, tabs: cardTabs.getClientRects().length > 0, swatches: paletteListContainer.getClientRects().length > 0, flip: flipCardBtn.getClientRects().length > 0,
+      lists: ['cardQrColour', 'cardQrDots', 'cardQrEyes'].map(id => [...document.getElementById(id).options].map(o => o.value).join('/')) }));
+    ok('QR side: the head says Checkers ("Your QR code") and QR code design (Colours, Dots, Corners) replaces Card design, Flip card stays',
+      qrSide.face === 'back' && (EDITION_PLAIN || qrSide.head === '🦓|Checkers|Your QR code') && qrSide.qr && !qrSide.tabs && !qrSide.swatches && qrSide.flip
+      && qrSide.lists[0].startsWith('themed/') && qrSide.lists[0].includes('/bw/') && qrSide.lists[1] === 'square/rounded/round/diamond/bars' && qrSide.lists[2] === 'square/rounded/circle', JSON.stringify(qrSide));
+    await pT.evaluate(() => { const f = document.getElementById('firstName'); f.value = 'Sam'; f.dispatchEvent(new Event('input', { bubbles: true })); }); await pT.waitForTimeout(300);
+    const qrBefore = await pT.$eval('#qrCanvas', c => c.toDataURL());
+    await pT.$eval('#cardQrDots', s => { s.value = 'round'; s.dispatchEvent(new Event('change')); }); await pT.waitForTimeout(200);
+    const qrAfter = await pT.evaluate(() => ({ changed: document.getElementById('qrCanvas').toDataURL(), dots: document.getElementById('qrDotsSelect').value }));
+    ok('QR side: a Dots pick redraws the card\'s QR at once and is the look Save QR image starts from', qrAfter.changed !== qrBefore && qrAfter.dots === 'round', qrAfter.dots);
+    await pT.$eval('#flipCardBtn', b => b.click()); await pT.waitForTimeout(1000);
+    const frontAgain = await pT.evaluate(() => ({ head: [hEmoji.textContent, hName.textContent].join('|'), qr: qrDesign.getClientRects().length > 0, tabs: cardTabs.getClientRects().length > 0 }));
+    ok('QR side: turning back to the front brings Flipside and Card design back', (EDITION_PLAIN || frontAgain.head === '🦎|Flipside') && !frontAgain.qr && frontAgain.tabs, JSON.stringify(frontAgain));
     await ctxT.close();
   }
 
@@ -3728,7 +3913,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       ok('a mouse click on the edge still works (only fingers get the near-miss guard)', turnedM === 'rotateY(180deg)', `${turnedM} (mouse-only page)`);
       await ctxM.close();
     } else {
-      await pU.mouse.click(flip.x + flip.width / 2, flip.y + 1.5); await settled(pU);
+      // (the QR side shows its own picks above Flip card, so the button is measured again where it is now)
+      await pU.locator('#flipCardBtn').scrollIntoViewIfNeeded(); await pU.waitForTimeout(200);
+      const flipB = await pU.locator('#flipCardBtn').boundingBox();
+      await pU.mouse.click(flipB.x + flipB.width / 2, flipB.y + 1.5); await settled(pU);
       ok('a mouse click on the edge still works (only fingers get the near-miss guard)', (await turned()) === 'rotateY(0deg)', await turned());
     }
     await pU.setViewportSize({ width: 390, height: 844 });
@@ -4020,16 +4208,23 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('card: under reduce motion the flip is instant (one frame)', (await angle()) === 'rotateY(0deg)' && (await p6.evaluate(() => window.__spin.length)) === 1, JSON.stringify(await p6.evaluate(() => window.__spin)));
     await p6.emulateMedia({ reducedMotion: 'no-preference' });
     // Toasts: above the dock, 3 s, a tap dismisses, a hold keeps it until 3 s after the release
+    // The page notes when the toast shows, so its 3 s are timed on the page's own clock, not from before the tap
+    await p6.evaluate(() => { const t = document.getElementById('toast'); window.__toastAt = null;
+      new MutationObserver(() => { if (window.__toastAt === null && !t.classList.contains('opacity-0')) window.__toastAt = performance.now(); }).observe(t, { attributes: true, attributeFilter: ['class'] }); });
     await p6.click('#paletteListContainer [data-theme="sage"]');
     await p6.waitForTimeout(400);   // it slides in over 0.3 s
     const toastBox = await p6.locator('#toast').boundingBox();
     const dockTop = await p6.$eval('.vcge-dock', d => d.getBoundingClientRect().top);
     ok('0.8 shell: the toast shows as a pill just above the dock (the mock-up), never over it', toastBox.y + toastBox.height <= dockTop && toastBox.y > dockTop - 200 && await p6.isVisible('#toast'), JSON.stringify({ toastBox, dockTop }));
-    await p6.waitForTimeout(2200);
-    ok('toast: still there at 2.6 s', !(await p6.$eval('#toast', t => t.classList.contains('opacity-0'))));
+    await p6.waitForFunction(() => window.__toastAt !== null && performance.now() - window.__toastAt >= 2600, null, { polling: 50, timeout: 5000 }).catch(() => {});
+    const at26 = await p6.evaluate(() => ({ shown: !document.getElementById('toast').classList.contains('opacity-0'), ms: window.__toastAt === null ? null : Math.round(performance.now() - window.__toastAt) }));
+    ok('toast: still there at 2.6 s', at26.shown && at26.ms !== null && at26.ms >= 2600 && at26.ms < 3000, JSON.stringify(at26));
     await p6.waitForTimeout(700);
     ok('toast: gone after 3 s', await p6.$eval('#toast', t => t.classList.contains('opacity-0')));
     await p6.click('#paletteListContainer [data-theme="maple"]');
+    await p6.waitForTimeout(400);   // after the slide-in: what a tap at the toast's middle reaches (logged, for WebKit)
+    console.log('toast hit:', JSON.stringify(await p6.evaluate(() => { const r = document.getElementById('toastMessage').getBoundingClientRect();
+      const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return { hit: el && (el.id || el.className), r: [r.x, r.y, r.width, r.height].map(Math.round), vw: innerWidth, sw: document.documentElement.scrollWidth }; })));
     await p6.click('#toastMessage');
     ok('toast: a tap dismisses it at once', await p6.$eval('#toast', t => t.classList.contains('opacity-0')));
     await p6.click('#paletteListContainer [data-theme="spruce"]');
@@ -4114,6 +4309,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // (the guide fades in: WebKit runs no transitions on a page that is not in front, CI 11-02)
     await p6.bringToFront();
     await p6.click('#cardTabs [data-tab="logo"]'); await p6.waitForTimeout(400);
+    // (a category button no longer scrolls the box to the top, so the full-size card is brought back here first)
+    await p6.$eval('#cardCard .r4-card', b => b.scrollTo(0, 0)); await p6.waitForTimeout(400);
     await p6.waitForFunction(() => parseFloat(getComputedStyle(document.querySelector('#cardFront .r4-safe-guide')).opacity) > 0.3, null, { timeout: 3000 }).catch(() => {});
     ok('0.8 card: with Logo open the card shows its logo safe-area guide (a dashed outline inside the rounded corners)', await p6.$eval('#cardFront .r4-safe-guide', g => { const cs = getComputedStyle(g), r = g.getBoundingClientRect(), f = document.getElementById('cardFront').getBoundingClientRect(); return parseFloat(cs.opacity) > 0.3 && cs.borderTopStyle === 'dashed' && r.left - f.left >= 8 && f.bottom - r.bottom >= 8 && cs.pointerEvents === 'none' && g.getAttribute('aria-hidden') === 'true'; }),
       await p6.$eval('#cardFront .r4-safe-guide', g => { const cs = getComputedStyle(g), r = g.getBoundingClientRect(), f = document.getElementById('cardFront').getBoundingClientRect(); return JSON.stringify({ open: document.getElementById('cardLookPanel').open, opacity: cs.opacity, border: cs.borderTopStyle, left: Math.round(r.left - f.left), bottom: Math.round(f.bottom - r.bottom), pe: cs.pointerEvents }); }).catch(e => String(e).slice(0, 120)));
@@ -4512,7 +4709,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pA.check('#exportQrUseOnCard');
     const [dlQr] = await Promise.all([pA.waitForEvent('download'), pA.click('#exportQrSaveBtn')]);
     ok('Save PNG downloads "Jane Doe QR.png" and closes the pop-up', dlQr.suggestedFilename() === 'Jane Doe QR.png' && !(await pA.isVisible('#exportQrSheet')), dlQr.suggestedFilename());
-    const falconOf = () => pA.evaluate(() => { const f = document.getElementById('toastFalcon'), cs = getComputedStyle(f); return { hidden: f.classList.contains('hidden'), shown: cs.display, anim: cs.animationName, flap: getComputedStyle(f.querySelector('.falcon-body')).animationName, wide: f.getBoundingClientRect().width, parcel: f.classList.contains('with-parcel') && getComputedStyle(f.querySelector('.falcon-parcel')).display !== 'none' }; });
+    const falconOf = () => pA.evaluate(() => { const f = document.getElementById('toastFalcon'); if (!f) return { hidden: true, gone: true }; const cs = getComputedStyle(f); return { hidden: f.classList.contains('hidden'), shown: cs.display, anim: cs.animationName, flap: getComputedStyle(f.querySelector('.falcon-body')).animationName, wide: f.getBoundingClientRect().width, parcel: f.classList.contains('with-parcel') && getComputedStyle(f.querySelector('.falcon-parcel')).display !== 'none' }; });
     const pngFalcon = await falconOf();
     if (SHELVED) ok('0.8 shelf: after Save PNG no falcon flies', pngFalcon.hidden, JSON.stringify(pngFalcon));
     else ok(`Airlock E2 + Checkers Q8: ${EDITION_PLAIN ? 'the plain edition shows no falcon' : 'after Save PNG a big falcon swoops over the toast, beating its wings, carrying the striped parcel'}`, !pngFalcon.hidden && (EDITION_PLAIN ? pngFalcon.shown === 'none' : pngFalcon.shown !== 'none' && pngFalcon.anim === 'falcon-glide' && pngFalcon.flap === 'falcon-flap' && pngFalcon.wide >= 50 && pngFalcon.parcel), JSON.stringify(pngFalcon));
@@ -4527,7 +4724,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const vcfFalcon = await falconOf();
     ok(SHELVED ? 'Airlock E2: Save .vcf says "Saved Jane Doe.vcf." (0.8 shelf: no falcon)' : 'Airlock E2: Save .vcf says "Saved Jane Doe.vcf." and the falcon flies again, this time without the parcel', (await tA('toastMessage')) === 'Saved Jane Doe.vcf.' && (SHELVED ? vcfFalcon.hidden : !vcfFalcon.hidden && !vcfFalcon.parcel), JSON.stringify(vcfFalcon));
     await pA.emulateMedia({ reducedMotion: 'reduce' });
-    ok('Airlock E2: under reduce motion the falcon does not glide', (await falconOf()).anim === 'none');
+    const calmFalcon = await falconOf();   // the old toast falcon is gone (raven575 2026-11-11, SWAP) until Creative draws a new one
+    ok('Airlock E2: under reduce motion no falcon glides', calmFalcon.gone || calmFalcon.anim === 'none', JSON.stringify(calmFalcon));
     await pA.emulateMedia({ reducedMotion: 'no-preference' });
     // Now the card has a logo: "Scanned logo" is offered and draws the card's own logo in the centre
     await pA.click('#exportQrBtn'); await pA.waitForSelector('#exportQrSheet', { state: 'visible' });

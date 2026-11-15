@@ -142,3 +142,5 @@ html[data-edition="plain"]:not(.edition-ready) .vcge-steps button > span { visib
 /* The 0.8 shelf (edition.js isShelved; raven575 2026-11-02): the CSS-only flourishes stay still or out of sight */
 html[data-shelf="on"] .vcge-splash .vcge-hoh, html[data-shelf="on"] .read-shimmer, html[data-shelf="on"] .wipe-yes-sweep { animation: none !important; }
 html[data-shelf="on"] .read-shimmer, html[data-shelf="on"] .wipe-yes-sweep, html[data-shelf="on"] .deck-turtle, html[data-shelf="on"] .deck-plates { display: none !important; }
+/* Settings > Comfort > Opening splash Off (browserGate.js and settings.js put html[data-splash="off"]) */
+html[data-splash="off"] .vcge-splash { display: none; }
