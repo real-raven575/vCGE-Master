@@ -224,7 +224,7 @@ html[data-style="ios"] .vcge-step .vcge-icon { stroke-width: 1.9; }
 html[data-style="ios"] .vcge-step[data-state="now"] { background: color-mix(in srgb, var(--sh-accent) 14%, transparent); color: var(--sh-accent); }
 html[data-style="ios"] :is(input.r5-toggle, .r5-track) { width: 51px; height: 31px; background: color-mix(in srgb, var(--sh-ink) 16%, transparent); }
 html[data-style="ios"] input.r5-toggle::after, html[data-style="ios"] .r5-track > .vault-switch-knob { top: 2px; left: 2px; width: 27px; height: 27px; box-shadow: 0 3px 8px rgba(0, 0, 0, .15), 0 1px 1px rgba(0, 0, 0, .16); }
-html[data-style="ios"] :is(input.r5-toggle:checked, .r5-switch[aria-checked="true"] .r5-track) { background: #34c759; }
+html[data-style="ios"] :is(input.r5-toggle:checked, .r5-switch[aria-checked="true"] .r5-track) { background: var(--good-ios, #34c759); }
 html[data-style="ios"] input.r5-toggle:checked::after,
 html[data-style="ios"] #vaultPage .r5-switch[aria-checked="true"] .r5-track > .vault-switch-knob { left: 2px; transform: translateX(20px); }
 html[data-style="ios"] .vcge-sheet-panel { border-radius: 34px 34px 0 0; background: var(--sh-bg); }
@@ -370,8 +370,8 @@ button.vcge-pick-btn:disabled { opacity: .55; cursor: default; }
 .vcge-pick-head { padding: 8px 10px 2px; font-size: .7rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--sh-muted); }
 
 /* ---- Colour vision (Settings > Accessibility, cb 2-5): settings.js moves the good / stop colours to a pair that
-   person can tell apart; words and marks stay on with every choice (html[data-cb="1"]). No colour greys the page. ---- */
-html[data-cvd="mono"] { filter: grayscale(1); }
+   person can tell apart, and colourSet.css swaps the good and stop ramps; words and marks stay on with every choice
+   (html[data-cb="1"]). No filter over the page: the card photo and the card's colours stay true (step 6). ---- */
 .r5-cvd-row { flex-wrap: wrap; }
 .r5-cvd-row .vcge-pick { flex-basis: 100%; }
 
