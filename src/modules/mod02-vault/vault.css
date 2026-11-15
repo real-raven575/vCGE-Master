@@ -41,7 +41,7 @@
 .wipe-box p { margin: 0; font-size: 0.8rem; color: #64748b; }
 .dark .wipe-box p { color: #94a3b8; }
 .wipe-settings { display: flex; align-items: center; gap: 0.6rem; font-size: 0.85rem; min-height: var(--vcge-tap, 2.75rem); cursor: pointer; }
-.wipe-settings input { width: 1.25rem; height: 1.25rem; accent-color: #b91c1c; }
+.wipe-settings input { width: 1.25rem; height: 1.25rem; accent-color: var(--stop-700); }
 .wipe-settings-confirm {
     display: flex; flex-direction: column; gap: 0.5rem; font-size: 0.8rem; padding: 0.6rem 0.75rem; border-radius: 0.75rem;
     background: #fff7ed; color: #7c2d12; border: 1px solid #fed7aa;
@@ -60,12 +60,12 @@ button.wipe-no, button.wipe-yes {
     position: relative; min-height: 3.5rem; border-radius: 1rem; font-weight: 700; font-size: 1rem; cursor: pointer;
     border: 2px solid transparent; overflow: hidden; -webkit-user-select: none; user-select: none; touch-action: none;
 }
-button.wipe-no { background: #dc2626; color: #ffffff; border-color: #b91c1c; }
-button.wipe-no:hover { background: #b91c1c; }
-button.wipe-yes { background: #bbf7d0; color: #052e16; border-color: #16a34a; -webkit-touch-callout: none; }
-.dark button.wipe-yes { background: #14532d; color: #dcfce7; border-color: #22c55e; }
+button.wipe-no { background: var(--stop-600); color: #ffffff; border-color: var(--stop-700); }
+button.wipe-no:hover { background: var(--stop-700); }
+button.wipe-yes { background: var(--good-200); color: var(--good-950); border-color: var(--good-600); -webkit-touch-callout: none; }
+.dark button.wipe-yes { background: var(--good-900); color: var(--good-100); border-color: var(--good-500); }
 /* The fill grows from the left, light to dark green, as Yes is held */
-.wipe-yes-fill { position: absolute; inset: 0 auto 0 0; width: 0; background: linear-gradient(90deg, #4ade80, #15803d); }
+.wipe-yes-fill { position: absolute; inset: 0 auto 0 0; width: 0; background: linear-gradient(90deg, var(--good-400), var(--good-700)); }
 .wipe-yes-label { position: relative; display: flex; flex-direction: column; align-items: center; line-height: 1.1; }
 .wipe-yes-label small { font-size: 0.65rem; font-weight: 500; opacity: 0.8; }
 /* After the hold completes a small light sweeps under the label once */
@@ -81,7 +81,7 @@ button.wipe-yes { background: #bbf7d0; color: #052e16; border-color: #16a34a; -w
 .wipe-hold-bar { height: 0.5rem; border-radius: 999px; background: #e2e8f0; overflow: hidden; }
 .dark .wipe-hold-bar { background: #334155; }
 .wipe-hold-bar.hidden { display: none; }
-.wipe-hold-bar span { display: block; height: 100%; width: 0; background: #15803d; }
+.wipe-hold-bar span { display: block; height: 100%; width: 0; background: var(--good-700); }
 .wipe-dialog.is-cb .wipe-yes-label small { display: none; }
 
 /* ---- Lock screen: fingerprint first, PIN under it, nothing hidden by the keyboard ---------------------------------- */
@@ -92,9 +92,9 @@ button.wipe-yes { background: #bbf7d0; color: #052e16; border-color: #16a34a; -w
 @media (min-height: 640px) { #vaultModal { align-items: center; } }
 button.vault-bio-btn {
     display: flex; align-items: center; justify-content: center; gap: 0.6rem; width: 100%; min-height: 3.5rem;
-    border-radius: 1rem; font-weight: 700; font-size: 1rem; background: #16a34a; color: #052e16; border: 2px solid #15803d; cursor: pointer;
+    border-radius: 1rem; font-weight: 700; font-size: 1rem; background: var(--good-600); color: var(--good-950); border: 2px solid var(--good-700); cursor: pointer;
 }
-button.vault-bio-btn:hover { background: #22c55e; }
+button.vault-bio-btn:hover { background: var(--good-500); }
 button.vault-bio-btn .vcge-icon { width: 1.75rem; height: 1.75rem; }
 button.vault-bio-btn.hidden { display: none; }
 .vault-or { display: flex; align-items: center; gap: 0.75rem; font-size: 0.75rem; color: #64748b; margin: 0.25rem 0; }
@@ -114,17 +114,17 @@ button.vault-bio-btn.hidden { display: none; }
 .vault-row > span:last-child { display: flex; gap: var(--vcge-gap, 0.5rem); flex-wrap: wrap; justify-content: flex-end; }
 button.vault-btn {
     min-height: var(--vcge-tap, 2.75rem); padding: 0 1rem; border-radius: 0.75rem; font-size: 0.85rem; font-weight: 700;
-    background: #16a34a; color: #052e16; border: 2px solid #15803d; cursor: pointer;
+    background: var(--good-600); color: var(--good-950); border: 2px solid var(--good-700); cursor: pointer;
 }
-button.vault-btn:hover { background: #22c55e; }
+button.vault-btn:hover { background: var(--good-500); }
 button.vault-btn-quiet {
     min-height: var(--vcge-tap, 2.75rem); padding: 0 1rem; border-radius: 0.75rem; font-size: 0.85rem; font-weight: 600;
     background: transparent; color: inherit; border: 2px solid #cbd5e1; cursor: pointer;
 }
 .dark button.vault-btn-quiet { border-color: #475569; }
 button.vault-btn-quiet:hover { background: rgba(100, 116, 139, 0.15); }
-button.vault-btn-danger { border-color: #dc2626; color: #b91c1c; }
-.dark button.vault-btn-danger { color: #fca5a5; border-color: #ef4444; }
+button.vault-btn-danger { border-color: var(--stop-600); color: var(--stop-700); }
+.dark button.vault-btn-danger { color: var(--stop-300); border-color: var(--stop-500); }
 button.vault-btn-danger:hover { background: rgba(220, 38, 38, 0.1); }
 button.vault-btn.hidden, button.vault-btn-quiet.hidden { display: none; }
 .vault-section { padding: 0.75rem; border-radius: 1rem; background: #f8fafc; border: 1px solid #e2e8f0; display: flex; flex-direction: column; gap: 0.25rem; }
@@ -148,16 +148,16 @@ button.vault-btn-quiet .vcge-icon { width: 1.1rem; height: 1.1rem; flex: none; }
 button.vault-switch {
     position: relative; display: inline-flex; align-items: center; min-height: var(--vcge-tap, 2.75rem); min-width: 5.25rem;
     padding: 0 0.9rem 0 2.6rem; border-radius: 999px; font-size: 0.85rem; font-weight: 700; cursor: pointer;
-    background: #fee2e2; color: #991b1b; border: 2px solid #dc2626;
+    background: var(--stop-100); color: var(--stop-800); border: 2px solid var(--stop-600);
 }
-.dark button.vault-switch { background: rgba(127, 29, 29, 0.45); color: #fecaca; border-color: #ef4444; }
+.dark button.vault-switch { background: rgba(127, 29, 29, 0.45); color: var(--stop-200); border-color: var(--stop-500); }
 .vault-switch-knob {
     position: absolute; left: 0.3rem; top: 50%; width: 1.9rem; height: 1.9rem; margin-top: -0.95rem; border-radius: 50%;
-    background: #ffffff; border: 2px solid #dc2626; box-sizing: border-box;
+    background: #ffffff; border: 2px solid var(--stop-600); box-sizing: border-box;
 }
-button.vault-switch[aria-checked="true"] { padding: 0 2.6rem 0 0.9rem; background: #16a34a; color: #052e16; border-color: #15803d; }
-.dark button.vault-switch[aria-checked="true"] { background: #16a34a; color: #052e16; border-color: #22c55e; }
-button.vault-switch[aria-checked="true"] .vault-switch-knob { left: auto; right: 0.3rem; border-color: #15803d; }
+button.vault-switch[aria-checked="true"] { padding: 0 2.6rem 0 0.9rem; background: var(--good-600); color: var(--good-950); border-color: var(--good-700); }
+.dark button.vault-switch[aria-checked="true"] { background: var(--good-600); color: var(--good-950); border-color: var(--good-500); }
+button.vault-switch[aria-checked="true"] .vault-switch-knob { left: auto; right: 0.3rem; border-color: var(--good-700); }
 @media (prefers-reduced-motion: no-preference) { .vault-switch-knob { transition: left 0.15s, right 0.15s; } }
 
 /* ---- Ghost on the lock screen (cute round V1-V3, raven575 2026-10-21). Branded edition only; drawing only. ---------- */

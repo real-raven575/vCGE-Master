@@ -3,8 +3,8 @@
    "Everything's correct" button in the lower corner on the dominant-hand side. No flashing, no sound. */
 
 :root {
-    --fields-green: #16a34a;
-    --fields-green-deep: #15803d;
+    --fields-green: var(--good-600);
+    --fields-green-deep: var(--good-700);
     --fields-pop-ms: 320ms;
     --fields-pop-steps: 8;           /* 0.32 s at 26 fps */
 }
@@ -41,7 +41,7 @@
     margin-left: auto; border-radius: 0.875rem; font-size: 1rem; font-weight: 800; letter-spacing: 0.02em; cursor: pointer;
     background: var(--fields-green); color: #020617; border-color: var(--fields-green-deep);
 }
-.fields-ok:hover { background: #22c55e; }
+.fields-ok:hover { background: var(--good-500); }
 .fields-ok .vcge-icon { width: 1.5rem; height: 1.5rem; }
 /* Left hand: the foot runs mirrored (deck.css), so the button sits on the left and the trash on the right */
 html[data-hand="left"] .fields-ok { margin-left: 0; margin-right: auto; }

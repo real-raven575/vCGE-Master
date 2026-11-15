@@ -67,7 +67,8 @@ const RANGE = { hand: 1, cb: 5, theme: Math.max(...THEMES.map(t => t.code)), fon
     wipe: Math.max(...WIPE_TIMES.map(t => t.code)), mode: 1, style: Math.max(...STYLES.map(t => t.code)), tex: 1, look: 1, tour: 1, splash: 1 };
 
 /** Colour vision (Settings > Accessibility): fixed codes, the cb setting's 2 to 5; 0 is Typical. Each moves the good and
- *  stop colours (light page, dark page) to a pair that person tells apart; No colour greys the page (screens-r5.css). */
+ *  stop colours (light page, dark page) to a pair that person tells apart; colourSet.css swaps the good and stop ramps the
+ *  same way (No colour: two greys). Nothing lays a filter over the page, so the photo and the card keep their colours. */
 export const COLOUR_VISION = Object.freeze([
     { code: 0, id: 'typical', name: 'Typical', hint: 'No colour changes' },
     { code: 2, id: 'protan', name: 'Red-weak (protan)', hint: 'Green and red become blue and orange',
@@ -76,7 +77,7 @@ export const COLOUR_VISION = Object.freeze([
       light: { good: '#1d4ed8', stop: '#c2410c' }, dark: { good: '#8ab4ff', stop: '#fdba74' } },
     { code: 4, id: 'tritan', name: 'Blue-weak (tritan)', hint: 'Blue and yellow cues become teal and pink',
       light: { good: '#0f766e', stop: '#be185d' }, dark: { good: '#5eead4', stop: '#f9a8d4' } },
-    { code: 5, id: 'mono', name: 'No colour', hint: 'Grey only, with words and marks' }
+    { code: 5, id: 'mono', name: 'No colour', hint: 'Go and stop cues turn grey, with words and marks' }
 ]);
 export const visionFor = (cb) => COLOUR_VISION.find(v => v.code === cb) || COLOUR_VISION[0];
 

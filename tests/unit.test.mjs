@@ -2478,5 +2478,41 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('icons: every action button has a line picture and a spoken word, and no emoji in place of a picture', bad.length === 0, JSON.stringify(bad));
 }
 
+// Colour vision re-tint (easy + premium step 6): every go / stop colour is a step of the named set (colourSet.css), so a
+// colour-vision choice swaps it whole; in each choice go and stop stay far apart for that person (Machado et al. 2009
+// simulation, full strength, CIE76 distance); and nothing lays a filter over the page (the photo and card stay true).
+{
+  const fsC = await import('node:fs');
+  const css = fsC.readdirSync(`${R}/modules`).flatMap(d => fsC.readdirSync(`${R}/modules/${d}`).filter(f => f.endsWith('.css')).map(f => `${R}/modules/${d}/${f}`));
+  const GOSTOP = /#(16a34a|15803d|22c55e|4ade80|bbf7d0|86efac|14532d|052e16|dcfce7|dc2626|b91c1c|ef4444|fca5a5|fecaca|991b1b|fee2e2)\b/i;
+  const stray = [];
+  for (const f of css.filter(f => !f.endsWith('colourSet.css'))) {
+    fsC.readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
+      const bare = line.replace(/var\(--[\w-]+,\s*#[0-9a-f]{3,8}\)/gi, '');   // a fallback inside var() is fine
+      if (GOSTOP.test(bare)) stray.push(`${f.split('/modules/')[1]}:${i + 1}`);
+    });
+  }
+  ok('colour set: every go and stop colour in the app\'s styles is a step of the named set, none a hex of its own', stray.length === 0, JSON.stringify(stray.slice(0, 8)));
+  const set = fsC.readFileSync(`${R}/modules/mod01-shell/colourSet.css`, 'utf8');
+  const block = sel => { const i = set.indexOf(sel); const b = set.slice(i, set.indexOf('}', i)); return n => (new RegExp(`--${n}:\\s*(#[0-9a-f]{6})`, 'i').exec(b) || [])[1]; };
+  const M = { protan: [[0.152286, 1.052583, -0.204868], [0.114503, 0.786281, 0.099216], [-0.003882, -0.048116, 1.051998]],
+    deutan: [[0.367322, 0.860646, -0.227968], [0.280085, 0.672501, 0.047413], [-0.011820, 0.042940, 0.968881]],
+    tritan: [[1.255528, -0.076749, -0.178779], [-0.078411, 0.930809, 0.147602], [0.004733, 0.691367, 0.303900]] };
+  const lin = c => c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4, gam = c => c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055;
+  const lab = (hex, m) => { let c = [0, 2, 4].map(k => parseInt(hex.slice(1 + k, 3 + k), 16) / 255);
+    if (m) { const l = c.map(lin); c = m.map(r => gam(Math.min(1, Math.max(0, r[0] * l[0] + r[1] * l[1] + r[2] * l[2])))); }
+    const [r, g, b] = c.map(lin), f = t => t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116;
+    const x = f((0.4124 * r + 0.3576 * g + 0.1805 * b) / 0.95047), y = f(0.2126 * r + 0.7152 * g + 0.0722 * b), z = f((0.0193 * r + 0.1192 * g + 0.9505 * b) / 1.08883);
+    return [116 * y - 16, 500 * (x - y), 200 * (y - z)]; };
+  const dE = (a, b, m) => { const A = lab(a, m), B = lab(b, m); return Math.hypot(A[0] - B[0], A[1] - B[1], A[2] - B[2]); };
+  const typical = block(':root'), rg = block('html:is([data-cvd="protan"]'), tri = block('html[data-cvd="tritan"]');
+  const gap = { typicalSeenDeutan: dE(typical('good-600'), typical('stop-600'), M.deutan), protan: dE(rg('good-600'), rg('stop-600'), M.protan),
+    deutan: dE(rg('good-600'), rg('stop-600'), M.deutan), tritan: dE(tri('good-600'), tri('stop-600'), M.tritan) };
+  ok('colour set: in each colour-vision choice go and stop stay far apart for that person (simulated), farther than red and green do for green-weak eyes',
+    gap.protan >= 40 && gap.deutan >= 40 && gap.tritan >= 40 && [gap.protan, gap.deutan].every(g => g > gap.typicalSeenDeutan), JSON.stringify(gap));
+  const filtered = css.filter(f => /data-cvd[^{]*\{[^}]*filter\s*:/.test(fsC.readFileSync(f, 'utf8')));
+  ok('colour set: no colour-vision choice lays a filter over the page', filtered.length === 0, JSON.stringify(filtered));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;
