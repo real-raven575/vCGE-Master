@@ -229,8 +229,9 @@ html[data-style="ios"] input.r5-toggle:checked::after,
 html[data-style="ios"] #vaultPage .r5-switch[aria-checked="true"] .r5-track > .vault-switch-knob { left: 2px; transform: translateX(20px); }
 html[data-style="ios"] .vcge-sheet-panel { border-radius: 34px 34px 0 0; background: var(--sh-bg); }
 html[data-style="ios"] .vcge-sheet-panel::before { width: 36px; height: 5px; background: var(--sh-muted); opacity: .35; }
-html[data-style="ios"] .r5-minis { background: var(--sh-sunk); border-radius: 10px; padding: 2px; gap: 0; margin: 0 16px 14px; }
-html[data-style="ios"] button.r5-chip { flex: 1; border-radius: 8px; background: transparent; box-shadow: none; min-height: 44px; padding: 0 8px; }
+html[data-style="ios"] .r5-minis { background: var(--sh-sunk); border-radius: 10px; padding: 2px; gap: 0; margin: 0 16px 14px;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr)); }
+html[data-style="ios"] button.r5-chip { border-radius: 8px; background: transparent; box-shadow: none; min-height: 44px; padding: 0 8px; }
 html[data-style="ios"] button.r5-chip[aria-pressed="true"] { background: var(--sh-surface); color: var(--sh-ink); box-shadow: 0 3px 8px rgba(0, 0, 0, .12), 0 0 0 .5px rgba(0, 0, 0, .04); }
 html[data-style="ios"] .tip { box-shadow: none; border-radius: 16px; }
 
@@ -297,8 +298,9 @@ html[data-style="gnome"] input.r5-toggle:checked::after,
 html[data-style="gnome"] #vaultPage .r5-switch[aria-checked="true"] .r5-track > .vault-switch-knob { transform: translateX(22px); }
 html[data-style="gnome"] .vcge-sheet-panel { border-radius: 12px 12px 0 0; background: var(--sh-surface); }
 html[data-style="gnome"] .vcge-sheet-panel::before { width: 36px; height: 4px; opacity: .6; }
-html[data-style="gnome"] .r5-minis { background: color-mix(in srgb, var(--sh-ink) 8%, transparent); border-radius: 9px; padding: 3px; gap: 3px; margin: 0 16px 14px; }
-html[data-style="gnome"] button.r5-chip { flex: 1; border-radius: 6px; background: transparent; box-shadow: none; padding: 0 8px; }
+html[data-style="gnome"] .r5-minis { background: color-mix(in srgb, var(--sh-ink) 8%, transparent); border-radius: 9px; padding: 3px; gap: 3px; margin: 0 16px 14px;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(5.5rem, 1fr)); }
+html[data-style="gnome"] button.r5-chip { border-radius: 6px; background: transparent; box-shadow: none; padding: 0 8px; }
 html[data-style="gnome"] button.r5-chip[aria-pressed="true"] { background: var(--sh-surface); color: var(--sh-ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .15); }
 html[data-style="gnome"] :is(.tip, .finder) { border-radius: 12px; box-shadow: none; }
 

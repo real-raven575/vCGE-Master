@@ -480,6 +480,14 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       buttons: Array.from(document.querySelectorAll('.vcge-bar button, .vcge-dock button')).filter(b => b.getClientRects().length && b.offsetWidth > 1).every(b => b.getBoundingClientRect().height >= 43.5) }));
     ok('layout: on a short screen the bar is 48 px, the dock one 52 px row (every button still 44 px) and the screen keeps over half the height',
       low.short === '1' && low.bar <= 48.5 && low.dock <= 53 && low.buttons && low.screen > 390 / 2, JSON.stringify(low));
+    // An upright phone with its keyboard open is under 500 px tall too (raven575's S24, 2026-11-14): the dock keeps its
+    // two rows there, because one row ran 22 px past the edge and the page slid sideways when the PIN box took focus
+    await page.setViewportSize({ width: 412, height: 450 }); await page.waitForTimeout(400);
+    await page.waitForFunction(() => document.documentElement.dataset.short === '1', null, { timeout: 3000 }).catch(() => {});
+    const kb = await page.evaluate(() => ({ short: document.documentElement.dataset.short, page: document.documentElement.scrollWidth, w: innerWidth,
+      dock: Math.round(Array.from(document.querySelectorAll('.vcge-dock *')).reduce((m, e) => Math.max(m, e.getBoundingClientRect().right), 0)) }));
+    ok('layout: an upright phone with its keyboard open keeps the two-row dock and nothing sticks out sideways',
+      kb.short === '1' && kb.page <= kb.w && kb.dock <= kb.w, JSON.stringify(kb));
     await page.setViewportSize(vp); await page.waitForTimeout(500);
   }
   ok('opens straight to an empty card (no passphrase dialog)', !(await visible('vaultModal')) && (await val('firstName')) === '');
@@ -818,6 +826,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const l = await look(); styleRadius[id] = l.radius;
     ok(`Style ${id}: html[data-style="${id}"], its chip pressed, code ${code} saved after the six older names`, l.style === id && l.entry === `hand=0;cb=1;theme=1;font=2;size=0;wipe=0;style=${code}`
       && await page.$eval(`#styleChips [data-style="${id}"]`, b => b.getAttribute('aria-pressed') === 'true'), JSON.stringify(l));
+    // iOS and GNOME draw the chips as one segmented bar; on a phone it wraps into even rows so no name is cut or overlaps
+    const was = page.viewportSize(); await page.setViewportSize({ width: 412, height: 915 }); await page.waitForTimeout(150);
+    const cut = await page.$$eval('#styleChips button', bs => bs.filter(b => b.scrollWidth > b.clientWidth + 1).map(b => b.textContent.trim()));
+    await page.setViewportSize(was); await page.waitForTimeout(150);
+    ok(`Style ${id}: on a phone every style name fits inside its chip`, cut.length === 0, cut.join());
   }
   ok('each style shapes the sheets its own way (Material 28 px, iOS 34, Windows 8, GNOME 12, KDE 8 corners)', JSON.stringify(styleRadius) === '{"material":"28px","ios":"34px","windows":"8px","gnome":"12px","kde":"8px"}', JSON.stringify(styleRadius));
   await page.click('#styleChips [data-style="herd"]');
