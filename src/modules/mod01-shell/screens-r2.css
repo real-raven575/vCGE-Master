@@ -137,10 +137,13 @@ html[data-cb="1"] #cardCapture .r2-shutter[data-pressed] { box-shadow: inset 0 0
 /* Go (easy + premium step 4): one big green circle, an easy target for any hand (96 px); the app's own green (--r3-good) */
 .r2-go { display: flex; flex-direction: column; align-items: center; gap: 8px; margin: 20px 0 4px; }
 .r2-go-btn {
-    width: 96px; height: 96px; border-radius: 50%; border: 0; cursor: pointer;
+    width: 96px; aspect-ratio: 1; height: auto; border-radius: 50%; border: 0; cursor: pointer;
     background: var(--r3-good, #2e7d4f); color: var(--sh-surface, #fff); font: 800 1.75rem/1 var(--r2-display, inherit); letter-spacing: .06em;
     box-shadow: 0 6px 18px rgb(0 0 0 / .25), inset 0 -4px 0 rgb(0 0 0 / .18);
 }
+/* raven575 on a phone, 2026-11-15 03:11 UTC: "closer to 50%... probably around 45" of the screen. On phone-width screens the
+   circle is 45% of the width (and at most a third of the height); wider screens keep 96 px so Welcome still fits a laptop. */
+@media (max-width: 700px) { .r2-go-btn { width: min(45vw, 33vh); min-width: 96px; font-size: clamp(1.75rem, 11vw, 3.25rem); } }
 .r2-go-btn:hover { filter: brightness(.92); }
 .r2-go-btn:active { transform: translateY(2px); box-shadow: 0 3px 10px rgb(0 0 0 / .25), inset 0 -2px 0 rgb(0 0 0 / .18); }
 .r2-go-btn:focus-visible { outline: 4px solid var(--sh-ink); outline-offset: 4px; }
