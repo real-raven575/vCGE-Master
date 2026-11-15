@@ -1891,7 +1891,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const st = await import(`${R}/modules/mod01-shell/settings.js`);
   const ui = await import(`${R}/modules/mod01-shell/ui.js`);
   localStorage.clear();
-  ok('settings: one key, defaults right hand, colour-blind off, dark theme, Inter, normal text size', st.SETTINGS_KEY === 'vcge_settings' && JSON.stringify(st.DEFAULTS) === '{"hand":0,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}' && st.fontFor(0) === 'Inter' && st.scaleFor(0) === 1);
+  ok('settings: one key, defaults right hand, colour-blind off, dark theme, Inter, normal text size', st.SETTINGS_KEY === 'vcge_settings' && JSON.stringify(st.DEFAULTS) === '{"hand":0,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"easy":0}' && st.fontFor(0) === 'Inter' && st.scaleFor(0) === 1);
   ok('settings: the wipe after the lock is 7, 10 or 15 minutes, codes 0, 1, 2; 7 is the default and an unknown code is 7', st.WIPE_TIMES.map(t => `${t.code}:${t.minutes}`).join() === '0:7,1:10,2:15'
     && st.wipeMinutesFor(0) === 7 && st.wipeMinutesFor(1) === 10 && st.wipeMinutesFor(2) === 15 && st.wipeMinutesFor(9) === 7);
   {
@@ -1903,10 +1903,10 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('settings: text sizes Small, Normal, Large, Larger, smallest first, each with its own fixed code; an unknown code is Normal', st.TEXT_SIZES.map(t => t.name).join() === 'Small,Normal,Large,Larger'
     && st.TEXT_SIZES.every((t, i) => i === 0 || t.scale > st.TEXT_SIZES[i - 1].scale) && new Set(st.TEXT_SIZES.map(t => t.code)).size === 4 && st.scaleFor(2) === 1.25 && st.scaleFor(9) === 1);
   ok('settings: every Settings font has its own fixed code, Inter 0, no code shared', ui.UI_FONTS.every(n => Number.isInteger(st.FONT_CODES[n])) && new Set(Object.values(st.FONT_CODES)).size === ui.UI_FONTS.length && Object.keys(st.FONT_CODES).length === ui.UI_FONTS.length);
-  ok('settings: a line of name=number pairs reads back', JSON.stringify(st.parseSettings('hand=1;cb=1;theme=1;font=3;size=2;wipe=1')) === '{"hand":1,"cb":1,"theme":1,"font":3,"size":2,"wipe":1,"mode":0,"style":0,"tex":0,"look":0}');
-  ok('settings: an entry saved before the text size and wipe time existed reads as Normal and 7 minutes', JSON.stringify(st.parseSettings('hand=1;cb=0;theme=0;font=2')) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}');
+  ok('settings: a line of name=number pairs reads back', JSON.stringify(st.parseSettings('hand=1;cb=1;theme=1;font=3;size=2;wipe=1')) === '{"hand":1,"cb":1,"theme":1,"font":3,"size":2,"wipe":1,"mode":0,"style":0,"tex":0,"look":0,"easy":0}');
+  ok('settings: an entry saved before the text size and wipe time existed reads as Normal and 7 minutes', JSON.stringify(st.parseSettings('hand=1;cb=0;theme=0;font=2')) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"easy":0}');
   ok('settings: missing or unreadable means the defaults', JSON.stringify(st.parseSettings(null)) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('garbage')) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('')) === JSON.stringify(st.DEFAULTS));
-  ok('settings: an unknown name, an out-of-range or non-numeric value falls back to its default, the rest is kept', JSON.stringify(st.parseSettings('hand=1;name=Maria;cb=9;theme=x;font=99;size=4')) === '{"hand":1,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}');
+  ok('settings: an unknown name, an out-of-range or non-numeric value falls back to its default, the rest is kept', JSON.stringify(st.parseSettings('hand=1;name=Maria;cb=9;theme=x;font=99;size=4')) === '{"hand":1,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"easy":0}');
   ok('settings: serialises every name in a fixed order and clamps', st.serializeSettings({ font: 2, hand: 1, size: 3 }) === 'hand=1;cb=0;theme=0;font=2;size=3;wipe=0' && st.serializeSettings({ cb: 6 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0');
   ok('settings: Plain look is look=1, written only while on (an entry nobody switched reads as before); look=2 is out of range',
     st.serializeSettings({ look: 1 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0;look=1' && st.serializeSettings({ look: 0 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0'
@@ -1920,11 +1920,13 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
       !/^import /m.test(ps) && !/fetch\(|localStorage|sessionStorage|indexedDB|innerHTML|document\.cookie/.test(ps)
       && /'listbox'/.test(ps) && /'option'/.test(ps) && ['ArrowDown', 'ArrowUp', 'Home', 'End', 'Escape', 'Enter'].every(k => ps.includes(`'${k}'`))); }
   ok('settings: save writes the one key and nothing else', localStorage.getItem('vcge_settings') === 'hand=1;cb=0;theme=0;font=2;size=0;wipe=0' && store.size === 1);
-  ok('settings: load reads it back', JSON.stringify(st.loadSettings()) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}');
+  ok('settings (step 7): Easy touch is easy=1, written only once it is on', st.parseSettings('easy=1').easy === 1 && st.parseSettings('').easy === 0
+    && !st.serializeSettings(st.parseSettings('')).includes('easy') && /(^|;)easy=1(;|$)/.test(st.serializeSettings({ ...st.parseSettings(''), easy: 1 })));
+  ok('settings: load reads it back', JSON.stringify(st.loadSettings()) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"easy":0}');
   st.clearSettings();
   ok('settings: clear removes it', store.size === 0 && JSON.stringify(st.loadSettings()) === JSON.stringify(st.DEFAULTS));
   localStorage.setItem('vcge_theme_preference', 'light');
-  ok('settings: the old theme key is carried over once and removed', JSON.stringify(st.loadSettings()) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}' && localStorage.getItem('vcge_theme_preference') === null && store.size === 0);
+  ok('settings: the old theme key is carried over once and removed', JSON.stringify(st.loadSettings()) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"easy":0}' && localStorage.getItem('vcge_theme_preference') === null && store.size === 0);
   const code = fs.readFileSync(`${R}/modules/mod01-shell/settings.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
   ok('settings: subscribes to SETTINGS_WIPE_REQUESTED, imports only the bus, ui.js, themes.js, edition.js and pictureSelect.js, no network, cookies or markup', /subscribe\(Events\.SETTINGS_WIPE_REQUESTED/.test(code)
     && (code.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ui.js'") || l.includes("'./themes.js'") || l.includes("'./edition.js'") || l.includes("'./pictureSelect.js'")) && !/fetch\(|document\.cookie|sessionStorage|indexedDB|innerHTML|publish\(/.test(code));
@@ -1983,7 +1985,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('settings 0.8: the six styles keep fixed codes (Herd 0, Material 1, iOS 2, Windows 3, GNOME 4, KDE 5); an unknown code is Herd',
     st.STYLES.map(t => `${t.code}:${t.id}`).join() === '0:herd,1:material,2:ios,3:windows,4:gnome,5:kde' && st.styleFor(9).id === 'herd' && st.parseSettings('style=6').style === 0);
   ok('settings 0.8: an entry from 0.7 (no mode, style or tex) reads as the fixed theme, Herd style and the texture on',
-    JSON.stringify(st.parseSettings('hand=0;cb=0;theme=1;font=0;size=0;wipe=0')) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0}'
+    JSON.stringify(st.parseSettings('hand=0;cb=0;theme=1;font=0;size=0;wipe=0')) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"easy":0}'
     && st.effectiveTheme(st.parseSettings('theme=1'), true) === 1 && st.effectiveTheme(st.parseSettings('theme=0'), false) === 0);
   ok('settings 0.8: Appearance System shows the family\'s light or dark code by the device; a one-version theme stays itself',
     st.effectiveTheme({ theme: 1, mode: 1 }, true) === 0 && st.effectiveTheme({ theme: 0, mode: 1 }, false) === 1

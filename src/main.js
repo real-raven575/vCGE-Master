@@ -1041,6 +1041,13 @@ function wireIntake() {
     $('runOcrBtn').addEventListener('click', runOcr);
     // Go (easy + premium step 4): the camera opens; once a photo is in, it is read straight away and the review opens
     // with Go's two ways out. Step by step (the dock's Scan a card) is untouched.
+    // Easy touch (step 7): the start is Go. The dock's "Scan a card" on Welcome takes the Go path; caught before the deck's own
+    // handler (capture), so the deck does not also move on
+    $('dockNext').addEventListener('click', (e) => {
+        if (document.documentElement.dataset.easy !== 'on' || document.documentElement.dataset.card !== 'welcome') return;
+        e.preventDefault(); e.stopImmediatePropagation();
+        $('welcomeGoBtn').click();
+    }, true);
     $('welcomeGoBtn').addEventListener('click', async () => {
         setGo(true);
         await showCard('capture');

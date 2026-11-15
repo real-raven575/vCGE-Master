@@ -26,7 +26,9 @@
  *          follows the device's light or dark setting. `theme` still holds a fixed code, so nothing is renumbered.
  *   style  the platform style (STYLES; 0 Herd, the default, 1 Material, 2 iOS, 3 Windows, 4 GNOME, 5 KDE): html[data-style].
  *   tex    the halftone background texture: 0 on (the default), 1 off: html[data-tex="on|off"].
- *          mode, style and tex are written only once they differ from their defaults, so older entries read the same.
+ *   easy   Easy touch (easy + premium step 7): 0 off (the default), 1 on: html[data-easy="on"]: bigger buttons
+ *          everywhere, the wipe's Yes is a tap (tap Wipe, then a big Yes) instead of a hold, and Welcome's start is Go.
+ *          mode, style, tex and easy are written only once they differ from their defaults, so older entries read the same.
  *
  * Each font and size keeps its number for good, so adding more later and re-sorting a list never changes a saved choice.
  * An entry saved before the size or wipe setting existed simply has none: Normal, 7 minutes.
@@ -59,12 +61,12 @@ export const STYLES = Object.freeze([
     { code: 0, id: 'herd', name: 'Herd' }, { code: 1, id: 'material', name: 'Material' }, { code: 2, id: 'ios', name: 'iOS' },
     { code: 3, id: 'windows', name: 'Windows' }, { code: 4, id: 'gnome', name: 'GNOME' }, { code: 5, id: 'kde', name: 'KDE' }
 ]);
-export const DEFAULTS = Object.freeze({ hand: 0, cb: 0, theme: 0, font: FONT_CODES[DEFAULT_UI_FONT], size: 0, wipe: 0, mode: 0, style: 0, tex: 0, look: 0 });
+export const DEFAULTS = Object.freeze({ hand: 0, cb: 0, theme: 0, font: FONT_CODES[DEFAULT_UI_FONT], size: 0, wipe: 0, mode: 0, style: 0, tex: 0, look: 0, easy: 0 });
 // The names every entry has carried since step 4; the 0.8 ones (mode, style, tex) are written only once they differ from
 // their defaults, so an entry nobody changed them in reads exactly as before.
 const CORE = ['hand', 'cb', 'theme', 'font', 'size', 'wipe'];
 const RANGE = { hand: 1, cb: 5, theme: Math.max(...THEMES.map(t => t.code)), font: Math.max(...Object.values(FONT_CODES)), size: Math.max(...TEXT_SIZES.map(t => t.code)),
-    wipe: Math.max(...WIPE_TIMES.map(t => t.code)), mode: 1, style: Math.max(...STYLES.map(t => t.code)), tex: 1, look: 1 };
+    wipe: Math.max(...WIPE_TIMES.map(t => t.code)), mode: 1, style: Math.max(...STYLES.map(t => t.code)), tex: 1, look: 1, easy: 1 };
 
 /** Colour vision (Settings > Accessibility): fixed codes, the cb setting's 2 to 5; 0 is Typical. Each moves the good and
  *  stop colours (light page, dark page) to a pair that person tells apart; colourSet.css swaps the good and stop ramps the
@@ -171,6 +173,7 @@ export function applySettings(settings, root = document.documentElement, dark = 
     if (pair) { root.style.setProperty('--vcge-good', pair.good); root.style.setProperty('--vcge-stop', pair.stop); }
     root.dataset.style = styleFor(s.style).id;
     root.dataset.tex = s.tex === 1 ? 'off' : 'on';
+    if (s.easy === 1) root.dataset.easy = 'on'; else delete root.dataset.easy;
     root.dataset.font = String(s.font);
     root.style.setProperty('--vcge-ui-font', `'${fontFor(s.font)}'`);
     root.dataset.size = String(s.size);
@@ -243,6 +246,8 @@ export function initSettings(doc = document, { hasContacts = () => false, restar
         if (dys) dys.checked = s.font === DYSLEXIA_FONT;
         if (hand) hand.checked = s.hand === 1;
         if (cb) cb.checked = s.cb >= 1;
+        const easy = $('easyToggle');
+        if (easy) easy.checked = s.easy === 1;
         const cvd = $('cvdSelect');
         if (cvd) { cvd.value = String(visionFor(s.cb).code); cvd._picture?.refresh(); }
         doc.querySelectorAll('.r5-onoff').forEach(w => { const on = !!w._for?.checked; w.textContent = on ? 'On' : 'Off'; w.classList.toggle('is-on', on); });
@@ -343,6 +348,7 @@ export function initSettings(doc = document, { hasContacts = () => false, restar
     });
     $('dyslexiaToggle')?.addEventListener('change', (e) => set({ font: dyslexiaFont(e.target.checked) }));
     $('texToggle')?.addEventListener('change', (e) => set({ tex: e.target.checked ? 0 : 1 }));
+    $('easyToggle')?.addEventListener('change', (e) => set({ easy: e.target.checked ? 1 : 0 }));
     font?.addEventListener('change', (e) => set({ font: Number(e.target.value) }));
     // Plain look: in the Plain download the switch is on and fixed (that build is plain by its html line). In the Herd build it
     // is live: look=1 is saved and vCGE starts fresh in the Plain look (applySavedLook, edition.js); with contacts in memory it
