@@ -11,6 +11,7 @@ import android.os.Environment
 import android.print.PrintAttributes
 import android.print.PrintManager
 import android.provider.MediaStore
+import android.provider.Telephony
 import android.util.Base64
 import android.view.View
 import android.webkit.JavascriptInterface
@@ -148,6 +149,59 @@ class MainActivity : TauriActivity() {
     @JavascriptInterface
     fun sms(body: String): Boolean {
       return launch(Intent(Intent.ACTION_SENDTO, Uri.parse("smsto:")).putExtra("sms_body", body))
+    }
+
+    // The .vcf for Email or Text with the file attached (raven575's phone run, 2026-11-16: "attach .vcf" or "inline
+    // text", the person's choice), written to the share folder like Share... and kept until the next share or start.
+    private fun attachment(vcard: String, fileName: String): Pair<File, Uri> {
+      val dir = shareDir()
+      dir.mkdirs()
+      clearShareFiles()
+      val file = File(dir, safeName(fileName, ".vcf", "Contact.vcf"))
+      file.writeText(vcard, Charsets.UTF_8)
+      return file to FileProvider.getUriForFile(this@MainActivity, "$packageName.fileprovider", file)
+    }
+
+    // Email with the .vcf attached: a new message in a mail app (the selector keeps it to apps that answer "mailto:"),
+    // with the subject, the readable details and the file. False when no mail app takes it.
+    @JavascriptInterface
+    fun emailFile(vcard: String, fileName: String, subject: String, body: String): Boolean {
+      return try {
+        val (file, uri) = attachment(vcard, fileName)
+        val send = Intent(Intent.ACTION_SEND)
+          .setType("text/x-vcard")
+          .putExtra(Intent.EXTRA_STREAM, uri)
+          .putExtra(Intent.EXTRA_SUBJECT, subject)
+          .putExtra(Intent.EXTRA_TEXT, body)
+          .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        send.clipData = ClipData.newRawUri(file.name, uri)
+        send.selector = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:"))
+        launch(send)
+      } catch (e: Exception) {
+        clearShareFiles()
+        false
+      }
+    }
+
+    // Text message with the .vcf attached (sent as a picture message): the phone's default messaging app, or the share
+    // menu when the phone names none. False when no app takes it.
+    @JavascriptInterface
+    fun smsFile(vcard: String, fileName: String, body: String): Boolean {
+      return try {
+        val (file, uri) = attachment(vcard, fileName)
+        val send = Intent(Intent.ACTION_SEND)
+          .setType("text/x-vcard")
+          .putExtra(Intent.EXTRA_STREAM, uri)
+          .putExtra("sms_body", body)
+          .putExtra(Intent.EXTRA_TEXT, body)
+          .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        send.clipData = ClipData.newRawUri(file.name, uri)
+        val messages = Telephony.Sms.getDefaultSmsPackage(this@MainActivity)
+        if (messages != null) launch(send.setPackage(messages)) else launch(Intent.createChooser(send, "Text message"))
+      } catch (e: Exception) {
+        clearShareFiles()
+        false
+      }
     }
 
     // Save QR image: the PNG goes to Downloads (Android 10 and later need no storage permission for that). False on older

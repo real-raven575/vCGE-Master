@@ -86,6 +86,8 @@ button.print-choice-themed { background: var(--good-600); color: #020617; border
 button.print-choice-themed:hover { background: var(--good-500); }
 button.print-choice-bw { background: #ffffff; color: #0f172a; border-color: #0f172a; }
 button.print-choice-bw:hover { background: #f1f5f9; }
+/* Email / Text: Attach the .vcf file greyed where the browser cannot attach files (the note under it says why) */
+button.print-choice:disabled { opacity: 0.45; cursor: not-allowed; }
 .dark button.print-choice-bw { background: #f8fafc; color: #0f172a; border-color: #e2e8f0; }
 button.print-choice-cancel { grid-column: 1 / -1; min-height: var(--vcge-tap, 2.75rem); border-radius: 0.75rem; font-size: 0.9rem; font-weight: 600; background: transparent; color: inherit; border-color: #cbd5e1; cursor: pointer; }
 .dark button.print-choice-cancel { border-color: #475569; }
