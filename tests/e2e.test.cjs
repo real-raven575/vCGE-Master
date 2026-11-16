@@ -179,7 +179,7 @@ async function setTheme(page, code) {
   if (sel.both) await page.click(`#appearanceChips [data-v="${sel.mode}"]`);
 }
 const setHand = (page, left) => page.setChecked('#handToggle', left);
-const setSize = (page, name) => page.$eval('#sizeRange', (r, n) => { r.value = String(['Small', 'Normal', 'Large', 'Larger'].indexOf(n)); r.dispatchEvent(new Event('input', { bubbles: true })); }, name);
+const setSize = (page, name) => page.$eval('#sizeRange', (r, n) => { r.value = String(['Smallest', 'Small', 'Normal', 'Large', 'Larger', 'Big', 'Bigger', 'Huge', 'Largest'].indexOf(n)); r.dispatchEvent(new Event('input', { bubbles: true })); }, name);
 async function closeVault(page) { if (await vaultOpen(page)) { await page.click('#vaultPage [data-sheet-close]'); await page.waitForSelector('#vaultPage', { state: 'hidden' }); } }
 
 // On phones the header has no room for the Lock button, so Lock lives on the Vault page ("Lock now") instead.
@@ -817,6 +817,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   const cvdSet = { good: await swatch('--good-600'), stop: await swatch('--stop-600'), filter: await page.evaluate(() => getComputedStyle(document.documentElement).filter) };
   ok('colour vision (step 6): Red-weak swaps the named set (go blue, stop orange) and lays no filter over the page',
     cvdSet.good === 'rgb(37, 99, 235)' && cvdSet.stop === 'rgb(234, 88, 12)' && cvdSet.filter === 'none', JSON.stringify(cvdSet));
+  // Blue-weak: colour-blind mode's "on" fill (the dock's main button, pressed switches) turns teal with the set, not
+  // the old fixed blue (raven575's Android run, 2026-11-16: "Scan another" stayed blue)
+  await page.click('.r5-cvd-row .vcge-pick-btn');
+  await page.click('.r5-cvd-row [role="option"][data-value="4"]'); await page.waitForTimeout(450);   // past the button's 200 ms colour fade
+  const tritan = await page.evaluate(() => getComputedStyle(document.getElementById('dockNext')).backgroundColor);
+  ok('colour vision: Blue-weak turns the dock\'s main button teal (its good colour), not blue', tritan === (await swatch('--good-600')) && tritan === 'rgb(13, 148, 136)', tritan);
   await page.selectOption('#cvdSelect', '0');
   ok('colour vision (step 6): Typical gives the named set back its green and red', (await swatch('--good-600')) === 'rgb(22, 163, 74)' && (await swatch('--stop-600')) === 'rgb(220, 38, 38)');
   ok('colour vision: Typical goes back to plain colour-blind mode (cb=1)', !(await page.evaluate(() => document.documentElement.dataset.cvd)) && /cb=1;/.test((await htmlState()).entry));
@@ -858,7 +864,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   // Settings polish from raven575's iPad video: the cog by the title (#13) and a text size that leaves the header alone (#6)
   ok('Settings shows the cog left of its title', (await page.$eval('#settingsTitle use', u => u.getAttribute('href'))).endsWith('#settings')
     && await page.$eval('#settingsTitle', h => h.firstElementChild.tagName.toLowerCase() === 'svg'));
-  ok('the text size slider walks Small, Normal, Large, Larger, Normal chosen', await page.$eval('#sizeRange', r => r.min === '0' && r.max === '3' && r.step === '1' && r.value === '1' && r.getAttribute('aria-valuetext') === 'Normal'));
+  ok('the text size slider walks nine sizes, Smallest to Largest, Normal chosen', await page.$eval('#sizeRange', r => r.min === '0' && r.max === '8' && r.step === '1' && r.value === '2' && r.getAttribute('aria-valuetext') === 'Normal'));
   const sizes = () => page.evaluate(() => { const r = e => e.getBoundingClientRect();
     return { root: parseFloat(getComputedStyle(document.documentElement).fontSize), note: parseFloat(getComputedStyle(document.getElementById('settingsNote')).fontSize),
       header: r(document.querySelector('.vcge-bar')).height, icon: r(document.querySelector('#navSettings .vcge-icon')).width }; });
@@ -1011,8 +1017,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('countdown shows remaining time', /Auto-clear in 11\d s/.test(await p2.textContent('#purgeCountdown')), await p2.textContent('#purgeCountdown'));
     const pill2 = await p2.evaluate(() => ({ txt: document.getElementById('sessTxt').textContent, strip: document.getElementById('vaultTimerTime').textContent,
       off: Number(document.getElementById('sessArc').getAttribute('stroke-dashoffset')), label: document.getElementById('navVault').getAttribute('aria-label') }));
-    ok('0.8 shell: while the timer runs, the session pill shows its time and the ring has started to empty (the pill\'s label says it too)', pill2.txt === pill2.strip && /^1:5\d$/.test(pill2.txt) && pill2.off > 0 && pill2.off < 94.2 / 2
-      && pill2.label.includes(`Clears in ${pill2.txt}`), JSON.stringify(pill2));
+    ok('0.8 shell: while the timer runs, the session pill shows no number, only its ring starting to empty (the pill\'s label says the time)', pill2.txt === '' && /^1:5\d$/.test(pill2.strip) && pill2.off > 0 && pill2.off < 94.2 / 2
+      && pill2.label.includes(`Clears in ${pill2.strip}`), JSON.stringify(pill2));
     ok('timer strip: without a PIN it reads "Clears in" with the time left', await p2.isVisible('#vaultTimerStrip') && (await p2.textContent('#vaultTimerLabel')) === 'Clears in' && /^1:5\d$/.test(await p2.textContent('#vaultTimerTime')), await p2.textContent('#vaultTimerTime'));
     await fastForward(p2, 60000);
     await p2.fill('#organization', 'Activity resets');
@@ -4044,13 +4050,13 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pV.click('#navCard'); await litOnly('navCard'); await pV.waitForTimeout(800);
     ok('0.8 shell: the Card step turns the card back to its front and only it is current', (await lit()) === 'navCard' && (await pV.$eval('#card3DFlipper', el => el.style.transform)) === 'rotateY(0deg)', await lit());
 
-    // The timer never covers a screen (video #95): the time shows in the session pill, the strip's band stays hidden
+    // The timer never covers a screen (video #95): the session pill's ring shows the time running out, the strip's band stays hidden
     await pV.click('#navFields'); await deckSettled(pV);
     await pV.fill('#firstName', 'Shutout'); await pV.waitForTimeout(1300);
     const strip = await pV.evaluate(() => ({ shown: !document.getElementById('vaultTimerStrip').classList.contains('hidden'), band: getComputedStyle(document.getElementById('vaultTimerBand')).display,
       pill: document.getElementById('sessTxt').textContent, bar: document.querySelector('.vcge-bar').getBoundingClientRect().bottom, top: document.getElementById('cardFields').getBoundingClientRect().top }));
-    ok('0.8 shell: with a card in progress the time shows in the session pill, no band hangs over the screen, and the screen starts below the bar',
-      strip.shown && strip.band === 'none' && /^\d:\d\d$/.test(strip.pill) && strip.top >= strip.bar, JSON.stringify(strip));
+    ok('0.8 shell: with a card in progress the session pill keeps only its ring (no number), no band hangs over the screen, and the screen starts below the bar',
+      strip.shown && strip.band === 'none' && strip.pill === '' && strip.top >= strip.bar, JSON.stringify(strip));
 
     // The tour stays under the lock screen: a lock that comes down mid-tour is on top, its PIN box takes the keys
     await pV.click('#navWelcome'); await pV.waitForTimeout(700);

@@ -17,6 +17,9 @@
     --good-600: #16a34a; --good-700: #15803d; --good-800: #166534; --good-900: #14532d; --good-950: #052e16;
     --stop-50: #fef2f2; --stop-100: #fee2e2; --stop-200: #fecaca; --stop-300: #fca5a5; --stop-400: #f87171; --stop-500: #ef4444;
     --stop-600: #dc2626; --stop-700: #b91c1c; --stop-800: #991b1b; --stop-900: #7f1d1d; --stop-950: #450a0a;
+    /* Colour-blind mode's "this one is on" fill (words-and-marks mode alone keeps its blue); a colour-vision choice turns
+       it into that person's good colour, so blue-weak sees teal, not blue (raven575's Android run, 2026-11-16) */
+    --cb-on: #2563eb; --cb-on-edge: #1d4ed8;
 }
 html:is([data-cvd="protan"], [data-cvd="deutan"]) {
     --good-50: #eff6ff; --good-100: #dbeafe; --good-200: #bfdbfe; --good-300: #93c5fd; --good-400: #60a5fa; --good-500: #3b82f6;
@@ -24,6 +27,7 @@ html:is([data-cvd="protan"], [data-cvd="deutan"]) {
     --stop-50: #fff7ed; --stop-100: #ffedd5; --stop-200: #fed7aa; --stop-300: #fdba74; --stop-400: #fb923c; --stop-500: #f97316;
     --stop-600: #ea580c; --stop-700: #c2410c; --stop-800: #9a3412; --stop-900: #7c2d12; --stop-950: #431407;
     --good-found: var(--good-300); --good-shut: var(--good-700); --good-ios: var(--good-500); --stop-shut: var(--stop-700);
+    --cb-on: var(--good-600); --cb-on-edge: var(--good-700);
 }
 html[data-cvd="tritan"] {
     --good-50: #f0fdfa; --good-100: #ccfbf1; --good-200: #99f6e4; --good-300: #5eead4; --good-400: #2dd4bf; --good-500: #14b8a6;
@@ -31,6 +35,7 @@ html[data-cvd="tritan"] {
     --stop-50: #fdf2f8; --stop-100: #fce7f3; --stop-200: #fbcfe8; --stop-300: #f9a8d4; --stop-400: #f472b6; --stop-500: #ec4899;
     --stop-600: #db2777; --stop-700: #be185d; --stop-800: #9d174d; --stop-900: #831843; --stop-950: #500724;
     --good-found: var(--good-300); --good-shut: var(--good-700); --good-ios: var(--good-500); --stop-shut: var(--stop-700);
+    --cb-on: var(--good-600); --cb-on-edge: var(--good-700);
 }
 /* No colour: good is the dark grey, stop the lighter warm grey; the words and marks (always on here) carry the meaning */
 html[data-cvd="mono"] {
@@ -39,4 +44,5 @@ html[data-cvd="mono"] {
     --stop-50: #fafaf9; --stop-100: #f5f5f4; --stop-200: #e7e5e4; --stop-300: #d6d3d1; --stop-400: #a8a29e; --stop-500: #78716c;
     --stop-600: #57534e; --stop-700: #44403c; --stop-800: #292524; --stop-900: #1c1917; --stop-950: #0c0a09;
     --good-found: var(--good-300); --good-shut: var(--good-700); --good-ios: var(--good-500); --stop-shut: var(--stop-700);
+    --cb-on: var(--good-600); --cb-on-edge: var(--good-700);
 }

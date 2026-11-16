@@ -244,16 +244,16 @@ function updateTimerStrip() {
     $('vaultTimerBar').classList.toggle('bg-amber-500', warn);
 }
 
-// The session pill in the top bar (0.8 shell, Creative's mock-up): the lock ring empties as the time runs out and the
-// time sits beside it; with nothing open it is the padlock alone. The Vault's own page keeps the full timer.
+// The session pill in the top bar (0.8 shell, Creative's mock-up): the lock ring empties as the time runs out; the
+// number is left to the Vault's own page and the pill's label (raven575's Android run, 2026-11-16: the circle alone).
+// With nothing open it is the padlock alone, its ring full.
 const RING_LENGTH = 94.2;     // 2 * pi * 15, the ring's circle in index.html
 function updateSessionPill(show, remaining) {
     const pill = $('navVault'), arc = $('sessArc'), txt = $('sessTxt');
     if (!pill || !arc || !txt) return;
     pill.classList.toggle('has-time', show);
     pill.classList.toggle('is-locked', vaultMode !== 'open');
-    const time = show ? minutes(remaining) : '';
-    if (txt.textContent !== time) txt.textContent = time;
+    if (txt.textContent !== '') txt.textContent = '';
     const left = show ? Math.max(0, Math.min(1, remaining / IDLE_PURGE_SECONDS)) : (vaultMode === 'open' ? 1 : 0);
     arc.setAttribute('stroke-dashoffset', (RING_LENGTH * (1 - left)).toFixed(1));
     const base = 'Vault: PIN and fingerprint';
