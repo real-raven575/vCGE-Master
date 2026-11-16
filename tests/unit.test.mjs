@@ -1517,6 +1517,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 
   // Motion: the shared ease (26 fps steps, 5 percent snap), the spin and the toast timings
   ok('ease starts at 0, ends at 1, snaps past 1 on the way', card.easeSnap(0) === 0 && card.easeSnap(1) === 1 && Math.max(...Array.from({ length: 101 }, (_, i) => card.easeSnap(i / 100))) > 1.03);
+  // A flick (raven575's Android run, 2026-11-16): a drag let go fast goes on to the next face the way it was moving
+  ok('flick: speed is read from the drag\'s last moves; a still or one-point trail is 0', card.flickSpeed([{ x: 0, t: 0 }, { x: 50, t: 50 }]) === 1 && card.flickSpeed([{ x: 0, t: 0 }]) === 0 && card.flickSpeed([{ x: 0, t: 5 }, { x: 9, t: 5 }]) === 0);
+  ok('flick: a slow lift settles on the nearest face; a fast one goes on, never back against itself',
+    card.settleAngle(40) === 0 && card.settleAngle(100) === 180 && card.settleAngle(40, 1) === 180 && card.settleAngle(220, 1) === 360
+    && card.settleAngle(140, -1) === 0 && card.settleAngle(-30, -1) === -180 && card.settleAngle(180, 1) === 180 && card.settleAngle(40, card.FLICK_PX_PER_MS - 0.01) === 0);
   {
     let t = 0; const frames = []; const timers = [];
     const stop = card.tween(0, 180, 400, v => frames.push(v), { now: () => t, schedule: (fn, ms) => { timers.push([fn, ms]); return timers.length; }, cancel: () => {} });

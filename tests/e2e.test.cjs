@@ -3865,17 +3865,20 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pT.touchscreen.tap(cb.x + cb.width * 0.8, cb.y + cb.height / 2); await pT.waitForTimeout(900);
     const back = await pT.evaluate(() => ({ top: document.querySelector('#cardCard .r4-card').scrollTop, mini: document.querySelector('#cardCard .r4-card').dataset.mini || 'off', turn: document.getElementById('card3DFlipper').style.transform }));
     ok('mini card: a tap on it scrolls back to the whole card and does not spin it', back.top === 0 && back.mini === 'off' && back.turn === turnedBefore, JSON.stringify(back));
-    // Flip card from a scrolled box turns the card at full size: the box scrolls back up as it flips
+    // Flip card from a scrolled box turns the mini card where it is: no scroll back up, the choices stay put (raven575's
+    // Android run, 2026-11-16: the jump back to the whole card pushed the choices down).
     // Waits on the state itself, not a fixed time: the mini flag follows the scroll a frame late, and a slow phone engine
-    // (WebKit iPhone in CI) took over 0.5 s for that frame and over 1.1 s for the smooth scroll back up
+    // (WebKit iPhone in CI) took over 0.5 s for that frame
     await pT.$eval('#cardCard .r4-card', b => b.scrollTo(0, b.scrollHeight));
     await pT.waitForFunction(() => document.querySelector('#cardCard .r4-card').dataset.mini === 'on', null, { timeout: 3000 }).catch(() => {});
     const miniAgain = await pT.$eval('#cardCard .r4-card', b => b.dataset.mini);
+    const flipBtnBefore = await pT.$eval('#flipCardBtn', b => Math.round(b.getBoundingClientRect().top));
     await pT.$eval('#flipCardBtn', b => b.click());
-    await pT.waitForFunction(() => { const b = document.querySelector('#cardCard .r4-card'); return b.scrollTop === 0 && !b.dataset.mini; }, null, { timeout: 3000 }).catch(() => {});
-    await pT.waitForTimeout(300);
-    const flipped = await pT.evaluate(() => ({ top: document.querySelector('#cardCard .r4-card').scrollTop, mini: document.querySelector('#cardCard .r4-card').dataset.mini || 'off', turn: document.getElementById('card3DFlipper').style.transform }));
-    ok('mini card: Flip card brings the whole card back and turns it', miniAgain === 'on' && flipped.top === 0 && flipped.mini === 'off' && flipped.turn !== turnedBefore, JSON.stringify({ miniAgain: String(miniAgain), ...flipped }));
+    await pT.waitForFunction(() => document.querySelector('#cardCard .r4-card').dataset.face === 'back', null, { timeout: 3000 }).catch(() => {});
+    await pT.waitForTimeout(800);
+    const flipped = await pT.evaluate(() => ({ top: document.querySelector('#cardCard .r4-card').scrollTop, mini: document.querySelector('#cardCard .r4-card').dataset.mini || 'off', turn: document.getElementById('card3DFlipper').style.transform,
+      btn: Math.round(document.getElementById('flipCardBtn').getBoundingClientRect().top) }));
+    ok('mini card: Flip card turns the mini card where it is (no scroll back up, Flip card stays under the finger)', miniAgain === 'on' && flipped.top > 0 && flipped.mini === 'on' && flipped.turn !== turnedBefore && Math.abs(flipped.btn - flipBtnBefore) <= 2, JSON.stringify({ miniAgain: String(miniAgain), flipBtnBefore, ...flipped }));
     // QR side up: Checkers takes the head and his few QR picks replace Card design (raven575's phone run, 2026-11-14)
     await pT.waitForFunction(() => document.querySelector('#cardCard .r4-card').dataset.face === 'back', null, { timeout: 3000 }).catch(() => {});
     const qrSide = await pT.evaluate(() => ({ face: document.querySelector('#cardCard .r4-card').dataset.face, head: [hEmoji.textContent, hName.textContent, hTitle.textContent].join('|'),
@@ -4163,8 +4166,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const flipMs = spinT.length ? Math.round(spinT[spinT.length - 1] - Math.max(flipT0, spinT[0] - 1000 / 60)) : 0;
     ok('0.8 card: a flip takes about 0.62 s with a soft ease out (many smooth frames, never past 180, never back) and settles exactly on 180', (await angle()) === 'rotateY(180deg)' && degs.length >= 15 && Math.max(...degs) === 180 && degs.every((d, i) => i === 0 || d >= degs[i - 1]) && flipMs >= 560 && flipMs <= 1000 && (await p6.$eval('#card3DFlipper', el => el.dataset.spin)) === 'still', JSON.stringify({ flipMs, n: degs.length, degs: degs.map(Math.round) }));
     // Measured again once the card is in view: on a short phone the 0.8 dock covers the bottom of the deck, and the
-    // Flip click above may have scrolled the card body, so the first box can be stale or partly under the dock
-    await p6.locator('#card3DFlipper').scrollIntoViewIfNeeded(); await p6.waitForTimeout(200);
+    // Flip click above may have scrolled the card body, so the first box can be stale or partly under the dock.
+    // Flip card turns the card where it is (raven575's Android run, 2026-11-16), so a body scrolled to reach it leaves
+    // the mini card, which takes no drags: back to the top first, the whole card.
+    await p6.$eval('#cardCard .r4-card', b => b.scrollTo(0, 0));
+    await p6.waitForFunction(() => !document.querySelector('#cardCard .r4-card').dataset.mini, null, { timeout: 3000 }).catch(() => {});
+    await p6.locator('#card3DFlipper').scrollIntoViewIfNeeded(); await p6.waitForTimeout(400);
     flipper = await p6.locator('#card3DFlipper').boundingBox();
     const cx = flipper.x + flipper.width / 2, cy = flipper.y + flipper.height / 2;
     // Which events reach the card (for the failure detail: desktop WebKit sent neither a lift nor a click after a drag).
@@ -4191,14 +4198,15 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const el = document.getElementById('card3DFlipper'), o = { pointerId: 41, pointerType: 'mouse', button: 0, bubbles: true, cancelable: true, clientY: y };
       el.dispatchEvent(new PointerEvent('pointerdown', { ...o, clientX: x }));
       el.dispatchEvent(new PointerEvent('pointermove', { ...o, clientX: x + 60 }));
-      el.dispatchEvent(new PointerEvent('pointerup', { ...o, clientX: x + 60 }));
+      // (the finger stops before it lifts: a slow drag, not a flick)
+      return new Promise(r => setTimeout(() => { el.dispatchEvent(new PointerEvent('pointerup', { ...o, clientX: x + 60 })); r(); }, 200));
     }, [cx - 30, cy]);
     await settled(p6);
     const afterDrag = await angle();
     await p6.mouse.click(cx + flipper.width * 0.25, cy); await settled(p6);
     const faceNow = await p6.$eval('#card3DFlipper', el => el.dataset.face);
     ok('card: after a drag the browser sent no click for (WebKit), the next tap still flips', afterDrag === 'rotateY(180deg)' && (await angle()) !== afterDrag && faceNow === 'front', `${afterDrag} -> ${await angle()} ${faceNow}`);
-    await p6.click('#flipCardBtn'); await settled(p6);
+    await p6.$eval('#flipCardBtn', b => b.click()); await settled(p6);   // (no scroll to reach it: the card stays whole, not mini)
     // A tap is taken on the lift, not from a click: a press and lift with no click after it (as WebKit sends after a
     // drag) flips the card, and el.click() with no press behind it flips it too, the short way.
     const faceBefore = await p6.$eval('#card3DFlipper', el => el.dataset.face);
@@ -4218,7 +4226,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await settled(p6);
     const faceMouseOnly = await p6.$eval('#card3DFlipper', el => el.dataset.face);
     ok('card: a click with no pointer events before it flips the card', faceMouseOnly !== faceBefore, `${faceBefore} -> ${faceMouseOnly}`);
-    await p6.click('#flipCardBtn'); await settled(p6);
+    await p6.$eval('#flipCardBtn', b => b.click()); await settled(p6);   // (no scroll to reach it: the card stays whole, not mini)
     // From the keyboard the card turns with its Flip card button (the card itself is not a stop in the tab order).
     const faceUp = () => p6.$eval('#card3DFlipper', el => el.dataset.face);
     await p6.focus('#flipCardBtn'); await p6.keyboard.press('Enter'); await settled(p6);
@@ -4227,15 +4235,37 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const faceSpace = await faceUp();
     ok('card: from the keyboard, Enter and then Space on Flip card each turn the card over', faceEnter !== faceBefore && faceSpace === faceBefore && (await p6.$eval('#card3DFlipper', el => el.tabIndex)) < 0, `${faceBefore} -> ${faceEnter} -> ${faceSpace}`);
     const cardName = () => p6.evaluate(() => document.documentElement.dataset.card);
+    // (focus on Flip card scrolled the box to it on a short phone: back to the whole card, which takes drags)
+    await p6.$eval('#cardCard .r4-card', b => b.scrollTo(0, 0));
+    await p6.waitForFunction(() => !document.querySelector('#cardCard .r4-card').dataset.mini, null, { timeout: 3000 }).catch(() => {});
+    await p6.waitForTimeout(400);
     await p6.mouse.move(cx, cy); await p6.mouse.down();
     for (let i = 1; i <= 6; i++) await p6.mouse.move(cx + flipper.width * 0.2 * i / 6, cy);
+    await p6.waitForTimeout(200);   // held still before the lift: a slow drag, not a flick
     await p6.mouse.up(); await settled(p6); await p6.waitForTimeout(400);
-    ok('card: a short drag settles back on the same face and the deck stays on this card', (await angle()) === 'rotateY(180deg)' && (await cardName()) === 'card', `${await angle()} ${await cardName()}`);
+    ok('card: a short slow drag settles back on the same face and the deck stays on this card', (await angle()) === 'rotateY(180deg)' && (await cardName()) === 'card', `${await angle()} ${await cardName()}`);
+    // A flick (raven575's Android run, 2026-11-16: a quick swipe sprang back): the same short drag, let go while still
+    // moving fast, finishes the turn the way it went; a flick back the other way turns it back.
+    const flick = (dir) => p6.evaluate(([x, y, dir]) => new Promise((done) => {
+      const el = document.getElementById('card3DFlipper'), o = { pointerId: 43, pointerType: 'touch', isPrimary: true, button: 0, bubbles: true, cancelable: true, clientY: y };
+      el.dispatchEvent(new PointerEvent('pointerdown', { ...o, clientX: x }));
+      let i = 0;
+      const step = () => {
+        i += 1;
+        el.dispatchEvent(new PointerEvent('pointermove', { ...o, clientX: x + dir * 18 * i }));
+        if (i < 4) setTimeout(step, 16); else { el.dispatchEvent(new PointerEvent('pointerup', { ...o, clientX: x + dir * 18 * i })); done(); }
+      };
+      setTimeout(step, 16);
+    }), [cx, cy, dir]);
+    await flick(1); await settled(p6);
+    const flickedOver = await angle(), flickFace = await p6.$eval('#card3DFlipper', el => el.dataset.face);
+    await flick(-1); await settled(p6);
+    ok('card: a quick flick of a fifth of the card turns it over, and a flick back turns it back', flickedOver === 'rotateY(0deg)' && flickFace === 'front' && (await angle()) === 'rotateY(180deg)', `${flickedOver} ${flickFace} -> ${await angle()}`);
     await p6.mouse.move(20, cy); await p6.mouse.down(); await p6.mouse.move(200, cy); await p6.mouse.up(); await settled(p6);
     ok('card: a drag that starts within 48 px of the screen edge does not spin the card', (await angle()) === 'rotateY(180deg)', await angle());
     await p6.emulateMedia({ reducedMotion: 'reduce' });
     await p6.evaluate(() => { window.__spin = []; });
-    await p6.click('#flipCardBtn');
+    await p6.$eval('#flipCardBtn', b => b.click());   // (no scroll to reach it: the card stays whole, not mini)
     ok('card: under reduce motion the flip is instant (one frame)', (await angle()) === 'rotateY(0deg)' && (await p6.evaluate(() => window.__spin.length)) === 1, JSON.stringify(await p6.evaluate(() => window.__spin)));
     await p6.emulateMedia({ reducedMotion: 'no-preference' });
     // Toasts: above the dock, 3 s, a tap dismisses, a hold keeps it until 3 s after the release
