@@ -823,6 +823,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   // the old fixed blue (raven575's Android run, 2026-11-16: "Scan another" stayed blue)
   await page.click('.r5-cvd-row .vcge-pick-btn');
   await page.click('.r5-cvd-row [role="option"][data-value="4"]'); await page.waitForTimeout(450);   // past the button's 200 ms colour fade
+  // (waits on the colour itself as well: the iPhone WebKit job, slow under load, was still mid-fade at 450 ms on PR #47)
+  await page.waitForFunction(() => { const probe = document.createElement('i'); probe.style.color = 'var(--good-600)'; document.body.appendChild(probe);
+    const good = getComputedStyle(probe).color; probe.remove(); return getComputedStyle(document.getElementById('dockNext')).backgroundColor === good; }, null, { timeout: 3000 }).catch(() => {});
   const tritan = await page.evaluate(() => getComputedStyle(document.getElementById('dockNext')).backgroundColor);
   ok('colour vision: Blue-weak turns the dock\'s main button teal (its good colour), not blue', tritan === (await swatch('--good-600')) && tritan === 'rgb(13, 148, 136)', tritan);
   await page.selectOption('#cvdSelect', '0');
