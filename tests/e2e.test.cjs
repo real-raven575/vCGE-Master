@@ -1076,8 +1076,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // Share said "not available", Print did nothing. Each now goes through the bridge and vCGE stays on screen.
     const startUrl = pA.url();
     const callsOf = (m) => pA.evaluate((m) => window.__calls.filter(c => c.m === m).map(c => c.args), m);
-    await pA.$eval('#emailBtn', b => b.click()); await pA.waitForTimeout(300);
-    await pA.$eval('#smsBtn', b => b.click()); await pA.waitForTimeout(300);
+    // Email and Text ask first (raven575 2026-11-16): Inline text here; the .vcf attachment is checked with the tester round
+    await pA.$eval('#emailBtn', b => b.click()); await pA.$eval('#sendTextBtn', b => b.click()); await pA.waitForTimeout(300);
+    await pA.$eval('#smsBtn', b => b.click()); await pA.$eval('#sendTextBtn', b => b.click()); await pA.waitForTimeout(300);
     await pA.$eval('#shareNativeBtn', b => b.click()); await pA.waitForTimeout(300);
     const [mail, text, sent] = [await callsOf('email'), await callsOf('sms'), await callsOf('share')];
     ok('Android app: Email, Text message and Share go to the phone\'s apps and vCGE stays on its page', mail.length === 1 && text.length === 1 && sent.length === 1
@@ -1098,9 +1099,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       && await pA.evaluate(() => window.__printed) === 0 && await pA.evaluate(() => !!document.querySelector('#printSheet .print-card') && !!document.querySelector('#printSheet .print-qr img')),
       JSON.stringify({ prints, printed: await pA.evaluate(() => window.__printed) }));
     await pA.evaluate(() => { window.__phoneApps = false; });
-    await pA.$eval('#emailBtn', b => b.click()); await pA.waitForTimeout(300);
+    await pA.$eval('#emailBtn', b => b.click()); await pA.$eval('#sendTextBtn', b => b.click()); await pA.waitForTimeout(300);
     ok('Android app: with no email app it says so', (await pA.textContent('#toastMessage')).includes('No email app on this phone'), await pA.textContent('#toastMessage'));
-    await pA.$eval('#smsBtn', b => b.click()); await pA.waitForTimeout(300);
+    await pA.$eval('#smsBtn', b => b.click()); await pA.$eval('#sendTextBtn', b => b.click()); await pA.waitForTimeout(300);
     ok('Android app: with no messaging app it says so', (await pA.textContent('#toastMessage')).includes('No messaging app on this phone'), await pA.textContent('#toastMessage'));
     await ctxA.close();
   }
@@ -2069,7 +2070,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
         const { egressController } = await import('/src/modules/mod08-egress/egressController.js');
         const sent = [];
         egressController.navigate = (url) => sent.push(url);
-        egressController.triggerSmsShare();
+        await egressController.triggerSmsShare();
         await egressController.triggerEmailShare();
         return sent.map(u => decodeURIComponent(u));
       });
@@ -2077,6 +2078,30 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       ok('SMS carries every detail as readable lines', sms.startsWith('sms:?body=Maria Gonzalez\nDirector of Engineering\nNorthwind Systems\nWork phone:  +1 (312) 555-0147\nWork email:  maria.gonzalez@northwind.com\nWork website:  https://northwind.com\nWork address:  233 South Wacker Drive, Chicago, IL 60606, United States'), JSON.stringify(sms));
       ok('email: readable summary plus the vCard text', mail.startsWith('mailto:?subject=Contact: Maria Gonzalez&body=Maria Gonzalez\n') && mail.includes('save the text below as a .vcf file') && mail.includes('BEGIN:VCARD'), JSON.stringify(mail.slice(0, 160)));
     }
+
+    // raven575's phone run (2026-11-16, item 14): Email and Text ask "Attach the .vcf file" or "Inline text"
+    await p9.click('#emailBtn');
+    const sendWeb = await p9.evaluate(() => ({ open: !document.getElementById('sendChoiceSheet').classList.contains('hidden'), title: document.getElementById('sendChoiceTitle').textContent,
+      fileOff: document.getElementById('sendFileBtn').disabled, note: !document.getElementById('sendFileNote').classList.contains('hidden'),
+      canFiles: !!(navigator.canShare && navigator.canShare({ files: [new File(['x'], 'a.vcf', { type: 'text/vcard' })] })),
+      tall: ['sendFileBtn', 'sendTextBtn'].every(id => document.getElementById(id).getBoundingClientRect().height >= 48) }));
+    ok('Airlock: Email asks first: Attach the .vcf file or Inline text, big buttons; the file is greyed with the reason where the browser cannot attach files', sendWeb.open && sendWeb.title === 'Email' && sendWeb.tall
+      && sendWeb.fileOff === !sendWeb.canFiles && sendWeb.note === !sendWeb.canFiles, JSON.stringify(sendWeb));
+    await p9.click('#sendCancelBtn');
+    // The Android app can always attach: the choice reaches the phone's mail or messaging app (a stand-in bridge records it)
+    await p9.evaluate(() => { window.__sent = []; window.vcgeAndroid = {
+      email: (subject, body) => { window.__sent.push(['email', subject, body.includes('BEGIN:VCARD')]); return true; },
+      sms: (body) => { window.__sent.push(['sms', body.includes('BEGIN:VCARD')]); return true; },
+      emailFile: (vcard, name, subject, body) => { window.__sent.push(['emailFile', name, vcard.startsWith('BEGIN:VCARD'), body.includes('BEGIN:VCARD')]); return true; },
+      smsFile: (vcard, name, body) => { window.__sent.push(['smsFile', name, vcard.startsWith('BEGIN:VCARD'), body.includes('BEGIN:VCARD')]); return true; } }; });
+    await p9.click('#smsBtn');
+    const smsSheet = await p9.evaluate(() => ({ title: document.getElementById('sendChoiceTitle').textContent, fileOff: document.getElementById('sendFileBtn').disabled, focus: document.activeElement && document.activeElement.id }));
+    await p9.click('#sendFileBtn');
+    await p9.click('#emailBtn'); await p9.click('#sendTextBtn');
+    await p9.click('#emailBtn'); await p9.click('#sendFileBtn');
+    const sentAll = await p9.evaluate(() => { const s = window.__sent; delete window.vcgeAndroid; return s; });
+    ok('Airlock: Text message with the file sends "Maria Gonzalez.vcf"; Email inline sends the text; Email with the file sends the .vcf and readable details', smsSheet.title === 'Text message' && !smsSheet.fileOff && smsSheet.focus === 'sendFileBtn'
+      && JSON.stringify(sentAll) === JSON.stringify([['smsFile', 'Maria Gonzalez.vcf', true, false], ['email', 'Contact: Maria Gonzalez', true], ['emailFile', 'Maria Gonzalez.vcf', true, false]]), JSON.stringify({ smsSheet, sentAll }));
 
     // Print / Save as PDF (step 10): Themed or Black & White, then one 6 x 3.5 in page with the front at business-card size and the QR beside it
     await stubPrint(p9);

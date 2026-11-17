@@ -44,7 +44,7 @@ import { initCardTabs } from './modules/mod06-gui/cardTabs.js';
 import { vcgeQREngine } from './modules/mod07-qr/qrGenerator.js';
 import { egressController, PRINT_QR_PX } from './modules/mod08-egress/egressController.js';
 import { pictureSelect } from './modules/mod01-shell/pictureSelect.js';
-import { exportQrDialog, printChoiceDialog, renderOptions, cleanChoices, LOOK_SELECTS } from './modules/mod08-egress/exportDialogs.js';
+import { exportQrDialog, printChoiceDialog, sendChoiceDialog, renderOptions, cleanChoices, LOOK_SELECTS } from './modules/mod08-egress/exportDialogs.js';
 import { wireHatches, wireFalcon, flyFalcon, showReadyLights } from './modules/mod08-egress/airlockTouches.js';
 import { VaultStore, READINGS } from './modules/mod02-vault/vaultStore.js';
 
@@ -499,6 +499,7 @@ function clearCapturedImages() {
     egressController.clearPrintSheet();
     exportQrDialog.reset({ keepLook: false });   // an uploaded QR logo, the preview and the chosen look
     printChoiceDialog.close();
+    sendChoiceDialog.close();
     vaultStore.clear('logo');
     camera.closeCamera();
     camera.discardPhoto();
@@ -1201,13 +1202,21 @@ function wireEgress() {
         markActivity();
     });
     // In the Android app these go through the bridge, which says when no app on the phone can take them.
-    $('emailBtn').addEventListener('click', async () => {
-        const result = await egressController.triggerEmailShare();
-        if (result && result.reason === 'no_app') cardView.showToast('No email app on this phone opens a new message.');
-    });
-    $('smsBtn').addEventListener('click', () => {
-        const result = egressController.triggerSmsShare();
-        if (result && result.reason === 'no_app') cardView.showToast('No messaging app on this phone opens a new text.');
+    // Each asks first: attach the .vcf file or send the details as inline text (raven575's phone run, 2026-11-16).
+    const askHowToSend = (kind) => {
+        if (egressController.isEmpty()) { cardView.showToast('Add a contact first.'); return; }
+        sendChoiceDialog.open(kind, { fileOk: egressController.canAttachFile() });
+    };
+    $('emailBtn').addEventListener('click', () => askHowToSend('email'));
+    $('smsBtn').addEventListener('click', () => askHowToSend('sms'));
+    sendChoiceDialog.init({
+        onChoose: async (kind, attach) => {
+            expectExternalApp();
+            const result = kind === 'sms' ? await egressController.triggerSmsShare({ attach }) : await egressController.triggerEmailShare({ attach });
+            if (result && result.reason === 'no_app') cardView.showToast(kind === 'sms' ? 'No messaging app on this phone opens a new text.' : 'No email app on this phone opens a new message.');
+            else if (result && result.reason === 'no_attach') cardView.showToast('This browser cannot attach files: use Inline text, or Save .vcf file.');
+            else if (result && result.reason === 'share_failed') cardView.showToast('Sending did not work: try Inline text or Save .vcf file.');
+        }
     });
     // Print / PDF: Themed or Black & White, then one 6 x 3.5 in page through the browser's print dialog.
     $('printCardBtn').addEventListener('click', () => {
