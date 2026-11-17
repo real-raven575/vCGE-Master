@@ -328,5 +328,54 @@ export class PrintChoiceDialog {
     }
 }
 
+/**
+ * Email or Text message (raven575's phone run, 2026-11-16, item 14): "Attach the .vcf file" or "Inline text", the
+ * person's choice each time. Where the file cannot go (a browser that does not share files) its button is greyed with
+ * the reason and Inline text is offered first.
+ */
+export class SendChoiceDialog {
+    /** @param {{ onChoose: (kind: 'email'|'sms', attach: boolean) => void|Promise<void> }} hooks */
+    constructor(hooks = {}) {
+        this.hooks = hooks;
+        this.root = null;
+        this.kind = 'email';
+    }
+
+    init(hooks = {}) {
+        Object.assign(this.hooks, hooks);
+        if (this.root) return;
+        const root = $('sendChoiceSheet');
+        if (!root) return;
+        this.root = root;
+        $('sendFileBtn').addEventListener('click', () => this.choose(true));
+        $('sendTextBtn').addEventListener('click', () => this.choose(false));
+        $('sendCancelBtn').addEventListener('click', () => this.close());
+    }
+
+    isOpen() { return !!this.root && !this.root.classList.contains('hidden') && !this.root.classList.contains('is-closing'); }
+
+    /** kind: 'email' or 'sms'; fileOk: whether the .vcf can be attached here. */
+    open(kind, { fileOk = true } = {}) {
+        if (!this.root) return;
+        this.kind = kind === 'sms' ? 'sms' : 'email';
+        $('sendChoiceTitle').textContent = this.kind === 'sms' ? 'Text message' : 'Email';
+        const file = $('sendFileBtn');
+        file.disabled = !fileOk;
+        file.setAttribute('aria-describedby', fileOk ? 'sendFileHint' : 'sendFileNote');
+        $('sendFileNote').classList.toggle('hidden', fileOk);
+        this.root.classList.remove('hidden', 'is-closing');
+        (fileOk ? file : $('sendTextBtn')).focus();
+    }
+
+    close() { if (this.root) this.root.classList.add('hidden'); }
+
+    choose(attach) {
+        if (attach && $('sendFileBtn').disabled) return;
+        this.close();
+        if (this.hooks.onChoose) this.hooks.onChoose(this.kind, attach);
+    }
+}
+
 export const exportQrDialog = new ExportQrDialog();
+export const sendChoiceDialog = new SendChoiceDialog();
 export const printChoiceDialog = new PrintChoiceDialog();

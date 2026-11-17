@@ -345,37 +345,76 @@ export class EgressController {
     }
 
     /**
-     * Email. Where the device can share files (iPhone, iPad, Mac Safari), the share sheet sends the .vcf as an attachment
-     * the recipient can tap to import; otherwise (Android Chrome and desktop browsers do not share .vcf files) the mail app
-     * opens with a readable summary and the vCard text. A mailto: link cannot carry attachments.
+     * Whether Email and Text can attach the .vcf file here (raven575's phone run, 2026-11-16: "attach .vcf" or "inline
+     * text", the person's choice): the Android app always can; a browser only where it shares files (iPhone, iPad, Mac
+     * Safari). Android Chrome and desktop browsers refuse .vcf files, and mailto: and sms: links carry no attachments.
      */
-    async triggerEmailShare() {
+    canAttachFile() {
+        if (androidBridge('emailFile') && androidBridge('smsFile')) return true;
+        if (!this.currentVCard || !navigator.canShare || !navigator.share) return false;
+        try { return navigator.canShare({ files: [this.vcfFile()] }); } catch (e) { return false; }
+    }
+
+    /** Shares the .vcf through the device's share sheet, with the readable details beside it (the person picks the app). */
+    async shareAttachment(kind) {
+        try {
+            await navigator.share({ title: `Contact: ${this.displayName()}`, text: this.contactSummary(), files: [this.vcfFile()] });
+            audit(`${kind}_attachment`);
+            return { success: true, method: 'attachment' };
+        } catch (error) {
+            if (error.name === 'AbortError') return { success: false, reason: 'cancelled' };
+            return { success: false, reason: 'share_failed' };
+        }
+    }
+
+    /**
+     * Email. attach: the .vcf goes as an attachment the recipient taps to import, with the readable details in the body
+     * (the Android app opens a mail app; a browser that shares files opens its share sheet); where a file cannot go, the
+     * answer says so (reason 'no_attach') and nothing opens. Inline text: the mail app opens with the readable details
+     * and the vCard text (a mailto: link cannot carry attachments).
+     */
+    async triggerEmailShare({ attach = false } = {}) {
         if (!this.currentVCard) return false;
+        const { subject, body } = this.emailParts();
+        if (attach) {
+            const android = androidBridge('emailFile');
+            if (android) {
+                const opened = android.emailFile(this.currentVCard, this.fileName('.vcf'), subject, this.contactSummary()) === true;
+                audit('email_attachment', { opened });
+                return opened ? { success: true, method: 'android_email_file' } : { success: false, reason: 'no_app' };
+            }
+            if (!this.canAttachFile()) return { success: false, reason: 'no_attach' };
+            return this.shareAttachment('email');
+        }
         // The Android app: its WebView cannot open mailto: (it showed "Webpage not available" in place of vCGE).
         const android = androidBridge('email');
         if (android) {
-            const { subject, body } = this.emailParts();
             const opened = android.email(subject, body) === true;
             audit('email', { opened });
             return opened ? { success: true, method: 'android_email' } : { success: false, reason: 'no_app' };
-        }
-        const file = this.vcfFile();
-        if (navigator.canShare && navigator.share && navigator.canShare({ files: [file] })) {
-            try {
-                await navigator.share({ title: `Contact: ${this.displayName()}`, text: this.contactSummary(), files: [file] });
-                audit('email_attachment');
-                return { success: true, method: 'attachment' };
-            } catch (error) {
-                if (error.name === 'AbortError') return { success: false, reason: 'cancelled' };
-            }
         }
         this.navigate(this.mailtoUrl());
         audit('email');
         return { success: true, method: 'mailto' };
     }
 
-    /** SMS with the readable summary (every phone, email, website and the address). */
-    triggerSmsShare() {
+    /**
+     * Text message. attach: the .vcf goes with the readable details (the Android app opens the messaging app as a picture
+     * message; a browser that shares files opens its share sheet), else reason 'no_attach'. Inline text: the readable
+     * summary (every phone, email, website and the address) in a new text.
+     */
+    async triggerSmsShare({ attach = false } = {}) {
+        if (!this.currentVCard) return false;
+        if (attach) {
+            const android = androidBridge('smsFile');
+            if (android) {
+                const opened = android.smsFile(this.currentVCard, this.fileName('.vcf'), this.contactSummary()) === true;
+                audit('sms_attachment', { opened });
+                return opened ? { success: true, method: 'android_sms_file' } : { success: false, reason: 'no_app' };
+            }
+            if (!this.canAttachFile()) return { success: false, reason: 'no_attach' };
+            return this.shareAttachment('sms');
+        }
         // The Android app: its WebView cannot open sms: either.
         const android = androidBridge('sms');
         if (android) {
@@ -385,7 +424,7 @@ export class EgressController {
         }
         this.navigate(this.smsUrl());
         audit('sms');
-        return true;
+        return { success: true, method: 'sms' };
     }
 
     /**
