@@ -820,9 +820,13 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   // Blue-weak: colour-blind mode's "on" fill (the dock's main button, pressed switches) turns teal with the set, not
   // the old fixed blue (raven575's Android run, 2026-11-16: "Scan another" stayed blue)
   await page.click('.r5-cvd-row .vcge-pick-btn');
-  await page.click('.r5-cvd-row [role="option"][data-value="4"]'); await page.waitForTimeout(450);   // past the button's 200 ms colour fade
-  const tritan = await page.evaluate(() => getComputedStyle(document.getElementById('dockNext')).backgroundColor);
-  ok('colour vision: Blue-weak turns the dock\'s main button teal (its good colour), not blue', tritan === (await swatch('--good-600')) && tritan === 'rgb(13, 148, 136)', tritan);
+  await page.click('.r5-cvd-row [role="option"][data-value="4"]');
+  // Wait for the choice to land on the page (WebKit can be slow to close the list), then past the button's 200 ms fade
+  await page.waitForFunction(() => document.documentElement.dataset.cvd === 'tritan', null, { timeout: 5000 }).catch(() => {});
+  await page.waitForTimeout(450);
+  const tritan = await page.evaluate(() => { const d = document.getElementById('dockNext'), r = document.documentElement, cs = getComputedStyle(r);
+    return { bg: getComputedStyle(d).backgroundColor, cvd: r.dataset.cvd || '', cb: r.dataset.cb || '', cbOn: cs.getPropertyValue('--cb-on').trim(), disabled: d.disabled }; });
+  ok('colour vision: Blue-weak turns the dock\'s main button teal (its good colour), not blue', tritan.bg === (await swatch('--good-600')) && tritan.bg === 'rgb(13, 148, 136)', JSON.stringify(tritan));
   await page.selectOption('#cvdSelect', '0');
   ok('colour vision (step 6): Typical gives the named set back its green and red', (await swatch('--good-600')) === 'rgb(22, 163, 74)' && (await swatch('--stop-600')) === 'rgb(220, 38, 38)');
   ok('colour vision: Typical goes back to plain colour-blind mode (cb=1)', !(await page.evaluate(() => document.documentElement.dataset.cvd)) && /cb=1;/.test((await htmlState()).entry));
