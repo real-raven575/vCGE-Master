@@ -2957,7 +2957,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const view = await box('#viewfinderArea'), frame = await box('#cardFrame'), fader = await box('#zoomChips'), shutter = await box('#captureBtn');
     const overlay = await pV.evaluate(() => Array.from(document.querySelectorAll('#viewfinderArea > *')).filter(e => getComputedStyle(e).display !== 'none').map(e => e.id || e.className));
     ok('viewfinder: over the live picture only the corners, the hint, Close and the zoom chips (the shutter is under it)', overlay.join() === 'cameraPanel,cardFrame,camHint,stopCameraBtn,zoomChips'
-      && (await pV.$$('#cardFrame .cap-corner')).length === 4 && !(await pV.$('#focusRing')) && ['Fit the card inside the corners', 'Hold still, then tap the shutter'].includes(await pV.textContent('#camHint')), JSON.stringify(overlay));
+      && (await pV.$$('#cardFrame .cap-corner')).length === 4 && !(await pV.$('#focusRing')) && ['Fit the card inside the corners', 'Hold still, then tap the shutter', 'Green shutter = card found'].includes(await pV.textContent('#camHint')), JSON.stringify(overlay));
     ok('viewfinder: the card frame is upright in portrait, centred and fills most of the view', (await pV.getAttribute('#cardFrame', 'data-orientation')) === 'portrait' && frame.h > frame.w && Math.abs(frame.w / frame.h - 2 / 3.5) < 0.02
       && frame.h > view.h * 0.8 && Math.abs((frame.l + frame.r) / 2 - (view.l + view.r) / 2) < 2, JSON.stringify({ view, frame }));
     // The corners (mock-up): 3 px white brackets, rounded, nothing filled in; green while a card is in them, the shutter too
@@ -3129,6 +3129,46 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pV.click('#stopCameraBtn');
     ok('Close camera stops the feed', await pV.evaluate(() => document.getElementById('cameraStream').srcObject === null && document.getElementById('cameraPanel').classList.contains('hidden')));
     }
+    }
+    // Scan mode (raven575 11-16): a made-up card on a plain table. The outline follows its edges, Scan shows, and Scan crops
+    // to the card and reads it at once. The crop step fits above the dock (Android run 11-16: X and OK sat under it).
+    {
+      const ctxS = await browser.newContext({ viewport: { width: 412, height: 800 } });
+      await ctxS.addInitScript(() => {
+        const fake = async () => {
+          const c = document.createElement('canvas'); c.width = 640; c.height = 480; const x = c.getContext('2d');
+          const draw = () => { x.fillStyle = '#3b3f46'; x.fillRect(0, 0, 640, 480); x.fillStyle = '#f7f7f2'; x.fillRect(150, 150, 340, 196);
+            x.fillStyle = '#111'; x.font = 'bold 28px sans-serif'; x.fillText('Alex Sample', 180, 205); x.font = '20px sans-serif'; x.fillText('555-0100', 180, 250); x.fillText('alex@example.com', 180, 285); };
+          draw(); setInterval(draw, 200);
+          return c.captureStream(5);
+        };
+        try { Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: fake } }); } catch (e) {}
+      });
+      const pS = await ctxS.newPage();
+      const errorsS = []; pS.on('pageerror', e => errorsS.push(e.message));
+      await pS.goto(ORIGIN); await pS.waitForTimeout(500);
+      await pS.click('#startCameraBtn').catch(() => {});
+      await pS.waitForSelector('#scanBtn', { state: 'visible', timeout: 8000 }).catch(() => {});
+      const live = await pS.evaluate(() => ({ scan: !!document.getElementById('scanBtn').offsetParent, pts: document.querySelector('#scanOutline polygon').getAttribute('points'),
+        outline: !document.getElementById('scanOutline').classList.contains('hidden'), frame: document.getElementById('cardFrame').dataset.orientation, hint: document.getElementById('camHint').textContent }));
+      ok('scan: with a card in view the outline is drawn round its edges and Scan shows', live.scan && live.outline && live.pts.split(' ').length === 4, JSON.stringify(live));
+      ok('scan: the frame turns wide to match a card held wide, even in a tall viewfinder', live.frame === 'landscape', JSON.stringify(live));
+      ok('shutter tip: the first camera start explains the green shutter in the hint', /Green shutter = card found|Hold still, then tap the shutter/.test(live.hint), live.hint);
+      await pS.click('#scanBtn');
+      await pS.waitForFunction(() => document.documentElement.dataset.card === 'read', null, { timeout: 8000 }).catch(() => {});
+      const scanned = await pS.evaluate(() => ({ card: document.documentElement.dataset.card, log: document.getElementById('eventLog').textContent, pts: document.getElementById('cropPolygon').getAttribute('points'),
+        w: document.getElementById('reviewImage').naturalWidth, h: document.getElementById('reviewImage').naturalHeight }));
+      ok('scan: Scan takes the burst, snaps the corners to the card and starts reading at once', scanned.card === 'read' && /SCAN: best of \d+ frames/.test(scanned.log) && scanned.pts !== `0,0 ${scanned.w},0 ${scanned.w},${scanned.h} 0,${scanned.h}`, JSON.stringify(scanned));
+      await ctxS.close();
+      // The crop step on a phone with a tall photo: Cancel and OK sit above the dock
+      const ctxF = await browser.newContext({ viewport: { width: 412, height: 800 } });
+      const pF = await ctxF.newPage(); await pF.goto(ORIGIN); await pF.waitForTimeout(500);
+      const tall = await pF.evaluate(() => { const c = document.createElement('canvas'); c.width = 900; c.height = 1200; const x = c.getContext('2d'); x.fillStyle = '#556'; x.fillRect(0, 0, 900, 1200); x.fillStyle = '#fff'; x.fillRect(200, 300, 500, 600); return c.toDataURL('image/png').split(',')[1]; });
+      await pF.setInputFiles('#imageUpload', { name: 'tall.png', mimeType: 'image/png', buffer: Buffer.from(tall, 'base64') }); await pF.waitForTimeout(600);
+      const fit = await pF.evaluate(() => { const b = s => document.querySelector(s).getBoundingClientRect(); return { ok: Math.round(b('#runOcrBtn').bottom), cancel: Math.round(b('#cancelReviewBtn').bottom), dock: Math.round(b('.vcge-dock').top) }; });
+      ok('crop step: with a tall photo on a phone, Cancel and OK sit fully above the dock (Android run 11-16)', fit.ok <= fit.dock && fit.cancel <= fit.dock, JSON.stringify(fit));
+      await ctxF.close();
+      ok('scan: no page errors', errorsS.length === 0, errorsS.join(' | '));
     }
     await pV.setInputFiles('#imageUpload', await renderCardImage(pV)); await pV.waitForTimeout(300);
     ok('upload: the handles start at the full photo', await pV.isVisible('#captureReview') && (await pV.getAttribute('#cropPolygon', 'points')) === '0,0 1050,0 1050,600 0,600');

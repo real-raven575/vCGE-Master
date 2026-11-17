@@ -42,6 +42,14 @@ html[data-edition="plain"] #welcomeArt, html[data-edition="plain"] #welcomeTagli
 #cardCapture .r2-capbody > .r2-cam { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
 #cardCapture:has(#captureReview.hidden) .r2-capbody { overflow: hidden; }
 #cardCapture:has(#captureReview:not(.hidden)) .r2-cam { display: none; }
+/* The crop step fits the card above the dock (Android run 11-16: X and OK sat half under the tab bar): the photo's stage
+   takes what room is left and the photo shrinks to it (a container query; where unsupported it keeps its 20rem cap and the
+   card scrolls as before). The rows under it never shrink. */
+#cardCapture .r2-capbody > #captureReview:not(.hidden) { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; gap: 12px; }
+#cardCapture #captureReview > * { flex: none; margin: 0; }
+#cardCapture #captureReview > #cropStage { flex: 1 1 auto; min-height: 150px; container-type: size; display: flex; align-items: center; }
+#cardCapture #cropView { flex: none; }
+@supports (height: 1cqh) { #cardCapture #reviewImage { max-height: min(20rem, calc(100cqh)); } }
 #cardCapture #eventLog { display: none; }       /* the camera's log is for the tests and the console, not the screen */
 .r2-note { font-size: 0.875rem; color: var(--sh-muted); }
 button.r2-reopen { align-self: center; min-height: 44px; padding: 0 16px; border: 0; border-radius: 999px; background: var(--sh-surface); color: var(--sh-ink);
@@ -80,6 +88,17 @@ button.r2-light svg { width: 20px; height: 20px; }
 button.r2-light[aria-pressed="true"] { background: var(--r2-on-glass); color: #000; }
 button.r2-light[aria-pressed="true"] svg { fill: currentColor; }
 button.r2-light:focus-visible { outline: 3px solid var(--r2-on-glass); outline-offset: 1px; }
+/* Scan mode: the card's live outline (the found colour, a soft fill) and Scan, a pill above the zoom chips */
+.r2-outline { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.r2-outline.hidden, .r2-live.hidden ~ .r2-outline { display: none; }
+.r2-outline polygon { fill: color-mix(in srgb, var(--r2-found) 14%, transparent); stroke: var(--r2-found); stroke-width: 3; stroke-linejoin: round; }
+html[data-cb="1"] .r2-outline polygon { stroke-width: 5; }
+@media (prefers-reduced-motion: no-preference) { .r2-outline polygon { transition: all 200ms linear; } }
+button.r2-scan { position: absolute; bottom: 72px; left: 50%; transform: translateX(-50%); display: inline-flex; align-items: center; gap: 6px;
+    min-height: 44px; padding: 0 18px; border: 0; border-radius: 999px; background: var(--r2-found); color: #000; font-size: 0.9375rem; font-weight: 700; cursor: pointer; }
+button.r2-scan svg { width: 20px; height: 20px; }
+button.r2-scan.hidden, .r2-live.hidden ~ .r2-scan { display: none; }
+button.r2-scan:focus-visible { outline: 3px solid var(--r2-on-glass); outline-offset: 2px; }
 /* Zoom chips over the foot of the picture */
 .r2-zoom { position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; background: rgba(10, 12, 10, 0.5); padding: 4px; border-radius: 999px; }
 .r2-zoom button { width: 44px; height: 44px; min-width: 44px; border: 0; border-radius: 50%; padding: 0; background: transparent; color: var(--r2-on-glass);
