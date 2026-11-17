@@ -482,6 +482,13 @@
                             <label class="r4-pill r4-upload">Logo<input id="avatarUpload" type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" class="hidden"></label>
                         </div>
                     </div>
+                    <!-- The logo from the card (raven575, 2026-11-16): the reader's guess, cut from the photo in colour
+                         (vault slot logoGuess); it goes on the card only on a tap (card3dView.js offerLogoGuess) -->
+                    <div id="logoGuessRow" class="r4-guess hidden" role="group" aria-labelledby="logoGuessName">
+                        <span class="r4-guess-prev"><img id="logoGuessImg" alt=""></span>
+                        <span class="r4-guess-text"><b id="logoGuessName">Logo from your card</b><small>Found on the photo. Tap Use it to put it on the card.</small></span>
+                        <button id="useLogoGuessBtn" type="button" class="r4-pill r4-guess-use">Use it</button>
+                    </div>
                 </div>
                 <section class="r4-group" aria-labelledby="r4StyleHead">
                     <h4 id="r4StyleHead">Card style</h4>

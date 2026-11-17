@@ -32,6 +32,7 @@ import { syncLockFace, syncSetupFace, farewell } from './modules/mod02-vault/loc
 import { VCGEActiveCamera } from './modules/mod03-camera/camera.js';
 import { CropEditor } from './modules/mod03-camera/cropEditor.js';
 import { executeOCRScan, shutdownOCREngine } from './modules/mod04-ocr/ocrWorker.js';
+import { guessLogo } from './modules/mod04-ocr/logoGuess.js';
 import { mergeReadings, missingParts, describeMissing, MAX_PHOTOS } from './modules/mod04-ocr/readingQuality.js';
 import { readCardQr, withoutQr, parseQrPayload, withQrLines } from './modules/mod07-qr/qrReader.js';
 import { readIndicator, readThumb, renderReviewRows, initReadCard, resetBlink, READER_UNAVAILABLE_MESSAGE, READER_STOPPED_MESSAGE } from './modules/mod04-ocr/readCard.js';
@@ -794,6 +795,8 @@ async function runOcr() {
     $('cropReviewModal').classList.remove('hidden');
     showCard('read');
     const photo = cropEditor.getCroppedImage();
+    // A new card (no photo of it read yet) drops the last card's logo guess
+    if (!heldReadings().length) ocrVault.clear('logoGuess');
     readIndicator.show(photo);
     try {
         // The first scan (and the first after a wipe) starts the reader from ~7 MB of bundled files: say so.
@@ -805,7 +808,8 @@ async function runOcr() {
         // started after Cancel was left holding the next read until it timed out).
         if (ocrStoppedByUser || $('cropReviewModal').classList.contains('hidden')) throw Object.assign(new Error('Reading cancelled during the QR search'), { code: 'OCR_CANCELLED' });
         const qr = found ? found.data : null;
-        const { text, lines } = await executeOCRScan(found && found.corners ? await withoutQr(photo, found.corners) : photo, { onStatus });
+        const { text, lines, boxes } = await executeOCRScan(found && found.corners ? await withoutQr(photo, found.corners) : photo, { onStatus });
+        offerLogoGuess(photo, boxes);
         // Finished early: the wash fills up (and the owl closes its eyes) before the review step opens.
         readIndicator.stop(); readIndicator.set(1); readIndicator.finish();
         await new Promise(res => setTimeout(res, 250));
@@ -852,6 +856,21 @@ async function runOcr() {
         $('runOcrBtn').disabled = false;
     }
 }
+
+// ---- The logo guess (raven575, 2026-11-16): after a read, OCR looks for the logo on the photo and leaves the cut-out,
+// in colour, in its vault slot for the card screen to offer. It runs after the read, so the review never waits for it;
+// a wipe (or a newer read) in the meantime throws the late guess away. A photo with no likely logo leaves the last one.
+let logoGuessRun = 0;
+function offerLogoGuess(photo, boxes) {
+    const run = ++logoGuessRun;
+    setTimeout(() => {
+        guessLogo(photo, boxes).then((guess) => {
+            if (run !== logoGuessRun || !guess || vaultMode !== 'open') return;
+            ocrVault.put('logoGuess', guess);
+        }).catch((e) => console.warn('[vCGE] Logo guess skipped:', e && e.message));
+    }, 0);
+}
+globalEventBus.subscribe(Events.VAULT_WIPED, () => { logoGuessRun++; });
 
 // ---- One more photo (raven575, 2026-10-20): a reading that lacks the name or a phone or email asks for another photo,
 // three at most. Each reading's text lines wait in OCR's vault slots; the photos themselves are dropped once read.
@@ -1194,6 +1213,8 @@ function wireEgress() {
     // "Also use this logo on my card": Export wrote the Vault's logo slot; the card view reads it through its own handle.
     egressController.setVault(vaultStore.handle('mod08'));
     const cardVault = vaultStore.handle('mod06');
+    // OCR's logo guess: offered on the Logo tab, used only on a tap
+    cardVault.onChange('logoGuess', () => cardView.offerLogoGuess(vaultMode === 'open' ? cardVault.get('logoGuess') : null));
     cardVault.onChange('logo', () => {
         const logo = cardVault.get('logo');
         if (!logo || vaultMode !== 'open') return;

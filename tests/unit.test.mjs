@@ -242,7 +242,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const before = JSON.stringify(localStorage);
   let gesture = false;
   const s = new VaultStore({ isUserGesture: () => gesture });
-  ok('vault store has the pipeline slots and starts empty', SLOTS.join() === 'photo,ocr,review,contact,lastScan,undo,logo,reading1,reading2,reading3' && s.isEmpty() && s.state() === 'open');
+  ok('vault store has the pipeline slots and starts empty', SLOTS.join() === 'photo,ocr,review,contact,lastScan,undo,logo,reading1,reading2,reading3,logoGuess' && s.isEmpty() && s.state() === 'open');
   const notices = []; s.onChange('contact', n => notices.push(n));
   const contact = { firstName: 'Jane', phones: [{ type: 'work', value: '555' }] };
   s.put('contact', contact);
@@ -1517,6 +1517,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 
   // Motion: the shared ease (26 fps steps, 5 percent snap), the spin and the toast timings
   ok('ease starts at 0, ends at 1, snaps past 1 on the way', card.easeSnap(0) === 0 && card.easeSnap(1) === 1 && Math.max(...Array.from({ length: 101 }, (_, i) => card.easeSnap(i / 100))) > 1.03);
+  // A flick (raven575's Android run, 2026-11-16): a drag let go fast goes on to the next face the way it was moving
+  ok('flick: speed is read from the drag\'s last moves; a still or one-point trail is 0', card.flickSpeed([{ x: 0, t: 0 }, { x: 50, t: 50 }]) === 1 && card.flickSpeed([{ x: 0, t: 0 }]) === 0 && card.flickSpeed([{ x: 0, t: 5 }, { x: 9, t: 5 }]) === 0);
+  ok('flick: a slow lift settles on the nearest face; a fast one goes on, never back against itself',
+    card.settleAngle(40) === 0 && card.settleAngle(100) === 180 && card.settleAngle(40, 1) === 180 && card.settleAngle(220, 1) === 360
+    && card.settleAngle(140, -1) === 0 && card.settleAngle(-30, -1) === -180 && card.settleAngle(180, 1) === 180 && card.settleAngle(40, card.FLICK_PX_PER_MS - 0.01) === 0);
   {
     let t = 0; const frames = []; const timers = [];
     const stop = card.tween(0, 180, 400, v => frames.push(v), { now: () => t, schedule: (fn, ms) => { timers.push([fn, ms]); return timers.length; }, cancel: () => {} });
@@ -2555,6 +2560,51 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     gap.protan >= 40 && gap.deutan >= 40 && gap.tritan >= 40 && [gap.protan, gap.deutan].every(g => g > gap.typicalSeenDeutan), JSON.stringify(gap));
   const filtered = css.filter(f => /data-cvd[^{]*\{[^}]*filter\s*:/.test(fsC.readFileSync(f, 'utf8')));
   ok('colour set: no colour-vision choice lays a filter over the page', filtered.length === 0, JSON.stringify(filtered));
+}
+
+// MOD04 logo guess (raven575, 2026-11-16): the finder moved from the lab's logo bench, on drawn cards (no photos)
+{
+  const { backgroundOf, contactTextBoxes, findLogoCandidates, overlap, scoreBlob } = await import(`${R}/modules/mod04-ocr/logoFinder.js`);
+  const { cutBox, LOGO_GUESS_MIN_SCORE } = await import(`${R}/modules/mod04-ocr/logoGuess.js`);
+  const { readerScale } = await import(`${R}/modules/mod04-ocr/ocrWorker.js`);
+  const card = (w, h, paint, back = [255, 255, 255]) => {
+    const px = new Uint8ClampedArray(w * h * 4);
+    for (let i = 0; i < w * h; i++) { px.set(back, i * 4); px[i * 4 + 3] = 255; }
+    paint((x, y, c) => { if (x >= 0 && y >= 0 && x < w && y < h) px.set(c, (y * w + x) * 4); });
+    return px;
+  };
+  const disc = (set, cx, cy, r, c) => { for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++) if ((x - cx) ** 2 + (y - cy) ** 2 <= r * r) set(x, y, c); };
+  const rect = (set, x0, y0, w, h, c) => { for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) set(x, y, c); };
+  const textRow = (set, x0, y0, letters) => { for (let i = 0; i < letters; i++) rect(set, x0 + i * 10, y0, 7, 12, [20, 20, 20]); };
+  const W = 600, H = 340;
+  const drawn = card(W, H, set => { disc(set, 85, 75, 45, [200, 30, 40]); textRow(set, 300, 60, 20); textRow(set, 300, 90, 14);
+    textRow(set, 60, 220, 22); textRow(set, 60, 250, 25); textRow(set, 60, 280, 18); });
+  ok('logo finder: the card colour is its most common colour', backgroundOf(drawn, W, H).join() === '255,255,255' && backgroundOf(card(50, 30, () => {}, [10, 40, 90]), 50, 30).join() === '10,40,90');
+  const red = findLogoCandidates(drawn, W, H);
+  ok('logo finder: a red round logo is the first pick, in colour, and scores above the guess line', red.length >= 2 && overlap(red[0], { x: 39, y: 29, w: 93, h: 93 }) > 0.8
+    && red[0].reasons.includes('in colour') && red[0].score > red[1].score && red[0].score >= LOGO_GUESS_MIN_SCORE, JSON.stringify(red[0]));
+  const black = card(W, H, set => { rect(set, 40, 30, 70, 70, [15, 15, 15]); rect(set, 60, 50, 30, 30, [255, 255, 255]); textRow(set, 300, 60, 20); textRow(set, 60, 220, 22); textRow(set, 60, 250, 25); });
+  const lines = [{ text: 'Sam Sample', confidence: 90, bbox: { x0: 300, y0: 60, x1: 500, y1: 72 } }, { text: '+1 (555) 555-0100', confidence: 91, bbox: { x0: 60, y0: 220, x1: 280, y1: 232 } },
+    { text: 'sam@example.com', confidence: 88, bbox: { x0: 60, y0: 250, x1: 310, y1: 262 } }];
+  const blackPick = findLogoCandidates(black, W, H, { textBoxes: contactTextBoxes(lines) });
+  ok('logo finder: a black logo is the only pick once the reader blanks the contact lines', blackPick.length === 1 && overlap(blackPick[0], { x: 40, y: 30, w: 70, h: 70 }) > 0.8, JSON.stringify(blackPick));
+  const big = [{ text: 'ACME', confidence: 95, bbox: { x0: 0, y0: 0, x1: 200, y1: 60 } }, { text: 'Sam Sample', confidence: 92, bbox: { x0: 0, y0: 80, x1: 150, y1: 92 } },
+    { text: 'x7Qz', confidence: 30, bbox: { x0: 0, y0: 100, x1: 60, y1: 112 } }, { text: 'sam@example.com', confidence: 90, bbox: { x0: 0, y0: 120, x1: 200, y1: 132 } }];
+  ok('logo finder: big type (a wordmark) and unsure lines stay possible logos; boxes scale to the finder\'s pixels',
+    contactTextBoxes(big).map(b => b.text).join() === 'Sam Sample,sam@example.com' && JSON.stringify(contactTextBoxes(big, 0.5)[0]) === JSON.stringify({ x: 0, y: 40, w: 75, h: 6, text: 'Sam Sample' }) && contactTextBoxes([]).length === 0);
+  const ruled = card(W, H, set => { rect(set, 0, 0, W, 6, [30, 60, 160]); rect(set, 0, H - 6, W, 6, [30, 60, 160]); rect(set, 40, 170, 520, 3, [200, 30, 40]); disc(set, 300, 80, 40, [20, 120, 60]); });
+  const rulePick = findLogoCandidates(ruled, W, H);
+  ok('logo finder: a rule or a coloured frame is not the logo', overlap(rulePick[0], { x: 260, y: 40, w: 81, h: 81 }) > 0.7
+    && scoreBlob({ x: 40, y: 170, w: 520, h: 3, ink: 1560, saturation: 0.8 }, W, H, 12).reasons.includes('a thin line, probably a rule or border'), JSON.stringify(rulePick[0]));
+  const textOnly = card(W, H, set => { textRow(set, 60, 60, 20); textRow(set, 60, 90, 14); textRow(set, 60, 220, 22); textRow(set, 60, 250, 25); });
+  const textLines = [60, 90, 220, 250].map((y, i) => ({ text: ['Sam Sample', 'Owner', '+1 (555) 555-0100', 'sam@example.com'][i], confidence: 90, bbox: { x0: 60, y0: y, x1: 60 + [200, 140, 220, 250][i], y1: y + 12 } }));
+  const tp = findLogoCandidates(textOnly, W, H, { textBoxes: contactTextBoxes(textLines) });
+  ok('logo guess: a card with only text offers no logo (nothing left, or nothing over the guess line)', !tp.length || tp[0].score < LOGO_GUESS_MIN_SCORE, JSON.stringify(tp[0] || null));
+  ok('logo finder: an empty card has no candidates', findLogoCandidates(card(200, 120, () => {}), 200, 120).length === 0);
+  const cut = cutBox({ x: 39, y: 29, w: 93, h: 93 }, 0.5, 1200, 680), edge = cutBox({ x: 0, y: 0, w: 50, h: 40 }, 0.5, 1200, 680);
+  ok('logo guess: the cut-out is the pick in photo pixels with a little card around it, kept on the photo',
+    cut.x < 78 && cut.y < 58 && cut.x + cut.w > 264 && cut.y + cut.h > 244 && cut.w < 220 && edge.x === 0 && edge.y === 0 && edge.w <= 1200, JSON.stringify({ cut, edge }));
+  ok('logo guess: the reader\'s scale matches its photo preparation (small photos enlarged, big ones shrunk)', readerScale(600) === 3 && readerScale(1500) === 1 && readerScale(4800) === 0.5);
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
