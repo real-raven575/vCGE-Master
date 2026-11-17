@@ -70,7 +70,7 @@
 .read-ok:hover::before { border-color: #b45309; }
 .read-ok:focus-visible { outline: 2px solid var(--good-500); outline-offset: -4px; border-radius: 0.5rem; }
 .read-ok.is-ok::before, .read-ok:checked::before { background: var(--good-600); border-color: var(--good-700); color: #ffffff; }
-html[data-cb="1"] .read-ok.is-ok::before, html[data-cb="1"] .read-ok:checked::before { background: #2563eb; border-color: #1d4ed8; }
+html[data-cb="1"] .read-ok.is-ok::before, html[data-cb="1"] .read-ok:checked::before { background: var(--cb-on); border-color: var(--cb-on-edge); }
 
 /* Branded edition: a ticked box shows a feather check (still a check mark, so the shape carries it, not the colour). */
 html:not([data-edition="plain"]) .read-ok.is-ok::before, html:not([data-edition="plain"]) .read-ok:checked::before {

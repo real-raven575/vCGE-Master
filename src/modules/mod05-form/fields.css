@@ -46,7 +46,7 @@
 /* Left hand: the foot runs mirrored (deck.css), so the button sits on the left and the trash on the right */
 html[data-hand="left"] .fields-ok { margin-left: 0; margin-right: auto; }
 /* Colour-blind mode: blue, like every other OK */
-html[data-cb="1"] .fields-ok { background: #2563eb; border-color: #1d4ed8; color: #fff; }
+html[data-cb="1"] .fields-ok { background: var(--cb-on); border-color: var(--cb-on-edge); color: #fff; }
 
 /* ---- Make it cute (raven575, 2026-10-21): Pidge's sorting room. Navy cubbies with brass, no flashing, no sound ---- */
 :root { --fields-navy: #1e3a5f; --fields-brass: #e0b44c; }
