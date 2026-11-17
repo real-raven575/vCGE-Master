@@ -1969,13 +1969,13 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     ok('settings: applySettings puts the wipe time on html as data-wipe in minutes (7, 10, 15; out of range is 7)', minutes === '7,10,15,7', minutes);
   }
   ok('settings: wipe=3 or more is out of range and reads as 7 minutes', st.parseSettings('wipe=3').wipe === 0 && st.parseSettings('wipe=2').wipe === 2 && st.parseSettings('wipe=-1').wipe === 0);
-  ok('settings: text sizes Small, Normal, Large, Larger, smallest first, each with its own fixed code; an unknown code is Normal', st.TEXT_SIZES.map(t => t.name).join() === 'Small,Normal,Large,Larger'
-    && st.TEXT_SIZES.every((t, i) => i === 0 || t.scale > st.TEXT_SIZES[i - 1].scale) && new Set(st.TEXT_SIZES.map(t => t.code)).size === 4 && st.scaleFor(2) === 1.25 && st.scaleFor(9) === 1);
+  ok('settings: nine text sizes, Smallest to Largest, smallest first, each with its own fixed code (the first four keep theirs); an unknown code is Normal', st.TEXT_SIZES.map(t => t.name).join() === 'Smallest,Small,Normal,Large,Larger,Big,Bigger,Huge,Largest'
+    && st.TEXT_SIZES.every((t, i) => i === 0 || t.scale > st.TEXT_SIZES[i - 1].scale) && new Set(st.TEXT_SIZES.map(t => t.code)).size === 9 && st.scaleFor(0) === 1 && st.scaleFor(3) === 0.875 && st.scaleFor(2) === 1.25 && st.scaleFor(8) === 1.75 && st.scaleFor(9) === 1);
   ok('settings: every Settings font has its own fixed code, Inter 0, no code shared', ui.UI_FONTS.every(n => Number.isInteger(st.FONT_CODES[n])) && new Set(Object.values(st.FONT_CODES)).size === ui.UI_FONTS.length && Object.keys(st.FONT_CODES).length === ui.UI_FONTS.length);
   ok('settings: a line of name=number pairs reads back', JSON.stringify(st.parseSettings('hand=1;cb=1;theme=1;font=3;size=2;wipe=1')) === '{"hand":1,"cb":1,"theme":1,"font":3,"size":2,"wipe":1,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0}');
   ok('settings: an entry saved before the text size and wipe time existed reads as Normal and 7 minutes', JSON.stringify(st.parseSettings('hand=1;cb=0;theme=0;font=2')) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0}');
   ok('settings: missing or unreadable means the defaults', JSON.stringify(st.parseSettings(null)) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('garbage')) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('')) === JSON.stringify(st.DEFAULTS));
-  ok('settings: an unknown name, an out-of-range or non-numeric value falls back to its default, the rest is kept', JSON.stringify(st.parseSettings('hand=1;name=Maria;cb=9;theme=x;font=99;size=4')) === '{"hand":1,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0}');
+  ok('settings: an unknown name, an out-of-range or non-numeric value falls back to its default, the rest is kept', JSON.stringify(st.parseSettings('hand=1;name=Maria;cb=9;theme=x;font=99;size=9')) === '{"hand":1,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0}');
   ok('settings: serialises every name in a fixed order and clamps', st.serializeSettings({ font: 2, hand: 1, size: 3 }) === 'hand=1;cb=0;theme=0;font=2;size=3;wipe=0' && st.serializeSettings({ cb: 6 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0');
   ok('settings: Plain look is look=1, written only while on (an entry nobody switched reads as before); look=2 is out of range',
     st.serializeSettings({ look: 1 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0;look=1' && st.serializeSettings({ look: 0 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0'
@@ -2335,7 +2335,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     ok('MOD08 Android app: Email opens the mail app with the subject and the mailto body (no PHOTO), never a mailto: page', mailed.success && calls[1].m === 'email'
       && calls[1].subject === 'Contact: Dana Quill' && calls[1].body === e.emailParts().body && calls[1].body.includes('BEGIN:VCARD') && !/^PHOTO/m.test(calls[1].body)
       && decodeURIComponent(e.mailtoUrl().split('body=')[1]) === calls[1].body && navigated === 0);
-    const texted = e.triggerSmsShare();
+    const texted = await e.triggerSmsShare();
     ok('MOD08 Android app: Text message opens the messaging app with the readable summary, never an sms: page', texted.success && calls[2].m === 'sms'
       && calls[2].body === e.contactSummary() && navigated === 0);
     const canvas = { toDataURL: () => 'data:image/png;base64,iVBORw0KGgo=' };
@@ -2343,7 +2343,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     ok('MOD08 Android app: Save QR image hands the PNG bytes (base64, no data: prefix) and "Dana Quill QR.png" to Downloads', png.success
       && calls[3].m === 'png' && calls[3].b64 === 'iVBORw0KGgo=' && calls[3].name === 'Dana Quill QR.png', JSON.stringify(png));
     answer = false;
-    const failed = [await e.triggerQuickShare(), await e.triggerEmailShare(), e.triggerSmsShare(), e.exportQRPNG(canvas, { real: true })];
+    const failed = [await e.triggerQuickShare(), await e.triggerEmailShare(), await e.triggerSmsShare(), e.exportQRPNG(canvas, { real: true })];
     ok('MOD08 Android app: when no app takes it (or the save fails) each one says so, never a false success',
       failed.map(r => `${r.success}:${r.reason}`).join() === 'false:share_failed,false:no_app,false:no_app,false:save_failed', JSON.stringify(failed));
     ok('MOD08 Android app: the audit events say what was done and whether it worked, never the contact',
@@ -2354,6 +2354,47 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     e.navigate = realNavigate;
     delete globalThis.vcgeAndroid;
     offA();
+  }
+
+  // raven575's phone run (2026-11-16, item 14): Email and Text offer "attach the .vcf file" or "inline text"
+  {
+    const calls = [];
+    let answer = true;
+    globalThis.vcgeAndroid = {
+      email: (subject, body) => { calls.push({ m: 'email', subject, body }); return answer; },
+      sms: (body) => { calls.push({ m: 'sms', body }); return answer; },
+      emailFile: (vcard, name, subject, body) => { calls.push({ m: 'emailFile', vcard, name, subject, body }); return answer; },
+      smsFile: (vcard, name, body) => { calls.push({ m: 'smsFile', vcard, name, body }); return answer; }
+    };
+    const realNavigate = e.navigate;
+    let navigated = 0;
+    e.navigate = () => { navigated++; };
+    ok('MOD08 attach: the Android app can always attach the .vcf', e.canAttachFile() === true);
+    const mailFile = await e.triggerEmailShare({ attach: true });
+    ok('MOD08 attach: Email with the file hands the folded vCard as "Dana Quill.vcf", the subject and the readable details (not the raw vCard) to a mail app', mailFile.method === 'android_email_file'
+      && calls[0].m === 'emailFile' && calls[0].vcard === e.currentVCard && calls[0].name === 'Dana Quill.vcf' && calls[0].subject === 'Contact: Dana Quill' && calls[0].body === e.contactSummary() && !calls[0].body.includes('BEGIN:VCARD'), JSON.stringify(mailFile));
+    const textFile = await e.triggerSmsShare({ attach: true });
+    ok('MOD08 attach: Text with the file hands the .vcf and the readable details to the messaging app', textFile.method === 'android_sms_file'
+      && calls[1].m === 'smsFile' && calls[1].vcard === e.currentVCard && calls[1].name === 'Dana Quill.vcf' && calls[1].body === e.contactSummary(), JSON.stringify(textFile));
+    const mailText = await e.triggerEmailShare({ attach: false }), textText = await e.triggerSmsShare();
+    ok('MOD08 inline text: Email and Text without the file still send the details in the message (no file handed over)', mailText.method === 'android_email' && textText.method === 'android_sms'
+      && calls[2].m === 'email' && calls[3].m === 'sms' && navigated === 0);
+    answer = false;
+    const none = [await e.triggerEmailShare({ attach: true }), await e.triggerSmsShare({ attach: true })];
+    ok('MOD08 attach: when no app takes the file, each says so', none.map(r => `${r.success}:${r.reason}`).join() === 'false:no_app,false:no_app', JSON.stringify(none));
+    delete globalThis.vcgeAndroid;
+    // A browser: the file goes through the share sheet where it can (iPhone); where it cannot (Android Chrome) nothing opens
+    const realNav = Object.getOwnPropertyDescriptor(globalThis, 'navigator');
+    const sent = [];
+    Object.defineProperty(globalThis, 'navigator', { value: { share: async (d) => { sent.push(d); }, canShare: () => true }, configurable: true, writable: true });
+    const iosMail = await e.triggerEmailShare({ attach: true }), iosText = await e.triggerSmsShare({ attach: true });
+    ok('MOD08 attach (iPhone): Email and Text share the .vcf with the readable details through the share sheet', e.canAttachFile() && iosMail.method === 'attachment' && iosText.method === 'attachment'
+      && sent.length === 2 && sent.every(d => d.files.length === 1 && d.files[0].name === 'Dana Quill.vcf' && d.text === e.contactSummary()), JSON.stringify(sent.map(d => d.files.length)));
+    Object.defineProperty(globalThis, 'navigator', { value: { share: async (d) => { sent.push(d); }, canShare: () => false }, configurable: true, writable: true });
+    const chrome = [await e.triggerEmailShare({ attach: true }), await e.triggerSmsShare({ attach: true })];
+    ok('MOD08 attach (Android Chrome, no file sharing): refused with a reason, nothing shared or opened', !e.canAttachFile() && chrome.every(r => r.success === false && r.reason === 'no_attach') && sent.length === 2 && navigated === 0, JSON.stringify(chrome));
+    if (realNav) Object.defineProperty(globalThis, 'navigator', realNav); else delete globalThis.navigator;
+    e.navigate = realNavigate;
   }
 
   // The share sheet and the audit events, with a stand-in navigator
@@ -2371,7 +2412,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('MOD08 no file sharing (Android Chrome): the readable summary goes as text, never the raw vCard (#76)', textShare.method === 'native_text' && shared[1].text === e.contactSummary() && !shared[1].text.includes('BEGIN:VCARD') && shared[1].title === 'Contact: Dana Quill', JSON.stringify(shared[1]).slice(0, 120));
   await e.copyVCard();
   e.navigate = () => {};
-  e.triggerSmsShare();
+  await e.triggerSmsShare();
   await e.triggerEmailShare();
   if (realNavigator) Object.defineProperty(globalThis, 'navigator', realNavigator); else delete globalThis.navigator;
   off();

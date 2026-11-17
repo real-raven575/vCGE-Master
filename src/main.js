@@ -44,7 +44,7 @@ import { initCardTabs } from './modules/mod06-gui/cardTabs.js';
 import { vcgeQREngine } from './modules/mod07-qr/qrGenerator.js';
 import { egressController, PRINT_QR_PX } from './modules/mod08-egress/egressController.js';
 import { pictureSelect } from './modules/mod01-shell/pictureSelect.js';
-import { exportQrDialog, printChoiceDialog, renderOptions, cleanChoices, LOOK_SELECTS } from './modules/mod08-egress/exportDialogs.js';
+import { exportQrDialog, printChoiceDialog, sendChoiceDialog, renderOptions, cleanChoices, LOOK_SELECTS } from './modules/mod08-egress/exportDialogs.js';
 import { wireHatches, wireFalcon, flyFalcon, showReadyLights } from './modules/mod08-egress/airlockTouches.js';
 import { VaultStore, READINGS } from './modules/mod02-vault/vaultStore.js';
 
@@ -244,16 +244,16 @@ function updateTimerStrip() {
     $('vaultTimerBar').classList.toggle('bg-amber-500', warn);
 }
 
-// The session pill in the top bar (0.8 shell, Creative's mock-up): the lock ring empties as the time runs out and the
-// time sits beside it; with nothing open it is the padlock alone. The Vault's own page keeps the full timer.
+// The session pill in the top bar (0.8 shell, Creative's mock-up): the lock ring empties as the time runs out; the
+// number is left to the Vault's own page and the pill's label (raven575's Android run, 2026-11-16: the circle alone).
+// With nothing open it is the padlock alone, its ring full.
 const RING_LENGTH = 94.2;     // 2 * pi * 15, the ring's circle in index.html
 function updateSessionPill(show, remaining) {
     const pill = $('navVault'), arc = $('sessArc'), txt = $('sessTxt');
     if (!pill || !arc || !txt) return;
     pill.classList.toggle('has-time', show);
     pill.classList.toggle('is-locked', vaultMode !== 'open');
-    const time = show ? minutes(remaining) : '';
-    if (txt.textContent !== time) txt.textContent = time;
+    if (txt.textContent !== '') txt.textContent = '';
     const left = show ? Math.max(0, Math.min(1, remaining / IDLE_PURGE_SECONDS)) : (vaultMode === 'open' ? 1 : 0);
     arc.setAttribute('stroke-dashoffset', (RING_LENGTH * (1 - left)).toFixed(1));
     const base = 'Vault: PIN and fingerprint';
@@ -499,6 +499,7 @@ function clearCapturedImages() {
     egressController.clearPrintSheet();
     exportQrDialog.reset({ keepLook: false });   // an uploaded QR logo, the preview and the chosen look
     printChoiceDialog.close();
+    sendChoiceDialog.close();
     vaultStore.clear('logo');
     camera.closeCamera();
     camera.discardPhoto();
@@ -1201,13 +1202,21 @@ function wireEgress() {
         markActivity();
     });
     // In the Android app these go through the bridge, which says when no app on the phone can take them.
-    $('emailBtn').addEventListener('click', async () => {
-        const result = await egressController.triggerEmailShare();
-        if (result && result.reason === 'no_app') cardView.showToast('No email app on this phone opens a new message.');
-    });
-    $('smsBtn').addEventListener('click', () => {
-        const result = egressController.triggerSmsShare();
-        if (result && result.reason === 'no_app') cardView.showToast('No messaging app on this phone opens a new text.');
+    // Each asks first: attach the .vcf file or send the details as inline text (raven575's phone run, 2026-11-16).
+    const askHowToSend = (kind) => {
+        if (egressController.isEmpty()) { cardView.showToast('Add a contact first.'); return; }
+        sendChoiceDialog.open(kind, { fileOk: egressController.canAttachFile() });
+    };
+    $('emailBtn').addEventListener('click', () => askHowToSend('email'));
+    $('smsBtn').addEventListener('click', () => askHowToSend('sms'));
+    sendChoiceDialog.init({
+        onChoose: async (kind, attach) => {
+            expectExternalApp();
+            const result = kind === 'sms' ? await egressController.triggerSmsShare({ attach }) : await egressController.triggerEmailShare({ attach });
+            if (result && result.reason === 'no_app') cardView.showToast(kind === 'sms' ? 'No messaging app on this phone opens a new text.' : 'No email app on this phone opens a new message.');
+            else if (result && result.reason === 'no_attach') cardView.showToast('This browser cannot attach files: use Inline text, or Save .vcf file.');
+            else if (result && result.reason === 'share_failed') cardView.showToast('Sending did not work: try Inline text or Save .vcf file.');
+        }
     });
     // Print / PDF: Themed or Black & White, then one 6 x 3.5 in page through the browser's print dialog.
     $('printCardBtn').addEventListener('click', () => {

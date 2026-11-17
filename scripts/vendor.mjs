@@ -64,7 +64,10 @@ const APP_ICONS = ['aperture', 'radar-2', 'lock', 'forms', 'id', 'qrcode', 'send
     'phone', 'device-mobile', 'printer', 'mail', 'world', 'home', 'building',
     // Buttons that explain themselves (easy + premium step 4/5): every action button carries a picture beside its word
     'x', 'check', 'keyboard', 'crop', 'refresh', 'arrow-back-up', 'phone-plus', 'mail-plus', 'world-plus', 'plus', 'eraser',
-    'download', 'palette', 'contrast', 'route', 'history', 'lock-open', 'player-skip-forward', 'key', 'bolt'];
+    'download', 'palette', 'contrast', 'route', 'history', 'lock-open', 'player-skip-forward', 'key', 'bolt',
+    // Crayon's icon review (HQ-0334, 2026-11-15): clearer pictures for 15 buttons (the shutter keeps raven575's pressed camera), solid rotate arrows
+    'fingerprint', 'shield-lock', 'password', 'camera-rotate', 'restore', 'sparkles', 'user', 'pencil', 'photo',
+    'photo-off', 'door-exit', 'switch-horizontal', 'rotate', 'rotate-clockwise'];
 
 // Contact-icon templates for the OCR icon detector (mod04-ocr/iconDetector.js): generic shapes from Lucide (ISC),
 // brand logos from Simple Icons (CC0). LinkedIn's logo is not in either set; the detector draws its own "in" template.
