@@ -3826,13 +3826,20 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   {
     const ctxG = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
     const pG = await ctxG.newPage();
+    // One page for both cards: the reader stays started (a reload would start it again, slow on the iPhone profile)
+    await pG.goto(ORIGIN); await pG.waitForTimeout(500);
     const readCard = async (logo) => {
-      await pG.goto(ORIGIN); await pG.waitForTimeout(500);
+      await pG.$eval(DOCK.capture, b => b.click()); await deckSettled(pG);
       await pG.setInputFiles('#imageUpload', await renderCardImage(pG, 0, logo)); await pG.waitForTimeout(300);
       await pG.click('#runOcrBtn'); await readEnds(pG); await proceed(pG);
       await pG.$eval(DOCK.card, b => b.click()); await deckSettled(pG);
       await pG.click('#cardTabs [data-tab="logo"]');
     };
+    // A card with only text first: nothing is offered
+    await readCard(false);
+    await pG.waitForTimeout(2500);
+    const none = await pG.evaluate(() => ({ hidden: document.getElementById('logoGuessRow').classList.contains('hidden'), src: document.getElementById('logoGuessImg').getAttribute('src') }));
+    ok('logo from the card: a card with only text offers no logo', none.hidden && !none.src, JSON.stringify(none));
     await readCard(true);
     await pG.waitForSelector('#logoGuessRow:not(.hidden)', { timeout: 8000 }).catch(() => {});
     const offered = await pG.evaluate(() => { const img = document.getElementById('logoGuessImg'), row = document.getElementById('logoGuessRow');
@@ -3848,10 +3855,6 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pG.waitForSelector('#formAvatarPreview :is(img, svg)', { timeout: 5000 }).catch(() => {});
     const used = await pG.evaluate(() => ({ onCard: !!document.querySelector('#formAvatarPreview :is(img, svg)'), row: document.getElementById('logoGuessRow').classList.contains('hidden'), remove: !document.getElementById('removeAvatarBtn').classList.contains('hidden') }));
     ok('logo from the card: Use it puts it on the card (traced or as a picture, Remove logo offered) and the offer goes away', used.onCard && used.row && used.remove, JSON.stringify(used));
-    await readCard(false);
-    await pG.waitForTimeout(2500);
-    const none = await pG.evaluate(() => ({ hidden: document.getElementById('logoGuessRow').classList.contains('hidden'), src: document.getElementById('logoGuessImg').getAttribute('src') }));
-    ok('logo from the card: a card with only text offers no logo', none.hidden && !none.src, JSON.stringify(none));
     await ctxG.close();
   }
 
