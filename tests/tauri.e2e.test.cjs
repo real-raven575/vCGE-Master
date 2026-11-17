@@ -294,11 +294,11 @@ async function stopDriver(driver) {
     // The size slider walks the fixed sizes smallest first: 0 Small, 1 Normal, 2 Large, 3 Larger
     const pickSize = (step) => js(`const s = document.getElementById('sizeRange'); s.value = arguments[0]; s.dispatchEvent(new Event('input', { bubbles: true }));`, step);
     const sizeNormal = await sizes();
-    await pickSize('3'); await sleep(200);
+    await pickSize('4'); await sleep(200);
     const sizeLarger = await sizes();
     ok('desktop: Larger text grows the text by a quarter, the top bar and its icons keep their size', Math.abs(sizeLarger.root / sizeNormal.root - 1.25) < 0.01 && Math.abs(sizeLarger.note / sizeNormal.note - 1.25) < 0.03
       && Math.abs(sizeLarger.header - sizeNormal.header) < 0.6 && Math.abs(sizeLarger.icon - sizeNormal.icon) < 0.6, JSON.stringify([sizeNormal, sizeLarger]));
-    await pickSize('1'); await js(`localStorage.removeItem('vcge_settings');`);
+    await pickSize('2'); await js(`localStorage.removeItem('vcge_settings');`);
 
     // Left hand at tablet width in the system webview (WebKit, as on the iPad; raven575, 2026-10-18): the 0.8 top bar
     // runs mirrored (Settings far left, the vCGE mark on the right), every button inside the window, none overlapping.

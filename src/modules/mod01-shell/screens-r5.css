@@ -84,7 +84,7 @@ button.r5-mini { min-height: 44px; padding: 0 14px; border-radius: 12px; border:
 .r5-onoff { flex: none; min-width: 2.2em; text-align: right; font: 700 .75rem var(--r5-body); letter-spacing: .04em; text-transform: uppercase; color: var(--sh-stop, #b3261e); }
 .r5-onoff.is-on { color: var(--r5-good); }
 /* Colour-blind mode: the switch that is on turns blue, and a chosen chip gets a tick */
-html[data-cb="1"] input.r5-toggle:checked, html[data-cb="1"] .r5-switch[aria-checked="true"] .r5-track { background: #2563eb; }
+html[data-cb="1"] input.r5-toggle:checked, html[data-cb="1"] .r5-switch[aria-checked="true"] .r5-track { background: var(--cb-on); }
 html[data-cb="1"] .r5-chip[aria-pressed="true"]::before { content: "\2713\00a0"; }
 
 /* ---- Chips (.minis): one choice of a few ---------------------------------------------------------------------- */

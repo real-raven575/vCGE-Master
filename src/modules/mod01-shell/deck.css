@@ -248,13 +248,13 @@ html[data-app-theme] .thank-you { background: var(--vcge-bg); color: var(--vcge-
 html[data-app-theme] .thank-you-note { color: var(--vcge-muted); }
 /* ---- Colour-blind mode (html[data-cb="1"]): the step in view is marked by its bar and a bold label as well as its
    colour, in blue rather than the accent; the trash button carries a thick outline. Each module adds its own cues. -- */
-html[data-cb="1"] .vcge-step[data-state="now"] { color: #2563eb; }
-html[data-cb="1"] .vcge-step[data-state="now"]::before { background: #2563eb; height: 4px; }
+html[data-cb="1"] .vcge-step[data-state="now"] { color: var(--cb-on); }
+html[data-cb="1"] .vcge-step[data-state="now"]::before { background: var(--cb-on); height: 4px; }
 html[data-cb="1"] .vcge-step[data-state="now"] > span { font-weight: 800; text-decoration: underline; }
 html[data-cb="1"] .vcge-trash { border-color: #0f172a; border-width: 3px; }
-html[data-cb="1"] .vcge-seg button[aria-pressed="true"], html[data-cb="1"] .vcge-switch:checked::before { background: #2563eb; border-color: #1d4ed8; }
+html[data-cb="1"] .vcge-seg button[aria-pressed="true"], html[data-cb="1"] .vcge-switch:checked::before { background: var(--cb-on); border-color: var(--cb-on-edge); }
 html[data-cb="1"] .vcge-seg button[aria-pressed="true"] { color: #ffffff; }
-html[data-cb="1"] .vcge-btn-primary:not(:disabled) { background: #2563eb; color: #ffffff; }
+html[data-cb="1"] .vcge-btn-primary:not(:disabled) { background: var(--cb-on); color: #ffffff; }
 
 .thank-you { position: fixed; inset: 0; z-index: 80; display: flex; align-items: center; justify-content: center; padding: 1rem; background: #f1f5f9; color: #0f172a; }
 .thank-you.hidden { display: none; }

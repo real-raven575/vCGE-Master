@@ -54,7 +54,7 @@ select.export-qr-select { max-width: 100%; min-height: 3rem; font-size: 0.95rem;
 .export-qr-choices label:has(input:checked) { background: var(--good-600); color: #020617; border-color: var(--good-700); }
 .export-qr-choices label:has(input:focus-visible) { outline: 2px solid var(--good-600); outline-offset: 2px; }
 .export-qr-choices label:has(input:disabled) { opacity: 0.45; cursor: not-allowed; }
-html[data-cb="1"] .export-qr-choices label:has(input:checked) { background: #2563eb; color: #ffffff; border-color: #1d4ed8; }
+html[data-cb="1"] .export-qr-choices label:has(input:checked) { background: var(--cb-on); color: #ffffff; border-color: var(--cb-on-edge); }
 html[data-cb="1"] .export-qr-choices label:has(input:checked)::before { content: '\2713\00a0'; }
 .export-qr-reason { font-size: 0.75rem; color: #64748b; margin: 0; min-height: 1rem; }
 .dark .export-qr-reason { color: #94a3b8; }
@@ -86,6 +86,8 @@ button.print-choice-themed { background: var(--good-600); color: #020617; border
 button.print-choice-themed:hover { background: var(--good-500); }
 button.print-choice-bw { background: #ffffff; color: #0f172a; border-color: #0f172a; }
 button.print-choice-bw:hover { background: #f1f5f9; }
+/* Email / Text: Attach the .vcf file greyed where the browser cannot attach files (the note under it says why) */
+button.print-choice:disabled { opacity: 0.45; cursor: not-allowed; }
 .dark button.print-choice-bw { background: #f8fafc; color: #0f172a; border-color: #e2e8f0; }
 button.print-choice-cancel { grid-column: 1 / -1; min-height: var(--vcge-tap, 2.75rem); border-radius: 0.75rem; font-size: 0.9rem; font-weight: 600; background: transparent; color: inherit; border-color: #cbd5e1; cursor: pointer; }
 .dark button.print-choice-cancel { border-color: #475569; }

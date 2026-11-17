@@ -179,7 +179,7 @@ async function setTheme(page, code) {
   if (sel.both) await page.click(`#appearanceChips [data-v="${sel.mode}"]`);
 }
 const setHand = (page, left) => page.setChecked('#handToggle', left);
-const setSize = (page, name) => page.$eval('#sizeRange', (r, n) => { r.value = String(['Small', 'Normal', 'Large', 'Larger'].indexOf(n)); r.dispatchEvent(new Event('input', { bubbles: true })); }, name);
+const setSize = (page, name) => page.$eval('#sizeRange', (r, n) => { r.value = String(['Smallest', 'Small', 'Normal', 'Large', 'Larger', 'Big', 'Bigger', 'Huge', 'Largest'].indexOf(n)); r.dispatchEvent(new Event('input', { bubbles: true })); }, name);
 async function closeVault(page) { if (await vaultOpen(page)) { await page.click('#vaultPage [data-sheet-close]'); await page.waitForSelector('#vaultPage', { state: 'hidden' }); } }
 
 // On phones the header has no room for the Lock button, so Lock lives on the Vault page ("Lock now") instead.
@@ -817,6 +817,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   const cvdSet = { good: await swatch('--good-600'), stop: await swatch('--stop-600'), filter: await page.evaluate(() => getComputedStyle(document.documentElement).filter) };
   ok('colour vision (step 6): Red-weak swaps the named set (go blue, stop orange) and lays no filter over the page',
     cvdSet.good === 'rgb(37, 99, 235)' && cvdSet.stop === 'rgb(234, 88, 12)' && cvdSet.filter === 'none', JSON.stringify(cvdSet));
+  // Blue-weak: colour-blind mode's "on" fill (the dock's main button, pressed switches) turns teal with the set, not
+  // the old fixed blue (raven575's Android run, 2026-11-16: "Scan another" stayed blue)
+  await page.click('.r5-cvd-row .vcge-pick-btn');
+  await page.click('.r5-cvd-row [role="option"][data-value="4"]'); await page.waitForTimeout(450);   // past the button's 200 ms colour fade
+  const tritan = await page.evaluate(() => getComputedStyle(document.getElementById('dockNext')).backgroundColor);
+  ok('colour vision: Blue-weak turns the dock\'s main button teal (its good colour), not blue', tritan === (await swatch('--good-600')) && tritan === 'rgb(13, 148, 136)', tritan);
   await page.selectOption('#cvdSelect', '0');
   ok('colour vision (step 6): Typical gives the named set back its green and red', (await swatch('--good-600')) === 'rgb(22, 163, 74)' && (await swatch('--stop-600')) === 'rgb(220, 38, 38)');
   ok('colour vision: Typical goes back to plain colour-blind mode (cb=1)', !(await page.evaluate(() => document.documentElement.dataset.cvd)) && /cb=1;/.test((await htmlState()).entry));
@@ -858,7 +864,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   // Settings polish from raven575's iPad video: the cog by the title (#13) and a text size that leaves the header alone (#6)
   ok('Settings shows the cog left of its title', (await page.$eval('#settingsTitle use', u => u.getAttribute('href'))).endsWith('#settings')
     && await page.$eval('#settingsTitle', h => h.firstElementChild.tagName.toLowerCase() === 'svg'));
-  ok('the text size slider walks Small, Normal, Large, Larger, Normal chosen', await page.$eval('#sizeRange', r => r.min === '0' && r.max === '3' && r.step === '1' && r.value === '1' && r.getAttribute('aria-valuetext') === 'Normal'));
+  ok('the text size slider walks nine sizes, Smallest to Largest, Normal chosen', await page.$eval('#sizeRange', r => r.min === '0' && r.max === '8' && r.step === '1' && r.value === '2' && r.getAttribute('aria-valuetext') === 'Normal'));
   const sizes = () => page.evaluate(() => { const r = e => e.getBoundingClientRect();
     return { root: parseFloat(getComputedStyle(document.documentElement).fontSize), note: parseFloat(getComputedStyle(document.getElementById('settingsNote')).fontSize),
       header: r(document.querySelector('.vcge-bar')).height, icon: r(document.querySelector('#navSettings .vcge-icon')).width }; });
@@ -1011,8 +1017,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('countdown shows remaining time', /Auto-clear in 11\d s/.test(await p2.textContent('#purgeCountdown')), await p2.textContent('#purgeCountdown'));
     const pill2 = await p2.evaluate(() => ({ txt: document.getElementById('sessTxt').textContent, strip: document.getElementById('vaultTimerTime').textContent,
       off: Number(document.getElementById('sessArc').getAttribute('stroke-dashoffset')), label: document.getElementById('navVault').getAttribute('aria-label') }));
-    ok('0.8 shell: while the timer runs, the session pill shows its time and the ring has started to empty (the pill\'s label says it too)', pill2.txt === pill2.strip && /^1:5\d$/.test(pill2.txt) && pill2.off > 0 && pill2.off < 94.2 / 2
-      && pill2.label.includes(`Clears in ${pill2.txt}`), JSON.stringify(pill2));
+    ok('0.8 shell: while the timer runs, the session pill shows no number, only its ring starting to empty (the pill\'s label says the time)', pill2.txt === '' && /^1:5\d$/.test(pill2.strip) && pill2.off > 0 && pill2.off < 94.2 / 2
+      && pill2.label.includes(`Clears in ${pill2.strip}`), JSON.stringify(pill2));
     ok('timer strip: without a PIN it reads "Clears in" with the time left', await p2.isVisible('#vaultTimerStrip') && (await p2.textContent('#vaultTimerLabel')) === 'Clears in' && /^1:5\d$/.test(await p2.textContent('#vaultTimerTime')), await p2.textContent('#vaultTimerTime'));
     await fastForward(p2, 60000);
     await p2.fill('#organization', 'Activity resets');
@@ -1076,8 +1082,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // Share said "not available", Print did nothing. Each now goes through the bridge and vCGE stays on screen.
     const startUrl = pA.url();
     const callsOf = (m) => pA.evaluate((m) => window.__calls.filter(c => c.m === m).map(c => c.args), m);
-    await pA.$eval('#emailBtn', b => b.click()); await pA.waitForTimeout(300);
-    await pA.$eval('#smsBtn', b => b.click()); await pA.waitForTimeout(300);
+    // Email and Text ask first (raven575 2026-11-16): Inline text here; the .vcf attachment is checked with the tester round
+    await pA.$eval('#emailBtn', b => b.click()); await pA.$eval('#sendTextBtn', b => b.click()); await pA.waitForTimeout(300);
+    await pA.$eval('#smsBtn', b => b.click()); await pA.$eval('#sendTextBtn', b => b.click()); await pA.waitForTimeout(300);
     await pA.$eval('#shareNativeBtn', b => b.click()); await pA.waitForTimeout(300);
     const [mail, text, sent] = [await callsOf('email'), await callsOf('sms'), await callsOf('share')];
     ok('Android app: Email, Text message and Share go to the phone\'s apps and vCGE stays on its page', mail.length === 1 && text.length === 1 && sent.length === 1
@@ -1098,9 +1105,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       && await pA.evaluate(() => window.__printed) === 0 && await pA.evaluate(() => !!document.querySelector('#printSheet .print-card') && !!document.querySelector('#printSheet .print-qr img')),
       JSON.stringify({ prints, printed: await pA.evaluate(() => window.__printed) }));
     await pA.evaluate(() => { window.__phoneApps = false; });
-    await pA.$eval('#emailBtn', b => b.click()); await pA.waitForTimeout(300);
+    await pA.$eval('#emailBtn', b => b.click()); await pA.$eval('#sendTextBtn', b => b.click()); await pA.waitForTimeout(300);
     ok('Android app: with no email app it says so', (await pA.textContent('#toastMessage')).includes('No email app on this phone'), await pA.textContent('#toastMessage'));
-    await pA.$eval('#smsBtn', b => b.click()); await pA.waitForTimeout(300);
+    await pA.$eval('#smsBtn', b => b.click()); await pA.$eval('#sendTextBtn', b => b.click()); await pA.waitForTimeout(300);
     ok('Android app: with no messaging app it says so', (await pA.textContent('#toastMessage')).includes('No messaging app on this phone'), await pA.textContent('#toastMessage'));
     await ctxA.close();
   }
@@ -2069,7 +2076,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
         const { egressController } = await import('/src/modules/mod08-egress/egressController.js');
         const sent = [];
         egressController.navigate = (url) => sent.push(url);
-        egressController.triggerSmsShare();
+        await egressController.triggerSmsShare();
         await egressController.triggerEmailShare();
         return sent.map(u => decodeURIComponent(u));
       });
@@ -2077,6 +2084,30 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       ok('SMS carries every detail as readable lines', sms.startsWith('sms:?body=Maria Gonzalez\nDirector of Engineering\nNorthwind Systems\nWork phone:  +1 (312) 555-0147\nWork email:  maria.gonzalez@northwind.com\nWork website:  https://northwind.com\nWork address:  233 South Wacker Drive, Chicago, IL 60606, United States'), JSON.stringify(sms));
       ok('email: readable summary plus the vCard text', mail.startsWith('mailto:?subject=Contact: Maria Gonzalez&body=Maria Gonzalez\n') && mail.includes('save the text below as a .vcf file') && mail.includes('BEGIN:VCARD'), JSON.stringify(mail.slice(0, 160)));
     }
+
+    // raven575's phone run (2026-11-16, item 14): Email and Text ask "Attach the .vcf file" or "Inline text"
+    await p9.click('#emailBtn');
+    const sendWeb = await p9.evaluate(() => ({ open: !document.getElementById('sendChoiceSheet').classList.contains('hidden'), title: document.getElementById('sendChoiceTitle').textContent,
+      fileOff: document.getElementById('sendFileBtn').disabled, note: !document.getElementById('sendFileNote').classList.contains('hidden'),
+      canFiles: !!(navigator.canShare && navigator.canShare({ files: [new File(['x'], 'a.vcf', { type: 'text/vcard' })] })),
+      tall: ['sendFileBtn', 'sendTextBtn'].every(id => document.getElementById(id).getBoundingClientRect().height >= 48) }));
+    ok('Airlock: Email asks first: Attach the .vcf file or Inline text, big buttons; the file is greyed with the reason where the browser cannot attach files', sendWeb.open && sendWeb.title === 'Email' && sendWeb.tall
+      && sendWeb.fileOff === !sendWeb.canFiles && sendWeb.note === !sendWeb.canFiles, JSON.stringify(sendWeb));
+    await p9.click('#sendCancelBtn');
+    // The Android app can always attach: the choice reaches the phone's mail or messaging app (a stand-in bridge records it)
+    await p9.evaluate(() => { window.__sent = []; window.vcgeAndroid = {
+      email: (subject, body) => { window.__sent.push(['email', subject, body.includes('BEGIN:VCARD')]); return true; },
+      sms: (body) => { window.__sent.push(['sms', body.includes('BEGIN:VCARD')]); return true; },
+      emailFile: (vcard, name, subject, body) => { window.__sent.push(['emailFile', name, vcard.startsWith('BEGIN:VCARD'), body.includes('BEGIN:VCARD')]); return true; },
+      smsFile: (vcard, name, body) => { window.__sent.push(['smsFile', name, vcard.startsWith('BEGIN:VCARD'), body.includes('BEGIN:VCARD')]); return true; } }; });
+    await p9.click('#smsBtn');
+    const smsSheet = await p9.evaluate(() => ({ title: document.getElementById('sendChoiceTitle').textContent, fileOff: document.getElementById('sendFileBtn').disabled, focus: document.activeElement && document.activeElement.id }));
+    await p9.click('#sendFileBtn');
+    await p9.click('#emailBtn'); await p9.click('#sendTextBtn');
+    await p9.click('#emailBtn'); await p9.click('#sendFileBtn');
+    const sentAll = await p9.evaluate(() => { const s = window.__sent; delete window.vcgeAndroid; return s; });
+    ok('Airlock: Text message with the file sends "Maria Gonzalez.vcf"; Email inline sends the text; Email with the file sends the .vcf and readable details', smsSheet.title === 'Text message' && !smsSheet.fileOff && smsSheet.focus === 'sendFileBtn'
+      && JSON.stringify(sentAll) === JSON.stringify([['smsFile', 'Maria Gonzalez.vcf', true, false], ['email', 'Contact: Maria Gonzalez', true], ['emailFile', 'Maria Gonzalez.vcf', true, false]]), JSON.stringify({ smsSheet, sentAll }));
 
     // Print / Save as PDF (step 10): Themed or Black & White, then one 6 x 3.5 in page with the front at business-card size and the QR beside it
     await stubPrint(p9);
@@ -4019,13 +4050,13 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pV.click('#navCard'); await litOnly('navCard'); await pV.waitForTimeout(800);
     ok('0.8 shell: the Card step turns the card back to its front and only it is current', (await lit()) === 'navCard' && (await pV.$eval('#card3DFlipper', el => el.style.transform)) === 'rotateY(0deg)', await lit());
 
-    // The timer never covers a screen (video #95): the time shows in the session pill, the strip's band stays hidden
+    // The timer never covers a screen (video #95): the session pill's ring shows the time running out, the strip's band stays hidden
     await pV.click('#navFields'); await deckSettled(pV);
     await pV.fill('#firstName', 'Shutout'); await pV.waitForTimeout(1300);
     const strip = await pV.evaluate(() => ({ shown: !document.getElementById('vaultTimerStrip').classList.contains('hidden'), band: getComputedStyle(document.getElementById('vaultTimerBand')).display,
       pill: document.getElementById('sessTxt').textContent, bar: document.querySelector('.vcge-bar').getBoundingClientRect().bottom, top: document.getElementById('cardFields').getBoundingClientRect().top }));
-    ok('0.8 shell: with a card in progress the time shows in the session pill, no band hangs over the screen, and the screen starts below the bar',
-      strip.shown && strip.band === 'none' && /^\d:\d\d$/.test(strip.pill) && strip.top >= strip.bar, JSON.stringify(strip));
+    ok('0.8 shell: with a card in progress the session pill keeps only its ring (no number), no band hangs over the screen, and the screen starts below the bar',
+      strip.shown && strip.band === 'none' && strip.pill === '' && strip.top >= strip.bar, JSON.stringify(strip));
 
     // The tour stays under the lock screen: a lock that comes down mid-tour is on top, its PIN box takes the keys
     await pV.click('#navWelcome'); await pV.waitForTimeout(700);
