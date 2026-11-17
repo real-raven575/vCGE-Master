@@ -307,6 +307,8 @@ export class CardView {
         this.undoWasSample = false;
         this.holdsSample = false;   // the card is a sample preset: the next scan fill replaces it instead of merging
         this.sampleLogoToken = 0;
+        this.logoGuess = null;      // the reader's logo guess from the photo (offerLogoGuess), shown until used
+        this.logoGuessUsed = false;
         this.logoSize = DEFAULT_LOGO_SIZE;
         this.logoBack = null;       // the colour behind the logo the person picked, else null (Auto)
         this.finish = DEFAULT_FINISH;
@@ -1226,6 +1228,7 @@ export class CardView {
             };
             reader.readAsDataURL(file);
         });
+        $('useLogoGuessBtn')?.addEventListener('click', () => this.useLogoGuess());
         // Remove logo asks first; the question takes the button's place until it is answered.
         $('removeAvatarBtn').addEventListener('click', () => this.askRemoveLogo(true));
         $('removeLogoNo').addEventListener('click', () => { this.askRemoveLogo(false); $('removeAvatarBtn').focus(); });
@@ -1235,6 +1238,46 @@ export class CardView {
             this.changed();
             this.showToast('Logo removed.');
         });
+    }
+
+    /**
+     * The reader's logo guess (vault slot logoGuess, raven575 2026-11-16): { image, width, height, score } cut from the
+     * photo in colour, or null. Offered on the Logo tab with its picture; it goes on the card only on a tap.
+     */
+    offerLogoGuess(guess) {
+        this.logoGuess = guess && typeof guess.image === 'string' && guess.image.startsWith('data:image/') ? guess : null;
+        this.logoGuessUsed = false;
+        this.showLogoGuess();
+    }
+
+    showLogoGuess() {
+        const row = $('logoGuessRow'), img = $('logoGuessImg');
+        if (!row || !img) return;
+        const show = !!this.logoGuess && !this.logoGuessUsed;
+        row.classList.toggle('hidden', !show);
+        if (show) img.src = this.logoGuess.image; else img.removeAttribute('src');
+    }
+
+    /** Use it: the guess goes through the same preparation as an upload (trace, white removed, the card's own contrast). */
+    async useLogoGuess() {
+        const guess = this.logoGuess;
+        if (!guess) return;
+        let logo;
+        try {
+            logo = await prepareLogo(guess.image);
+        } catch (err) {
+            console.warn('[vCGE] Logo guess not usable:', err);
+            this.showToast('That logo could not be used. Try Logo to upload one.');
+            return;
+        }
+        if (this.logoGuess !== guess) return;   // a wipe or a new card came in meanwhile
+        this.sampleLogoToken++;
+        this.setAvatar(logo.photo, logo.display);
+        this.logoGuessUsed = true;
+        this.showLogoGuess();
+        this.changed();
+        this.showSafeGuide();
+        this.showToast(logoMessage(logo));
     }
 
     async suggestAddresses(query) {

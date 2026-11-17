@@ -31,14 +31,16 @@ const sampleList = () => [samplePrompt(), ...samples().map(([f, l, o], i) => (ED
 // Renders a business card image in the page so OCR runs on real pixels.
 // `blur` (px, the Gaussian's standard deviation) simulates a shaky or out-of-focus photo. The blur is computed here
 // (three box blurs) rather than with the canvas `filter`, which WebKit ignores, so every engine gets the same photo.
-async function renderCardImage(page, blur = 0) {
-  const dataUrl = await page.evaluate((blur) => {
+async function renderCardImage(page, blur = 0, logo = false) {
+  const dataUrl = await page.evaluate(([blur, logo]) => {
     const c = document.createElement('canvas'); c.width = 1050; c.height = 600;
     const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111';
     const lines = [['bold 56px Arial', 'Maria Gonzalez'], ['34px Arial', 'Director of Engineering'], ['34px Arial', 'Northwind Systems'],
       ['30px Arial', '+1 (312) 555-0147'], ['30px Arial', 'maria.gonzalez@northwind.com'], ['30px Arial', 'https://northwind.com'],
       ['30px Arial', '233 South Wacker Drive'], ['30px Arial', 'Chicago, IL 60606']];
     let y = 80; for (const [f, t] of lines) { x.font = f; x.fillText(t, 70, y); y += f.startsWith('bold') ? 80 : 62; }
+    // A made-up logo (the logo guess tests): a red disc with a white bar, top right, clear of the lines
+    if (logo) { x.fillStyle = '#c8102e'; x.beginPath(); x.arc(890, 150, 85, 0, Math.PI * 2); x.fill(); x.fillStyle = '#fff'; x.fillRect(845, 135, 90, 30); x.fillStyle = '#111'; }
     if (blur) {
       const w = c.width, h = c.height, img = x.getImageData(0, 0, w, h);
       let g = new Float32Array(w * h).map((_, i) => img.data[i * 4]);
@@ -65,7 +67,7 @@ async function renderCardImage(page, blur = 0) {
       x.putImageData(img, 0, 0);
     }
     return c.toDataURL('image/png');
-  }, blur);
+  }, [blur, logo]);
   return { name: 'card.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') };
 }
 
@@ -3817,6 +3819,40 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       ok(`wide ${w} x ${h}: Share shows Save and Send side by side`, shareSide.side, JSON.stringify(shareSide));
       await ctxW.close();
     }
+  }
+
+  // The logo from the card (raven575, 2026-11-16): after a read, the reader's guess, cut from the photo in colour, is
+  // offered on the Logo tab with its picture and goes on the card only on Use it; a card with only text offers none.
+  {
+    const ctxG = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
+    const pG = await ctxG.newPage();
+    const readCard = async (logo) => {
+      await pG.goto(ORIGIN); await pG.waitForTimeout(500);
+      await pG.setInputFiles('#imageUpload', await renderCardImage(pG, 0, logo)); await pG.waitForTimeout(300);
+      await pG.click('#runOcrBtn'); await readEnds(pG); await proceed(pG);
+      await pG.$eval(DOCK.card, b => b.click()); await deckSettled(pG);
+      await pG.click('#cardTabs [data-tab="logo"]');
+    };
+    await readCard(true);
+    await pG.waitForSelector('#logoGuessRow:not(.hidden)', { timeout: 8000 }).catch(() => {});
+    const offered = await pG.evaluate(() => { const img = document.getElementById('logoGuessImg'), row = document.getElementById('logoGuessRow');
+      return { shown: !row.classList.contains('hidden') && row.getClientRects().length > 0, src: (img.getAttribute('src') || '').slice(0, 22), w: img.naturalWidth, h: img.naturalHeight,
+        onCard: !!document.querySelector('#formAvatarPreview :is(img, svg)'), btn: Math.round(document.getElementById('useLogoGuessBtn').getBoundingClientRect().height) }; });
+    ok('logo from the card: after a read, the Logo tab offers the logo it found, as a colour picture at the photo\'s own size (not yet on the card)',
+      offered.shown && offered.src === 'data:image/png;base64,' && offered.w >= 170 && offered.h >= 170 && offered.w <= 1024 && !offered.onCard && offered.btn >= 44, JSON.stringify(offered));
+    // Its colours are the photo's: the top of the disc is the card's red, not a trace or a grey copy
+    const redness = await pG.evaluate(() => { const img = document.getElementById('logoGuessImg'), c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+      const x = c.getContext('2d'); x.drawImage(img, 0, 0); const d = x.getImageData(Math.round(c.width / 2), Math.round(c.height * 0.25), 1, 1).data; return [d[0], d[1], d[2]]; });
+    ok('logo from the card: the guess keeps the photo\'s colours (the card screen makes its own contrast choices)', redness[0] > 150 && redness[1] < 80 && redness[2] < 90, JSON.stringify(redness));
+    await pG.click('#useLogoGuessBtn');
+    await pG.waitForSelector('#formAvatarPreview :is(img, svg)', { timeout: 5000 }).catch(() => {});
+    const used = await pG.evaluate(() => ({ onCard: !!document.querySelector('#formAvatarPreview :is(img, svg)'), row: document.getElementById('logoGuessRow').classList.contains('hidden'), remove: !document.getElementById('removeAvatarBtn').classList.contains('hidden') }));
+    ok('logo from the card: Use it puts it on the card (traced or as a picture, Remove logo offered) and the offer goes away', used.onCard && used.row && used.remove, JSON.stringify(used));
+    await readCard(false);
+    await pG.waitForTimeout(2500);
+    const none = await pG.evaluate(() => ({ hidden: document.getElementById('logoGuessRow').classList.contains('hidden'), src: document.getElementById('logoGuessImg').getAttribute('src') }));
+    ok('logo from the card: a card with only text offers no logo', none.hidden && !none.src, JSON.stringify(none));
+    await ctxG.close();
   }
 
   // Card maker categories (easy + premium plan, step 2): Colour, Logo, Style and Paper picture buttons over one box that
