@@ -216,7 +216,27 @@ export const SAFE_GUIDE_MS = 2400;       // the logo's safe-area guide stays thi
 const SPIN_TAP_PX = 8;                   // a drag shorter than this is a tap
 const CLICK_AFTER_LIFT_MS = 600;         // a click this soon after a lift belongs to that press
 export const EDGE_PX = 48;               // no drag within this much of the screen edge (browser back gesture)
+// A flick (raven575's Android run, 2026-11-16: a quick swipe sprang back, it took about 2/3 of the card's width): a drag
+// that lets go at this speed or faster finishes the turn the way it was going, however short it was.
+export const FLICK_PX_PER_MS = 0.45;
+const FLICK_WINDOW_MS = 100;             // the speed at the lift is read over the last this-many ms of the drag
 const BACK = (() => { let lo = 0, hi = 4; for (let i = 0; i < 40; i++) { const c = (lo + hi) / 2; if (2 * c * c * c / (27 * (c + 1) * (c + 1)) < OVERSHOOT) lo = c; else hi = c; } return (lo + hi) / 2; })();
+/** The drag's speed at the lift in px per ms (+ to the right), from the last FLICK_WINDOW_MS of its moves; 0 for a still lift. */
+export function flickSpeed(trail) {
+    if (!trail || trail.length < 2) return 0;
+    const a = trail[0], b = trail[trail.length - 1], dt = b.t - a.t;
+    return dt > 0 ? (b.x - a.x) / dt : 0;
+}
+
+/**
+ * Where a drag settles: the nearest face, unless it was let go in a flick, which goes on to the next face the way it was
+ * moving (a turn to the right counts up). A flick never turns back against itself.
+ */
+export function settleAngle(angle, speed = 0) {
+    if (speed >= FLICK_PX_PER_MS) return Math.ceil(angle / 180 - 1e-6) * 180;
+    if (speed <= -FLICK_PX_PER_MS) return Math.floor(angle / 180 + 1e-6) * 180;
+    return Math.round(angle / 180) * 180;
+}
 export function easeSnap(t) {
     const p = Math.max(0, Math.min(1, t));
     if (p < 0.5) return 2 * p * p;
@@ -287,6 +307,8 @@ export class CardView {
         this.undoWasSample = false;
         this.holdsSample = false;   // the card is a sample preset: the next scan fill replaces it instead of merging
         this.sampleLogoToken = 0;
+        this.logoGuess = null;      // the reader's logo guess from the photo (offerLogoGuess), shown until used
+        this.logoGuessUsed = false;
         this.logoSize = DEFAULT_LOGO_SIZE;
         this.logoBack = null;       // the colour behind the logo the person picked, else null (Auto)
         this.finish = DEFAULT_FINISH;
@@ -937,7 +959,7 @@ export class CardView {
     wireSpin() {
         const flipper = $('card3DFlipper');
         // When a press last turned the card or ended a drag: its own click, if the browser sends one, is then left alone.
-        let start = null, dragging = false, handledAt = -Infinity, edgeId = null;
+        let start = null, dragging = false, handledAt = -Infinity, edgeId = null, trail = [];
         flipper.addEventListener('pointerdown', (e) => {
             if (e.button !== undefined && e.button !== 0) return;
             if (this.stopSpin) this.stopSpin();
@@ -945,7 +967,7 @@ export class CardView {
             // tap there still does.
             const edge = e.clientX < EDGE_PX || e.clientX > window.innerWidth - EDGE_PX;
             start = { x: e.clientX, angle: this.angle, id: e.pointerId, width: Math.max(1, flipper.getBoundingClientRect().width), edge };
-            dragging = false; edgeId = null;
+            dragging = false; edgeId = null; trail = [{ x: e.clientX, t: e.timeStamp }];
         });
         flipper.addEventListener('pointermove', (e) => {
             if (!start || e.pointerId !== start.id) return;
@@ -958,6 +980,8 @@ export class CardView {
                 flipper.dataset.spin = 'drag';
                 if (flipper.setPointerCapture) { try { flipper.setPointerCapture(e.pointerId); } catch (err) { /* a pointer that is already gone */ } }
             }
+            trail.push({ x: e.clientX, t: e.timeStamp });
+            while (trail.length > 2 && e.timeStamp - trail[0].t > FLICK_WINDOW_MS) trail.shift();
             // Half a card width of drag is a quarter turn: a full swipe across turns it over.
             this.setAngle(start.angle + dx / start.width * 180);
         });
@@ -966,7 +990,13 @@ export class CardView {
             if (!start || (e.pointerId !== undefined && e.pointerId !== start.id)) return;
             const wasDragging = dragging;
             start = null; dragging = false;
-            if (wasDragging) { handledAt = performance.now(); this.spinTo(Math.round(this.angle / 180) * 180); return; }
+            if (wasDragging) {
+                handledAt = performance.now();
+                // (a finger that stopped before it lifted is no flick)
+                const last = trail[trail.length - 1], moving = !!last && e.timeStamp - last.t < FLICK_WINDOW_MS;
+                this.spinTo(settleAngle(this.angle, moving ? flickSpeed(trail) : 0));
+                return;
+            }
             // A tap is taken here, on the lift, not only from the click that follows: WebKit sends no click on the card after
             // a drag there has taken the pointer, so a click-based tap would go missing.
             if (e.type !== 'pointerup' || !flipper.contains(e.target)) return;
@@ -1198,6 +1228,7 @@ export class CardView {
             };
             reader.readAsDataURL(file);
         });
+        $('useLogoGuessBtn')?.addEventListener('click', () => this.useLogoGuess());
         // Remove logo asks first; the question takes the button's place until it is answered.
         $('removeAvatarBtn').addEventListener('click', () => this.askRemoveLogo(true));
         $('removeLogoNo').addEventListener('click', () => { this.askRemoveLogo(false); $('removeAvatarBtn').focus(); });
@@ -1207,6 +1238,46 @@ export class CardView {
             this.changed();
             this.showToast('Logo removed.');
         });
+    }
+
+    /**
+     * The reader's logo guess (vault slot logoGuess, raven575 2026-11-16): { image, width, height, score } cut from the
+     * photo in colour, or null. Offered on the Logo tab with its picture; it goes on the card only on a tap.
+     */
+    offerLogoGuess(guess) {
+        this.logoGuess = guess && typeof guess.image === 'string' && guess.image.startsWith('data:image/') ? guess : null;
+        this.logoGuessUsed = false;
+        this.showLogoGuess();
+    }
+
+    showLogoGuess() {
+        const row = $('logoGuessRow'), img = $('logoGuessImg');
+        if (!row || !img) return;
+        const show = !!this.logoGuess && !this.logoGuessUsed;
+        row.classList.toggle('hidden', !show);
+        if (show) img.src = this.logoGuess.image; else img.removeAttribute('src');
+    }
+
+    /** Use it: the guess goes through the same preparation as an upload (trace, white removed, the card's own contrast). */
+    async useLogoGuess() {
+        const guess = this.logoGuess;
+        if (!guess) return;
+        let logo;
+        try {
+            logo = await prepareLogo(guess.image);
+        } catch (err) {
+            console.warn('[vCGE] Logo guess not usable:', err);
+            this.showToast('That logo could not be used. Try Logo to upload one.');
+            return;
+        }
+        if (this.logoGuess !== guess) return;   // a wipe or a new card came in meanwhile
+        this.sampleLogoToken++;
+        this.setAvatar(logo.photo, logo.display);
+        this.logoGuessUsed = true;
+        this.showLogoGuess();
+        this.changed();
+        this.showSafeGuide();
+        this.showToast(logoMessage(logo));
     }
 
     async suggestAddresses(query) {

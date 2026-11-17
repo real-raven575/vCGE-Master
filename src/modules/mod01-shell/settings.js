@@ -49,9 +49,11 @@ export const FONT_CODES = Object.freeze({
     'Inter': 0, 'Atkinson Hyperlegible': 1, 'Lexend': 2, 'OpenDyslexic': 3, 'Tinos': 4, 'Comic Neue': 5, 'Macondo': 6
 });
 // Text sizes: fixed codes, shown smallest first. Normal is the size vCGE has always had.
+// Nine steps of an eighth each (raven575's Android run, 2026-11-16: four were too few); the first four keep their codes.
 export const TEXT_SIZES = Object.freeze([
-    { code: 3, name: 'Small', scale: 0.875 }, { code: 0, name: 'Normal', scale: 1 },
-    { code: 1, name: 'Large', scale: 1.125 }, { code: 2, name: 'Larger', scale: 1.25 }
+    { code: 4, name: 'Smallest', scale: 0.75 }, { code: 3, name: 'Small', scale: 0.875 }, { code: 0, name: 'Normal', scale: 1 },
+    { code: 1, name: 'Large', scale: 1.125 }, { code: 2, name: 'Larger', scale: 1.25 }, { code: 5, name: 'Big', scale: 1.375 },
+    { code: 6, name: 'Bigger', scale: 1.5 }, { code: 7, name: 'Huge', scale: 1.625 }, { code: 8, name: 'Largest', scale: 1.75 }
 ]);
 // Wipe after the lock: fixed codes, shortest first. 7 minutes is the time vCGE has always had; 15 is the longest.
 export const WIPE_TIMES = Object.freeze([{ code: 0, minutes: 7 }, { code: 1, minutes: 10 }, { code: 2, minutes: 15 }]);
@@ -342,7 +344,7 @@ export function initSettings(doc = document, { hasContacts = () => false, restar
     }
     const size = $('sizeRange');                            // the slider walks the fixed sizes, smallest first
     if (size) { size.min = '0'; size.max = String(TEXT_SIZES.length - 1); size.step = '1'; }
-    size?.addEventListener('input', (e) => set({ size: (TEXT_SIZES[Number(e.target.value)] || TEXT_SIZES[1]).code }));
+    size?.addEventListener('input', (e) => set({ size: (TEXT_SIZES[Number(e.target.value)] || { code: 0 }).code }));
     $('handToggle')?.addEventListener('change', (e) => set({ hand: e.target.checked ? 1 : 0 }));
     $('cbToggle')?.addEventListener('change', (e) => set({ cb: e.target.checked ? (s.cb >= 1 ? s.cb : 1) : 0 }));
     // Colour vision: a picture drop-down; Typical keeps words and marks as the switch has them

@@ -3,8 +3,9 @@
  * Created by raven575, Herd of Helpers (claude) & gemini
  *
  * One memory-only store for everything the pipeline holds while a card is being made: the photo, the OCR text, the
- * review lines, the contact, the last scan, the Undo copy, the logo Export hands to the card (wiped with the rest) and
- * up to three photo readings for one card, so OCR can ask for another photo and compare them (text lines only, never images).
+ * review lines, the contact, the last scan, the Undo copy, the logo Export hands to the card (wiped with the rest),
+ * up to three photo readings for one card, so OCR can ask for another photo and compare them (text lines only, never images),
+ * and OCR's logo guess (the one picture cut from the photo that the card screen may see).
  * Each module gets a handle that may read and write only the slots it needs, so modules never hand data to each other
  * directly. Values are copied in and out, so no module holds a live reference into another's data. Change notices name the slot, never its contents.
  *
@@ -20,14 +21,16 @@ import { BiometricUnlock } from './biometric.js';
 // One spot per photo of the same card: three is the most a card gets, so there is no fourth spot.
 export const READINGS = Object.freeze(['reading1', 'reading2', 'reading3']);
 
-export const SLOTS = Object.freeze(['photo', 'ocr', 'review', 'contact', 'lastScan', 'undo', 'logo', ...READINGS]);
+export const SLOTS = Object.freeze(['photo', 'ocr', 'review', 'contact', 'lastScan', 'undo', 'logo', ...READINGS, 'logoGuess']);
 
 // What each module may touch. `share` slots are readable only during a user gesture (a tap on a share button).
 export const MODULE_RIGHTS = Object.freeze({
     mod03: { read: [], write: ['photo'] },                                  // camera / upload
-    mod04: { read: ['photo', ...READINGS], write: ['ocr', ...READINGS] },   // OCR (only OCR deposits and compares the readings)
+    mod04: { read: ['photo', ...READINGS], write: ['ocr', ...READINGS, 'logoGuess'] },   // OCR (only OCR deposits and compares the readings)
+                                                                            // and its logo guess, cut from the photo (raven575, 2026-11-16)
     mod05: { read: ['ocr', 'review'], write: ['review'] },                  // field mapping
-    mod06: { read: ['review', 'contact', 'undo', 'logo'], write: ['contact', 'undo'] }, // card view (reads the logo Export put in)
+    mod06: { read: ['review', 'contact', 'undo', 'logo', 'logoGuess'], write: ['contact', 'undo'] }, // card view (reads the logo Export put in,
+                                                                            // and OCR's logo guess, never the photo)
     mod07: { read: ['contact'], write: [] },                                // vCard + QR
     mod08: { read: [], write: ['logo'], share: ['contact'] }                // egress: reads the contact only when the user shares; writes the QR centre logo
                                                                             // ("Also use this logo on my card"), which the card view reads

@@ -31,14 +31,16 @@ const sampleList = () => [samplePrompt(), ...samples().map(([f, l, o], i) => (ED
 // Renders a business card image in the page so OCR runs on real pixels.
 // `blur` (px, the Gaussian's standard deviation) simulates a shaky or out-of-focus photo. The blur is computed here
 // (three box blurs) rather than with the canvas `filter`, which WebKit ignores, so every engine gets the same photo.
-async function renderCardImage(page, blur = 0) {
-  const dataUrl = await page.evaluate((blur) => {
+async function renderCardImage(page, blur = 0, logo = false) {
+  const dataUrl = await page.evaluate(([blur, logo]) => {
     const c = document.createElement('canvas'); c.width = 1050; c.height = 600;
     const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111';
     const lines = [['bold 56px Arial', 'Maria Gonzalez'], ['34px Arial', 'Director of Engineering'], ['34px Arial', 'Northwind Systems'],
       ['30px Arial', '+1 (312) 555-0147'], ['30px Arial', 'maria.gonzalez@northwind.com'], ['30px Arial', 'https://northwind.com'],
       ['30px Arial', '233 South Wacker Drive'], ['30px Arial', 'Chicago, IL 60606']];
     let y = 80; for (const [f, t] of lines) { x.font = f; x.fillText(t, 70, y); y += f.startsWith('bold') ? 80 : 62; }
+    // A made-up logo (the logo guess tests): a red disc with a white bar, top right, clear of the lines
+    if (logo) { x.fillStyle = '#c8102e'; x.beginPath(); x.arc(890, 150, 85, 0, Math.PI * 2); x.fill(); x.fillStyle = '#fff'; x.fillRect(845, 135, 90, 30); x.fillStyle = '#111'; }
     if (blur) {
       const w = c.width, h = c.height, img = x.getImageData(0, 0, w, h);
       let g = new Float32Array(w * h).map((_, i) => img.data[i * 4]);
@@ -65,7 +67,7 @@ async function renderCardImage(page, blur = 0) {
       x.putImageData(img, 0, 0);
     }
     return c.toDataURL('image/png');
-  }, blur);
+  }, [blur, logo]);
   return { name: 'card.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') };
 }
 
@@ -179,7 +181,7 @@ async function setTheme(page, code) {
   if (sel.both) await page.click(`#appearanceChips [data-v="${sel.mode}"]`);
 }
 const setHand = (page, left) => page.setChecked('#handToggle', left);
-const setSize = (page, name) => page.$eval('#sizeRange', (r, n) => { r.value = String(['Small', 'Normal', 'Large', 'Larger'].indexOf(n)); r.dispatchEvent(new Event('input', { bubbles: true })); }, name);
+const setSize = (page, name) => page.$eval('#sizeRange', (r, n) => { r.value = String(['Smallest', 'Small', 'Normal', 'Large', 'Larger', 'Big', 'Bigger', 'Huge', 'Largest'].indexOf(n)); r.dispatchEvent(new Event('input', { bubbles: true })); }, name);
 async function closeVault(page) { if (await vaultOpen(page)) { await page.click('#vaultPage [data-sheet-close]'); await page.waitForSelector('#vaultPage', { state: 'hidden' }); } }
 
 // On phones the header has no room for the Lock button, so Lock lives on the Vault page ("Lock now") instead.
@@ -817,6 +819,15 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   const cvdSet = { good: await swatch('--good-600'), stop: await swatch('--stop-600'), filter: await page.evaluate(() => getComputedStyle(document.documentElement).filter) };
   ok('colour vision (step 6): Red-weak swaps the named set (go blue, stop orange) and lays no filter over the page',
     cvdSet.good === 'rgb(37, 99, 235)' && cvdSet.stop === 'rgb(234, 88, 12)' && cvdSet.filter === 'none', JSON.stringify(cvdSet));
+  // Blue-weak: colour-blind mode's "on" fill (the dock's main button, pressed switches) turns teal with the set, not
+  // the old fixed blue (raven575's Android run, 2026-11-16: "Scan another" stayed blue)
+  await page.click('.r5-cvd-row .vcge-pick-btn');
+  await page.click('.r5-cvd-row [role="option"][data-value="4"]'); await page.waitForTimeout(450);   // past the button's 200 ms colour fade
+  // (waits on the colour itself as well: the iPhone WebKit job, slow under load, was still mid-fade at 450 ms on PR #47)
+  await page.waitForFunction(() => { const probe = document.createElement('i'); probe.style.color = 'var(--good-600)'; document.body.appendChild(probe);
+    const good = getComputedStyle(probe).color; probe.remove(); return getComputedStyle(document.getElementById('dockNext')).backgroundColor === good; }, null, { timeout: 3000 }).catch(() => {});
+  const tritan = await page.evaluate(() => getComputedStyle(document.getElementById('dockNext')).backgroundColor);
+  ok('colour vision: Blue-weak turns the dock\'s main button teal (its good colour), not blue', tritan === (await swatch('--good-600')) && tritan === 'rgb(13, 148, 136)', tritan);
   await page.selectOption('#cvdSelect', '0');
   ok('colour vision (step 6): Typical gives the named set back its green and red', (await swatch('--good-600')) === 'rgb(22, 163, 74)' && (await swatch('--stop-600')) === 'rgb(220, 38, 38)');
   ok('colour vision: Typical goes back to plain colour-blind mode (cb=1)', !(await page.evaluate(() => document.documentElement.dataset.cvd)) && /cb=1;/.test((await htmlState()).entry));
@@ -858,7 +869,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   // Settings polish from raven575's iPad video: the cog by the title (#13) and a text size that leaves the header alone (#6)
   ok('Settings shows the cog left of its title', (await page.$eval('#settingsTitle use', u => u.getAttribute('href'))).endsWith('#settings')
     && await page.$eval('#settingsTitle', h => h.firstElementChild.tagName.toLowerCase() === 'svg'));
-  ok('the text size slider walks Small, Normal, Large, Larger, Normal chosen', await page.$eval('#sizeRange', r => r.min === '0' && r.max === '3' && r.step === '1' && r.value === '1' && r.getAttribute('aria-valuetext') === 'Normal'));
+  ok('the text size slider walks nine sizes, Smallest to Largest, Normal chosen', await page.$eval('#sizeRange', r => r.min === '0' && r.max === '8' && r.step === '1' && r.value === '2' && r.getAttribute('aria-valuetext') === 'Normal'));
   const sizes = () => page.evaluate(() => { const r = e => e.getBoundingClientRect();
     return { root: parseFloat(getComputedStyle(document.documentElement).fontSize), note: parseFloat(getComputedStyle(document.getElementById('settingsNote')).fontSize),
       header: r(document.querySelector('.vcge-bar')).height, icon: r(document.querySelector('#navSettings .vcge-icon')).width }; });
@@ -1011,8 +1022,8 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('countdown shows remaining time', /Auto-clear in 11\d s/.test(await p2.textContent('#purgeCountdown')), await p2.textContent('#purgeCountdown'));
     const pill2 = await p2.evaluate(() => ({ txt: document.getElementById('sessTxt').textContent, strip: document.getElementById('vaultTimerTime').textContent,
       off: Number(document.getElementById('sessArc').getAttribute('stroke-dashoffset')), label: document.getElementById('navVault').getAttribute('aria-label') }));
-    ok('0.8 shell: while the timer runs, the session pill shows its time and the ring has started to empty (the pill\'s label says it too)', pill2.txt === pill2.strip && /^1:5\d$/.test(pill2.txt) && pill2.off > 0 && pill2.off < 94.2 / 2
-      && pill2.label.includes(`Clears in ${pill2.txt}`), JSON.stringify(pill2));
+    ok('0.8 shell: while the timer runs, the session pill shows no number, only its ring starting to empty (the pill\'s label says the time)', pill2.txt === '' && /^1:5\d$/.test(pill2.strip) && pill2.off > 0 && pill2.off < 94.2 / 2
+      && pill2.label.includes(`Clears in ${pill2.strip}`), JSON.stringify(pill2));
     ok('timer strip: without a PIN it reads "Clears in" with the time left', await p2.isVisible('#vaultTimerStrip') && (await p2.textContent('#vaultTimerLabel')) === 'Clears in' && /^1:5\d$/.test(await p2.textContent('#vaultTimerTime')), await p2.textContent('#vaultTimerTime'));
     await fastForward(p2, 60000);
     await p2.fill('#organization', 'Activity resets');
@@ -3853,6 +3864,43 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     }
   }
 
+  // The logo from the card (raven575, 2026-11-16): after a read, the reader's guess, cut from the photo in colour, is
+  // offered on the Logo tab with its picture and goes on the card only on Use it; a card with only text offers none.
+  {
+    const ctxG = await browser.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true });
+    const pG = await ctxG.newPage();
+    // One page for both cards: the reader stays started (a reload would start it again, slow on the iPhone profile)
+    await pG.goto(ORIGIN); await pG.waitForTimeout(500);
+    const readCard = async (logo) => {
+      await pG.$eval(DOCK.capture, b => b.click()); await deckSettled(pG);
+      await pG.setInputFiles('#imageUpload', await renderCardImage(pG, 0, logo)); await pG.waitForTimeout(300);
+      await pG.click('#runOcrBtn'); await readEnds(pG); await proceed(pG);
+      await pG.$eval(DOCK.card, b => b.click()); await deckSettled(pG);
+      await pG.click('#cardTabs [data-tab="logo"]');
+    };
+    // A card with only text first: nothing is offered
+    await readCard(false);
+    await pG.waitForTimeout(2500);
+    const none = await pG.evaluate(() => ({ hidden: document.getElementById('logoGuessRow').classList.contains('hidden'), src: document.getElementById('logoGuessImg').getAttribute('src') }));
+    ok('logo from the card: a card with only text offers no logo', none.hidden && !none.src, JSON.stringify(none));
+    await readCard(true);
+    await pG.waitForSelector('#logoGuessRow:not(.hidden)', { timeout: 8000 }).catch(() => {});
+    const offered = await pG.evaluate(() => { const img = document.getElementById('logoGuessImg'), row = document.getElementById('logoGuessRow');
+      return { shown: !row.classList.contains('hidden') && row.getClientRects().length > 0, src: (img.getAttribute('src') || '').slice(0, 22), w: img.naturalWidth, h: img.naturalHeight,
+        onCard: !!document.querySelector('#formAvatarPreview :is(img, svg)'), btn: Math.round(document.getElementById('useLogoGuessBtn').getBoundingClientRect().height) }; });
+    ok('logo from the card: after a read, the Logo tab offers the logo it found, as a colour picture at the photo\'s own size (not yet on the card)',
+      offered.shown && offered.src === 'data:image/png;base64,' && offered.w >= 170 && offered.h >= 170 && offered.w <= 1024 && !offered.onCard && offered.btn >= 44, JSON.stringify(offered));
+    // Its colours are the photo's: the top of the disc is the card's red, not a trace or a grey copy
+    const redness = await pG.evaluate(() => { const img = document.getElementById('logoGuessImg'), c = document.createElement('canvas'); c.width = img.naturalWidth; c.height = img.naturalHeight;
+      const x = c.getContext('2d'); x.drawImage(img, 0, 0); const d = x.getImageData(Math.round(c.width / 2), Math.round(c.height * 0.25), 1, 1).data; return [d[0], d[1], d[2]]; });
+    ok('logo from the card: the guess keeps the photo\'s colours (the card screen makes its own contrast choices)', redness[0] > 150 && redness[1] < 80 && redness[2] < 90, JSON.stringify(redness));
+    await pG.click('#useLogoGuessBtn');
+    await pG.waitForSelector('#formAvatarPreview :is(img, svg)', { timeout: 5000 }).catch(() => {});
+    const used = await pG.evaluate(() => ({ onCard: !!document.querySelector('#formAvatarPreview :is(img, svg)'), row: document.getElementById('logoGuessRow').classList.contains('hidden'), remove: !document.getElementById('removeAvatarBtn').classList.contains('hidden') }));
+    ok('logo from the card: Use it puts it on the card (traced or as a picture, Remove logo offered) and the offer goes away', used.onCard && used.row && used.remove, JSON.stringify(used));
+    await ctxG.close();
+  }
+
   // Card maker categories (easy + premium plan, step 2): Colour, Logo, Style and Paper picture buttons over one box that
   // shows only that category; on a phone the card stays pinned at the top and shrinks to a mini card once the box
   // scrolls, and a tap on the mini card scrolls back to the whole card (no spin).
@@ -3899,17 +3947,20 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pT.touchscreen.tap(cb.x + cb.width * 0.8, cb.y + cb.height / 2); await pT.waitForTimeout(900);
     const back = await pT.evaluate(() => ({ top: document.querySelector('#cardCard .r4-card').scrollTop, mini: document.querySelector('#cardCard .r4-card').dataset.mini || 'off', turn: document.getElementById('card3DFlipper').style.transform }));
     ok('mini card: a tap on it scrolls back to the whole card and does not spin it', back.top === 0 && back.mini === 'off' && back.turn === turnedBefore, JSON.stringify(back));
-    // Flip card from a scrolled box turns the card at full size: the box scrolls back up as it flips
+    // Flip card from a scrolled box turns the mini card where it is: no scroll back up, the choices stay put (raven575's
+    // Android run, 2026-11-16: the jump back to the whole card pushed the choices down).
     // Waits on the state itself, not a fixed time: the mini flag follows the scroll a frame late, and a slow phone engine
-    // (WebKit iPhone in CI) took over 0.5 s for that frame and over 1.1 s for the smooth scroll back up
+    // (WebKit iPhone in CI) took over 0.5 s for that frame
     await pT.$eval('#cardCard .r4-card', b => b.scrollTo(0, b.scrollHeight));
     await pT.waitForFunction(() => document.querySelector('#cardCard .r4-card').dataset.mini === 'on', null, { timeout: 3000 }).catch(() => {});
     const miniAgain = await pT.$eval('#cardCard .r4-card', b => b.dataset.mini);
+    const flipBtnBefore = await pT.$eval('#flipCardBtn', b => Math.round(b.getBoundingClientRect().top));
     await pT.$eval('#flipCardBtn', b => b.click());
-    await pT.waitForFunction(() => { const b = document.querySelector('#cardCard .r4-card'); return b.scrollTop === 0 && !b.dataset.mini; }, null, { timeout: 3000 }).catch(() => {});
-    await pT.waitForTimeout(300);
-    const flipped = await pT.evaluate(() => ({ top: document.querySelector('#cardCard .r4-card').scrollTop, mini: document.querySelector('#cardCard .r4-card').dataset.mini || 'off', turn: document.getElementById('card3DFlipper').style.transform }));
-    ok('mini card: Flip card brings the whole card back and turns it', miniAgain === 'on' && flipped.top === 0 && flipped.mini === 'off' && flipped.turn !== turnedBefore, JSON.stringify({ miniAgain: String(miniAgain), ...flipped }));
+    await pT.waitForFunction(() => document.querySelector('#cardCard .r4-card').dataset.face === 'back', null, { timeout: 3000 }).catch(() => {});
+    await pT.waitForTimeout(800);
+    const flipped = await pT.evaluate(() => ({ top: document.querySelector('#cardCard .r4-card').scrollTop, mini: document.querySelector('#cardCard .r4-card').dataset.mini || 'off', turn: document.getElementById('card3DFlipper').style.transform,
+      btn: Math.round(document.getElementById('flipCardBtn').getBoundingClientRect().top) }));
+    ok('mini card: Flip card turns the mini card where it is (no scroll back up, Flip card stays under the finger)', miniAgain === 'on' && flipped.top > 0 && flipped.mini === 'on' && flipped.turn !== turnedBefore && Math.abs(flipped.btn - flipBtnBefore) <= 2, JSON.stringify({ miniAgain: String(miniAgain), flipBtnBefore, ...flipped }));
     // QR side up: Checkers takes the head and his few QR picks replace Card design (raven575's phone run, 2026-11-14)
     await pT.waitForFunction(() => document.querySelector('#cardCard .r4-card').dataset.face === 'back', null, { timeout: 3000 }).catch(() => {});
     const qrSide = await pT.evaluate(() => ({ face: document.querySelector('#cardCard .r4-card').dataset.face, head: [hEmoji.textContent, hName.textContent, hTitle.textContent].join('|'),
@@ -4084,13 +4135,13 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pV.click('#navCard'); await litOnly('navCard'); await pV.waitForTimeout(800);
     ok('0.8 shell: the Card step turns the card back to its front and only it is current', (await lit()) === 'navCard' && (await pV.$eval('#card3DFlipper', el => el.style.transform)) === 'rotateY(0deg)', await lit());
 
-    // The timer never covers a screen (video #95): the time shows in the session pill, the strip's band stays hidden
+    // The timer never covers a screen (video #95): the session pill's ring shows the time running out, the strip's band stays hidden
     await pV.click('#navFields'); await deckSettled(pV);
     await pV.fill('#firstName', 'Shutout'); await pV.waitForTimeout(1300);
     const strip = await pV.evaluate(() => ({ shown: !document.getElementById('vaultTimerStrip').classList.contains('hidden'), band: getComputedStyle(document.getElementById('vaultTimerBand')).display,
       pill: document.getElementById('sessTxt').textContent, bar: document.querySelector('.vcge-bar').getBoundingClientRect().bottom, top: document.getElementById('cardFields').getBoundingClientRect().top }));
-    ok('0.8 shell: with a card in progress the time shows in the session pill, no band hangs over the screen, and the screen starts below the bar',
-      strip.shown && strip.band === 'none' && /^\d:\d\d$/.test(strip.pill) && strip.top >= strip.bar, JSON.stringify(strip));
+    ok('0.8 shell: with a card in progress the session pill keeps only its ring (no number), no band hangs over the screen, and the screen starts below the bar',
+      strip.shown && strip.band === 'none' && strip.pill === '' && strip.top >= strip.bar, JSON.stringify(strip));
 
     // The tour stays under the lock screen: a lock that comes down mid-tour is on top, its PIN box takes the keys
     await pV.click('#navWelcome'); await pV.waitForTimeout(700);
@@ -4197,8 +4248,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const flipMs = spinT.length ? Math.round(spinT[spinT.length - 1] - Math.max(flipT0, spinT[0] - 1000 / 60)) : 0;
     ok('0.8 card: a flip takes about 0.62 s with a soft ease out (many smooth frames, never past 180, never back) and settles exactly on 180', (await angle()) === 'rotateY(180deg)' && degs.length >= 15 && Math.max(...degs) === 180 && degs.every((d, i) => i === 0 || d >= degs[i - 1]) && flipMs >= 560 && flipMs <= 1000 && (await p6.$eval('#card3DFlipper', el => el.dataset.spin)) === 'still', JSON.stringify({ flipMs, n: degs.length, degs: degs.map(Math.round) }));
     // Measured again once the card is in view: on a short phone the 0.8 dock covers the bottom of the deck, and the
-    // Flip click above may have scrolled the card body, so the first box can be stale or partly under the dock
-    await p6.locator('#card3DFlipper').scrollIntoViewIfNeeded(); await p6.waitForTimeout(200);
+    // Flip click above may have scrolled the card body, so the first box can be stale or partly under the dock.
+    // Flip card turns the card where it is (raven575's Android run, 2026-11-16), so a body scrolled to reach it leaves
+    // the mini card, which takes no drags: back to the top first, the whole card.
+    await p6.$eval('#cardCard .r4-card', b => b.scrollTo(0, 0));
+    await p6.waitForFunction(() => !document.querySelector('#cardCard .r4-card').dataset.mini, null, { timeout: 3000 }).catch(() => {});
+    await p6.locator('#card3DFlipper').scrollIntoViewIfNeeded(); await p6.waitForTimeout(400);
     flipper = await p6.locator('#card3DFlipper').boundingBox();
     const cx = flipper.x + flipper.width / 2, cy = flipper.y + flipper.height / 2;
     // Which events reach the card (for the failure detail: desktop WebKit sent neither a lift nor a click after a drag).
@@ -4225,14 +4280,15 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const el = document.getElementById('card3DFlipper'), o = { pointerId: 41, pointerType: 'mouse', button: 0, bubbles: true, cancelable: true, clientY: y };
       el.dispatchEvent(new PointerEvent('pointerdown', { ...o, clientX: x }));
       el.dispatchEvent(new PointerEvent('pointermove', { ...o, clientX: x + 60 }));
-      el.dispatchEvent(new PointerEvent('pointerup', { ...o, clientX: x + 60 }));
+      // (the finger stops before it lifts: a slow drag, not a flick)
+      return new Promise(r => setTimeout(() => { el.dispatchEvent(new PointerEvent('pointerup', { ...o, clientX: x + 60 })); r(); }, 200));
     }, [cx - 30, cy]);
     await settled(p6);
     const afterDrag = await angle();
     await p6.mouse.click(cx + flipper.width * 0.25, cy); await settled(p6);
     const faceNow = await p6.$eval('#card3DFlipper', el => el.dataset.face);
     ok('card: after a drag the browser sent no click for (WebKit), the next tap still flips', afterDrag === 'rotateY(180deg)' && (await angle()) !== afterDrag && faceNow === 'front', `${afterDrag} -> ${await angle()} ${faceNow}`);
-    await p6.click('#flipCardBtn'); await settled(p6);
+    await p6.$eval('#flipCardBtn', b => b.click()); await settled(p6);   // (no scroll to reach it: the card stays whole, not mini)
     // A tap is taken on the lift, not from a click: a press and lift with no click after it (as WebKit sends after a
     // drag) flips the card, and el.click() with no press behind it flips it too, the short way.
     const faceBefore = await p6.$eval('#card3DFlipper', el => el.dataset.face);
@@ -4252,7 +4308,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await settled(p6);
     const faceMouseOnly = await p6.$eval('#card3DFlipper', el => el.dataset.face);
     ok('card: a click with no pointer events before it flips the card', faceMouseOnly !== faceBefore, `${faceBefore} -> ${faceMouseOnly}`);
-    await p6.click('#flipCardBtn'); await settled(p6);
+    await p6.$eval('#flipCardBtn', b => b.click()); await settled(p6);   // (no scroll to reach it: the card stays whole, not mini)
     // From the keyboard the card turns with its Flip card button (the card itself is not a stop in the tab order).
     const faceUp = () => p6.$eval('#card3DFlipper', el => el.dataset.face);
     await p6.focus('#flipCardBtn'); await p6.keyboard.press('Enter'); await settled(p6);
@@ -4261,15 +4317,37 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const faceSpace = await faceUp();
     ok('card: from the keyboard, Enter and then Space on Flip card each turn the card over', faceEnter !== faceBefore && faceSpace === faceBefore && (await p6.$eval('#card3DFlipper', el => el.tabIndex)) < 0, `${faceBefore} -> ${faceEnter} -> ${faceSpace}`);
     const cardName = () => p6.evaluate(() => document.documentElement.dataset.card);
+    // (focus on Flip card scrolled the box to it on a short phone: back to the whole card, which takes drags)
+    await p6.$eval('#cardCard .r4-card', b => b.scrollTo(0, 0));
+    await p6.waitForFunction(() => !document.querySelector('#cardCard .r4-card').dataset.mini, null, { timeout: 3000 }).catch(() => {});
+    await p6.waitForTimeout(400);
     await p6.mouse.move(cx, cy); await p6.mouse.down();
     for (let i = 1; i <= 6; i++) await p6.mouse.move(cx + flipper.width * 0.2 * i / 6, cy);
+    await p6.waitForTimeout(200);   // held still before the lift: a slow drag, not a flick
     await p6.mouse.up(); await settled(p6); await p6.waitForTimeout(400);
-    ok('card: a short drag settles back on the same face and the deck stays on this card', (await angle()) === 'rotateY(180deg)' && (await cardName()) === 'card', `${await angle()} ${await cardName()}`);
+    ok('card: a short slow drag settles back on the same face and the deck stays on this card', (await angle()) === 'rotateY(180deg)' && (await cardName()) === 'card', `${await angle()} ${await cardName()}`);
+    // A flick (raven575's Android run, 2026-11-16: a quick swipe sprang back): the same short drag, let go while still
+    // moving fast, finishes the turn the way it went; a flick back the other way turns it back.
+    const flick = (dir) => p6.evaluate(([x, y, dir]) => new Promise((done) => {
+      const el = document.getElementById('card3DFlipper'), o = { pointerId: 43, pointerType: 'touch', isPrimary: true, button: 0, bubbles: true, cancelable: true, clientY: y };
+      el.dispatchEvent(new PointerEvent('pointerdown', { ...o, clientX: x }));
+      let i = 0;
+      const step = () => {
+        i += 1;
+        el.dispatchEvent(new PointerEvent('pointermove', { ...o, clientX: x + dir * 18 * i }));
+        if (i < 4) setTimeout(step, 16); else { el.dispatchEvent(new PointerEvent('pointerup', { ...o, clientX: x + dir * 18 * i })); done(); }
+      };
+      setTimeout(step, 16);
+    }), [cx, cy, dir]);
+    await flick(1); await settled(p6);
+    const flickedOver = await angle(), flickFace = await p6.$eval('#card3DFlipper', el => el.dataset.face);
+    await flick(-1); await settled(p6);
+    ok('card: a quick flick of a fifth of the card turns it over, and a flick back turns it back', flickedOver === 'rotateY(0deg)' && flickFace === 'front' && (await angle()) === 'rotateY(180deg)', `${flickedOver} ${flickFace} -> ${await angle()}`);
     await p6.mouse.move(20, cy); await p6.mouse.down(); await p6.mouse.move(200, cy); await p6.mouse.up(); await settled(p6);
     ok('card: a drag that starts within 48 px of the screen edge does not spin the card', (await angle()) === 'rotateY(180deg)', await angle());
     await p6.emulateMedia({ reducedMotion: 'reduce' });
     await p6.evaluate(() => { window.__spin = []; });
-    await p6.click('#flipCardBtn');
+    await p6.$eval('#flipCardBtn', b => b.click());   // (no scroll to reach it: the card stays whole, not mini)
     ok('card: under reduce motion the flip is instant (one frame)', (await angle()) === 'rotateY(0deg)' && (await p6.evaluate(() => window.__spin.length)) === 1, JSON.stringify(await p6.evaluate(() => window.__spin)));
     await p6.emulateMedia({ reducedMotion: 'no-preference' });
     // Toasts: above the dock, 3 s, a tap dismisses, a hold keeps it until 3 s after the release

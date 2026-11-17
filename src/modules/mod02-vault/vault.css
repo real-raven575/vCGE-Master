@@ -112,19 +112,21 @@ button.vault-bio-btn.hidden { display: none; }
 .vault-row { display: flex; align-items: center; justify-content: space-between; gap: 0.75rem; min-height: var(--vcge-tap, 2.75rem); font-size: 0.9rem; }
 .vault-row.hidden { display: none; }
 .vault-row > span:last-child { display: flex; gap: var(--vcge-gap, 0.5rem); flex-wrap: wrap; justify-content: flex-end; }
+/* The Vault's buttons wear the shell's own (pill, theme colour, lift), so the PIN pop-up and the Vault page match every
+   other screen in every theme (raven575's Android run, 2026-11-16: Set PIN was still the old green) */
 button.vault-btn {
-    min-height: var(--vcge-tap, 2.75rem); padding: 0 1rem; border-radius: 0.75rem; font-size: 0.85rem; font-weight: 700;
-    background: var(--good-600); color: var(--good-950); border: 2px solid var(--good-700); cursor: pointer;
+    min-height: var(--vcge-tap, 2.75rem); padding: 0 1.1rem; border-radius: 999px; font-size: 0.9rem; font-weight: 700;
+    background: var(--sh-accent); color: var(--sh-on); border: 0; box-shadow: var(--sh-shadow-lift); cursor: pointer;
 }
-button.vault-btn:hover { background: var(--good-500); }
+button.vault-btn:hover { filter: brightness(1.08); }
 button.vault-btn-quiet {
-    min-height: var(--vcge-tap, 2.75rem); padding: 0 1rem; border-radius: 0.75rem; font-size: 0.85rem; font-weight: 600;
-    background: transparent; color: inherit; border: 2px solid #cbd5e1; cursor: pointer;
+    min-height: var(--vcge-tap, 2.75rem); padding: 0 1.1rem; border-radius: 999px; font-size: 0.9rem; font-weight: 600;
+    background: var(--sh-surface); color: var(--sh-ink); border: 0; box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow); cursor: pointer;
 }
-.dark button.vault-btn-quiet { border-color: #475569; }
-button.vault-btn-quiet:hover { background: rgba(100, 116, 139, 0.15); }
-button.vault-btn-danger { border-color: var(--stop-600); color: var(--stop-700); }
-.dark button.vault-btn-danger { color: var(--stop-300); border-color: var(--stop-500); }
+button.vault-btn-quiet:hover { background: color-mix(in srgb, var(--sh-surface) 85%, var(--sh-ink)); }
+html[data-cb="1"] button.vault-btn { background: var(--cb-on); color: #ffffff; }
+button.vault-btn-danger { box-shadow: 0 0 0 2px var(--stop-600), var(--sh-shadow); color: var(--stop-700); }
+.dark button.vault-btn-danger { color: var(--stop-300); box-shadow: 0 0 0 2px var(--stop-500), var(--sh-shadow); }
 button.vault-btn-danger:hover { background: rgba(220, 38, 38, 0.1); }
 button.vault-btn.hidden, button.vault-btn-quiet.hidden { display: none; }
 .vault-section { padding: 0.75rem; border-radius: 1rem; background: #f8fafc; border: 1px solid #e2e8f0; display: flex; flex-direction: column; gap: 0.25rem; }
