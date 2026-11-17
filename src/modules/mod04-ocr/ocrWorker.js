@@ -226,6 +226,12 @@ globalEventBus.subscribe(Events.MEMORY_PURGED, shutdownOCREngine);
  * There is deliberately no hard black/white threshold: Tesseract binarises adaptively, which copes with the shadows,
  * glare and coloured areas of phone photos far better than one global cut-off.
  */
+/** How much the reader enlarges (or shrinks) a photo whose long side is `longest` px before reading it. */
+export function readerScale(longest) {
+    const l = Math.max(1, longest || 1);
+    return l < 1200 ? Math.min(3, 1800 / l) : (l > 2400 ? 2400 / l : 1);
+}
+
 export function preProcessImageBuffer(imageSrc) {
     return new Promise((resolve, reject) => {
         const img = new Image();
@@ -233,8 +239,7 @@ export function preProcessImageBuffer(imageSrc) {
 
         img.onload = function() {
             try {
-                const longest = Math.max(img.width, img.height) || 1;
-                const scale = longest < 1200 ? Math.min(3, 1800 / longest) : (longest > 2400 ? 2400 / longest : 1);
+                const scale = readerScale(Math.max(img.width, img.height) || 1);
                 const width = Math.max(1, Math.round(img.width * scale));
                 const height = Math.max(1, Math.round(img.height * scale));
 
@@ -687,9 +692,13 @@ async function scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started) {
     await digitsLook(worker, processedImage, found, started);
     if (generation !== started) throw new OcrCancelledError();
     const lines = found.map(({ look, digits, ...line }) => line);
+    // Where each line sits, in the reader's pixels (the photo times readerScale): the logo finder blanks out the contact
+    // text with these (logoGuess.js). Boxes and text only, like the lines themselves.
+    const boxes = (result.data.lines || []).filter(l => l && l.bbox && String(l.text || '').trim())
+        .map(l => ({ text: String(l.text).trim(), confidence: Math.round(l.confidence || 0), bbox: { x0: l.bbox.x0, y0: l.bbox.y0, x1: l.bbox.x1, y1: l.bbox.y1 } }));
     // A signal only: the text itself is contact data and goes back to the caller, never onto the bus.
     globalEventBus.publish(Events.OCR_TEXT_EXTRACTED, { sourceModule: MODULE_ID, confidence, icons: lines.filter(l => l.icon).length, timestamp: Date.now() });
-    return { text, confidence, lines };
+    return { text, confidence, lines, boxes };
 }
 
 /** A crash inside the engine's WebAssembly (not a timeout, a cancel or a photo it could not read). */

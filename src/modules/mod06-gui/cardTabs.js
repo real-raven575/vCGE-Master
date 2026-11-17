@@ -31,13 +31,14 @@ export function miniWanted(scrollTop, stageHeight) {
 export function initCardTabs(doc = document, win = window) {
     const bar = doc.getElementById('cardTabs'), body = doc.querySelector('#cardCard .r4-card');
     if (!bar || !body) return;
+    const spacer = () => body.querySelector(':scope > .r4-keep') || body.appendChild(Object.assign(doc.createElement('div'), { className: 'r4-keep' }));
     bar.addEventListener('click', (e) => {
         const b = e.target.closest('.r4-tab');
         if (!b) return;
         // The box changes where it is: no jump back to the top and no full-size card (raven575's phone run, 2026-11-14);
         // the mini card in the corner keeps showing each change. A shorter category would pull the box up (and the card
         // back to full size), so a spacer at the end keeps the old length until the next category button.
-        const top = body.scrollTop, keep = body.querySelector(':scope > .r4-keep') || body.appendChild(Object.assign(doc.createElement('div'), { className: 'r4-keep' }));
+        const top = body.scrollTop, keep = spacer();
         const was = body.scrollHeight - keep.offsetHeight;
         keep.style.height = '0px';
         showCardTab(doc, b.dataset.tab);
@@ -84,8 +85,20 @@ export function initCardTabs(doc = document, win = window) {
         e.stopPropagation();
         fullCard();
     }, true);
-    // Flip card brings the whole card back first, so the turn is seen at full size (and the card takes drags again).
-    // Checked from the scroll itself: the mini flag is set a frame late and a tap can land in between.
+    // Flip card turns the card where it is, mini or not, and stays under the finger (raven575's Android run, 2026-11-16:
+    // scrolling back up to the whole card pushed the choices down out of reach). The other side has its own choices
+    // (Checkers' QR picks), so the box is scrolled by however far the button moved, before the frame is drawn, with the
+    // spacer making room when the new choices are shorter.
     const flip = doc.getElementById('flipCardBtn');
-    if (flip) flip.addEventListener('click', () => { if (!isWide() && body.scrollTop > 0) fullCard(); });
+    if (flip) flip.addEventListener('click', () => {
+        if (isWide() || body.scrollTop <= 0) return;
+        const before = flip.getBoundingClientRect().top;
+        win.requestAnimationFrame(() => {
+            if (!flip.getClientRects().length) return;
+            const keep = spacer(), want = body.scrollTop + flip.getBoundingClientRect().top - before;
+            const short = want - (body.scrollHeight - body.clientHeight);
+            if (short > 0) keep.style.height = `${keep.offsetHeight + Math.ceil(short)}px`;
+            body.scrollTop = Math.max(0, want);
+        });
+    }, true);   // (capture: measured before the card's own Flip card handler swaps the choices)
 }

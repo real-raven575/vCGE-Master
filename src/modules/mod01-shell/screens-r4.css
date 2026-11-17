@@ -13,6 +13,10 @@
 /* ---- Card ------------------------------------------------------------------------------------------------------- */
 /* The card first, centred, at most 340 px wide, with the mock-up's soft drop shadow and 18 px corners */
 #cardCard .r4-stage { max-width: 340px; margin: 6px auto 10px; }
+/* Room for the turn (raven575's Android run, 2026-11-16: the top corners were cut off mid-spin). Half way round, the near
+   edge comes toward the eye and grows past the top of the scroll box; a farther eye (1800 px, was 1000) grows it about
+   half as much, and 14 px of headroom inside the stage (the sticky stage cannot sit higher) keeps it clear, at full size and as the mini card (stuck at the top). */
+#cardCard .r4-stage { perspective: 1800px; padding-top: 14px; margin-top: 0; }
 #cardCard .r4-stage .card-face { border-radius: 18px; /* lifted like a card on a desk (raven575, 2026-11-10): contact, near and far shadows, a bright top edge */
     box-shadow: 0 1px 1px rgba(0, 0, 0, 0.14), 0 6px 10px -6px rgba(0, 0, 0, 0.35), 0 26px 38px -24px rgba(0, 0, 0, 0.55), 0 1px 0 rgba(255, 255, 255, 0.22) inset, 0 0 0 1px rgba(255, 255, 255, 0.08) inset; }
 #cardCard .r4-stage #cardFront { min-height: 0; padding: 18px 20px; }
@@ -53,6 +57,15 @@
 #cardCard .r4-logo label.r4-upload { background: var(--sh-accent); color: var(--sh-on); }
 #cardCard .r4-pill-stop { color: var(--sh-stop); background: transparent; box-shadow: 0 0 0 1.5px var(--sh-stop) inset; }
 #cardCard .r4-logo .r4-pill-stop { background: transparent; }
+/* The logo from the card (raven575, 2026-11-16): the reader's guess with its picture, one tap to use it */
+.r4-guess { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 8px 8px 8px 10px; border-radius: 18px; background: var(--sh-sunk); }
+.r4-guess.hidden { display: none; }
+.r4-guess-prev { flex: none; display: grid; place-items: center; width: 72px; height: 48px; border-radius: 10px; overflow: hidden; background: var(--sh-surface); box-shadow: 0 0 0 1px var(--sh-line); }
+.r4-guess-prev img { display: block; width: 72px; height: 48px; object-fit: contain; padding: 3px; }
+.r4-guess-text { flex: 1 1 auto; min-width: 0; line-height: 1.3; }
+.r4-guess-text b { display: block; font-size: 0.9rem; color: var(--sh-ink); }
+.r4-guess-text small { display: block; font-size: 0.78rem; color: var(--sh-muted); }
+#cardCard .r4-logo .r4-guess-use { flex: none; background: var(--sh-accent); color: var(--sh-on); }
 #cardCard .r4-pill-danger { background: var(--sh-stop); color: #fff; }
 #cardCard .r4-pill[aria-pressed="true"]:not(#cardIconsBtn) { background: var(--sh-accent); color: var(--sh-on); }
 #cardCard select.r4-select { padding: 0 12px; max-width: 100%; }
