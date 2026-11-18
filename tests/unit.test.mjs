@@ -234,6 +234,64 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('a signature from another credential is refused', !(await verifyAssertion({ ...(await assertion()), publicKey: other.publicKey })));
   const tampered = await assertion(); tampered.signature = tampered.signature.slice(); tampered.signature[10] ^= 1;
   ok('a tampered signature is refused', !(await verifyAssertion(tampered)));
+
+  // The Android app's fingerprint bridge (MainActivity.kt): a fake phone whose secure key signs after a "fingerprint"
+  const { BiometricUnlock, biometricAvailable, nativeFingerprint } = await import(`${R}/modules/mod02-vault/biometric.js`);
+  const b64 = (bytes) => Buffer.from(bytes).toString('base64');
+  const phone = ({ status = 'ok', answer = 'ok', key = keys, flip = false } = {}) => ({
+    calls: [], cleared: 0,
+    fingerprintStatus() { return status; },
+    fingerprintSetUp() { this.calls.push('setUp'); return status === 'ok' ? '' + this.spki : ''; },
+    fingerprintSign(id, challenge, title) {
+      this.calls.push('sign:' + title);
+      setTimeout(async () => {
+        if (answer !== 'ok') return window.__vcgeFingerprintDone(id, answer, '');
+        const signed = new Uint8Array(await subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, key.privateKey, Buffer.from(challenge, 'base64')));
+        const der = rawToDer(signed); if (flip) der[10] ^= 1;
+        window.__vcgeFingerprintDone(id, 'ok', b64(der));
+      }, 5);
+      return true;
+    },
+    fingerprintClear() { this.cleared++; }
+  });
+  const spki = b64(new Uint8Array(await subtle.exportKey('spki', keys.publicKey)));
+  const make = (opts) => Object.assign(phone(opts), { spki });
+  ok('Android: no bridge on the page in a browser or the desktop app', nativeFingerprint() === null);
+  ok('Android: the fingerprint option is offered when the phone has a strong fingerprint set up', await biometricAvailable(make()));
+  ok('Android: no fingerprint added in Settings means no option', !(await biometricAvailable(make({ status: 'not-enrolled' }))));
+  window.vcgeAndroid = make();
+  ok('Android: the page finds the bridge only when all four fingerprint calls are there', nativeFingerprint() === window.vcgeAndroid);
+  window.vcgeAndroid = { addContact() {} };
+  ok('Android: an older app without the fingerprint calls is not taken for one', nativeFingerprint() === null);
+  delete window.vcgeAndroid;
+  {
+    const bridge = make(), bio = new BiometricUnlock({ bridge });
+    await bio.enroll();
+    ok('Android: setting up keeps the phone key\'s public half for this session', bio.isEnrolled() && bio.credential.native && bridge.calls.join() === 'setUp');
+    ok('Android: a genuine fingerprint signature unlocks', await bio.verify() && bridge.calls[1] === 'sign:Unlock vCGE');
+    bio.clear();
+    ok('Android: clearing deletes the phone key too', !bio.isEnrolled() && bridge.cleared === 1);
+  }
+  {
+    const bio = new BiometricUnlock({ bridge: make({ answer: 'cancelled' }) }); await bio.enroll();
+    ok('Android: "Use PIN" (cancelled) stays locked and says why', !(await bio.verify()) && bio.lastError === 'cancelled' && bio.isEnrolled());
+  }
+  {
+    const bio = new BiometricUnlock({ bridge: make({ answer: 'changed' }) }); await bio.enroll();
+    ok('Android: changed fingerprints stay locked and turn fingerprint off', !(await bio.verify()) && /changed/.test(bio.lastError) && !bio.isEnrolled());
+  }
+  {
+    const bio = new BiometricUnlock({ bridge: make({ key: other }) }); await bio.enroll();
+    ok('Android: a signature from another key is refused', !(await bio.verify()) && bio.lastError === 'signature not valid');
+  }
+  {
+    const bio = new BiometricUnlock({ bridge: make({ flip: true }) }); await bio.enroll();
+    ok('Android: a tampered signature is refused', !(await bio.verify()));
+  }
+  {
+    let threw = false; try { await new BiometricUnlock({ bridge: make({ status: 'none' }) }).enroll(); } catch (e) { threw = e.message === 'BIOMETRIC_UNSUPPORTED'; }
+    ok('Android: no key made (no sensor) fails setup cleanly', threw);
+  }
 }
 
 // Vault store: the hub every module goes through (memory only, per-module rights, no data in notices)

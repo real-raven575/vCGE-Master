@@ -8,6 +8,12 @@
  * it is saved by vCGE. (The device may keep the credential in its own password manager; it holds no contact data.)
  * Unlocking asks the device to sign a fresh random challenge after it has checked the user's face or fingerprint, and
  * the signature is verified here against the public key from enrolment.
+ *
+ * In the Android app the WebView offers pages no WebAuthn (raven575's Android run, 2026-11-16: a PIN was set, but no
+ * fingerprint option showed), so there the app's own bridge (MainActivity.kt's vcgeAndroid.fingerprint*) stands in: a
+ * key pair made in the phone's secure hardware for this session, whose private half signs only after a strong
+ * fingerprint (or face) check. The public half comes here, and each unlock signs a fresh random challenge that is
+ * verified here, as with WebAuthn. The key is deleted when this is cleared and at every app start.
  */
 
 const subtle = () => window.crypto.subtle;
@@ -56,8 +62,51 @@ const concat = (a, b) => {
 
 const sameBytes = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
 
-/** True when this device can check a face or fingerprint for web pages (a platform authenticator). */
-export async function biometricAvailable() {
+/** The Android app's fingerprint bridge, or null in a browser or the desktop app. */
+export function nativeFingerprint() {
+    const bridge = typeof window !== 'undefined' ? window.vcgeAndroid : null;
+    return bridge && ['fingerprintStatus', 'fingerprintSetUp', 'fingerprintSign', 'fingerprintClear'].every((f) => typeof bridge[f] === 'function')
+        ? bridge : null;
+}
+
+const toBase64 = (bytes) => btoa(String.fromCharCode(...new Uint8Array(bytes)));
+const fromBase64 = (text) => Uint8Array.from(atob(text), (c) => c.charCodeAt(0));
+
+/** Checks the Android bridge's signature (DER ECDSA P-256 over the raw challenge). Pure apart from WebCrypto. */
+export async function verifyNativeSignature(publicKey, challenge, der) {
+    try {
+        return await subtle().verify({ name: 'ECDSA', hash: 'SHA-256' }, publicKey, derToRaw(der), challenge);
+    } catch (e) {
+        return false;
+    }
+}
+
+// Answers from the Android prompt arrive later, through window.__vcgeFingerprintDone(id, status, signature).
+const pendingSigns = new Map();
+function signWithBridge(bridge, challenge) {
+    return new Promise((resolve) => {
+        const id = base64url(random(9));
+        const finish = (status, signature = '') => {
+            if (!pendingSigns.has(id)) return;
+            pendingSigns.delete(id);
+            clearTimeout(timer);
+            resolve({ status, signature });
+        };
+        const timer = setTimeout(() => finish('timed out'), TIMEOUT_MS);
+        pendingSigns.set(id, finish);
+        window.__vcgeFingerprintDone = (doneId, status, signature) => { const f = pendingSigns.get(doneId); if (f) f(status, signature); };
+        let started = false;
+        try { started = bridge.fingerprintSign(id, toBase64(challenge), 'Unlock vCGE') === true; } catch (e) { started = false; }
+        if (!started) finish('unavailable');
+    });
+}
+
+/** True when this device can check a face or fingerprint for web pages (a platform authenticator), or, in the Android
+ * app, when the phone has a strong fingerprint check set up. */
+export async function biometricAvailable(bridge = nativeFingerprint()) {
+    if (bridge) {
+        try { return bridge.fingerprintStatus() === 'ok'; } catch (e) { return false; }
+    }
     try {
         return typeof PublicKeyCredential !== 'undefined'
             && typeof PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable === 'function'
@@ -97,9 +146,15 @@ export async function verifyAssertion({ publicKey, algorithm, challenge, origin,
 }
 
 export class BiometricUnlock {
-    constructor() {
-        this.credential = null;   // { id, publicKey, algorithm } for this session only
+    /** @param {{ bridge?: object|null }} [options] the Android bridge (found on the page when left out; null = none) */
+    constructor({ bridge } = {}) {
+        this.credential = null;   // { id, publicKey, algorithm, native } for this session only
         this.lastError = null;    // why the last check failed (an error name such as NotAllowedError), never any data
+        this.fixedBridge = bridge;
+    }
+
+    get bridge() {
+        return this.fixedBridge !== undefined ? this.fixedBridge : nativeFingerprint();
     }
 
     isEnrolled() {
@@ -108,6 +163,15 @@ export class BiometricUnlock {
 
     /** Asks the device to create a credential (the user confirms with face or fingerprint). Throws if cancelled. */
     async enroll() {
+        const bridge = this.bridge;
+        if (bridge) {
+            let spki = '';
+            try { spki = bridge.fingerprintSetUp(); } catch (e) { spki = ''; }
+            if (!spki) throw new Error('BIOMETRIC_UNSUPPORTED');
+            const publicKey = await subtle().importKey('spki', fromBase64(spki), { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+            this.credential = { id: null, publicKey, algorithm: ES256, native: true };
+            return;
+        }
         const created = await navigator.credentials.create({
             publicKey: {
                 rp: { name: 'vCGE' },
@@ -134,6 +198,19 @@ export class BiometricUnlock {
         this.lastError = null;
         if (!this.credential) { this.lastError = 'not set up'; return false; }
         const challenge = random(32);
+        if (this.credential.native) {
+            const bridge = this.bridge;
+            if (!bridge) { this.lastError = 'unavailable'; return false; }
+            const { status, signature } = await signWithBridge(bridge, challenge);
+            if (status !== 'ok') {
+                this.lastError = status === 'changed' ? 'fingerprints changed, add it again' : status;
+                if (status === 'changed') this.credential = null;
+                return false;
+            }
+            const valid = await verifyNativeSignature(this.credential.publicKey, challenge, fromBase64(signature));
+            if (!valid) this.lastError = 'signature not valid';
+            return valid;
+        }
         let assertion;
         try {
             assertion = await navigator.credentials.get({
@@ -164,6 +241,9 @@ export class BiometricUnlock {
     }
 
     clear() {
+        if (this.credential && this.credential.native) {
+            try { const bridge = this.bridge; if (bridge) bridge.fingerprintClear(); } catch (e) { /* the key also goes at the next start */ }
+        }
         this.credential = null;
     }
 }

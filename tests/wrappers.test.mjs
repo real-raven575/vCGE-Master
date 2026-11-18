@@ -19,7 +19,10 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
   const main = read(ANDROID + 'main/AndroidManifest.xml');
   const perms = permissions(main);
   ok('Android: release manifest asks for no internet', !perms.includes('android.permission.INTERNET'), perms.join(','));
-  ok('Android: CAMERA is the only permission', perms.length === 1 && perms[0] === 'android.permission.CAMERA', perms.join(','));
+  // USE_BIOMETRIC (raven575 tap 15:18 UTC 2026-11-18, "Build fingerprint unlock into the Android app"): an install-time
+  // permission to show Android's own fingerprint prompt; the app never sees the fingerprint itself
+  ok('Android: CAMERA and USE_BIOMETRIC are the only permissions',
+    perms.length === 2 && perms[0] === 'android.permission.CAMERA' && perms[1] === 'android.permission.USE_BIOMETRIC', perms.join(','));
   ok('Android: a phone without a camera can still install it',
     /android:name="android\.hardware\.camera"\s+android:required="false"/.test(main));
   ok('Android: no app backup of settings', /android:allowBackup="false"/.test(main));
@@ -57,12 +60,24 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
       && /VERSION_CODES\.Q/.test(activity) && /IS_PENDING, 0/.test(activity) && !/WRITE_EXTERNAL_STORAGE/.test(main));
   ok('Android: Print opens Android\'s print screen for the page on the UI thread, named by the page',
     /fun print\(jobName: String\): Boolean/.test(activity) && /runOnUiThread/.test(activity) && /PrintManager/.test(activity) && /createPrintDocumentAdapter\(name\)/.test(activity));
+  // raven575's Android run (2026-11-16): a PIN was set but no fingerprint option showed (the WebView has no WebAuthn)
+  ok('Android: fingerprint unlock signs with a session key in the Android Keystore that needs a strong biometric each time',
+    /fun fingerprintSetUp\(\): String/.test(activity) && /"AndroidKeyStore"/.test(activity) && /setUserAuthenticationRequired\(true\)/.test(activity)
+      && /setInvalidatedByBiometricEnrollment\(true\)/.test(activity) && /AUTH_BIOMETRIC_STRONG/.test(activity) && /ECGenParameterSpec\("secp256r1"\)/.test(activity));
+  ok('Android: the signature is made only inside the fingerprint prompt\'s CryptoObject, with "Use PIN" as the way out',
+    /fun fingerprintSign\(id: String, challenge: String, title: String\): Boolean/.test(activity) && /BiometricPrompt\.CryptoObject\(signer\)/.test(activity)
+      && /result\.cryptoObject\?\.signature/.test(activity) && /setNegativeButtonText\("Use PIN"\)/.test(activity) && /Authenticators\.BIOMETRIC_STRONG/.test(activity));
+  ok('Android: the fingerprint prompt is made in onCreate and the session key is deleted at every start and on clear',
+    /deleteFingerprintKey\(\)\s*fingerprintPrompt = BiometricPrompt\(this/.test(activity) && /fun fingerprintClear\(\)\s*\{\s*deleteFingerprintKey\(\)/.test(activity));
+  ok('Android: the answer goes back to the page with only an id, a status word and the signature',
+    /window\.__vcgeFingerprintDone\('\$safeId', '\$status', '\$signature'\)/.test(activity) && /replace\(Regex\("\[\^A-Za-z0-9_-\]"\), ""\)/.test(activity));
   ok('Android: the bridge still never loads a page or opens a web link (no ACTION_VIEW on http)', !/https?:\/\//.test(activity.replace(/\/\/.*$/gm, '')));
   const paths = read(ANDROID + 'main/res/xml/file_paths.xml');
   ok('Android: the FileProvider shares the app cache, where the card is written', /<cache-path\s+name="[^"]+"\s+path="\."/.test(paths) && /\$\{applicationId\}\.fileprovider/.test(main));
   const gradle = read('src-tauri/gen/android/app/build.gradle.kts');
   ok('Android: release builds refuse cleartext traffic', /defaultConfig\s*\{[^}]*usesCleartextTraffic"\]\s*=\s*"false"/.test(gradle));
   ok('Android: package id matches the desktop identifier', /applicationId\s*=\s*"app\.vcge\.vcge"/.test(gradle));
+  ok('Android: the fingerprint prompt comes from androidx.biometric 1.1.0 (stable)', /implementation\("androidx\.biometric:biometric:1\.1\.0"\)/.test(gradle));
   ok('Android: no signing key or password in the repo', !/storePassword|keyPassword|storeFile/.test(gradle));
 
   for (const d of ['mdpi', 'hdpi', 'xhdpi', 'xxhdpi', 'xxxhdpi']) {

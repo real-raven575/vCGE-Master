@@ -5,6 +5,7 @@
      CAMERA is the one permission: scanning a card. Android asks the person the first time the app opens the camera. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
     <!-- The camera is optional: a phone or tablet without one can still upload a photo. -->
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
