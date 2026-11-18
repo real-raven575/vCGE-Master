@@ -12,15 +12,26 @@ import android.print.PrintAttributes
 import android.print.PrintManager
 import android.provider.MediaStore
 import android.provider.Telephony
+import android.security.keystore.KeyGenParameterSpec
+import android.security.keystore.KeyPermanentlyInvalidatedException
+import android.security.keystore.KeyProperties
 import android.util.Base64
 import android.view.View
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
 import androidx.activity.enableEdgeToEdge
+import androidx.biometric.BiometricManager
+import androidx.biometric.BiometricPrompt
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import java.io.File
+import java.security.KeyPairGenerator
+import java.security.KeyStore
+import java.security.PrivateKey
+import java.security.Signature
+import java.security.spec.ECGenParameterSpec
 
 class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -38,6 +49,8 @@ class MainActivity : TauriActivity() {
     }
     clearContactFiles()
     clearShareFiles()
+    deleteFingerprintKey()
+    fingerprintPrompt = BiometricPrompt(this, ContextCompat.getMainExecutor(this), fingerprintCallback)
   }
 
   // Back in vCGE after Contacts has read the card: the one copy handed over is deleted (vCGE keeps no card).
@@ -85,6 +98,61 @@ class MainActivity : TauriActivity() {
     } catch (e: ActivityNotFoundException) {
       false
     }
+  }
+
+  // Fingerprint unlock (raven575's Android run, 2026-11-16: a PIN was set but no fingerprint option showed, because the
+  // WebView offers web pages no fingerprint check). The bridge gives the page the same kind of proof the browser does:
+  // a key pair made inside the phone's secure hardware (Android Keystore) whose private half signs only after a strong
+  // biometric check (fingerprint, or a face check the phone rates as strong). The page keeps the public half for this
+  // session and checks each signature itself. The key is for this session only: deleted when the page clears it, at
+  // every start, and by Android itself if the phone's fingerprints change.
+  private val fingerprintAlias = "vcge-session-unlock"
+
+  private fun keyStore() = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
+
+  private fun deleteFingerprintKey() {
+    try {
+      keyStore().deleteEntry(fingerprintAlias)
+    } catch (e: Exception) {
+      // No key, or the keystore is unavailable: nothing to delete.
+    }
+  }
+
+  // Hands one result back to the page: window.__vcgeFingerprintDone(id, status, signature). Status is "ok" (signature
+  // is the DER signature, base64), "cancelled", "failed", "changed" (fingerprints changed since setup) or "error".
+  private fun fingerprintDone(id: String, status: String, signature: String = "") {
+    val view = page ?: return
+    val safeId = id.replace(Regex("[^A-Za-z0-9_-]"), "")
+    val js = "window.__vcgeFingerprintDone && window.__vcgeFingerprintDone('$safeId', '$status', '$signature')"
+    runOnUiThread { view.evaluateJavascript(js, null) }
+  }
+
+  // One prompt for the activity, made in onCreate (androidx.biometric wants it made before the activity starts). The
+  // request it is answering (id and the challenge to sign) is held here while the prompt is up.
+  private var fingerprintPrompt: BiometricPrompt? = null
+  private var fingerprintPending: Pair<String, ByteArray>? = null
+
+  private val fingerprintCallback = object : BiometricPrompt.AuthenticationCallback() {
+    override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+      val (id, data) = fingerprintPending ?: return
+      fingerprintPending = null
+      try {
+        val s = result.cryptoObject?.signature ?: throw IllegalStateException("no signature")
+        s.update(data)
+        fingerprintDone(id, "ok", Base64.encodeToString(s.sign(), Base64.NO_WRAP))
+      } catch (e: Exception) {
+        fingerprintDone(id, "error")
+      }
+    }
+
+    override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+      val (id, _) = fingerprintPending ?: return
+      fingerprintPending = null
+      val cancelled = errorCode == BiometricPrompt.ERROR_USER_CANCELED || errorCode == BiometricPrompt.ERROR_NEGATIVE_BUTTON
+        || errorCode == BiometricPrompt.ERROR_CANCELED
+      fingerprintDone(id, if (cancelled) "cancelled" else "failed")
+    }
+    // onAuthenticationFailed (one finger not recognised) is left to the prompt, which lets the person try again.
   }
 
   inner class ContactBridge {
@@ -248,6 +316,81 @@ class MainActivity : TauriActivity() {
         }
       }
       return true
+    }
+
+    // "ok" when the phone has a strong fingerprint (or face) check set up; otherwise why not ("none" = no sensor,
+    // "not-enrolled" = no fingerprint added in Settings, "unavailable" = sensor busy or off).
+    @JavascriptInterface
+    fun fingerprintStatus(): String {
+      return when (BiometricManager.from(this@MainActivity).canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_STRONG)) {
+        BiometricManager.BIOMETRIC_SUCCESS -> "ok"
+        BiometricManager.BIOMETRIC_ERROR_NONE_ENROLLED -> "not-enrolled"
+        BiometricManager.BIOMETRIC_ERROR_NO_HARDWARE -> "none"
+        else -> "unavailable"
+      }
+    }
+
+    // Makes this session's key pair (any older one is replaced) and returns the public half (X.509 SubjectPublicKeyInfo,
+    // base64), or "" when it could not. No fingerprint is asked for here: signing asks for it.
+    @JavascriptInterface
+    fun fingerprintSetUp(): String {
+      return try {
+        deleteFingerprintKey()
+        val spec = KeyGenParameterSpec.Builder(fingerprintAlias, KeyProperties.PURPOSE_SIGN)
+          .setAlgorithmParameterSpec(ECGenParameterSpec("secp256r1"))
+          .setDigests(KeyProperties.DIGEST_SHA256)
+          .setUserAuthenticationRequired(true)
+          .setInvalidatedByBiometricEnrollment(true)
+          .apply {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) setUserAuthenticationParameters(0, KeyProperties.AUTH_BIOMETRIC_STRONG)
+          }
+          .build()
+        val pair = KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore").apply { initialize(spec) }.generateKeyPair()
+        Base64.encodeToString(pair.public.encoded, Base64.NO_WRAP)
+      } catch (e: Exception) {
+        deleteFingerprintKey()
+        ""
+      }
+    }
+
+    // Asks for the fingerprint, then signs the page's challenge (base64) with this session's key. The answer comes back
+    // later through fingerprintDone(id, ...); this returns false only when the prompt could not be started.
+    @JavascriptInterface
+    fun fingerprintSign(id: String, challenge: String, title: String): Boolean {
+      val (signer, data) = try {
+        val bytes = Base64.decode(challenge, Base64.DEFAULT)
+        val key = keyStore().getKey(fingerprintAlias, null) as? PrivateKey ?: return false
+        Signature.getInstance("SHA256withECDSA").apply { initSign(key) } to bytes
+      } catch (e: KeyPermanentlyInvalidatedException) {
+        deleteFingerprintKey()
+        fingerprintDone(id, "changed")
+        return true
+      } catch (e: Exception) {
+        return false
+      }
+      runOnUiThread {
+        val prompt = fingerprintPrompt
+        if (prompt == null) { fingerprintDone(id, "error"); return@runOnUiThread }
+        try {
+          fingerprintPending = id to data
+          val info = BiometricPrompt.PromptInfo.Builder()
+            .setTitle(title.ifBlank { "Unlock vCGE" })
+            .setNegativeButtonText("Use PIN")
+            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG)
+            .build()
+          prompt.authenticate(info, BiometricPrompt.CryptoObject(signer))
+        } catch (e: Exception) {
+          fingerprintPending = null
+          fingerprintDone(id, "error")
+        }
+      }
+      return true
+    }
+
+    // Fingerprint turned off, the PIN changed or the session ended: this session's key is deleted.
+    @JavascriptInterface
+    fun fingerprintClear() {
+      deleteFingerprintKey()
     }
   }
 }
