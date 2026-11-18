@@ -63,12 +63,12 @@ export const STYLES = Object.freeze([
     { code: 0, id: 'herd', name: 'Herd' }, { code: 1, id: 'material', name: 'Material' }, { code: 2, id: 'ios', name: 'iOS' },
     { code: 3, id: 'windows', name: 'Windows' }, { code: 4, id: 'gnome', name: 'GNOME' }, { code: 5, id: 'kde', name: 'KDE' }
 ]);
-export const DEFAULTS = Object.freeze({ hand: 0, cb: 0, theme: 0, font: FONT_CODES[DEFAULT_UI_FONT], size: 0, wipe: 0, mode: 0, style: 0, tex: 0, look: 0, tour: 0, splash: 0, easy: 0 });
+export const DEFAULTS = Object.freeze({ hand: 0, cb: 0, theme: 0, font: FONT_CODES[DEFAULT_UI_FONT], size: 0, wipe: 0, mode: 0, style: 0, tex: 0, look: 0, tour: 0, splash: 0, easy: 0, tip: 0 });
 // The names every entry has carried since step 4; the 0.8 ones (mode, style, tex) are written only once they differ from
 // their defaults, so an entry nobody changed them in reads exactly as before.
 const CORE = ['hand', 'cb', 'theme', 'font', 'size', 'wipe'];
 const RANGE = { hand: 1, cb: 5, theme: Math.max(...THEMES.map(t => t.code)), font: Math.max(...Object.values(FONT_CODES)), size: Math.max(...TEXT_SIZES.map(t => t.code)),
-    wipe: Math.max(...WIPE_TIMES.map(t => t.code)), mode: 1, style: Math.max(...STYLES.map(t => t.code)), tex: 1, look: 1, tour: 1, splash: 1, easy: 1 };
+    wipe: Math.max(...WIPE_TIMES.map(t => t.code)), mode: 1, style: Math.max(...STYLES.map(t => t.code)), tex: 1, look: 1, tour: 1, splash: 1, easy: 1, tip: 1 };
 
 /** Colour vision (Settings > Accessibility): fixed codes, the cb setting's 2 to 5; 0 is Typical. Each moves the good and
  *  stop colours (light page, dark page) to a pair that person tells apart; colourSet.css swaps the good and stop ramps the
@@ -173,6 +173,15 @@ export function tourSeen(storage = typeof localStorage !== 'undefined' ? localSt
 export function rememberTourSeen(storage = typeof localStorage !== 'undefined' ? localStorage : null) {
     if (liveSet) return liveSet({ tour: 1 });
     if (storage) saveSettings({ ...loadSettings(storage), tour: 1 }, storage);
+}
+// The shutter tip (Android run, 11-16: the red shutter that turns green puzzled at first): shown on the first camera
+// start only; tip=1 in vcge_settings once it has been shown.
+export function tipSeen(storage = typeof localStorage !== 'undefined' ? localStorage : null) {
+    try { return storage ? loadSettings(storage).tip === 1 : false; } catch { return false; }
+}
+export function rememberTipSeen(storage = typeof localStorage !== 'undefined' ? localStorage : null) {
+    if (liveSet) return liveSet({ tip: 1 });
+    if (storage) saveSettings({ ...loadSettings(storage), tip: 1 }, storage);
 }
 // Opening splash switch (raven575, 2026-11-11): the splash covers no loading (a fixed CSS fade; the reader loads on the first
 // scan), so Settings > Comfort can turn it off. splash=1 is Off (html[data-splash="off"]); browserGate.js also reads it before

@@ -786,8 +786,25 @@ let ocrStoppedByUser = false;
 
 // OK on the Capture card: the deck moves to the Read card, where the photo is read; the crop step stays behind on
 // the Capture card for Back, Cancel and Retake.
-async function runOcr() {
+const SCAN_NO_EDGES = 'Couldn\'t find the card\'s edges. Drag the corners onto the card, then press OK.';
+// Auto-turn (Android run 11-16: a card held sideways read as nothing until it was turned): a photo the reader can't make
+// out is turned a quarter each way and read again before the retake prompt; then it goes back the way it was.
+const AUTO_TURN = Symbol('auto-turn');
+let turnsTried = 0;
+function turnPhoto(direction, times) {
+    return new Promise(resolve => {
+        let left = times;
+        const step = () => {
+            if (left-- <= 0) { resolve(); return; }
+            $('reviewImage').addEventListener('load', () => setTimeout(step, 0), { once: true });
+            cropEditor.rotate(direction);
+        };
+        step();
+    });
+}
+async function runOcr(how) {
     if (!$('reviewImage').getAttribute('src')) return;
+    if (how !== AUTO_TURN) turnsTried = 0;
     showRetakePrompt(false);
     ocrStoppedByUser = false;
     $('runOcrBtn').disabled = true;
@@ -833,7 +850,15 @@ async function runOcr() {
             return;
         }
         console.error('[vCGE] OCR failed:', e);
+        if (e && e.code === 'OCR_UNREADABLE' && turnsTried < 2 && !ocrStoppedByUser && !$('cropReviewModal').classList.contains('hidden')) {
+            // A quarter turn right, then (from there) a half turn back to a quarter turn left; each is snapped to the card again
+            turnsTried++;
+            await turnPhoto(turnsTried === 1 ? 1 : -1, turnsTried === 1 ? 1 : 2);
+            cropEditor.snapToCard();
+            return runOcr(AUTO_TURN);
+        }
         if (e && e.code === 'OCR_UNREADABLE') {
+            if (turnsTried === 2) { turnsTried = 3; await turnPhoto(1, 1); }   // both turns failed: the photo goes back the way it was
             backToPhoto();
             showRetakePrompt(true, !!e.sharp);
         } else if (e && e.code === 'OCR_TIMEOUT') {
@@ -1119,10 +1144,18 @@ function wireIntake() {
         else $('imageUpload').click();
     });
     // A new photo starts over at the crop step on the Capture card and drops any text extracted from the previous one.
-    globalEventBus.subscribe(Events.IMAGE_CAPTURED, () => {
+    globalEventBus.subscribe(Events.IMAGE_CAPTURED, (shot) => {
         showRetakePrompt(false); closeReviewDialog(); forgetLastScan(); $('ocrBackBtn').classList.remove('hidden'); showCard('capture');
+        turnsTried = 0;
+        // Scan: crop and straighten to the card, then read at once; Back to photo opens the corners to adjust. No card edges
+        // in the photo: the crop step stays open and says so.
+        if (shot && shot.scan) $('reviewImage').addEventListener('load', () => setTimeout(() => {
+            if ($('runOcrBtn').disabled) return;
+            if (cropEditor.snapToCard()) runOcr();
+            else deckToast(SCAN_NO_EDGES);
+        }, 0), { once: true });
         // Go: read the photo as soon as it is on the crop step (its whole frame, as OK would)
-        if (goMode) $('reviewImage').addEventListener('load', () => setTimeout(() => { if (goMode && !$('runOcrBtn').disabled) runOcr(); }, 0), { once: true });
+        else if (goMode) $('reviewImage').addEventListener('load', () => setTimeout(() => { if (goMode && !$('runOcrBtn').disabled) runOcr(); }, 0), { once: true });
     });
     globalEventBus.subscribe(Events.VAULT_WIPED, () => setGo(false));
     globalEventBus.subscribe(Events.MEMORY_PURGED, () => setGo(false));

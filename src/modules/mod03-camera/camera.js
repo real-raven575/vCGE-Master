@@ -14,7 +14,8 @@
  */
 import { globalEventBus, Events } from '../../share/eventBus.js';
 import { isShelved } from '../mod01-shell/edition.js';
-import { visibleSourceRect, cardFrameRect, tween, nextSeen, chipFor } from './viewfinder.js';
+import { visibleSourceRect, cardFrameRect, tween, nextSeen, chipFor, quadToView, quadOrientation, outlinePoints } from './viewfinder.js';
+import { tipSeen, rememberTipSeen } from '../mod01-shell/settings.js';
 import { findCardQuad, SMALL_SIDE } from './cardFinder.js';
 import { readyClick, playShutterClick } from './shutterClick.js';
 import {
@@ -38,10 +39,12 @@ export const ZOOM_MAX = 4;            // the most the fader or a pinch zooms, th
                                       // (raven575, 2026-10-24: a phone's 8x was too close to help)
 export const FIRST_FRAME_WAIT_MS = 1500;   // how long a shutter press waits for the camera's first picture
 export const FRAME_WAIT_MS = 120;     // Smart burst: the longest it waits for the next camera frame before it looks anyway
-export const WATCH_MS = 600;          // how often the live picture is looked at for a card (the corners and the shutter turn green)
+export const WATCH_MS = 250;          // how often the live picture is looked at for a card (the outline follows it; the corners and the shutter turn green)
+export const TIP_MS = 6000;           // how long the one-time shutter tip stays in the hint
 export const HINT_LOOKING = 'Fit the card inside the corners';
 export const HINT_FOUND = 'Hold still, then tap the shutter';
 export const HINT_BURST = 'Hold still…';
+export const HINT_TIP = 'Green shutter = card found';
 
 // The page's element by id, or null where there is no page (the unit tests build the camera from stand-ins)
 const byId = (id) => (typeof document !== 'undefined' ? document.getElementById(id) : null);
@@ -67,6 +70,8 @@ export class VCGEActiveCamera {
         this.shutterLabel = config.shutterLabel || byId('shutLbl');
         this.startButton = config.startButton || byId('startCameraBtn');
         this.lightButton = config.lightButton || byId('lightBtn');
+        this.outline = config.outline || byId('scanOutline');
+        this.scanButton = config.scanButton || byId('scanBtn');
 
         this.currentFacingMode = config.facingMode || 'environment';
         this.activeStream = null;
@@ -89,6 +94,10 @@ export class VCGEActiveCamera {
         this.hasLight = false;        // the camera has a light (torch) the page may turn on
         this.lightOn = false;
         this.wantLight = false;       // the person turned the light on: it comes back on when the camera opens again (Retake)
+        this.liveQuad = null;         // Scan mode: the card's corners last seen, in viewfinder pixels
+        this.frameTurn = null;        // the way the card in view is held ('landscape' or 'portrait'), which the frame follows
+        this.scanNext = false;        // the shot being taken came from Scan: it is cropped to the card and read at once
+        this.tipUntil = 0;            // the one-time shutter tip shows in the hint until then
 
         this.initListeners();
     }
@@ -130,6 +139,7 @@ export class VCGEActiveCamera {
             this.watchTrack(track);
             this.setupZoom(track);
             this.setupLight(track);
+            if (!tipSeen()) { this.tipUntil = Date.now() + TIP_MS; rememberTipSeen(); }
             this.startWatch();
         } catch (err) {
             this.starting = false;
@@ -237,6 +247,7 @@ export class VCGEActiveCamera {
             // in-use notice popped up under the picker. A feed we stop ourselves sends no mute or ended event.
             this.uploadInput.addEventListener('click', () => { this.pickerOpenUntil = Date.now() + PICKER_GRACE_MS; this.closeCamera(); });
         }
+        if (this.scanButton) this.scanButton.addEventListener('click', () => this.scan());
         if (this.lightButton) {
             this.lightButton.addEventListener('click', () => { this.wantLight = !this.lightOn; this.setLight(this.wantLight); });
         }
@@ -254,7 +265,7 @@ export class VCGEActiveCamera {
     layoutFrame() {
         if (!this.viewfinderArea || !this.cardFrame) return;
         const w = this.viewfinderArea.clientWidth, h = this.viewfinderArea.clientHeight;
-        const r = cardFrameRect(w, h);
+        const r = cardFrameRect(w, h, this.frameTurn);
         if (!r.width) return;
         this.cardFrame.style.left = `${r.x}px`;
         this.cardFrame.style.top = `${r.y}px`;
@@ -416,7 +427,7 @@ export class VCGEActiveCamera {
 
     lookForCard() {
         const v = this.videoEl;
-        if (!this.activeStream || !v || !v.videoWidth || !v.videoHeight || typeof document === 'undefined') return;
+        if (!this.activeStream || this.bursting || !v || !v.videoWidth || !v.videoHeight || typeof document === 'undefined') return;
         try {
             const viewW = this.viewfinderArea ? this.viewfinderArea.clientWidth : v.videoWidth;
             const viewH = this.viewfinderArea ? this.viewfinderArea.clientHeight : v.videoHeight;
@@ -430,6 +441,14 @@ export class VCGEActiveCamera {
             const quad = findCardQuad(ctx.getImageData(0, 0, w, h));
             c.width = c.height = 0;                         // no copy of the picture is kept
             this.seen = nextSeen(this.seen, !!quad);
+            // Scan mode: the outline follows the card; a look that misses keeps the last outline while the card still counts
+            // as found (no flicker), and the frame turns to the way the card is held
+            if (quad) this.liveQuad = quadToView(quad, w, h, viewW, viewH);
+            if (!this.seen.found) this.liveQuad = null;
+            if (this.seen.found && quad) {
+                const turn = quadOrientation(quad);
+                if (turn !== this.frameTurn) { this.frameTurn = turn; this.layoutFrame(); }
+            }
             this.showFound(this.seen.found);
         } catch {
             // A picture that cannot be read this time (a camera mid-switch) is simply looked at again next time
@@ -440,6 +459,8 @@ export class VCGEActiveCamera {
         if (this.watchTimer !== null) { clearInterval(this.watchTimer); this.watchTimer = null; }
         if (this.watchCanvas) { this.watchCanvas.width = this.watchCanvas.height = 0; }
         this.seen = { found: false, run: 0 };
+        this.liveQuad = null;
+        if (this.frameTurn) { this.frameTurn = null; this.layoutFrame(); }
         this.showFound(false);
     }
 
@@ -447,7 +468,14 @@ export class VCGEActiveCamera {
     showFound(on) {
         if (this.viewfinderArea) this.viewfinderArea.classList[on ? 'add' : 'remove']('found');
         if (this.shutter) this.shutter.classList[on ? 'add' : 'remove']('ready');
-        if (this.hint) this.hint.textContent = on ? HINT_FOUND : HINT_LOOKING;
+        if (this.hint) this.hint.textContent = on ? HINT_FOUND : (Date.now() < this.tipUntil ? HINT_TIP : HINT_LOOKING);
+        if (this.outline) {
+            const pts = on && this.liveQuad ? outlinePoints(this.liveQuad) : '';
+            const poly = this.outline.querySelector ? this.outline.querySelector('polygon') : null;
+            if (poly) poly.setAttribute('points', pts);
+            if (pts) this.outline.classList.remove('hidden'); else this.outline.classList.add('hidden');
+        }
+        if (this.scanButton) { if (on && !this.bursting) this.scanButton.classList.remove('hidden'); else this.scanButton.classList.add('hidden'); }
         if (this.shutterLabel) this.shutterLabel.textContent = on ? 'Card found' : (this.activeStream ? 'Looking…' : 'Camera off');
     }
 
@@ -550,6 +578,16 @@ export class VCGEActiveCamera {
         timer = setTimeout(() => done(false), FIRST_FRAME_WAIT_MS);
     }
 
+    // Scan (raven575, 23:50 UTC 11-16, like a phone's own scanner): shown while a card is in the outline. The same Smart
+    // burst as the shutter; the photo is then cropped and straightened to the card and read at once (main.js), and Back to
+    // photo on the Read card opens the corners to adjust.
+    scan() {
+        if (!this.activeStream || this.bursting || !this.seen.found) return;
+        this.scanNext = true;
+        this.captureFrame();
+        if (!this.bursting) this.scanNext = false;          // no shot started (no picture yet): an ordinary press later stays ordinary
+    }
+
     // Smart burst (CAM-0028, raven575 03:32 UTC 11-13: put the new camera in the app). The press watches the camera for
     // BURST_MS: every frame of the same visible window is scored on a small copy and the best KEEP are held; the sharpest
     // becomes the photo, blended with the others only when it shows shine. One click at the press; more presses wait.
@@ -578,6 +616,7 @@ export class VCGEActiveCamera {
             for (const c of [...kept.map(k => k.full), ...spare, small]) c.width = c.height = 0;
             kept = []; spare.length = 0;
             this.bursting = false;
+            this.scanNext = false;
         };
         const grab = () => {
             if (!this.activeStream) { free(); return; }
@@ -630,19 +669,20 @@ export class VCGEActiveCamera {
             const advice = glareAdvice(best.glare, this.lightOn, meanLuma(best.px), this.hasLight, glareShare(best.px, WASH_LEVEL));
             this.capturedImageDataUrl = this.canvasEl.toDataURL('image/png');
             this.canvasEl.width = this.canvasEl.height = 0;     // no second copy of the photo left in the canvas
+            const scan = this.scanNext;
             free();
             this.lastSource = 'camera';
             this.closeCamera();                                 // the shot is taken; Retake opens the camera again
-            this.publishCapture(this.capturedImageDataUrl, used > 1 ? `SMART_BURST: ${used} frames blended of ${frames}` : `SMART_BURST: best of ${frames} frames`);
+            this.publishCapture(this.capturedImageDataUrl, `${scan ? 'SCAN' : 'SMART_BURST'}: ${used > 1 ? `${used} frames blended of ${frames}` : `best of ${frames} frames`}`, { scan });
             if (advice) this.toast(advice.kind === 'light-on' || advice.kind === 'light-off' ? `${advice.text} Tap Retake, then the light button.` : advice.text);
         };
         grab();
     }
 
     // The captured image stays in memory and is handed only to the crop editor; the bus gets a signal, never the photo.
-    publishCapture(dataUrl, sourceMode) {
-        this.logEvent(`Image captured (${sourceMode}). Check the crop, then press OK.`);
-        globalEventBus.publish(Events.IMAGE_CAPTURED, { sourceMode, timestamp: Date.now() });
+    publishCapture(dataUrl, sourceMode, { scan = false } = {}) {
+        this.logEvent(`Image captured (${sourceMode}). ${scan ? 'Cropping to the card and reading it.' : 'Check the crop, then press OK.'}`);
+        globalEventBus.publish(Events.IMAGE_CAPTURED, { sourceMode, scan, timestamp: Date.now() });
         this.openReview(dataUrl);
     }
 
