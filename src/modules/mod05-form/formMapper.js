@@ -89,6 +89,8 @@ export class ContactFormMapper {
             if (found) { line.role = 'website'; if (!website && !websiteTypeFor(found)) website = found; }
             // A bare handle next to a social logo ("@studiocraft", "in/janedoe") is that profile.
             else if (SOCIAL_HOSTS[line.icon] && socialProfileUrl(line.icon, line.body)) line.role = 'website';
+            // A handle on its own line ("@studiocraft"), no logo beside it, is still the card's social profile.
+            else if (BARE_HANDLE.test(line.text)) line.role = 'website';
         }
 
         // Phones: one labelled number gets its type as the role (shown in the review picker); unlabelled numbers and
@@ -129,10 +131,16 @@ export class ContactFormMapper {
 
         // Name: 2-3 capitalised words; strongest clue is a match with the email username
         const local = (email.split('@')[0] || '').toLowerCase().replace(/[^a-z]/g, '');
+        const domain = companyDomain(website, email).name;
         let best = null;
         lines.forEach((line, index) => {
-            if (!free(line) || !isNameShaped(line.text)) return;
-            const core = splitNameAffixes(line.text).core;
+            if (!free(line)) return;
+            // OCR debris after a name ("Jane Doe;", "Jane Doe a Bc") hid it from the name check, and the company step
+            // took the line (Card Inbox, 2026-11-19): the leading words are the name, unless the line is the company's.
+            const trimmed = isNameShaped(line.text) ? '' : trimNameDebris(line.text);
+            if (!trimmed && !isNameShaped(line.text)) return;
+            if (trimmed && domain && domainMatches(line.text, domain)) return;
+            const core = splitNameAffixes(trimmed || line.text).core;
             const words = core.split(' ');
             let score = 1 - index * 0.05;
             if (local) {
@@ -143,9 +151,11 @@ export class ContactFormMapper {
             if (TITLE_WORDS.test(core) || TAGLINE_START.test(core) || COMPANY_SUFFIX.test(core)) score -= 3;
             // An all-capitals line is a name less often than a printed "Jane Doe" (company names and titles are set in capitals too).
             if (!/[a-z]/.test(core)) score -= 0.5;
-            if (!best || score > best.score) best = { line, index, score };
+            if (trimmed && (TITLE_WORDS.test(line.text) || COMPANY_SUFFIX.test(line.text))) score -= 3;
+            if (trimmed) score -= 0.5;
+            if (!best || score > best.score) best = { line, index, score, trimmed };
         });
-        if (best && best.score > 0) best.line.role = 'name';
+        if (best && best.score > 0) { best.line.role = 'name'; if (best.trimmed) best.line.text = best.trimmed; }
 
         // Job title: title vocabulary, preferring the line next to the name; taglines ("Your ...") are not titles
         let title = null;
@@ -164,19 +174,29 @@ export class ContactFormMapper {
 
         // Company: suffixes (Inc, LLC...) or a match with the web/email domain. Without a convincing line, buildFields
         // derives the company from the domain; a weak line is used only when there is no domain either.
-        const domain = companyDomain(website, email).name;
         let org = null;
         lines.forEach(line => {
-            if (!free(line) || /[@]/.test(line.text) || !isWordy(line.text) || isQuoted(line.text) || OCCASION.test(line.text)) return;
+            if (!free(line) || /[@]/.test(line.text) || isQuoted(line.text) || OCCASION.test(line.text)) return;
+            // OCR marks in a logo-set name ("Acme\Works'", "Acme*") fail the word check; without them the line is
+            // used when it matches the domain, or (no domain to check) when only one or two marks were dropped.
+            let clean = '';
+            if (!isWordy(line.text)) {
+                clean = stripMarks(line.text);
+                const marks = line.text.replace(/\s/g, '').length - clean.replace(/\s/g, '').length;
+                if (!isWordy(clean) || !(domain ? domainMatches(clean, domain) : marks <= 2)) return;
+            }
             // A slogan ("Your Technology Advisor") is not the company, whatever words it contains.
             if (SLOGAN_START.test(line.text) && !(domain && domainMatches(line.text, domain))) return;
             let score = 1;
             if (COMPANY_SUFFIX.test(line.text)) score += 3;
             if (domain && domainMatches(line.text, domain)) score += 4;
             if (TAGLINE_START.test(line.text)) score -= 3;
-            if (!org || score > org.score) org = { line, score };
+            if (!org || score > org.score) org = { line, score, clean };
         });
-        if (org && (org.score >= 2 || (!domain && org.score > 0))) org.line.role = 'organization';
+        if (org && (org.score >= 2 || (!domain && org.score > 0))) {
+            org.line.role = 'organization';
+            if (org.clean) org.line.text = trimToDomain(org.clean, domain);
+        }
 
         // The card's slogan ("Your Technology Advisor") or a phrase in quotes is kept in Notes, not ignored (raven575,
         // 2026-10-17). Only lines no other step claimed.
@@ -558,7 +578,11 @@ function zipFitsState(zip, state) {
 function reviewText({ text, body, label, role, icon }) {
     if (role === 'email') return findEmail(body) || findEmail(text) || repairAddressText(body);
     if (role === 'website') return findWebsite(body, label === 'web' || SOCIAL_HOSTS[icon] !== undefined, label === 'web') || repairAddressText(body);
-    if (PHONE_ROLES.has(role)) return body;
+    if (PHONE_ROLES.has(role)) {
+        // A comma the reader slipped into the number ("616.555,0187") is shown repaired, as it will be filled.
+        const found = body.includes(',') ? findPhones(body) : [];
+        return found.length === 1 ? found[0].number : body;
+    }
     return text;
 }
 const PHONE_ROLES = new Set(Object.values(PHONE_ROLE));
@@ -647,7 +671,7 @@ const PATH_TAIL = /^[A-Za-z0-9-]+[\\|!]*$/;
 /** All US-style phone numbers in a line, each with a label written just before it ("T 616...  M 616..."). */
 function findPhones(text) {
     const out = [];
-    const re = /(?:\b(tel|phone|ph|office|direct|main|work|mobile|mob|cell|fax|home|t|p|o|d|m|c|f|h)\s*[:.\-]?\s*)?(\+?1[\s.\-]*)?(\(?\d{3}\)?[\s.\-]*\d{3}[\s.\-]*\d{4})(\s*(?:x|ext\.?|#)\s*\d{1,6})?/gi;
+    const re = /(?:\b(tel|phone|ph|office|direct|main|work|mobile|mob|cell|fax|home|t|p|o|d|m|c|f|h)\s*[:.\-]?\s*)?(\+?1[\s.\-]*)?(\(?\d{3}\)?[\s.,\-]*\d{3}[\s.,\-]*\d{4})(\s*(?:x|ext\.?|#)\s*\d{1,6})?/gi;
     let m;
     while ((m = re.exec(text))) {
         const digits = (m[2] || '').replace(/\D/g, '') + m[3].replace(/\D/g, '');
@@ -655,7 +679,9 @@ function findPhones(text) {
         const word = (m[1] || '').toLowerCase();
         const label = /^(?:mobile|mob|cell|m|c)$/.test(word) ? 'mobile' : /^(?:fax|f)$/.test(word) ? 'fax'
             : /^(?:home|h)$/.test(word) ? 'home' : word ? 'work' : null;
-        out.push({ number: ((m[2] || '') + m[3] + (m[4] || '')).trim(), label });
+        // A comma is the reader's slip for a dot ("616.555,1234"), or for a dash when the number has no dots.
+        const number = m[3].includes(',') ? m[3].replace(/,/g, m[3].includes('.') ? '.' : '-') : m[3];
+        out.push({ number: ((m[2] || '') + number + (m[4] || '')).trim(), label });
     }
     // Numbers outside the US and Canada, written with their country code: "+44 20 7946 0958", "+49 30 1234567".
     const intl = /(?:\b(tel|phone|ph|office|direct|main|work|mobile|mob|cell|fax|home|t|p|o|d|m|c|f|h)\s*[:.\-]?\s*)?(\+(?!1(?![0-9]))\d{1,3}(?:[\s.\-]*\(?\d{1,5}\)?){1,5})/gi;
@@ -779,6 +805,41 @@ function isNameShaped(text) {
     return capitals || named.every(w => /^[A-Z][a-zA-Z.'\-]*$/.test(w) && /[a-z]/.test(w) || /^[A-Z]\.?$/.test(w));
 }
 
+/** "@studiocraft" alone on a line (no dots: "@acme.com" is an email whose name the reader lost). */
+const BARE_HANDLE = /^@[A-Za-z0-9_]{2,30}$/;
+
+/**
+ * A name with OCR debris after it: "Jane Doe;" or "Jane Doe a Bc" gives "Jane Doe". Only 2-3 capitalised words
+ * followed by marks, or by at most two more words that start with a 1-2 letter lowercase fragment or a mark;
+ * "Serving Ohio since 1998" is not a name. '' when the line is not that.
+ */
+function trimNameDebris(text) {
+    if (/[@\d]/.test(text)) return '';
+    const words = text.replace(/[;:,.!*'"\\|]+$/, '').split(' ').filter(Boolean);
+    let n = 0;
+    while (n < words.length && /^[A-Z][a-zA-Z.'\-]*$/.test(words[n])) n++;
+    if (n < 2 || n > 3) return '';
+    const rest = words.slice(n);
+    if (rest.length > 2 || (rest.length && !/^(?:[a-z]{1,2}|[^A-Za-z0-9]+)$/.test(rest[0]))) return '';
+    const name = words.slice(0, n).join(' ').replace(/[;:,!*'"]+$/, '');
+    return isNameShaped(name) ? name : '';
+}
+
+/** A logo-set company name without the OCR marks in it: "Acme\Works'" gives "Acme Works". */
+function stripMarks(text) {
+    return text.replace(/[\\|*!'"`~^]+/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+/** The leading words that spell the domain: "Acme Wor" with acme.com gives "Acme"; otherwise the whole text. */
+function trimToDomain(text, domain) {
+    if (!domain) return text;
+    const words = text.split(' ');
+    for (let n = 1; n <= words.length; n++) {
+        if (squashName(words.slice(0, n).join(' ')) === squashName(domain)) return words.slice(0, n).join(' ');
+    }
+    return text;
+}
+
 /** A line made of real words (not logo debris such as "ya O/" or "ro. (CET"). */
 function isWordy(text) {
     const chars = text.replace(/\s/g, '');
@@ -799,9 +860,12 @@ function companyDomain(website, email) {
     return { name: '', from: '' };
 }
 
+/** Letters and digits only, lowercase, with i/l/1/| alike (OCR swaps them in logos). */
+function squashName(s) { return String(s).toLowerCase().replace(/[^a-z0-9]/g, '').replace(/[il1|]/g, 'l'); }
+
 /** "Northwind Systems" matches northwind.com; "Apex Innovations" matches apexinnovations.io. */
 function domainMatches(text, domain) {
-    const squash = (s) => s.toLowerCase().replace(/[^a-z0-9]/g, '').replace(/[il1|]/g, 'l');
+    const squash = squashName;
     text = text.replace(/^the\s+/i, '');   // "The Home Depot" matches homedepot.com
     const line = squash(text), dom = squash(domain);
     if (!line || !dom) return false;

@@ -2644,5 +2644,27 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('logo guess: the reader\'s scale matches its photo preparation (small photos enlarged, big ones shrunk)', readerScale(600) === 3 && readerScale(1500) === 1 && readerScale(4800) === 0.5);
 }
 
+// Field-mapping slips from the Card Inbox run (2026-11-19), with made-up cards in the same shapes.
+{
+  const { ContactFormMapper } = await import(`${R}/modules/mod05-form/formMapper.js`);
+  const fm = new ContactFormMapper();
+  const roles = (t) => fm.classifyLines(t).map(l => l.role).join();
+  const debris = fm.classifyLines('Dana Whitlock a Bq\nOwner\nT 616.555.0142\nBrightPathIT.com');
+  ok('mapping: a name with OCR debris after it is still the name, without the debris', debris[0].role === 'name' && debris[0].text === 'Dana Whitlock' && fm.buildFields(debris).fields.lastName === 'Whitlock', JSON.stringify(debris[0]));
+  const semi = fm.classifyLines('Dana Whitlock;\nOwner\nT 616.555.0142');
+  ok('mapping: a name with a trailing mark is the name', semi[0].role === 'name' && semi[0].text === 'Dana Whitlock', JSON.stringify(semi[0]));
+  ok('mapping: a phrase is not trimmed into a name ("Serving Ohio since 1998")', fm.classifyLines('Dana Whitlock\nServing Ohio since 1998')[1].role !== 'name');
+  ok('mapping: a company line that matches the domain is not trimmed into a name', roles('Jo Ames\nBrightpath Tech a Co\njo@brightpath.com').startsWith('name,organization'), roles('Jo Ames\nBrightpath Tech a Co\njo@brightpath.com'));
+  ok('mapping: a printed name keeps its particles ("Maria de la Cruz")', fm.classifyLines('Maria de la Cruz\nOwner')[0].text === 'Maria de la Cruz');
+  const comma = fm.classifyLines('Cell 616.555,0187\nT 312-555,0100');
+  ok('mapping: a phone number with a comma slip is found and repaired', comma[0].role === 'phoneMobile' && fm.buildFields(comma).fields.phones.map(p => p.type + p.value.replace(/\D/g, '')).join() === 'mobile16165550187,work13125550100' && comma[0].text === '616.555.0187', JSON.stringify(fm.buildFields(comma).fields.phones));
+  const marks = fm.classifyLines('Dana Whitlock\nBrightpath\\Tw\'\ndana@brightpath.com');
+  ok('mapping: a company with OCR marks that matches the domain is the company, trimmed to the domain', marks[1].role === 'organization' && marks[1].text === 'Brightpath', JSON.stringify(marks[1]));
+  ok('mapping: logo debris without a domain match stays out', fm.classifyLines('Dana Whitlock\nya\\O/|*!\ndana@brightpath.com')[1].role === 'ignore');
+  const handle = fm.classifyLines('Dana Whitlock\n@brightpathtech\ndana@brightpath.com');
+  ok('mapping: a bare @handle line is the social profile (website)', handle[1].role === 'website' && fm.buildFields(handle).fields.websites.some(w => w.value === '@brightpathtech'), JSON.stringify(fm.buildFields(handle).fields.websites));
+  ok('mapping: "@acme.com" is not taken as a handle', fm.classifyLines('Dana Whitlock\n@acme.com')[1].role !== 'website' || fm.classifyLines('Dana Whitlock\n@acme.com')[1].text !== '@acme.com');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;
