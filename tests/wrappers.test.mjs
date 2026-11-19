@@ -137,5 +137,33 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
       && /name: vCGE-\$\{\{ steps\.names\.outputs\.tag \}\}/.test(ci) && /echo "tag=[^\n]*-\$\{P\}\$\{\{ github\.run_number \}\}" >> "\$GITHUB_OUTPUT"/.test(ci) && /-A\$\{\{ github\.run_number \}\}/.test(ci) && /--out "apk\/vCGE-\$TAG\.apk"/.test(ci) && /name: vCGE-\$\{\{ env\.APK_TAG \}\}/.test(ci));
 }
 
+// --- App stores: listing text (store/listing.json) and the privacy policy (PRIVACY.md) ---
+{
+  const listing = JSON.parse(read('store/listing.json'));
+  const play = listing.googlePlay, ms = listing.microsoftStore;
+  // Google Play limits: title 30, short description 80, full description 4000. Microsoft Store: short description
+  // 100 (shown on Xbox and in search), description 10000, each feature 200, at most 20 features and 7 search terms.
+  ok('Store: Google Play text fits its limits',
+    play.title.length <= 30 && play.shortDescription.length <= 80 && play.fullDescription.length <= 4000,
+    `${play.title.length}/${play.shortDescription.length}/${play.fullDescription.length}`);
+  ok('Store: Microsoft Store text fits its limits',
+    ms.shortDescription.length <= 100 && ms.description.length <= 10000 && ms.features.length <= 20
+      && ms.features.every(f => f.length <= 200) && ms.searchTerms.length <= 7);
+  const all = JSON.stringify(listing);
+  ok('Store: the tagline leads both descriptions',
+    play.fullDescription.startsWith('Operation: Never Lose Contact') && ms.description.startsWith('Operation: Never Lose Contact'));
+  ok('Store: no banned wording ("local contact management") and no emoji in the Play title',
+    !/local contact management/i.test(all) && !/\p{Extended_Pictographic}/u.test(play.title));
+  ok('Store: package name and copyright match the app', read('src-tauri/tauri.conf.json').includes('"identifier": "app.vcge.vcge"')
+    && listing.copyright === '© 2026 raven575, Herd of Helpers (claude) & gemini');
+  ok('Store: the privacy policy URL names PRIVACY.md, and it exists', /\/PRIVACY\.md$/.test(listing.privacyPolicyUrl) && existsSync(ROOT + 'PRIVACY.md'));
+  // The policy promises "camera only, no internet": hold it to the Android manifest it describes.
+  const policy = read('PRIVACY.md');
+  const perms = permissions(read(ANDROID + 'main/AndroidManifest.xml'));
+  ok('Store: the privacy policy says no internet and camera only, and the manifest agrees',
+    /does not even ask for the internet permission/.test(policy) && /No other permissions/.test(policy)
+      && perms.length === 1 && perms[0] === 'android.permission.CAMERA');
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;
