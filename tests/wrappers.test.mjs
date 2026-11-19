@@ -190,8 +190,11 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
     /node scripts\/make-msix\.mjs/.test(ci) && /Add-AppxPackage -Path \$signed/.test(ci) && /Remove-AppxPackage/.test(ci));
   ok('Play: CI builds the App Bundle and fails it if it asks for INTERNET or misses a chip',
     /npx tauri android build --aab/.test(ci) && /bundle asks for INTERNET/.test(ci) && /bundle is missing a chip/.test(ci));
-  ok('Play: the upload key is used only outside pull requests, from secrets, and deleted after',
-    /Sign Play bundle with the upload key\n\s+if: github\.event_name != 'pull_request'/.test(ci) && /secrets\.PLAY_UPLOAD_KEYSTORE_B64/.test(ci) && /rm -f "\$RUNNER_TEMP\/upload\.jks"/.test(ci));
+  const sign = ci.slice(ci.indexOf('  play-sign:'));
+  ok('Play: the upload key lives only in the protected play-upload environment (main only, never a pull request)',
+    /environment: play-upload/.test(sign) && /if: github\.ref == 'refs\/heads\/main' && github\.event_name != 'pull_request'/.test(sign)
+      && ci.split('secrets.PLAY_UPLOAD').length - 1 === 3 && ci.indexOf('secrets.PLAY_UPLOAD') > ci.indexOf('  play-sign:'));
+  ok('Play: the key file is deleted however the signing step ends', /trap 'rm -f "\$RUNNER_TEMP\/upload\.jks"' EXIT/.test(sign));
   ok('Play: every CI build gets a higher version code (the run number)',
     /VCGE_VERSION_CODE: \$\{\{ github\.run_number \}\}/.test(ci)
       && /System\.getenv\("VCGE_VERSION_CODE"\)\?\.toIntOrNull\(\)/.test(read('src-tauri/gen/android/app/build.gradle.kts')));
