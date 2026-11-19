@@ -1,0 +1,7 @@
+# Tip jars for vCGE (shows the "Sponsor" button on the repo page).
+# Locked (raven575): GitHub Sponsors, Liberapay and one Stripe link only; no PayPal; always say "tip".
+# Tips unlock nothing: every build has every feature. The app itself has no tip links and no internet.
+# Each line stays commented out until its account is live, so the button never points at a dead page.
+# github: [real-raven575]
+# liberapay: LIBERAPAY_NAME
+# custom: ["https://buy.stripe.com/STRIPE_LINK"]
