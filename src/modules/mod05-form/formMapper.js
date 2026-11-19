@@ -136,10 +136,10 @@ export class ContactFormMapper {
         lines.forEach((line, index) => {
             if (!free(line)) return;
             // OCR debris after a name ("Jane Doe;", "Jane Doe a Bc") hid it from the name check, and the company step
-            // took the line (Card Inbox, 2026-11-19): the leading words are the name, unless the line is the company's.
+            // took the line (Card Inbox, 2026-11-19): the leading words are the name. A company line is kept out by its
+            // suffix or title words (below), not by the domain: a personal domain ("janedoe.com") matches the name too.
             const trimmed = isNameShaped(line.text) ? '' : trimNameDebris(line.text);
             if (!trimmed && !isNameShaped(line.text)) return;
-            if (trimmed && domain && domainMatches(line.text, domain)) return;
             const core = splitNameAffixes(trimmed || line.text).core;
             const words = core.split(' ');
             let score = 1 - index * 0.05;
