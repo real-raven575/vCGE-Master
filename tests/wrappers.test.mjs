@@ -165,5 +165,37 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
       && perms.length === 1 && perms[0] === 'android.permission.CAMERA');
 }
 
+// --- App stores: the Microsoft Store MSIX and the Google Play bundle ---
+{
+  const { msixVersion, manifest } = await import('../scripts/make-msix.mjs');
+  ok('MSIX: version gets four parts ending in 0 (Store rule)', msixVersion('0.8.1') === '0.8.1.0' && msixVersion('1.0.0') === '1.0.0.0');
+  let bad = 0;
+  for (const v of ['0.8', '0.8.1.2', '1.70000.0', 'x']) { try { msixVersion(v); } catch (e) { bad++; } }
+  ok('MSIX: a version the Store would refuse stops the build', bad === 4);
+  const template = read('store/msix/AppxManifest.template.xml');
+  const identity = JSON.parse(read('store/msix/identity.json'));
+  const out = manifest(template, identity, JSON.parse(read('src-tauri/tauri.conf.json')).version);
+  ok('MSIX: the manifest is filled in, with no value left over', !/\{\{/.test(out) && out.includes(`Name="${identity.identityName}"`) && out.includes('Version="0.8.1.0"'));
+  const caps = [...out.matchAll(/Capability Name="([^"]+)"/g)].map(m => m[1]).sort();
+  ok('MSIX: capabilities are the desktop app and the webcam only (no internetClient)',
+    caps.join(',') === 'runFullTrust,webcam' && !/internetClient/.test(template), caps.join(','));
+  ok('MSIX: it starts the same vcge.exe the installers ship', /Executable="vcge\.exe" EntryPoint="Windows\.FullTrustApplication"/.test(out));
+  let refused = 0;
+  try { manifest(template, { ...identity, publisher: 'raven575' }, '0.8.1'); } catch (e) { refused++; }
+  try { manifest(template + '{{OOPS}}', identity, '0.8.1'); } catch (e) { refused++; }
+  ok('MSIX: a publisher without CN= or an unknown value stops the build', refused === 2);
+  ok('MSIX: its tile logos exist', ['StoreLogo.png', 'Square150x150Logo.png', 'Square44x44Logo.png'].every(f => existsSync(ROOT + 'src-tauri/icons/' + f)));
+  const ci = read('.github/workflows/ci.yml');
+  ok('MSIX: CI packs it on Windows and test-installs a signed copy',
+    /node scripts\/make-msix\.mjs/.test(ci) && /Add-AppxPackage -Path \$signed/.test(ci) && /Remove-AppxPackage/.test(ci));
+  ok('Play: CI builds the App Bundle and fails it if it asks for INTERNET or misses a chip',
+    /npx tauri android build --aab/.test(ci) && /bundle asks for INTERNET/.test(ci) && /bundle is missing a chip/.test(ci));
+  ok('Play: the upload key is used only outside pull requests, from secrets, and deleted after',
+    /Sign Play bundle with the upload key\n\s+if: github\.event_name != 'pull_request'/.test(ci) && /secrets\.PLAY_UPLOAD_KEYSTORE_B64/.test(ci) && /rm -f "\$RUNNER_TEMP\/upload\.jks"/.test(ci));
+  ok('Play: every CI build gets a higher version code (the run number)',
+    /VCGE_VERSION_CODE: \$\{\{ github\.run_number \}\}/.test(ci)
+      && /System\.getenv\("VCGE_VERSION_CODE"\)\?\.toIntOrNull\(\)/.test(read('src-tauri/gen/android/app/build.gradle.kts')));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;

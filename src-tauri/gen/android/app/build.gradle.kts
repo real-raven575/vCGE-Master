@@ -22,7 +22,9 @@ android {
         applicationId = "app.vcge.vcge"
         minSdk = 24
         targetSdk = 37
-        versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
+        // CI sets VCGE_VERSION_CODE to its run number, so every Play upload has a higher code than the last.
+        versionCode = System.getenv("VCGE_VERSION_CODE")?.toIntOrNull()
+            ?: tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
     }
     buildTypes {

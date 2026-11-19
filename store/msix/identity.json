@@ -1,0 +1,7 @@
+{
+  "_about": "MSIX identity for the Microsoft Store. Copy the three values from Partner Center > vCGE > Product identity once the name is reserved (they are public, not secrets). Until then CI uses these test values, signs with a throwaway certificate and test-installs the package.",
+  "reserved": false,
+  "identityName": "vCGE.CITest",
+  "publisher": "CN=vCGE CI test",
+  "publisherDisplayName": "raven575"
+}
