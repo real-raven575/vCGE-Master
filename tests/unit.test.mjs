@@ -2659,6 +2659,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('mapping: the same with a trailing mark', rival2[0].role === 'name' && rival2[0].text === 'Dana Whitlock' && rival2[1].role === 'organization', JSON.stringify(rival2.map(l => l.role)));
   const two = fm.classifyLines('Dana Whitlock;\nOwner\nSecond Wave\nT 616.555.0142');
   ok('mapping: a name with a trailing mark, above a name-shaped company and no domain, is the name', two[0].role === 'name' && two[0].text === 'Dana Whitlock' && two[2].role === 'organization', JSON.stringify(two.map(l => l.role)));
+  const logoLetter = fm.classifyLines('B Dana R Whitlock.\nOwner\nT 616.555.0142');
+  ok('mapping: a logo letter read in front of a name is dropped', logoLetter[0].role === 'name' && logoLetter[0].text === 'Dana R Whitlock', JSON.stringify(logoLetter[0]));
   const semi = fm.classifyLines('Dana Whitlock;\nOwner\nT 616.555.0142');
   ok('mapping: a name with a trailing mark is the name', semi[0].role === 'name' && semi[0].text === 'Dana Whitlock', JSON.stringify(semi[0]));
   ok('mapping: a phrase is not trimmed into a name ("Serving Ohio since 1998")', fm.classifyLines('Dana Whitlock\nServing Ohio since 1998')[1].role !== 'name');

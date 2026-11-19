@@ -815,13 +815,19 @@ function isNameShaped(text) {
 const BARE_HANDLE = /^@[A-Za-z0-9_]{2,30}$/;
 
 /**
- * A name with OCR debris after it: "Jane Doe;" or "Jane Doe a Bc" gives "Jane Doe". Only 2-3 capitalised words
+ * A name with OCR debris after it: "Jane Doe;" or "Jane Doe a Bc" gives "Jane Doe" (or a logo letter in front:
+ * "J Jane Q Doe." gives "Jane Q Doe"). Only 2-3 capitalised words
  * followed by marks, or by at most two more words that start with a 1-2 letter lowercase fragment or a mark;
  * "Serving Ohio since 1998" is not a name. '' when the line is not that.
  */
 function trimNameDebris(text) {
     if (/[@\d]/.test(text)) return '';
     const words = text.replace(/[;:,.!*'"\\|]+$/, '').split(' ').filter(Boolean);
+    // A lone capital in front ("J Dana R Whitlock") is a logo letter the reader picked up: the name is what follows.
+    if (words.length >= 3 && /^[A-Z]$/.test(words[0])) {
+        const rest = words.slice(1).join(' ');
+        if (isNameShaped(rest)) return rest;
+    }
     let n = 0;
     while (n < words.length && /^[A-Z][a-zA-Z.'\-]*$/.test(words[n])) n++;
     if (n < 2 || n > 3) return '';
