@@ -1178,6 +1178,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   result = { text: 'Jo', confidence: 80, words: words(2, 90) };
   const sparse = await failure(ocr.executeOCRScan('data:image/png;base64,x'));
   ok('photo with too few readable words rejected as unreadable', sparse && sparse.code === 'OCR_UNREADABLE' && sparse.readableWords === 2, sparse && sparse.message);
+  result = { text: 'py A Year op WW es', confidence: 46, words: words(12, 70) };
+  const ungated = await ocr.executeOCRScan('data:image/png;base64,x', { gate: false });
+  ok('gate: false (lab only) returns a reading that failed the unreadable check, marked failedGate', ungated.text === 'py A Year op WW es' && ungated.failedGate && ungated.failedGate.confidence === 46 && ungated.failedGate.readableWords === 12 && ungated.failedGate.sharp === false, JSON.stringify(ungated));
+  result = { text: 'Jane Doe\njane@example.com', confidence: 88, words: words(8, 90) };
+  ok('a reading that passes the check carries no failedGate', !('failedGate' in await ocr.executeOCRScan('data:image/png;base64,x', { gate: false })));
   ok('OCR worker is started once and reused after a failure', created === 1, String(created));
   ok('OCR asks the engine for second guesses', params && params.lstm_choice_mode === '2', JSON.stringify(params));
   const word = (text, confidence) => ({ text, confidence, symbols: [] });
