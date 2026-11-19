@@ -19,15 +19,4 @@ Everything a store form asks for, kept in one place. Listing text: [`listing.jso
 
 ## Google Play: other forms
 
-- **Sign in details (was App access):** answer **Yes** (Google's Yes list names QR codes, PINs and biometrics), no username or password, and this note: "vCGE has no accounts, sign-in, payments inside the app, or network access. Every feature works right after install. The PIN and fingerprint lock are optional and off until the user turns them on in the Vault; skip them, or set any 4-digit PIN to test them. QR codes are made by the app from the card you scan; nothing needs to be scanned from elsewhere. To test without a camera, tap Photo and pick any picture of a made-up business card, or tap \"Play with sample fields\" on the first screen."
-- **Privacy policy in the app:** Settings, under About, has the full policy built in (no internet needed); `npm run test:wrappers` keeps its headings and date in step with PRIVACY.md.
-- **Ads:** no ads.
-- **Content rating (IARC):** utility app; no violence, sexual content, drugs, gambling, user-to-user chat or location sharing. Expected rating: Everyone / PEGI 3.
-- **Target audience:** 18 and over (business cards). This keeps vCGE out of the Families programme.
-- **News app / health / financial features / government:** no.
-- **Permissions declared:** CAMERA only. The manifest also says `android.software.leanback` (TV) is optional; do not opt in to Android TV distribution unless the app is tested on a TV.
-
-## Microsoft Store: certification notes
-
-- Capabilities: webcam only; no internet capability.
-- Notes for certification: "vCGE has no network access by design. To test without a camera, use Upload and any picture of a made-up business card."
+- **Sign in details (was App access):** answer **Yes** (Google's Yes list names QR codes, PINs and biometrics), name "No sign-in needed", no username or password, and this note (445 of 500 characters): "No account, sign-in or network access. Every feature works right after install. The PIN and fingerprint lock are optional and off until the user turns them on in the Vault: skip them, or set any 4-digit PIN to test. QR codes are made by the app from the scanned card; nothing needs scanning from elsewhere. To test without a camera, tap \"Play with sample fields\" on the first screen, or tap Photo and pick any picture of a made-up business card."
