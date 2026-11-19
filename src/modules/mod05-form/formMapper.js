@@ -152,7 +152,8 @@ export class ContactFormMapper {
             // An all-capitals line is a name less often than a printed "Jane Doe" (company names and titles are set in capitals too).
             if (!/[a-z]/.test(core)) score -= 0.5;
             if (trimmed && (TITLE_WORDS.test(line.text) || COMPANY_SUFFIX.test(line.text))) score -= 3;
-            if (trimmed) score -= 0.5;
+            // Words dropped as debris make the line a weaker name; a trailing mark alone ("Jane Doe;") does not.
+            if (trimmed && trimmed.split(' ').length < line.text.split(' ').length) score -= 0.5;
             candidates.push({ line, index, score, trimmed, ofDomain: !!domain && domainMatches(line.text, domain) });
         });
         // A name-shaped line that spells the web or email domain ("Brightpath Tech", brightpathtech.com) is the company
