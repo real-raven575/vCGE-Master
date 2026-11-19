@@ -1,7 +1,7 @@
 // vCGE app wrappers (Windows, macOS, Linux, Android): checks of the wrapper files themselves, in Node (`npm run test:wrappers`).
 // The app inside every wrapper is the same web build; these checks guard what each wrapper adds around it:
 // no internet, no extra permissions, the pinned Tauri versions (DESKTOP DEPENDENCIES LOCK), the vCGE icons.
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const read = (p) => readFileSync(ROOT + p, 'utf8');
@@ -135,6 +135,25 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
   ok('Downloads: CI names the desktop installers and the APK, and the artifacts carry the same tag (${P}: bash read $P418 as one unset name)',
     /name-downloads\.mjs src-tauri\/target\/release\/bundle "\$P" "\$\{\{ github\.run_number \}\}"/.test(ci) && /Windows\) P=W ;; macOS\) P=M ;; \*\) P=L/.test(ci)
       && /name: vCGE-\$\{\{ steps\.names\.outputs\.tag \}\}/.test(ci) && /echo "tag=[^\n]*-\$\{P\}\$\{\{ github\.run_number \}\}" >> "\$GITHUB_OUTPUT"/.test(ci) && /-A\$\{\{ github\.run_number \}\}/.test(ci) && /--out "apk\/vCGE-\$TAG\.apk"/.test(ci) && /name: vCGE-\$\{\{ env\.APK_TAG \}\}/.test(ci));
+}
+
+// --- Tip jars (raven575, 2026-11-19): GitHub Sponsors, Liberapay and one Stripe link; no PayPal; say "tip"; never inside the app ---
+{
+  const funding = read('.github/FUNDING.yml');
+  const keys = [...funding.matchAll(/^([a-z_]+):/gm)].map(m => m[1]);
+  ok('Tips: FUNDING.yml turns on only GitHub Sponsors, Liberapay or one custom (Stripe) link', keys.every(k => ['github', 'liberapay', 'custom'].includes(k)), keys.join(','));
+  const custom = funding.match(/^custom:\s*(.*)$/m);
+  ok('Tips: the custom link is one Stripe link', !custom || /^\[?\s*"?https:\/\/(buy|donate)\.stripe\.com\/[^",\s]+"?\s*\]?$/.test(custom[1].trim()), custom ? custom[1] : '');
+  const readme = read('README.md');
+  ok('Tips: no PayPal in the tip jar or the README', !/paypal/i.test(funding.replace(/#.*$/gm, '')) && !/paypal/i.test(readme));
+  const jar = readme.split('## 💛 Tip jar')[1]?.split('\n## ')[0] ?? '';
+  ok('Tips: the README has a tip jar that says "tip", not "donate", and says tips unlock nothing',
+    /\btip\b/i.test(jar) && !/donat/i.test(jar) && /unlock nothing/.test(jar));
+  const hosts = /github\.com\/sponsors|liberapay\.com|stripe\.com|paypal\.|ko-fi\.com|patreon\.com/i;
+  const walk = (dir) => readdirSync(ROOT + dir, { withFileTypes: true }).flatMap(e => e.isDirectory()
+    ? (e.name === 'vendor' ? [] : walk(dir + '/' + e.name)) : [dir + '/' + e.name]);
+  const inApp = ['index.html', ...walk('src').filter(f => /\.(js|html|css|json)$/.test(f))].filter(f => hosts.test(read(f)));
+  ok('Tips: no tip or payment link anywhere inside the app (it has no internet)', inApp.length === 0, inApp.join(','));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

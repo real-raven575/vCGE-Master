@@ -151,6 +151,12 @@ Created by [raven575](https://raven575.com), with Team vCGE (Claude), and Gemini
 
 Found a bug, a misread card or something confusing? [Open an issue on GitHub](https://github.com/real-raven575/vCGE-Master/issues/new/choose). Please never attach a real business card photo or anyone's real contact details: describe the problem or use made-up data.
 
+## 💛 Tip jar
+
+vCGE is free and stays free: no ads, no paywalls, and every build has every feature. If it saved you from losing a contact, you can leave a tip to keep the Herd building. Tips are optional and unlock nothing.
+
+Tip jars open soon (GitHub Sponsors, Liberapay and a one-time Stripe tip). Once they are live, the **Sponsor** button at the top of this page lists them.
+
 ## 📄 License
 
 [MIT](LICENSE.md). Pre-compiled binary distributions may additionally be offered under a separate commercial EULA (see [`docs/spec.md` §4](docs/spec.md#4-key-technical-decisions)).
