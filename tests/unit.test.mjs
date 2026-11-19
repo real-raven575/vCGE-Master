@@ -2653,6 +2653,10 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('mapping: a name with OCR debris after it is still the name, without the debris', debris[0].role === 'name' && debris[0].text === 'Dana Whitlock' && fm.buildFields(debris).fields.lastName === 'Whitlock', JSON.stringify(debris[0]));
   const own = fm.classifyLines('Dana Whitlock a Bq\nDana Whitlock Studio\nwww.danawhitlock.com');
   ok('mapping: a name with debris is the name on a card with a personal domain too', own[0].role === 'name' && own[0].text === 'Dana Whitlock', JSON.stringify(own.map(l => l.role)));
+  const rival = fm.classifyLines('Dana Whitlock a Bq\nOwner\nBrightpath Tech\nT 616.555.0142\nwww.brightpathtech.com');
+  ok('mapping: a company line that spells the domain does not beat a name with debris to the name', rival[0].role === 'name' && rival[2].role === 'organization', JSON.stringify(rival.map(l => l.role)));
+  const rival2 = fm.classifyLines('Dana Whitlock;\nBrightpath Tech\nbrightpathtech.com');
+  ok('mapping: the same with a trailing mark', rival2[0].role === 'name' && rival2[0].text === 'Dana Whitlock' && rival2[1].role === 'organization', JSON.stringify(rival2.map(l => l.role)));
   const semi = fm.classifyLines('Dana Whitlock;\nOwner\nT 616.555.0142');
   ok('mapping: a name with a trailing mark is the name', semi[0].role === 'name' && semi[0].text === 'Dana Whitlock', JSON.stringify(semi[0]));
   ok('mapping: a phrase is not trimmed into a name ("Serving Ohio since 1998")', fm.classifyLines('Dana Whitlock\nServing Ohio since 1998')[1].role !== 'name');

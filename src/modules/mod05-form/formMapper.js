@@ -132,7 +132,7 @@ export class ContactFormMapper {
         // Name: 2-3 capitalised words; strongest clue is a match with the email username
         const local = (email.split('@')[0] || '').toLowerCase().replace(/[^a-z]/g, '');
         const domain = companyDomain(website, email).name;
-        let best = null;
+        const candidates = [];
         lines.forEach((line, index) => {
             if (!free(line)) return;
             // OCR debris after a name ("Jane Doe;", "Jane Doe a Bc") hid it from the name check, and the company step
@@ -153,8 +153,13 @@ export class ContactFormMapper {
             if (!/[a-z]/.test(core)) score -= 0.5;
             if (trimmed && (TITLE_WORDS.test(line.text) || COMPANY_SUFFIX.test(line.text))) score -= 3;
             if (trimmed) score -= 0.5;
-            if (!best || score > best.score) best = { line, index, score, trimmed };
+            candidates.push({ line, index, score, trimmed, ofDomain: !!domain && domainMatches(line.text, domain) });
         });
+        // A name-shaped line that spells the web or email domain ("Brightpath Tech", brightpathtech.com) is the company
+        // when another line could be the name (Card Inbox, 2026-11-19: it beat "Jane Doe;" to the name). On its own it
+        // may be a personal domain ("janedoe.com"), so it keeps its score then.
+        if (candidates.some(c => !c.ofDomain)) candidates.forEach(c => { if (c.ofDomain) c.score -= 2; });
+        const best = candidates.reduce((a, c) => (!a || c.score > a.score ? c : a), null);
         if (best && best.score > 0) { best.line.role = 'name'; if (best.trimmed) best.line.text = best.trimmed; }
 
         // Job title: title vocabulary, preferring the line next to the name; taglines ("Your ...") are not titles
