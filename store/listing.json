@@ -1,7 +1,9 @@
 {
   "_about": "Store listing text for vCGE (English). One source for every store; tests/wrappers.test.mjs checks each field against the store's length limit and the wording rules. Store-specific steps: store/README.md.",
   "privacyPolicyUrl": "https://github.com/real-raven575/vCGE-Master/blob/main/PRIVACY.md",
-  "website": "https://vcge.app",
+  "website": "https://real-raven575.github.io/vCGE-Master/",
+  "_websiteNote": "vcge.app is not live yet (after HomeLab); switch back then. Play Console store settings use https://herdofhelpers.com/vcge/.",
+  "developerEmail": "admin@herdofhelpers.com",
   "copyright": "© 2026 raven575, Herd of Helpers (claude) & gemini",
   "price": "0.99 USD",
   "category": { "googlePlay": "Business", "microsoftStore": "Business" },
