@@ -445,6 +445,7 @@ const strings = {
     'Hold to wipe': 'Mantén pulsado para borrar',
 
     // Settings (Shutout)
+    'Privacy policy': 'Política de privacidad (en inglés)',
     'Language': 'Idioma',
     'Device language': 'Del dispositivo',
     "Changes the words on vCGE's screens. Card reading stays in English.": 'Cambia las palabras de las pantallas de vCGE. La lectura de tarjetas sigue en inglés.',
