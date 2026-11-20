@@ -236,6 +236,43 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('a tampered signature is refused', !(await verifyAssertion(tampered)));
 }
 
+// Biometric per device (raven575's iPad run, 2026-11-20): one passkey that is replaced, one sheet at a time
+{
+  const { BiometricUnlock, deviceKind, passkeyProfile, PASSKEY_USER_ID } = await import(`${R}/modules/mod02-vault/biometric.js`);
+  const ipadUA = 'Mozilla/5.0 (iPad; CPU OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/131.0 Mobile/15E148 Safari/604.1';
+  const ipadDesktopUA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15';
+  ok('biometric: the kind of device is read from the browser (iPad, iPad in desktop mode, Mac, Android, Windows)',
+    deviceKind({ userAgent: ipadUA }) === 'apple-mobile' && deviceKind({ userAgent: ipadDesktopUA, platform: 'MacIntel', maxTouchPoints: 5 }) === 'apple-mobile'
+    && deviceKind({ userAgent: ipadDesktopUA, platform: 'MacIntel', maxTouchPoints: 0 }) === 'mac'
+    && deviceKind({ userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/131.0 Mobile' }) === 'android'
+    && deviceKind({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0', platform: 'Win32' }) === 'windows' && deviceKind({}) === 'other');
+  const ios = passkeyProfile('apple-mobile'), droid = passkeyProfile('android'), win = passkeyProfile('windows');
+  ok('biometric: iPhone and iPad skip the second sheet after enrolling, and get a tip for "More from Chrome"; other devices still confirm once',
+    ios.confirmAfterEnroll === false && /More from Chrome/.test(ios.tip) && droid.confirmAfterEnroll && win.confirmAfterEnroll && !droid.tip
+    && [ios, droid, win].every(p => p.hints.join() === 'client-device'));
+  // A fake device: counts the sheets and records what was asked
+  const realCreds = globalThis.navigator.credentials;
+  const asked = { create: [], get: 0 };
+  let release;
+  const fakeCreds = {
+    create: async (o) => { asked.create.push(o.publicKey); throw Object.assign(new Error('cancel'), { name: 'NotAllowedError' }); },
+    get: () => { asked.get++; return new Promise((_, no) => { release = () => no(Object.assign(new Error('x'), { name: 'NotAllowedError' })); }); }
+  };
+  Object.defineProperty(globalThis.navigator, 'credentials', { value: fakeCreds, configurable: true });
+  const b = new BiometricUnlock(ios);
+  for (let i = 0; i < 2; i++) { try { await b.enroll(); } catch (e) { /* cancelled */ } }
+  ok('biometric: every enrolment uses the same account id, so the password manager replaces the vCGE passkey instead of adding one',
+    asked.create.length === 2 && asked.create.every(p => p.user.id.length === PASSKEY_USER_ID.length && p.user.id.every((x, i) => x === PASSKEY_USER_ID[i]))
+    && String.fromCharCode(...PASSKEY_USER_ID) === 'vcge-session-unlock' && asked.create[0].hints.join() === 'client-device');
+  b.credential = { id: new Uint8Array(16), publicKey: null, algorithm: -7 };
+  const first = b.verify(), second = b.verify();
+  ok('biometric: a second tap while the face or fingerprint sheet is open does not open a second sheet', asked.get === 1 && first === second);
+  release();
+  ok('biometric: a cancelled check says why and frees the button for the next tap', (await first) === false && b.lastError === 'NotAllowedError' && b.busy === null);
+  b.verify(); ok('biometric: after a check ends, the next tap asks the device again', asked.get === 2); release();
+  Object.defineProperty(globalThis.navigator, 'credentials', { value: realCreds, configurable: true });
+}
+
 // Vault store: the hub every module goes through (memory only, per-module rights, no data in notices)
 {
   const { VaultStore, SLOTS, MODULE_RIGHTS, READINGS } = await import(`${R}/modules/mod02-vault/vaultStore.js`);
@@ -1984,6 +2021,18 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   fakeWin.innerWidth = 1366; fakeRo();
   ok('layout: a new page size seen by the resize observer updates the tier at once (WebKit can be late with the resize event)',
     fakeRoOn === fakeRoot && fakeRoot.dataset.tier === 'laptop', fakeRoot.dataset.tier);
+  // iPad run 2026-11-20: the page opened slid sideways; the tier check puts it back at the left edge and runs again on
+  // turning, coming back to the tab, load and the fonts arriving
+  {
+    const heard = [], moved = [];
+    const w2 = { innerWidth: 970, innerHeight: 1389, scrollX: 240, scrollY: 0, scrollTo: (x, y) => moved.push([x, y]),
+      document: { documentElement: { dataset: {}, style: { getPropertyValue: () => '' } }, fonts: { ready: Promise.resolve() } },
+      addEventListener: (n) => heard.push(n), requestAnimationFrame: (f) => f() };
+    tier.initTier(w2);
+    ok('layout: a page slid sideways is put back at the left edge, and the check reruns on turn, pageshow, load and fonts',
+      moved.length === 1 && moved[0][0] === 0 && ['resize', 'orientationchange', 'pageshow', 'load'].every(n => heard.includes(n)), JSON.stringify([moved, heard]));
+    ok('layout: the page never scrolls sideways (html overflow-x: clip)', /html \{ overflow-x: clip; \}/.test(fs.readFileSync(`${R}/modules/mod01-shell/ui.css`, 'utf8')));
+  }
   const uiCssL = fs.readFileSync(`${R}/modules/mod01-shell/ui.css`, 'utf8');
   ok('layout: screens measure their own width, the shell is one centred column (the mock-up is a phone), drop-downs are 44 px',
     /@supports \(container-type: inline-size\) \{\s*\.deck-card \{ container: deck-card \/ inline-size; \}/.test(deckCss)
@@ -2153,6 +2202,13 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
       && ['texToggle', 'plainToggle'].every(id => set5.indexOf(`<input id="${id}"`) > comfort));
     ok('Settings: the dyslexia switch sets the font code only (OpenDyslexic on, Inter off), so nothing new is stored', st.DYSLEXIA_FONT === st.FONT_CODES['OpenDyslexic'] && st.dyslexiaFont(true) === 3 && st.dyslexiaFont(false) === 0
       && st.serializeSettings({ font: st.dyslexiaFont(true) }) === 'hand=0;cb=0;theme=0;font=3;size=0;wipe=0');
+    {
+      const ui = fs.readFileSync(`${R}/modules/mod01-shell/ui.css`, 'utf8'), deck = fs.readFileSync(`${R}/modules/mod01-shell/deck.css`, 'utf8');
+      ok('iPad run 11-20: OpenDyslexic (code 3) is pulled in to a normal width, buttons and fields too',
+        /html\[data-font="3"\] body \{ letter-spacing: -0\.05em; word-spacing: -0\.15em; \}/.test(ui) && /html\[data-font="3"\] body :is\(button, input, select, textarea\) \{ letter-spacing: inherit;/.test(ui));
+      ok('iPad run 11-20: a button picture sits beside its word (inline, not the block every svg gets from the base styles)',
+        /\.vcge-icon\.ic-btn \{ display: inline-block;/.test(deck));
+    }
     ok('R5: the texture switch hides the dot texture, and each of the five other styles has its own look',
       /html\[data-tex="off"\] \.vcge-tex \{ display: none; \}/.test(css5) && ['material', 'ios', 'windows', 'gnome', 'kde'].every(k => css5.includes(`html[data-style="${k}"]`)));
     ok('R5: the Vault and Settings sheets carry Ghost\'s and Shutout\'s emblems', Object.entries(em.SHEET_EMBLEMS).map(([id, e]) => `${id}:${e.pilot}`).join() === 'vaultPage:ghost,settingsSheet:shutout'

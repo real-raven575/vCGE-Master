@@ -62,6 +62,7 @@ html[data-cb="1"] .export-qr-choices label:has(input:checked)::before { content:
 .export-qr-use.hidden { display: none; }
 .export-qr-use input { width: 1.25rem; height: 1.25rem; accent-color: var(--good-600); }
 .export-qr-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--vcge-gap, 0.5rem); margin-top: 0.75rem; }
+#exportQrSaveBtn.export-qr-save { min-height: 3.5rem; }
 button.export-qr-save { min-height: 3.5rem; border-radius: 1rem; font-size: 1rem; font-weight: 700; background: var(--good-600); color: #020617; border-color: var(--good-700); cursor: pointer; }
 button.export-qr-save:hover { background: var(--good-500); }
 button.export-qr-save:disabled { opacity: 0.45; cursor: not-allowed; }
@@ -81,6 +82,9 @@ button.export-qr-cancel { min-height: 3.5rem; border-radius: 1rem; font-size: 1r
 .print-choice-what label:has(input:checked) { border-color: var(--good-600); background: color-mix(in srgb, var(--good-600) 12%, transparent); }
 .print-choice-what input { accent-color: var(--good-600); margin: 0; }
 .print-choice-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--vcge-gap, 0.5rem); }
+/* (.print-choice-actions in front: the shell's 44 px button rule comes later and would win; the big buttons stayed
+   tall only while the picture sat above the word, raven575's iPad run 2026-11-20) */
+.print-choice-actions button.print-choice { min-height: 3.5rem; }
 button.print-choice { min-height: 3.5rem; border-radius: 1rem; font-size: 1rem; font-weight: 700; cursor: pointer; }
 button.print-choice-themed { background: var(--good-600); color: #020617; border-color: var(--good-700); }
 button.print-choice-themed:hover { background: var(--good-500); }

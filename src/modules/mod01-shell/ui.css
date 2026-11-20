@@ -26,6 +26,10 @@
 @media (max-width: 599.98px) { :root { --vcge-layout: phone; } }
 /* Text size (Settings, settings.js sets --vcge-size): every rem on the page grows with it; the header undoes it (deck.css) */
 html { font-size: calc(100% * var(--vcge-size, 1)); }
+/* Nothing scrolls the page sideways. Without this, iPad Chrome could open the app laid out wider than the screen and
+   slid to one side until the text size was changed (raven575's iPad run, 2026-11-20). clip, not hidden: the page does
+   not become a scroll box. */
+html { overflow-x: clip; }
 /* The UI font chosen in Settings (settings.js sets html[data-font] and --vcge-ui-font); Inter until then. The card
    preview keeps its own typeface (MOD06 cardStyles.css). */
 html[data-font] body { font-family: var(--vcge-ui-font, 'Inter'), 'Inter', ui-sans-serif, system-ui, sans-serif; }
@@ -33,6 +37,11 @@ html[data-font] body { font-family: var(--vcge-ui-font, 'Inter'), 'Inter', ui-sa
    their own system font: OpenDyslexic now shows on the Settings sheet itself (raven575's Android run, 2026-11-16) */
 html[data-font]:not([data-font="0"]) { --r5-body: var(--vcge-ui-font), sans-serif; --r2-display: var(--vcge-ui-font), sans-serif; }
 html[data-font]:not([data-font="0"]) :is(.vcge-sheet, .vcge-sheet *, .vcge-btn, .vcge-head h2, .vcge-sheet-head h2) { font-family: var(--vcge-ui-font), sans-serif; }
+/* OpenDyslexic (font code 3) is drawn with very wide letters and gaps; at its own spacing the Settings sheet read like
+   spaced-out capitals (raven575's iPad run, 2026-11-20). Pulled in to about the width of Inter, still open enough to
+   tell letters apart. Headings that set their own spacing keep it. */
+html[data-font="3"] body { letter-spacing: -0.05em; word-spacing: -0.15em; }
+html[data-font="3"] body :is(button, input, select, textarea) { letter-spacing: inherit; word-spacing: inherit; }
 @media (min-width: 600px) and (max-width: 1199.98px) { :root { --vcge-layout: tablet; } }
 /* 4K: the same desktop layout, scaled up instead of shrinking */
 @media (min-width: 2400px) { html { font-size: calc(125% * var(--vcge-size, 1)); } }

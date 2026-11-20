@@ -351,10 +351,12 @@ async function unlockHeld(method) {
 async function unlockWithBiometric() {
     if (vaultMode !== 'quick' || !biometric.isEnrolled()) return;
     $('vaultError').textContent = '';
+    expectExternalApp();   // the device's face or fingerprint sheet comes to the front
     if (await biometric.verify()) return quickUnlock('biometric');
     // The device's reason (NotAllowedError and the like) is shown, so a button that stops working can be traced.
     const why = biometric.lastError ? ` (${biometric.lastError})` : '';
-    if (vaultMode === 'quick') $('vaultError').textContent = `Face or fingerprint not confirmed${why}. Use your PIN.`;
+    const tip = biometric.profile.tip ? ` ${biometric.profile.tip}` : '';
+    if (vaultMode === 'quick') $('vaultError').textContent = `Face or fingerprint not confirmed${why}. Use your PIN.${tip}`;
 }
 
 // Unlock as soon as the 4th digit is typed: no extra tap.
@@ -443,8 +445,12 @@ async function addBiometric() {
     try {
         await biometric.enroll();
         // Only a check that passes right now turns it on: a device that enrols but cannot sign is not "on".
-        expectExternalApp();
-        if (!(await biometric.verify())) { biometric.clear(); throw new Error('BIOMETRIC_CHECK_FAILED'); }
+        // On iPhone and iPad that check is a second sheet straight after "Passkey saved", so it is skipped there
+        // (passkeyProfile, raven575's iPad run 2026-11-20); the first unlock is the check.
+        if (biometric.confirmAfterEnroll()) {
+            expectExternalApp();
+            if (!(await biometric.verify())) { biometric.clear(); throw new Error('BIOMETRIC_CHECK_FAILED'); }
+        }
         globalEventBus.publish(Events.VAULT_UNLOCK_METHOD_CHANGED, { change: 'Face ID / fingerprint added', timestamp: Date.now() });
         cardView.showToast('Face ID / fingerprint added for this session.');
     } catch (e) {
