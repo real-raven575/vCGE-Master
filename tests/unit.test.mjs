@@ -2659,6 +2659,18 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('i18n es: pilot names stay English with the animal in Spanish beside them (raven575, 2026-11-20)',
     i18n.translateLine(pack, '🐢 Shutout the Box Turtle') === '🐢 Shutout (la Tortuga de caja)' && i18n.translateLine(pack, 'Cornerstone the Elephant') === 'Cornerstone (la Elefanta)'
     && Object.keys(es.NAMES).length === 10 && Object.keys(es.NAMES).every(n => i18n.translateLine(pack, `${n} ${es.NAMES[n].en}`).startsWith(`${n} (`)));
+  ok('i18n es round 2 (raven575 phone test, 2026-11-20): screen titles, dock buttons, camera, read-line chips, toasts and the Vault have Spanish',
+    ['Hello there', 'Scan a card', 'Check the text', 'Contact details', 'Make the card', 'Share or save', 'Scan another', 'Hold still, then tap the shutter', 'Card found',
+      'Check this line.', '⌨️ Type it', '📸 Take it again', 'Form filled. Please check the details.', 'City / State / ZIP', 'Work phone', 'Mobile phone', 'Ignore']
+      .every(l => i18n.translateLine(pack, l) !== null)
+    && i18n.translateLine(pack, 'Card colour: Spruce stock') === 'Color de la tarjeta: Cartulina Pícea' && i18n.translateLine(pack, 'Work email') === 'Correo del trabajo'
+    && i18n.translateLine(pack, 'This would be photo 2 of 3.') === 'Esta sería la foto 2 de 3.' && i18n.translateLine(pack, 'Wrong PIN. 1 try left.') === 'PIN incorrecto. Queda 1 intento.'
+    && /^Tenemos casi toda la tarjeta, pero no el nombre\./.test(i18n.translateLine(pack, 'We got most of this card, but not the name. Can you take one more photo? Try a different angle or more light.')));
+  ok('i18n es: pilot chips and the country list translate only in their own places (a contact named Chad elsewhere is untouched)',
+    pack.contexts.length === 2 && pack.contexts[0].strings.Shutout === 'Shutout (la Tortuga de caja)' && pack.contexts[0].strings.Cornerstone === 'Cornerstone (la Elefanta)'
+    && pack.contexts[1].strings['United States'] === 'Estados Unidos' && pack.contexts[1].strings.Germany === 'Alemania'
+    && i18n.translateLine(pack, 'Chad') === null && i18n.translateLine(pack, 'Shutout') === null);
+  ok('i18n es: Go is IR, short enough for the round Go button', pack.strings.GO === 'IR' && pack.strings.Go === 'Ir');
   const keys = Object.keys(pack.strings), vals = Object.values(pack.strings);
   ok('i18n es: every key is one folded line and every value a non-empty string', keys.every(k => k === i18n.normalize(k) && k.length) && vals.every(v => typeof v === 'string' && v.trim().length), keys.find(k => k !== i18n.normalize(k)));
   ok('i18n es: the tagline is never translated (Locked) and the pack never says "local contact management"', !keys.includes('Operation: Never Lose Contact') && !vals.some(v => /Operation: Never Lose Contact|local contact management/i.test(v)) && i18n.translateLine(pack, 'Operation: Never Lose Contact') === null);
@@ -2673,6 +2685,34 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const missing = lines.filter(l => !brand.has(l) && i18n.translateLine(pack, l) === null);
   ok('i18n es: every line in the Settings sheet has its Spanish', lines.length > 40 && missing.length === 0, JSON.stringify(missing));
   ok('i18n es: the welcome and Settings disclaimers name the screen language among the saved settings', html.includes('splash, tour seen, language)') && html.includes('the opening splash, screen language, and whether'));
+}
+
+// Buttons that skip the theme (raven575 14:27 UTC 2026-11-20): no button in the page or built by a module wears the old
+// fixed Tailwind colours or an underlined-link look; the pop-ups and the lock screen use the shell's dialog and buttons.
+{
+  const fs = await import('node:fs');
+  const html = fs.readFileSync(`${R}/../index.html`, 'utf8');
+  const css = (f) => fs.readFileSync(`${R}/modules/${f}`, 'utf8');
+  const offTheme = /\b(bg-slate-\d+|bg-brand-\d+|bg-white|text-slate-\d+|hover:underline)\b/;
+  const pageButtons = [...html.matchAll(/<button\b[^>]*\bclass="([^"]*)"/g)].map(m => m[1]);
+  ok('theme: no button in the page uses fixed slate/brand/white colours or an underlined-link look', pageButtons.length > 50 && !pageButtons.some(c => offTheme.test(c)), JSON.stringify(pageButtons.filter(c => offTheme.test(c))));
+  const camera = css('mod03-camera/camera.js');
+  ok('theme: the camera-in-use pop-up is built with the shell dialog and a themed OK button', camera.includes("'vcge-dialog p-6") && camera.includes("ok.className = 'vcge-btn vcge-btn-primary'") && !/bg-brand-\d|bg-slate-900/.test(camera));
+  const dialogs = ['ocrTimeoutModal', 'ocrMorePhotoModal', 'leaveModal'].map(id => html.slice(html.indexOf(`id="${id}"`), html.indexOf('</div>\n    </div>', html.indexOf(`id="${id}"`))));
+  ok('theme: the three pop-ups use vcge-dialog with vcge-btn buttons, and Wipe and leave is the red-ringed danger button', dialogs.every(d => d.includes('class="vcge-dialog') && /class="vcge-btn vcge-btn-primary"/.test(d) && !/slate-\d/.test(d))
+    && /id="leaveConfirmBtn" type="button" class="vcge-btn r5-danger"/.test(html));
+  const lock = html.slice(html.indexOf('id="vaultModal"'), html.indexOf('id="quickSetupModal"'));
+  ok('theme: the lock screen uses the dialog colours and its ring takes the accent', lock.includes('id="vaultForm" class="vcge-dialog') && lock.includes('class="vault-ring-fill"') && lock.includes('class="vault-ring-track"') && !/slate-\d|rose-\d|brand-\d/.test(lock));
+  const vault = css('mod02-vault/vault.css');
+  ok('theme: lock ring, paw prints and the fingerprint button take the theme accent, not fixed green or purple', /\.vault-ring-fill \{ stroke: var\(--sh-accent\)/.test(vault) && /\.vault-paw \{[^}]*stroke: var\(--sh-accent\)/.test(vault)
+    && /button\.vault-bio-btn \{[^}]*background: var\(--sh-accent\)/.test(vault) && !/#7e22ce|#d8b4fe/.test(vault));
+  const deck = css('mod01-shell/deck.css'), r3 = css('mod01-shell/screens-r3.css'), r5 = css('mod01-shell/screens-r5.css');
+  ok('theme: button icons sit beside the word (inline, not a block above it)', /\.vcge-icon\.ic-btn \{ display: inline-block;/.test(deck));
+  ok('theme: Back to the photo / Cancel on Read are pills, not underlined links; Type it / Take it again are pills', !/read-tools \.read-quiet-btn[^}]*underline/.test(r3) && /\.read-guess-alt \{[^}]*border-radius: 999px/.test(r3));
+  ok('theme: Open Card design and the toast Undo are themed, not underlined', /\.r5-look-link b \{[^}]*text-decoration: none/.test(r5) && /#toastAction \{[^}]*background: var\(--sh-accent\)/.test(deck));
+  const moduleCss = ['mod03-camera/camera.css', 'mod08-egress/export.css'].map(css).join('\n');
+  ok('theme: crop, QR and print Cancel and the green OK / Save buttons use the theme colours', !/\.dark \.cap-review-actions \.cap-quiet|export-qr-cancel \{ border-color|print-choice-cancel \{ border-color|button\.[\w.-]+ \{[^}]*background: var\(--good-600\)|background: var\(--cap-green\)/.test(moduleCss)
+    && !/thank-you-(go|alt) \{ background: (var\(--good-600\)|#ffffff)/.test(deck));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

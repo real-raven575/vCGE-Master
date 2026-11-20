@@ -60,17 +60,16 @@ html[data-cb="1"] .cap-shutter[data-pressed] .cap-shutter-icon { color: #fff; fi
 
 /* ---- Crop step: the photo with its handles at the full edge, then Rotate left / right, Snap to card, Retake, Cancel, OK */
 .cap-review-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--vcge-gap, 0.5rem); }
-.cap-review-actions .cap-quiet { padding: 0 0.75rem; border-radius: 0.75rem; font-size: 0.85rem; font-weight: 600; background: #f1f5f9; color: #0f172a; border-color: #cbd5e1; cursor: pointer; }
+.cap-review-actions .cap-quiet { padding: 0 0.75rem; border-radius: 0.75rem; font-size: 0.85rem; font-weight: 600; background: var(--sh-surface); color: var(--sh-ink); border: 0; box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow); border-radius: 999px; cursor: pointer; }
 .cap-rotate { display: inline-flex; gap: var(--vcge-gap, 0.5rem); }
 .cap-rotate .cap-quiet { display: inline-flex; align-items: center; gap: 0.35rem; }
 .cap-rotate .vcge-icon { width: 1.25rem; height: 1.25rem; }
-.dark .cap-review-actions .cap-quiet { background: #1e293b; color: #f1f5f9; border-color: #334155; }
 .cap-ok {
     display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; padding: 0 1.25rem; min-width: 6rem;
     border-radius: 0.875rem; font-size: 1rem; font-weight: 800; letter-spacing: 0.04em; cursor: pointer;
-    background: var(--cap-green); color: #020617; border-color: var(--cap-green-deep);
+    background: var(--sh-accent); color: var(--sh-on); border: 0; box-shadow: var(--sh-shadow-lift);
 }
-.cap-ok:hover { background: var(--good-500); }
+.cap-ok:hover { filter: brightness(1.08); }
 .cap-ok:disabled { opacity: 0.6; cursor: default; }
 html[data-cb="1"] .cap-ok { background: var(--cb-on); border-color: var(--cb-on-edge); color: #fff; }
 

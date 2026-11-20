@@ -24,8 +24,8 @@
     box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow); border-radius: 18px; padding: 12px 14px; font-size: 0.92rem; line-height: 1.55; margin-top: 6px; }
 .r2-privacy svg { width: 20px; height: 20px; flex: none; color: var(--sh-accent); margin-top: 1px; }
 .r2-more { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 12px; }
-button.r2-quiet { min-height: 44px; padding: 0 14px; border: 0; border-radius: 999px; background: transparent; color: var(--sh-ink);
-    box-shadow: 0 0 0 1px var(--sh-line); font-size: 0.8125rem; font-weight: 600; cursor: pointer; transition: transform 120ms var(--ease-out); }
+button.r2-quiet { min-height: 44px; padding: 0 14px; border: 0; border-radius: 999px; background: var(--sh-surface); color: var(--sh-ink);
+    box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow); font-size: 0.8125rem; font-weight: 600; cursor: pointer; transition: transform 120ms var(--ease-out); }
 button.r2-quiet:active { transform: scale(.96); }
 button.r2-quiet-stop { color: var(--sh-stop); }
 button.r2-quiet:focus-visible { outline: 3px solid var(--sh-accent); outline-offset: 2px; }

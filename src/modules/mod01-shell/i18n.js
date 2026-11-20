@@ -73,13 +73,25 @@ const byNode = new WeakMap();       // node -> Map(attr|'#text' -> record)
 
 const skipped = (el) => !el || SKIP.has(el.tagName) || !!el.closest('[translate="no"], svg');
 
+// A pack's contexts translate a line differently in one place: a pilot chip names the animal beside the pilot, and the
+// country list has its own names (so a contact named "Chad" or "Jordan" elsewhere is never touched).
+const inContext = (pack, el, text) => {
+    for (const c of pack.contexts || []) {
+        if (el && el.matches && el.matches(c.selector)) {
+            const to = translateLine({ strings: c.strings }, text);
+            if (to !== null) return to;
+        }
+    }
+    return translateLine(pack, text);
+};
+
 function swapText(node, pack) {
     const el = node.parentElement;
     if (skipped(el)) return;
     const recs = byNode.get(node);
     const rec = recs && recs.get('#text');
     if (rec && node.nodeValue === rec.to) return;                   // our own write
-    const to = translateLine(pack, node.nodeValue);
+    const to = inContext(pack, el, node.nodeValue);
     if (to === null || to === normalize(node.nodeValue)) { if (rec) { swapped.delete(rec); recs.delete('#text'); } return; }
     const v = node.nodeValue, lead = v.match(/^\s*/)[0], tail = v.match(/\s*$/)[0];
     if (el.tagName === 'OPTION' && !el.hasAttribute('value')) el.setAttribute('value', el.value);   // .value keeps the English

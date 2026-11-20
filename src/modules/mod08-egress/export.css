@@ -2,20 +2,16 @@
    Plain CSS on the shared sizes (ui.css: 44 px buttons, 8 px gaps); the sheets use Shell's .vcge-sheet frame. */
 
 /* ---- Share card: every way out on one card, .vcf first ---------------------------------------------------------- */
-.share-lead { font-size: 0.85rem; color: #475569; margin: 0; }
-.dark .share-lead { color: #cbd5e1; }
+.share-lead { font-size: 0.85rem; color: var(--sh-muted); margin: 0; }
 .share-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--vcge-gap, 0.5rem); }
 button.share-btn {
     min-height: 3.25rem; padding: 0 0.5rem; border-radius: 0.875rem; font-size: 0.85rem; font-weight: 700; cursor: pointer;
-    background: #f1f5f9; color: #0f172a; border-color: #cbd5e1; transition: background-color 0.15s;
+    background: var(--sh-surface); color: var(--sh-ink); border: 0; box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow); transition: background-color 0.15s;
 }
-button.share-btn:hover { background: #e2e8f0; }
-.dark button.share-btn { background: #1e293b; color: #f1f5f9; border-color: #334155; }
-.dark button.share-btn:hover { background: #334155; }
-button.share-btn.share-primary { grid-column: 1 / -1; min-height: 3.5rem; font-size: 1rem; background: var(--good-600); color: #020617; border-color: var(--good-700); }
-button.share-btn.share-primary:hover { background: var(--good-500); }
-.share-note { font-size: 0.75rem; color: #64748b; margin: 0; }
-.dark .share-note { color: #94a3b8; }
+button.share-btn:hover { background: color-mix(in srgb, var(--sh-surface) 85%, var(--sh-ink)); }
+button.share-btn.share-primary { grid-column: 1 / -1; min-height: 3.5rem; font-size: 1rem; background: var(--sh-accent); color: var(--sh-on); border: 0; box-shadow: var(--sh-shadow-lift); }
+button.share-btn.share-primary:hover { background: var(--sh-accent); filter: brightness(1.08); }
+.share-note { font-size: 0.75rem; color: var(--sh-muted); margin: 0; }
 .share-note span { font-weight: 600; }
 /* Phones in portrait: the buttons sit in thumb reach of the dominant hand (right by default; Settings can flip it) */
 @media (max-width: 599.98px) and (orientation: portrait) {
@@ -25,9 +21,9 @@ button.share-btn.share-primary:hover { background: var(--good-500); }
 /* "Ready to share" on the 3D Card's foot takes the person to this card */
 button.share-ready {
     min-height: 3rem; padding: 0 1.25rem; border-radius: 0.875rem; font-size: 0.95rem; font-weight: 700; cursor: pointer;
-    background: var(--good-600); color: #020617; border-color: var(--good-700);
+    background: var(--sh-accent); color: var(--sh-on); border: 0; box-shadow: var(--sh-shadow-lift);
 }
-button.share-ready:hover { background: var(--good-500); }
+button.share-ready:hover { filter: brightness(1.08); }
 
 /* ---- Export QR pop-up ------------------------------------------------------------------------------------------- */
 #exportQrSheet .vcge-sheet-panel { width: min(40rem, 100%); }   /* wider than other sheets, for a bigger preview */
@@ -62,11 +58,10 @@ html[data-cb="1"] .export-qr-choices label:has(input:checked)::before { content:
 .export-qr-use.hidden { display: none; }
 .export-qr-use input { width: 1.25rem; height: 1.25rem; accent-color: var(--good-600); }
 .export-qr-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--vcge-gap, 0.5rem); margin-top: 0.75rem; }
-button.export-qr-save { min-height: 3.5rem; border-radius: 1rem; font-size: 1rem; font-weight: 700; background: var(--good-600); color: #020617; border-color: var(--good-700); cursor: pointer; }
-button.export-qr-save:hover { background: var(--good-500); }
+button.export-qr-save { min-height: 3.5rem; border-radius: 1rem; font-size: 1rem; font-weight: 700; background: var(--sh-accent); color: var(--sh-on); border: 0; box-shadow: var(--sh-shadow-lift); cursor: pointer; }
+button.export-qr-save:hover { filter: brightness(1.08); }
 button.export-qr-save:disabled { opacity: 0.45; cursor: not-allowed; }
-button.export-qr-cancel { min-height: 3.5rem; border-radius: 1rem; font-size: 1rem; font-weight: 600; background: transparent; color: inherit; border-color: #cbd5e1; cursor: pointer; }
-.dark button.export-qr-cancel { border-color: #475569; }
+button.export-qr-cancel { min-height: 3.5rem; border-radius: 1rem; font-size: 1rem; font-weight: 600; background: var(--sh-surface); color: var(--sh-ink); border: 0; box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow); cursor: pointer; }
 .export-qr-file { font-size: 0.75rem; color: #64748b; margin: 0.5rem 0 0; }
 .dark .export-qr-file { color: #94a3b8; }
 .export-qr-file span { font-weight: 600; }
@@ -82,15 +77,14 @@ button.export-qr-cancel { min-height: 3.5rem; border-radius: 1rem; font-size: 1r
 .print-choice-what input { accent-color: var(--good-600); margin: 0; }
 .print-choice-actions { display: grid; grid-template-columns: 1fr 1fr; gap: var(--vcge-gap, 0.5rem); }
 button.print-choice { min-height: 3.5rem; border-radius: 1rem; font-size: 1rem; font-weight: 700; cursor: pointer; }
-button.print-choice-themed { background: var(--good-600); color: #020617; border-color: var(--good-700); }
-button.print-choice-themed:hover { background: var(--good-500); }
+button.print-choice-themed { background: var(--sh-accent); color: var(--sh-on); border: 0; box-shadow: var(--sh-shadow-lift); }
+button.print-choice-themed:hover { filter: brightness(1.08); }
 button.print-choice-bw { background: #ffffff; color: #0f172a; border-color: #0f172a; }
 button.print-choice-bw:hover { background: #f1f5f9; }
 /* Email / Text: Attach the .vcf file greyed where the browser cannot attach files (the note under it says why) */
 button.print-choice:disabled { opacity: 0.45; cursor: not-allowed; }
 .dark button.print-choice-bw { background: #f8fafc; color: #0f172a; border-color: #e2e8f0; }
-button.print-choice-cancel { grid-column: 1 / -1; min-height: var(--vcge-tap, 2.75rem); border-radius: 0.75rem; font-size: 0.9rem; font-weight: 600; background: transparent; color: inherit; border-color: #cbd5e1; cursor: pointer; }
-.dark button.print-choice-cancel { border-color: #475569; }
+button.print-choice-cancel { grid-column: 1 / -1; min-height: var(--vcge-tap, 2.75rem); border-radius: 0.75rem; font-size: 0.9rem; font-weight: 600; background: var(--sh-surface); color: var(--sh-ink); border: 0; box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow); cursor: pointer; }
 .print-choice-name { display: flex; align-items: center; gap: 0.5rem; min-height: var(--vcge-tap, 2.75rem); margin: 0.75rem 0 0; font-size: 0.9rem; font-weight: 600; cursor: pointer; }
 .print-choice-name input { width: 1.25rem; height: 1.25rem; }
 .print-choice-name-note { font-size: 0.75rem; color: #64748b; margin: 0; }

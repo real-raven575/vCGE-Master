@@ -39,7 +39,8 @@ button.vcge-mark { min-height: 44px; } button.vcge-step { min-height: 56px; } bu
 @media (forced-colors: active) { button.vcge-iconbtn, button.vcge-btn, button.vcge-sheet-close { border: 1px solid CanvasText; } }
 .vcge-icon { width: 1.5rem; height: 1.5rem; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; }
 /* Buttons that explain themselves (easy + premium step 5): a line picture beside the word, same Tabler set, sized to the text */
-.vcge-icon.ic-btn { width: 1.25em; height: 1.25em; vertical-align: -0.25em; margin-inline-end: .4em; }
+.vcge-icon.ic-btn { display: inline-block; width: 1.25em; height: 1.25em; vertical-align: -0.25em; margin-inline-end: .4em; }
+.vcge-btn .vcge-icon.ic-btn { margin-inline-end: 0; }
 
 /* ---- Top bar ------------------------------------------------------------------------------------------------- */
 .vcge-bar { position: relative; z-index: 3;   /* over the head, so the Vault's "Still there?" note hangs over it */
@@ -149,6 +150,14 @@ html[data-edition="plain"] .vcge-chip-pilot { display: none; }
 .vcge-btn-primary { background: var(--sh-accent); color: var(--sh-on); flex: 1.6; box-shadow: var(--sh-shadow-lift); }
 .vcge-btn-quiet { background: var(--sh-surface); color: var(--sh-ink); box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow); }
 .vcge-btn[disabled] { opacity: .45; cursor: default; }
+/* Pop-ups (leave, one more photo, the reader didn't finish, the lock screen) wear the shell's own colours and buttons, like
+   the PIN setup, in every theme (raven575's run, 2026-11-20: they were still the old navy with green and grey buttons) */
+.vcge-dialog { border-radius: 22px; background: var(--sh-bg); color: var(--sh-ink); box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow-lift); }
+.vcge-dialog-text { color: var(--sh-muted); }
+.vcge-dialog-error { color: var(--sh-stop); }
+.vcge-dialog-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.vcge-dialog-actions .vcge-btn { flex: 1 1 auto; min-height: 48px; padding: 0 18px; font-size: 15px; }
+.vcge-dialog-actions .vcge-btn.hidden { display: none; }
 .vcge-btn[disabled]:active { transform: none; }
 
 /* ---- Short screens (under 500 px tall: a phone held sideways; tier.js sets data-short): the mock-up is an upright
@@ -212,7 +221,9 @@ html[data-edition="plain"] .vcge-chip-pilot { display: none; }
 /* The 1000px depth draws nothing different (no perspective above the toast), but WebKit (iPhone CI, PR #22, 2026-11-15)
    hit-tested the card's 3D layer (preserve-3d) above the toast, so a tap meant for the toast landed on the card and could
    flip it. A depth well in front of the card keeps the toast first in line for the tap. */
-.vcge-toast #toastAction { color: var(--sh-soft); }
+/* Undo on the toast is a small themed pill, not an underlined link (raven575, 2026-11-20) */
+.vcge-toast #toastAction { min-height: 32px; padding: 0 14px; border: 0; border-radius: 999px; background: var(--sh-accent); color: var(--sh-on); font: inherit; cursor: pointer; }
+.vcge-toast #toastAction.hidden { display: none; }
 
 /* ---- Welcome card: its 0.8 layout is in screens-r2.css (0.8 redo R2) ---- */
 
@@ -264,10 +275,9 @@ html[data-cb="1"] .vcge-btn-primary:not(:disabled) { background: var(--cb-on); c
 .thank-you-box p { font-size: 1rem; margin: 0 0 1.25rem; }
 .thank-you-actions { display: flex; gap: 0.75rem; }
 .thank-you-actions button { flex: 1 1 0; min-height: 3.5rem; border-radius: 0.875rem; font-size: 1rem; font-weight: 700; cursor: pointer; }
-.thank-you-go { background: var(--good-600); color: #020617; border-color: var(--good-700); }
-.thank-you-go:hover { background: var(--good-500); }
-.thank-you-alt { background: #ffffff; color: #0f172a; border-color: #cbd5e1; }
-.dark .thank-you-alt { background: #1e293b; color: #f1f5f9; border-color: #334155; }
+.thank-you-go { background: var(--sh-accent); color: var(--sh-on); border: 0; box-shadow: var(--sh-shadow-lift); }
+.thank-you-go:hover { filter: brightness(1.08); }
+.thank-you-alt { background: var(--sh-surface); color: var(--sh-ink); border: 0; box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow); }
 .thank-you-note { font-size: 0.85rem; color: #64748b; margin: 1rem 0 0; min-height: 1.25rem; }
 .dark .thank-you-note { color: #94a3b8; }
 @media (max-width: 599.98px) and (orientation: portrait) {
