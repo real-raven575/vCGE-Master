@@ -139,3 +139,6 @@ for (const name of ANIMALS) {
 }
 fs.copyFileSync(path.join(ROOT, 'scripts/licenses/LICENSE-noto-emoji.txt'), path.join(animalsOut, 'LICENSE-noto-emoji.txt'));
 console.log(`${String(ANIMALS.length).padStart(6)} SVG src/vendor/icons/animals/ (Noto Emoji)`);
+
+// The US ZIP code -> town table (MOD05 zipTowns.js; raven575's iPad run, 2026-11-20), from the pinned zipcodes package.
+await import('./zip-towns.mjs');

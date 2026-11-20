@@ -1,4 +1,4 @@
-// Builds src/vendor/zip-towns/zipTowns.js, the offline US ZIP code -> town table (`node scripts/zip-towns.mjs`).
+// Builds src/vendor/zip-towns/zipTowns.js, the offline US ZIP code -> town table (part of `npm run vendor`, or `node scripts/zip-towns.mjs`).
 // Source: the zipcodes npm package (BSD; its US data comes from the Free Zipcode Database, federalgovernmentzipcodes.us),
 // pinned in package.json. The output is committed, so the app needs no install step and no network for it.
 // Format (one string, read by mod05-form/zipTowns.js): "Town,ST|Town,ST|..." then a newline, then one entry per ZIP in
