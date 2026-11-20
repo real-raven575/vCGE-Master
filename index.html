@@ -751,6 +751,32 @@
                     <p>vCGE 0.8</p>
                     <p>&copy; 2026 raven575, Herd of Helpers (claude) &amp; gemini</p>
                 </div>
+                <!-- Privacy policy, built in so it opens with no internet (Google Play asks for it inside the app as well as on the
+                     listing). Same text as PRIVACY.md; tests/wrappers.test.mjs checks that every heading and the date match. -->
+                <details id="settingsPrivacy" class="r5-group vcge-privacy">
+                    <summary>Privacy policy</summary>
+                    <!-- The policy text stays in English in every screen language (it must match PRIVACY.md word for word); the pack translates only the heading, which says so -->
+                    <div class="vcge-privacy-body" lang="en" translate="no">
+                    <p class="vcge-privacy-date">Effective 2026-11-19. Every edition: web, Windows, macOS, Linux and Android, from GitHub or an app store.</p>
+                    <h3>The short version</h3>
+                    <p>vCGE collects nothing. It has no accounts, no ads, no analytics, no crash reporting and no internet connection. Nothing you scan or type ever reaches raven575, the Herd of Helpers or anyone else, unless you yourself press Share, Save, Email, Text or Print.</p>
+                    <h3>What happens on your device</h3>
+                    <ul>
+                        <li><b>Camera and photos.</b> vCGE uses the camera, or a photo you pick, only to read the business card in front of it. The photo is read on your device and is never uploaded.</li>
+                        <li><b>The card you make.</b> The text read from the card, and anything you type, live only in the app's memory. Leaving or reloading the app, or a few idle minutes, wipes them. With a session PIN the card is locked first, then wiped.</li>
+                        <li><b>Settings.</b> The only thing vCGE keeps is one small settings line on your device. It holds no contact data. Android backup of it is turned off.</li>
+                        <li><b>No internet.</b> The Android app does not even ask for the internet permission. The web and desktop editions block every request that is not to their own bundled files.</li>
+                    </ul>
+                    <h3>When data leaves the app</h3>
+                    <p>Data leaves vCGE only when you press one of its buttons: save a contact, share a .vcf file, save a QR picture, email, text or print. It then goes where you send it, to the app or person you pick, under that app's own privacy policy. On Android, the contact file handed to the other app sits in vCGE's private cache only until you come back to vCGE, which then deletes it.</p>
+                    <h3>Permissions</h3>
+                    <p>Camera only, to photograph a business card. You can say no and upload a photo instead. No contacts permission: saving a contact hands the card to your phone's own contacts app, which asks you to confirm.</p>
+                    <h3>Children</h3>
+                    <p>vCGE is a tool for adults' business cards. It collects nothing from anyone, children included.</p>
+                    <h3>Changes and contact</h3>
+                    <p>If this policy ever changes, the new version comes with a new date and is listed in the release notes. Questions: open an issue at github.com/real-raven575/vCGE-Master/issues (please never attach a real business card or anyone's real contact details).</p>
+                    </div>
+                </details>
                 <p id="settingsNote" class="r5-foot">vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look, the opening splash, screen language, and whether you have seen the tour). Nothing you scan, upload or type is ever saved.</p>
             </div>
         </div>

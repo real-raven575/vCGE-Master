@@ -350,6 +350,8 @@ jobs:
           PLAY_UPLOAD_KEY_ALIAS: ${{ secrets.PLAY_UPLOAD_KEY_ALIAS }}
         run: |
           [ -n "$PLAY_UPLOAD_KEYSTORE_B64" ] || { echo "The play-upload environment has no upload key yet."; exit 1; }
+          [ -n "$PLAY_UPLOAD_KEY_ALIAS" ] || { echo "The play-upload environment has no PLAY_UPLOAD_KEY_ALIAS secret (the key's alias, e.g. vcge-upload)."; exit 1; }
+          [ -n "$PLAY_UPLOAD_KEYSTORE_PASSWORD" ] || { echo "The play-upload environment has no PLAY_UPLOAD_KEYSTORE_PASSWORD secret."; exit 1; }
           trap 'rm -f "$RUNNER_TEMP/upload.jks"' EXIT
           echo "$PLAY_UPLOAD_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload.jks"
           mkdir -p aab
