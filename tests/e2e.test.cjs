@@ -1141,6 +1141,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('language: Español swaps the words at once (Settings, Welcome, labels, On / Off), html lang es, saved as lang=2',
       es.lang === 'es' && es.title === 'Ajustes' && es.welcome === 'Escanea una tarjeta. Guarda el contacto.' && es.close === 'Cerrar' && /^(Sí|No)$/.test(es.onoff || '')
       && /(^|;)lang=2(;|$)/.test(es.saved || '') && es.opt === 'Del dispositivo', JSON.stringify(es));
+    const r2 = await pL.evaluate(() => ({ title: hTitle.textContent.trim(), name: hName.textContent.trim(), next: dockNext.textContent.trim(),
+      country: document.querySelector('#country option:checked')?.textContent, cval: document.getElementById('country').value }));
+    ok('language: screen titles, the dock button, the pilot chip (with the animal) and the country list are in Spanish; the country value stays English',
+      r2.title !== '' && !/^(Hello there|Capture|Check the text|Contact details|Your card|Share or save)$/.test(r2.title) && !/^(Use this photo|Scan a card|Make the card|Fill details|Scan another)$/.test(r2.next)
+      && (EDITION_PLAIN || /^\w+ \((el|la) [^)]+\)$/.test(r2.name)) && r2.country === 'Estados Unidos' && r2.cval === 'United States', JSON.stringify(r2));
     ok('language: the tagline stays "Operation: Never Lose Contact" in Spanish (Locked; plain has no tagline)', EDITION_PLAIN ? es.tagline === null || es.tagline === 'Operation: Never Lose Contact' : es.tagline === 'Operation: Never Lose Contact', es.tagline);
     await pL.click('#texToggle'); await pL.waitForTimeout(100);
     ok('language: a word a module changes later is translated too (the switch reads No once turned off)', (await pL.$eval('#texToggle', sw => sw.previousElementSibling.textContent)) === 'No');
@@ -1174,6 +1179,38 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('language: a device set to Spanish opens in Spanish by itself, and nothing is written for it', (await pD.evaluate(() => document.documentElement.lang)) === 'es'
       && (await pD.$eval('#settingsTitle', el => el.textContent.trim())) === 'Ajustes' && !/lang=/.test((await pD.evaluate(() => localStorage.getItem('vcge_settings'))) || ''));
     await ctxD.close();
+  }
+
+  // Buttons that skip the theme (raven575, 2026-11-20): the pop-ups and the lock screen wear the shell's colours, the main
+  // button is the theme's accent, quiet buttons are surface pills (never a bare underlined link), icons sit beside the word
+  {
+    const ctxT = await newContext();
+    const pT = await ctxT.newPage();
+    await pT.goto(ORIGIN); await pT.waitForTimeout(400);
+    const look = (ids) => pT.evaluate((ids) => {
+      const probe = document.createElement('i'); probe.style.color = 'var(--sh-accent)'; document.body.appendChild(probe);
+      const accent = getComputedStyle(probe).color; probe.remove();
+      for (const m of ['leaveModal', 'ocrMorePhotoModal', 'ocrTimeoutModal', 'vaultModal']) document.getElementById(m).classList.remove('hidden');
+      const out = { accent };
+      for (const id of ids) {
+        const b = document.getElementById(id), cs = getComputedStyle(b), icon = b.querySelector('svg.ic-btn');
+        out[id] = { bg: cs.backgroundColor, line: cs.textDecorationLine, radius: parseFloat(cs.borderTopLeftRadius), h: b.getBoundingClientRect().height,
+          iconBeside: !icon || Math.abs(icon.getBoundingClientRect().top + icon.getBoundingClientRect().height / 2 - (b.getBoundingClientRect().top + b.getBoundingClientRect().height / 2)) < 6 };
+      }
+      out.panel = getComputedStyle(document.querySelector('#leaveModal .vcge-dialog')).backgroundColor;
+      out.lockPanel = getComputedStyle(document.getElementById('vaultForm')).backgroundColor;
+      out.ring = getComputedStyle(document.getElementById('vaultLockRing')).stroke;
+      for (const m of ['leaveModal', 'ocrMorePhotoModal', 'ocrTimeoutModal', 'vaultModal']) document.getElementById(m).classList.add('hidden');
+      return out;
+    }, ids);
+    const t = await look(['leaveStayBtn', 'leaveConfirmBtn', 'ocrAnotherPhotoBtn', 'ocrFixByHandBtn', 'ocrTryAgainBtn', 'ocrTimeoutCancelBtn', 'vaultStartOverBtn']);
+    const slate900 = 'rgb(15, 23, 42)';
+    ok('theme: the main button in each pop-up is the theme accent (Stay, Take another photo, Try again)', ['leaveStayBtn', 'ocrAnotherPhotoBtn', 'ocrTryAgainBtn'].every(id => t[id].bg === t.accent), JSON.stringify(t));
+    ok('theme: pop-up buttons are pills, never bare underlined text, at least 44 px tall',
+      ['leaveStayBtn', 'leaveConfirmBtn', 'ocrAnotherPhotoBtn', 'ocrFixByHandBtn', 'ocrTryAgainBtn', 'ocrTimeoutCancelBtn'].every(id => t[id].line === 'none' && t[id].radius >= 20 && t[id].h >= 44), JSON.stringify(t));
+    ok('theme: button icons sit beside the word, not above it (pop-ups and Wipe and start over)', Object.keys(t).filter(k => t[k] && t[k].iconBeside !== undefined).every(k => t[k].iconBeside), JSON.stringify(t));
+    ok('theme: the pop-ups and the lock screen are not the old navy, and the lock ring is the accent', t.panel !== slate900 && t.lockPanel !== slate900 && t.ring === t.accent, JSON.stringify({ panel: t.panel, lock: t.lockPanel, ring: t.ring, accent: t.accent }));
+    await ctxT.close();
   }
 
   // Quick unlock: 4-digit session PIN after a lock (idle, screen off, Lock button); the card is held in memory only,
@@ -3269,10 +3306,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     }
     await pV.setInputFiles('#imageUpload', await renderCardImage(pV)); await pV.waitForTimeout(300);
     ok('upload: the handles start at the full photo', await pV.isVisible('#captureReview') && (await pV.getAttribute('#cropPolygon', 'points')) === '0,0 1050,0 1050,600 0,600');
-    await pV.mouse.move(1, 1);   // (the pointer rests off the buttons, so OK shows its own green, not its hover green)
-    ok('crop step: Rotate left, Rotate right, Snap to card, Cancel and a green OK; OK is the only green one', (await pV.$$eval('#captureActions button', bs => bs.filter(b => b.offsetParent).map(b => b.textContent.trim()))).join('|') === 'Left|Right|Snap to card|Cancel|OK'
+    await pV.mouse.move(1, 1);   // (the pointer rests off the buttons, so OK shows its own colour, not its hover)
+    ok('crop step: Rotate left, Rotate right, Snap to card, Cancel and OK; OK is the theme accent (raven575 2026-11-20: buttons keep the theme)', (await pV.$$eval('#captureActions button', bs => bs.filter(b => b.offsetParent).map(b => b.textContent.trim()))).join('|') === 'Left|Right|Snap to card|Cancel|OK'
       && (await pV.getAttribute('#rotateLeftBtn', 'aria-label')).includes('counter-clockwise') && (await pV.getAttribute('#rotateRightBtn', 'aria-label')).includes(', clockwise')
-      && await pV.$eval('#runOcrBtn', b => getComputedStyle(b).backgroundColor === 'rgb(22, 163, 74)'));
+      && await pV.$eval('#runOcrBtn', b => { const i = document.createElement('i'); i.style.color = 'var(--sh-accent)'; document.body.appendChild(i); const accent = getComputedStyle(i).color; i.remove(); return getComputedStyle(b).backgroundColor === accent; }));
     // Finding 52: a two-finger pinch on the photo zooms the photo like a camera; the page, the buttons and the handles keep
     // their size; the corners do not move. At the whole photo a swipe is still the deck's (touch-action pan-x pan-y).
     await deckSettled(pV);

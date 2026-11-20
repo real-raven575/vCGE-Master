@@ -380,9 +380,10 @@ button.vcge-pick-btn:disabled { opacity: .55; cursor: default; }
 /* ---- Settings > App look (raven575, 2026-11-10): says it changes the app, never the card ----------------------- */
 .r5-look-head { display: flex; align-items: center; gap: 8px; }
 .r5-look-head svg { width: 18px; height: 18px; flex: none; }
-.r5-look-link { display: flex; align-items: center; gap: 8px; width: calc(100% - 32px); min-height: 44px; margin: 0 16px 12px; padding: 6px 12px; border: 1px dashed var(--sh-line);
-    border-radius: 12px; background: transparent; color: var(--sh-muted); font: 500 .8125rem var(--r5-body); text-align: left; cursor: pointer; }
-.r5-look-link b { color: var(--sh-ink); text-decoration: underline; }
+.r5-look-link { display: flex; align-items: center; gap: 8px; width: calc(100% - 32px); min-height: 44px; margin: 0 16px 12px; padding: 6px 12px; border: 0;
+    border-radius: 16px; background: var(--sh-surface); box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow); color: var(--sh-muted); font: 500 .8125rem var(--r5-body); text-align: left; cursor: pointer; }
+/* Open Card design is the button's own call, in the theme's accent, not an underlined link (raven575, 2026-11-20) */
+.r5-look-link b { color: var(--sh-accent); text-decoration: none; white-space: nowrap; }
 
 /* ---- Easy touch (Settings > Accessibility, easy + premium step 7): every button at least 56 px, icon buttons 56 px
    round, Go and the shutter half as big again; the wipe's Yes is a tap (wipeDialog.js), so it reads "Yes, wipe". ---- */

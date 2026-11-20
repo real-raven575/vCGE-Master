@@ -92,16 +92,20 @@ button.wipe-yes { background: var(--good-200); color: var(--good-950); border-co
 @media (min-height: 640px) { #vaultModal { align-items: center; } }
 button.vault-bio-btn {
     display: flex; align-items: center; justify-content: center; gap: 0.6rem; width: 100%; min-height: 3.5rem;
-    border-radius: 1rem; font-weight: 700; font-size: 1rem; background: var(--good-600); color: var(--good-950); border: 2px solid var(--good-700); cursor: pointer;
+    border-radius: 999px; font-weight: 700; font-size: 1rem; background: var(--sh-accent); color: var(--sh-on); border: 0; box-shadow: var(--sh-shadow-lift); cursor: pointer;
 }
-button.vault-bio-btn:hover { background: var(--good-500); }
+button.vault-bio-btn:hover { filter: brightness(1.08); }
+html[data-cb="1"] button.vault-bio-btn { background: var(--cb-on); color: #ffffff; }
 button.vault-bio-btn .vcge-icon { width: 1.75rem; height: 1.75rem; }
 button.vault-bio-btn.hidden { display: none; }
-.vault-or { display: flex; align-items: center; gap: 0.75rem; font-size: 0.75rem; color: #64748b; margin: 0.25rem 0; }
+.vault-or { display: flex; align-items: center; gap: 0.75rem; font-size: 0.75rem; color: var(--sh-muted); margin: 0.25rem 0; }
 .vault-or.hidden { display: none; }
-.vault-or::before, .vault-or::after { content: ""; flex: 1; height: 1px; background: #e2e8f0; }
-.dark .vault-or::before, .dark .vault-or::after { background: #334155; }
+.vault-or::before, .vault-or::after { content: ""; flex: 1; height: 1px; background: var(--sh-line); }
 .vault-ring { width: 7rem; height: 7rem; }
+/* The lock ring takes the theme: its track is the line colour, the time left the accent */
+.vault-ring-track { stroke: var(--sh-line); }
+.vault-ring-fill { stroke: var(--sh-accent); }
+html[data-cb="1"] .vault-ring-fill { stroke: var(--cb-on); }
 /* On phones the header has no room for the text Lock button beside the icons: Lock now lives on the Vault page instead */
 @media (max-width: 599.98px) { #lockVaultBtn { display: none; } }
 #vaultPin, #sessionPinInput { min-height: var(--vcge-tap, 2.75rem); font-size: 1.25rem; letter-spacing: 0.4em; text-align: center; }
@@ -200,12 +204,9 @@ button.vault-switch[aria-checked="true"] .vault-switch-knob { left: auto; right:
    dots are hidden under them; the box is unchanged for screen readers and the keyboard. */
 .vault-pin-wrap { position: relative; display: block; }
 .vault-pin-paws { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 0.6em; pointer-events: none; }
-.vault-paw { width: 1.35em; height: 1.35em; fill: none; stroke: #7e22ce; stroke-width: 1.6; }
-.dark .vault-paw { stroke: #d8b4fe; }
+.vault-paw { width: 1.35em; height: 1.35em; fill: none; stroke: var(--sh-accent); stroke-width: 1.6; }
 .vault-pin-paws[data-filled="1"] .vault-paw:nth-child(-n+1), .vault-pin-paws[data-filled="2"] .vault-paw:nth-child(-n+2),
-.vault-pin-paws[data-filled="3"] .vault-paw:nth-child(-n+3), .vault-pin-paws[data-filled="4"] .vault-paw:nth-child(-n+4) { fill: #7e22ce; }
-.dark .vault-pin-paws[data-filled="1"] .vault-paw:nth-child(-n+1), .dark .vault-pin-paws[data-filled="2"] .vault-paw:nth-child(-n+2),
-.dark .vault-pin-paws[data-filled="3"] .vault-paw:nth-child(-n+3), .dark .vault-pin-paws[data-filled="4"] .vault-paw:nth-child(-n+4) { fill: #d8b4fe; }
+.vault-pin-paws[data-filled="3"] .vault-paw:nth-child(-n+3), .vault-pin-paws[data-filled="4"] .vault-paw:nth-child(-n+4) { fill: var(--sh-accent); }
 html:not([data-edition="plain"]) :is(#vaultPin, #sessionPinInput) { color: transparent; caret-color: transparent; }
 
 /* V3: the lock ring as a ringed raccoon tail: dark bands over the green ring, cut by the countdown mask. */

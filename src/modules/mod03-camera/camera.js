@@ -201,7 +201,7 @@ export class VCGEActiveCamera {
             notice.id = 'cameraInUseModal';
             notice.className = 'hidden fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4';
             const box = document.createElement('div');
-            box.className = 'bg-white dark:bg-slate-900 rounded-2xl p-6 max-w-sm w-full space-y-3 shadow-2xl';
+            box.className = 'vcge-dialog p-6 max-w-sm w-full space-y-3';
             box.setAttribute('role', 'alertdialog');
             box.setAttribute('aria-labelledby', 'cameraInUseTitle');
             box.setAttribute('aria-describedby', 'cameraInUseMessage');
@@ -211,14 +211,14 @@ export class VCGEActiveCamera {
             title.textContent = 'Camera turned off';
             const message = document.createElement('p');
             message.id = 'cameraInUseMessage';
-            message.className = 'text-xs text-slate-500 dark:text-slate-400';
+            message.className = 'text-xs vcge-dialog-text';
             message.textContent = IN_USE_MESSAGE;
             const row = document.createElement('div');
-            row.className = 'flex justify-end';
+            row.className = 'vcge-dialog-actions';
             const ok = document.createElement('button');
             ok.id = 'cameraInUseOkBtn';
             ok.type = 'button';
-            ok.className = 'px-4 py-2 rounded-lg bg-brand-600 hover:bg-brand-500 text-slate-950 font-semibold text-sm transition';
+            ok.className = 'vcge-btn vcge-btn-primary';
             ok.textContent = 'OK';
             ok.addEventListener('click', () => notice.classList.add('hidden'));
             row.append(ok);

@@ -101,7 +101,7 @@
     border: 2px solid var(--sh-line); background: var(--sh-surface); color: var(--sh-ink); overflow-wrap: anywhere; text-align: start;
 }
 #cardRead .read-guesses .read-guess { font-weight: 600; border-color: var(--r3-warn); }
-#cardRead .read-guesses .read-guess-alt { font-size: 1em; }
+#cardRead .read-guesses .read-guess-alt { font-size: 1em; font-weight: 600; border: 0; border-radius: 999px; box-shadow: 0 0 0 1px var(--sh-line), var(--sh-shadow); }
 #cardRead .read-guesses button:focus-visible { outline: 3px solid var(--sh-ink); outline-offset: 2px; }
 @media (forced-colors: active) { #cardRead .read-guesses button { border-color: ButtonText; } }
 
@@ -120,7 +120,6 @@
 
 /* Back to the photo and Cancel, last and quiet; Fill details is the dock's */
 #cardRead .read-tools { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin-top: 18px; }
-#cardRead .read-tools .read-quiet-btn { background: transparent; box-shadow: none; color: var(--sh-muted); text-decoration: underline; text-underline-offset: 3px; }
 #cardRead #applyOcrBtn { display: none; }
 
 /* No photo yet */
