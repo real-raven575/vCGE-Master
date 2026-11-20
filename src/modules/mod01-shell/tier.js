@@ -36,6 +36,9 @@ export function initTier(win = typeof window !== 'undefined' ? window : null) {
         if (root.dataset.tier !== tier) root.dataset.tier = tier;
         const short = win.innerHeight > 0 && win.innerHeight < SHORT_PX;
         if (short) root.dataset.short = '1'; else delete root.dataset.short;
+        // The app never scrolls sideways: a page left slid over (iPad Chrome on first load, raven575's run 2026-11-20,
+        // fixed only by changing the text size) is put back at the left edge.
+        if (win.scrollX && typeof win.scrollTo === 'function') win.scrollTo(0, win.scrollY || 0);
     };
     const queue = () => { if (!queued) { queued = true; win.requestAnimationFrame(update); } };
     win.addEventListener('resize', queue);
@@ -45,5 +48,10 @@ export function initTier(win = typeof window !== 'undefined' ? window : null) {
     if (win.ResizeObserver) new win.ResizeObserver(update).observe(root);
     // A new text size (settings.js sets html[data-size]) changes the tier as well
     if (win.MutationObserver) new win.MutationObserver(queue).observe(root, { attributes: true, attributeFilter: ['data-size'] });
+    // Turning the tablet, coming back to the tab, and the fonts arriving can each change the width after the first frame
+    win.addEventListener('orientationchange', queue);
+    win.addEventListener('pageshow', queue);
+    win.addEventListener('load', queue);
+    if (doc.fonts && doc.fonts.ready) doc.fonts.ready.then(queue, () => {});
     update();   // at once, so the first frame already has its tier
 }

@@ -8,6 +8,14 @@
  * it is saved by vCGE. (The device may keep the credential in its own password manager; it holds no contact data.)
  * Unlocking asks the device to sign a fresh random challenge after it has checked the user's face or fingerprint, and
  * the signature is verified here against the public key from enrolment.
+ *
+ * Same passkey every time (raven575's iPad run, 2026-11-20): enrolling always uses one fixed account id for this site, so
+ * the device's password manager replaces the vCGE passkey it already has instead of adding another entry each time
+ * the switch is turned on. The id names no person and holds no contact data.
+ *
+ * Per device (raven575's idea, same run): passkeyProfile() reads the kind of device. On an iPhone or iPad every
+ * passkey check is a separate system sheet, so enrolling there does not ask a second time straight away (Chrome showed
+ * "Passkey saved" and then a second "Sign In"); other devices still confirm once after enrolling.
  */
 
 const subtle = () => window.crypto.subtle;
@@ -17,6 +25,38 @@ const ES256 = -7;
 const RS256 = -257;
 const FLAG_USER_PRESENT = 0x01;
 const FLAG_USER_VERIFIED = 0x04;
+/** The one account id every vCGE passkey uses on this site, so a new enrolment replaces the old passkey. */
+export const PASSKEY_USER_ID = Object.freeze([...'vcge-session-unlock'].map((c) => c.charCodeAt(0)));
+
+/**
+ * The kind of device, from the browser's own description (nothing is stored):
+ * 'apple-mobile' (iPhone, iPad, and an iPad that asks for desktop sites), 'android', 'windows', 'mac' or 'other'.
+ * @param {{ userAgent?: string, platform?: string, maxTouchPoints?: number }} [nav]
+ */
+export function deviceKind(nav = typeof navigator !== 'undefined' ? navigator : {}) {
+    const ua = String(nav.userAgent || ''), platform = String(nav.platform || '');
+    if (/iPhone|iPad|iPod/.test(ua) || /iPhone|iPad|iPod/.test(platform)) return 'apple-mobile';
+    if (/Macintosh|MacIntel/.test(ua + platform) && (nav.maxTouchPoints || 0) > 1) return 'apple-mobile';   // iPadOS desktop mode
+    if (/Android/.test(ua)) return 'android';
+    if (/Windows/.test(ua) || /^Win/.test(platform)) return 'windows';
+    if (/Macintosh|MacIntel/.test(ua + platform)) return 'mac';
+    return 'other';
+}
+
+/**
+ * How passkeys are asked for on this kind of device.
+ * confirmAfterEnroll: ask the device once more right after enrolling, so a device that enrols but cannot sign is not
+ *   shown as "on". Off on iPhone and iPad, where that second ask is a second sheet to tap through.
+ * hints: WebAuthn hints (browsers that do not know them ignore them): this device's own screen lock, not a phone or key.
+ * tip: one line shown when the check fails, for where the passkey hides on that device.
+ */
+export function passkeyProfile(kind = deviceKind()) {
+    const base = { kind, confirmAfterEnroll: true, hints: ['client-device'], tip: '' };
+    if (kind === 'apple-mobile') {
+        return { ...base, confirmAfterEnroll: false, tip: 'In Chrome, if the sheet says no passkeys are saved, tap "More from Chrome" and pick vCGE session.' };
+    }
+    return base;
+}
 
 export function base64url(bytes) {
     let s = '';
@@ -97,25 +137,43 @@ export async function verifyAssertion({ publicKey, algorithm, challenge, origin,
 }
 
 export class BiometricUnlock {
-    constructor() {
+    constructor(profile = passkeyProfile()) {
         this.credential = null;   // { id, publicKey, algorithm } for this session only
         this.lastError = null;    // why the last check failed (an error name such as NotAllowedError), never any data
+        this.profile = profile;
+        this.busy = null;         // the device sheet that is open now: a second tap waits for it instead of opening another
     }
 
     isEnrolled() {
         return this.credential !== null;
     }
 
+    /** True when enrolling should be followed by one check (see passkeyProfile). */
+    confirmAfterEnroll() {
+        return this.profile.confirmAfterEnroll;
+    }
+
+    // One device sheet at a time: a second tap while one is open gets the same answer instead of a second sheet.
+    #once(run) {
+        if (!this.busy) this.busy = run().finally(() => { this.busy = null; });
+        return this.busy;
+    }
+
     /** Asks the device to create a credential (the user confirms with face or fingerprint). Throws if cancelled. */
-    async enroll() {
+    enroll() {
+        return this.#once(() => this.#enroll());
+    }
+
+    async #enroll() {
         const created = await navigator.credentials.create({
             publicKey: {
                 rp: { name: 'vCGE' },
-                user: { id: random(16), name: 'vCGE session', displayName: 'vCGE session unlock' },
+                user: { id: Uint8Array.from(PASSKEY_USER_ID), name: 'vCGE session', displayName: 'vCGE session unlock' },
                 challenge: random(32),
                 pubKeyCredParams: [{ type: 'public-key', alg: ES256 }, { type: 'public-key', alg: RS256 }],
                 authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required', residentKey: 'discouraged', requireResidentKey: false },
                 attestation: 'none',
+                hints: this.profile.hints,
                 timeout: TIMEOUT_MS
             }
         });
@@ -130,7 +188,11 @@ export class BiometricUnlock {
     }
 
     /** Asks the device to check the user; true only for a valid signature from the enrolled credential. */
-    async verify() {
+    verify() {
+        return this.#once(() => this.#verify());
+    }
+
+    async #verify() {
         this.lastError = null;
         if (!this.credential) { this.lastError = 'not set up'; return false; }
         const challenge = random(32);
@@ -141,6 +203,7 @@ export class BiometricUnlock {
                     challenge,
                     allowCredentials: [{ type: 'public-key', id: this.credential.id }],
                     userVerification: 'required',
+                    hints: this.profile.hints,
                     timeout: TIMEOUT_MS
                 }
             });
