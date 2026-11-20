@@ -2668,7 +2668,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   // Every line the Settings sheet and the Welcome card show in English is in the pack (index.html's own text)
   const html = fs.readFileSync(`${R}/../index.html`, 'utf8');
   const sheet = html.slice(html.indexOf('<div id="settingsSheet"'), html.indexOf('<div id="settingsAbout"'));
-  const lines = [...sheet.replace(/<!--[\s\S]*?-->/g, '').replace(/<svg[\s\S]*?<\/svg>/g, '').matchAll(/>([^<>]*[A-Za-z][^<>]*)</g)].map(m => i18n.normalize(m[1])).filter(Boolean);
+  const lines = [...sheet.split('<!--').map((part, i) => (i ? part.slice(part.indexOf('-->') + 3) : part)).join('').split('<svg').map((part, i) => (i ? part.slice(part.indexOf('</svg>') + 6) : part)).join('').matchAll(/>([^<>]*[A-Za-z][^<>]*)</g)].map(m => i18n.normalize(m[1])).filter(Boolean);
   const brand = new Set(['Herd', 'Material', 'iOS', 'Windows', 'GNOME', 'KDE', 'A', 'Cornerstone']);
   const missing = lines.filter(l => !brand.has(l) && i18n.translateLine(pack, l) === null);
   ok('i18n es: every line in the Settings sheet has its Spanish', lines.length > 40 && missing.length === 0, JSON.stringify(missing));
