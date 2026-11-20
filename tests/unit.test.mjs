@@ -1997,7 +1997,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const st = await import(`${R}/modules/mod01-shell/settings.js`);
   const ui = await import(`${R}/modules/mod01-shell/ui.js`);
   localStorage.clear();
-  ok('settings: one key, defaults right hand, colour-blind off, dark theme, Inter, normal text size', st.SETTINGS_KEY === 'vcge_settings' && JSON.stringify(st.DEFAULTS) === '{"hand":0,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0,"tip":0}' && st.fontFor(0) === 'Inter' && st.scaleFor(0) === 1);
+  ok('settings: one key, defaults right hand, colour-blind off, dark theme, Inter, normal text size', st.SETTINGS_KEY === 'vcge_settings' && JSON.stringify(st.DEFAULTS) === '{"hand":0,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0,"tip":0,"lang":0}' && st.fontFor(0) === 'Inter' && st.scaleFor(0) === 1);
   ok('settings: the wipe after the lock is 7, 10 or 15 minutes, codes 0, 1, 2; 7 is the default and an unknown code is 7', st.WIPE_TIMES.map(t => `${t.code}:${t.minutes}`).join() === '0:7,1:10,2:15'
     && st.wipeMinutesFor(0) === 7 && st.wipeMinutesFor(1) === 10 && st.wipeMinutesFor(2) === 15 && st.wipeMinutesFor(9) === 7);
   {
@@ -2009,10 +2009,10 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('settings: nine text sizes, Smallest to Largest, smallest first, each with its own fixed code (the first four keep theirs); an unknown code is Normal', st.TEXT_SIZES.map(t => t.name).join() === 'Smallest,Small,Normal,Large,Larger,Big,Bigger,Huge,Largest'
     && st.TEXT_SIZES.every((t, i) => i === 0 || t.scale > st.TEXT_SIZES[i - 1].scale) && new Set(st.TEXT_SIZES.map(t => t.code)).size === 9 && st.scaleFor(0) === 1 && st.scaleFor(3) === 0.875 && st.scaleFor(2) === 1.25 && st.scaleFor(8) === 1.75 && st.scaleFor(9) === 1);
   ok('settings: every Settings font has its own fixed code, Inter 0, no code shared', ui.UI_FONTS.every(n => Number.isInteger(st.FONT_CODES[n])) && new Set(Object.values(st.FONT_CODES)).size === ui.UI_FONTS.length && Object.keys(st.FONT_CODES).length === ui.UI_FONTS.length);
-  ok('settings: a line of name=number pairs reads back', JSON.stringify(st.parseSettings('hand=1;cb=1;theme=1;font=3;size=2;wipe=1')) === '{"hand":1,"cb":1,"theme":1,"font":3,"size":2,"wipe":1,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0,"tip":0}');
-  ok('settings: an entry saved before the text size and wipe time existed reads as Normal and 7 minutes', JSON.stringify(st.parseSettings('hand=1;cb=0;theme=0;font=2')) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0,"tip":0}');
+  ok('settings: a line of name=number pairs reads back', JSON.stringify(st.parseSettings('hand=1;cb=1;theme=1;font=3;size=2;wipe=1')) === '{"hand":1,"cb":1,"theme":1,"font":3,"size":2,"wipe":1,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0,"tip":0,"lang":0}');
+  ok('settings: an entry saved before the text size and wipe time existed reads as Normal and 7 minutes', JSON.stringify(st.parseSettings('hand=1;cb=0;theme=0;font=2')) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0,"tip":0,"lang":0}');
   ok('settings: missing or unreadable means the defaults', JSON.stringify(st.parseSettings(null)) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('garbage')) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('')) === JSON.stringify(st.DEFAULTS));
-  ok('settings: an unknown name, an out-of-range or non-numeric value falls back to its default, the rest is kept', JSON.stringify(st.parseSettings('hand=1;name=Maria;cb=9;theme=x;font=99;size=9')) === '{"hand":1,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0,"tip":0}');
+  ok('settings: an unknown name, an out-of-range or non-numeric value falls back to its default, the rest is kept', JSON.stringify(st.parseSettings('hand=1;name=Maria;cb=9;theme=x;font=99;size=9')) === '{"hand":1,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0,"tip":0,"lang":0}');
   ok('settings: serialises every name in a fixed order and clamps', st.serializeSettings({ font: 2, hand: 1, size: 3 }) === 'hand=1;cb=0;theme=0;font=2;size=3;wipe=0' && st.serializeSettings({ cb: 6 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0');
   ok('settings: Plain look is look=1, written only while on (an entry nobody switched reads as before); look=2 is out of range',
     st.serializeSettings({ look: 1 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0;look=1' && st.serializeSettings({ look: 0 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0'
@@ -2041,16 +2041,16 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('settings: save writes the one key and nothing else', localStorage.getItem('vcge_settings') === 'hand=1;cb=0;theme=0;font=2;size=0;wipe=0' && store.size === 1);
   ok('settings (step 7): Easy touch is easy=1, written only once it is on', st.parseSettings('easy=1').easy === 1 && st.parseSettings('').easy === 0
     && !st.serializeSettings(st.parseSettings('')).includes('easy') && /(^|;)easy=1(;|$)/.test(st.serializeSettings({ ...st.parseSettings(''), easy: 1 })));
-  ok('settings: load reads it back', JSON.stringify(st.loadSettings()) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0,"tip":0}');
+  ok('settings: load reads it back', JSON.stringify(st.loadSettings()) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0,"tip":0,"lang":0}');
   st.clearSettings();
   ok('settings: clear removes it', store.size === 0 && JSON.stringify(st.loadSettings()) === JSON.stringify(st.DEFAULTS));
   localStorage.setItem('vcge_theme_preference', 'light');
-  ok('settings: the old theme key is carried over once and removed', JSON.stringify(st.loadSettings()) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0,"tip":0}' && localStorage.getItem('vcge_theme_preference') === null && store.size === 0);
+  ok('settings: the old theme key is carried over once and removed', JSON.stringify(st.loadSettings()) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0,"tip":0,"lang":0}' && localStorage.getItem('vcge_theme_preference') === null && store.size === 0);
   const code = fs.readFileSync(`${R}/modules/mod01-shell/settings.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-  ok('settings: subscribes to SETTINGS_WIPE_REQUESTED, imports only the bus, ui.js, themes.js, edition.js and pictureSelect.js, no network, cookies or markup', /subscribe\(Events\.SETTINGS_WIPE_REQUESTED/.test(code)
-    && (code.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ui.js'") || l.includes("'./themes.js'") || l.includes("'./edition.js'") || l.includes("'./pictureSelect.js'")) && !/fetch\(|document\.cookie|sessionStorage|indexedDB|innerHTML|publish\(/.test(code));
+  ok('settings: subscribes to SETTINGS_WIPE_REQUESTED, imports only the bus, ui.js, themes.js, edition.js, pictureSelect.js and i18n.js, no network, cookies or markup', /subscribe\(Events\.SETTINGS_WIPE_REQUESTED/.test(code)
+    && (code.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ui.js'") || l.includes("'./themes.js'") || l.includes("'./edition.js'") || l.includes("'./pictureSelect.js'") || l.includes("'./i18n.js'")) && !/fetch\(|document\.cookie|sessionStorage|indexedDB|innerHTML|publish\(/.test(code));
   ok('settings: the only storage key named in the code is the settings key (plus the old theme key it removes)', [...code.matchAll(/(?:getItem|setItem|removeItem)\((\w+)/g)].every(m => m[1] === 'SETTINGS_KEY' || m[1] === 'OLD_THEME_KEY'));
-  ok('settings: the Settings sheet and the Welcome card carry the one-file disclaimer', fs.readFileSync(`${R}/../index.html`, 'utf8').includes('vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look, the opening splash, and whether you have seen the tour). Nothing you scan, upload or type is ever saved.')
+  ok('settings: the Settings sheet and the Welcome card carry the one-file disclaimer', fs.readFileSync(`${R}/../index.html`, 'utf8').includes('vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look, the opening splash, screen language, and whether you have seen the tour). Nothing you scan, upload or type is ever saved.')
     && /<section id="cardWelcome"[\s\S]*?remembers none of your sensitive data[\s\S]*?<\/section>/.test(fs.readFileSync(`${R}/../index.html`, 'utf8')) && !fs.existsSync(`${R}/modules/mod01-shell/themeManager.js`));
   // App themes (themes.js, theme step 1): fixed codes, readable colours, branded ones left out of plain
   const th = await import(`${R}/modules/mod01-shell/themes.js`);
@@ -2104,7 +2104,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('settings 0.8: the six styles keep fixed codes (Herd 0, Material 1, iOS 2, Windows 3, GNOME 4, KDE 5); an unknown code is Herd',
     st.STYLES.map(t => `${t.code}:${t.id}`).join() === '0:herd,1:material,2:ios,3:windows,4:gnome,5:kde' && st.styleFor(9).id === 'herd' && st.parseSettings('style=6').style === 0);
   ok('settings 0.8: an entry from 0.7 (no mode, style or tex) reads as the fixed theme, Herd style and the texture on',
-    JSON.stringify(st.parseSettings('hand=0;cb=0;theme=1;font=0;size=0;wipe=0')) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0,"tip":0}'
+    JSON.stringify(st.parseSettings('hand=0;cb=0;theme=1;font=0;size=0;wipe=0')) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0,"tip":0,"lang":0}'
     && st.effectiveTheme(st.parseSettings('theme=1'), true) === 1 && st.effectiveTheme(st.parseSettings('theme=0'), false) === 0);
   ok('settings 0.8: Appearance System shows the family\'s light or dark code by the device; a one-version theme stays itself',
     st.effectiveTheme({ theme: 1, mode: 1 }, true) === 0 && st.effectiveTheme({ theme: 0, mode: 1 }, false) === 1
@@ -2637,6 +2637,42 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('logo guess: the cut-out is the pick in photo pixels with a little card around it, kept on the photo',
     cut.x < 78 && cut.y < 58 && cut.x + cut.w > 264 && cut.y + cut.h > 244 && cut.w < 220 && edge.x === 0 && edge.y === 0 && edge.w <= 1200, JSON.stringify({ cut, edge }));
   ok('logo guess: the reader\'s scale matches its photo preparation (small photos enlarged, big ones shrunk)', readerScale(600) === 3 && readerScale(1500) === 1 && readerScale(4800) === 0.5);
+}
+
+// Screen languages (i18n.js + lang/es.js; translation wave 1, Spanish first, raven575 2026-11-20)
+{
+  const fs = await import('node:fs');
+  const i18n = await import(`${R}/modules/mod01-shell/i18n.js`);
+  const es = (await import(`${R}/modules/mod01-shell/lang/es.js`));
+  const pack = es.default, st = await import(`${R}/modules/mod01-shell/settings.js`);
+  ok('i18n: fixed language codes, 0 device (the default), 1 English, 2 Español, each in its own name', i18n.LANGUAGES.map(l => `${l.code}:${l.id}:${l.name}`).join() === '0:device:Device language,1:en:English,2:es:Español' && i18n.DEFAULT_LANG === 0 && st.DEFAULTS.lang === 0);
+  ok('i18n: Device follows the first device language vCGE has a pack for, English when none; explicit picks win',
+    i18n.resolveLanguage(0, ['es-MX', 'en-US']) === 'es' && i18n.resolveLanguage(0, ['en-GB', 'es']) === 'en' && i18n.resolveLanguage(0, ['ja-JP']) === 'en' && i18n.resolveLanguage(0, []) === 'en'
+    && i18n.resolveLanguage(1, ['es-ES']) === 'en' && i18n.resolveLanguage(2, ['en-US']) === 'es' && i18n.resolveLanguage(99, ['es']) === 'es');
+  ok('i18n: lang is saved only once it differs from Device, and an out-of-range code reads as Device', st.serializeSettings(st.DEFAULTS).includes('lang') === false && st.serializeSettings({ ...st.DEFAULTS, lang: 2 }).endsWith(';lang=2') && st.parseSettings('lang=2').lang === 2 && st.parseSettings('lang=9').lang === 0);
+  ok('i18n: a known line translates with its spaces folded; an unknown line stays English (null); no pack means none', i18n.translateLine(pack, '  Settings \n') === 'Ajustes' && i18n.translateLine(pack, 'Some line nobody wrote') === null && i18n.translateLine(null, 'Settings') === null && i18n.t('Settings') === 'Settings');
+  ok('i18n: patterns cover steps, themes, swatches and picture drop-downs, and say no when a part is unknown',
+    i18n.translateLine(pack, 'Step 2 of 6') === 'Paso 2 de 6' && i18n.translateLine(pack, 'Step 4 of 5 · Card') === 'Paso 4 de 5 · Tarjeta'
+    && i18n.translateLine(pack, 'Pumpkin theme, Oct (Seasonal)') === 'Tema Calabaza, oct (De temporada)' && i18n.translateLine(pack, 'Shutout theme (Team vCGE)') === 'Tema Shutout (Team vCGE)'
+    && i18n.translateLine(pack, 'Maple stock') === 'Cartulina Arce' && i18n.translateLine(pack, 'Dot shape: Square') === 'Forma de los puntos: Cuadrado'
+    && i18n.translateLine(pack, 'Tel: 555 0100') === null && i18n.translateLine(pack, 'Contrast 15 to 1') === 'Contraste 15 a 1' && i18n.translateLine(pack, '3.5 cm wide') === '3,5 cm de ancho');
+  ok('i18n es: pilot names stay English with the animal in Spanish beside them (raven575, 2026-11-20)',
+    i18n.translateLine(pack, '🐢 Shutout the Box Turtle') === '🐢 Shutout (la Tortuga de caja)' && i18n.translateLine(pack, 'Cornerstone the Elephant') === 'Cornerstone (la Elefanta)'
+    && Object.keys(es.NAMES).length === 10 && Object.keys(es.NAMES).every(n => i18n.translateLine(pack, `${n} ${es.NAMES[n].en}`).startsWith(`${n} (`)));
+  const keys = Object.keys(pack.strings), vals = Object.values(pack.strings);
+  ok('i18n es: every key is one folded line and every value a non-empty string', keys.every(k => k === i18n.normalize(k) && k.length) && vals.every(v => typeof v === 'string' && v.trim().length), keys.find(k => k !== i18n.normalize(k)));
+  ok('i18n es: the tagline is never translated (Locked) and the pack never says "local contact management"', !keys.includes('Operation: Never Lose Contact') && !vals.some(v => /Operation: Never Lose Contact|local contact management/i.test(v)) && i18n.translateLine(pack, 'Operation: Never Lose Contact') === null);
+  ok('i18n es: the pack is pure data (no imports, network, storage or markup), and i18n.js reaches no network or storage',
+    !/^import |fetch\(|localStorage|innerHTML|XMLHttpRequest/m.test(fs.readFileSync(`${R}/modules/mod01-shell/lang/es.js`, 'utf8'))
+    && !/fetch\(|localStorage|sessionStorage|innerHTML|XMLHttpRequest|https?:\/\//.test(fs.readFileSync(`${R}/modules/mod01-shell/i18n.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')));
+  // Every line the Settings sheet and the Welcome card show in English is in the pack (index.html's own text)
+  const html = fs.readFileSync(`${R}/../index.html`, 'utf8');
+  const sheet = html.slice(html.indexOf('<div id="settingsSheet"'), html.indexOf('<div id="settingsAbout"'));
+  const lines = [...sheet.replace(/<!--[\s\S]*?-->/g, '').replace(/<svg[\s\S]*?<\/svg>/g, '').matchAll(/>([^<>]*[A-Za-z][^<>]*)</g)].map(m => i18n.normalize(m[1])).filter(Boolean);
+  const brand = new Set(['Herd', 'Material', 'iOS', 'Windows', 'GNOME', 'KDE', 'A', 'Cornerstone']);
+  const missing = lines.filter(l => !brand.has(l) && i18n.translateLine(pack, l) === null);
+  ok('i18n es: every line in the Settings sheet has its Spanish', lines.length > 40 && missing.length === 0, JSON.stringify(missing));
+  ok('i18n es: the welcome and Settings disclaimers name the screen language among the saved settings', html.includes('splash, tour seen, language)') && html.includes('the opening splash, screen language, and whether'));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
