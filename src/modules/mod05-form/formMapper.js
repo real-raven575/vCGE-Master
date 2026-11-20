@@ -148,10 +148,10 @@ export class ContactFormMapper {
                 if ((last.length > 1 && local.includes(last)) || (first.length > 2 && local.includes(first))) score += 3;
                 else if (local === (first[0] || '') + last || local === first + (last[0] || '')) score += 3;
             }
-            if (TITLE_WORDS.test(core) || TAGLINE_START.test(core) || COMPANY_SUFFIX.test(core)) score -= 3;
+            if (titleLike(core) || TAGLINE_START.test(core) || COMPANY_SUFFIX.test(core)) score -= 3;
             // An all-capitals line is a name less often than a printed "Jane Doe" (company names and titles are set in capitals too).
             if (!/[a-z]/.test(core)) score -= 0.5;
-            if (trimmed && (TITLE_WORDS.test(line.text) || COMPANY_SUFFIX.test(line.text))) score -= 3;
+            if (trimmed && (titleLike(line.text) || COMPANY_SUFFIX.test(line.text))) score -= 3;
             // Words dropped as debris make the line a weaker name; a trailing mark alone ("Jane Doe;") does not.
             if (trimmed && trimmed.split(' ').length < line.text.split(' ').length) score -= 0.5;
             candidates.push({ line, index, score, trimmed, ofDomain: !!domain && domainMatches(line.text, domain) });
@@ -167,7 +167,7 @@ export class ContactFormMapper {
         let title = null;
         lines.forEach((line, index) => {
             // A phrase in quotes is a slogan, whatever words it holds ("Your Technology Advisor").
-            if (!free(line) || !TITLE_WORDS.test(line.text) || /[@\d]/.test(line.text) || isQuoted(line.text)) return;
+            if (!free(line) || !titleLike(line.text) || /[@\d]/.test(line.text) || isQuoted(line.text)) return;
             let score = 2;
             if (best && best.score > 0 && Math.abs(index - best.index) === 1) score += 2;
             // A title sits under the name more often than over it: "Technician" under the name beats a slogan above it
@@ -176,7 +176,7 @@ export class ContactFormMapper {
             if (TAGLINE_START.test(line.text)) score -= 3;
             if (!title || score > title.score) title = { line, score };
         });
-        if (title && title.score > 0) { title.line.role = 'jobTitle'; title.line.text = fixTitleSpelling(title.line.text); }
+        if (title && title.score > 0) { title.line.role = 'jobTitle'; title.line.text = fixTitleSpelling(dropStrayLetter(title.line.text)); }
 
         // Company: suffixes (Inc, LLC...) or a match with the web/email domain. Without a convincing line, buildFields
         // derives the company from the domain; a weak line is used only when there is no domain either.
@@ -214,6 +214,10 @@ export class ContactFormMapper {
         const place = lines.map(l => (l.role === 'cityStateZip' || l.role === 'address') && { line: l, ...findAddressLine(l.text) }).find(a => a && a.state) || {};
         const state = place.state;
         if (state) lines.forEach(l => { if (l.role === 'website') l.body = endWithStateCode(l.body, state); });
+
+        // A lone capital the reader picked up in front of the city line ("T Portage, MI 49024", raven575's phone run,
+        // 2026-11-20) is dropped like a logo letter in front of a name.
+        lines.forEach(l => { if (l.role === 'cityStateZip') { l.text = dropStrayLetter(l.text); if (l.body) l.body = dropStrayLetter(l.body); } });
 
         // Lines to check before filling (shown under the line in the review box): a ZIP code the card's state doesn't use,
         // and lines with words the OCR was unsure of (MOD04 `unsure`). Phone numbers are checked by their own shape.
@@ -406,6 +410,18 @@ const TITLE_TERMS = [
     'intern', 'assistant', 'clerk', 'estimator', 'inspector', 'foreman', 'contractor', 'electrician', 'plumber', 'mechanic'
 ];
 const TITLE_WORDS = new RegExp('\\b(?:' + TITLE_TERMS.join('|') + ')\\b', 'i');
+// The job-title words themselves (not the words around them): a 4-letter read missing one of their letters is repaired
+// ("Ower" -> "Owner", raven575's phone run 2026-11-20). Kept to these so a surname like "Feld" never becomes "field".
+const TITLE_CORE = new Set(TITLE_TERMS.filter(t => /^[a-z]+$/.test(t)));
+/** A job title as written or after its OCR slips are repaired ("T Ower" reads as a title, not a name). */
+const titleLike = (text) => TITLE_WORDS.test(text) || TITLE_WORDS.test(fixTitleSpelling(text));
+/**
+ * A lone capital the reader picked up in front of a title or city line ("T Ower", "T Portage, MI"). Not N, S, E or W,
+ * which start real places and titles ("W Bloomfield"); only when words follow.
+ */
+function dropStrayLetter(text) {
+    return String(text || '').replace(/^[A-DF-MO-RT-VX-Z] (?=[A-Za-z])/, '');
+}
 // Words a job title is spelled with, for repairing OCR slips in them (see fixTitleSpelling): the plain title words
 // above plus the words around them ("General Manager", "Senior Vice President").
 const TITLE_SPELLING = new Set([...TITLE_TERMS.filter(t => /^[a-z]+$/.test(t)), ...[
@@ -534,8 +550,8 @@ const SLASH_AS_BAR = new RegExp(`(?<=[A-Za-z0-9])(\\.(?:${TLDS}))[Il1|!\\\\](?=[
 
 /**
  * OCR slips in a job title's words, repaired against the title vocabulary (TITLE_SPELLING): vowels read as other vowels
- * ("Ganaral" -> "General", at most 2) or one dropped letter ("Manger" -> "Manager"). Only words of 5+ letters, and only
- * when exactly one title word fits; the word's capitals are kept.
+ * ("Ganaral" -> "General", at most 2) or one dropped letter ("Manger" -> "Manager"). Only words of 5+ letters (4 for a
+ * dropped letter of a TITLE_CORE word: "Ower" -> "Owner"), and only when exactly one title word fits; capitals are kept.
  */
 function fixTitleSpelling(text) {
     const VOWEL = /[aeiou]/;
@@ -550,10 +566,11 @@ function fixTitleSpelling(text) {
         }
         return word.length === read.length + 1 && [...word].some((_, i) => word.slice(0, i) + word.slice(i + 1) === read);
     };
-    return text.replace(/[A-Za-z]{5,}/g, (read) => {
+    return text.replace(/[A-Za-z]{4,}/g, (read) => {
         const lower = read.toLowerCase();
-        if (TITLE_SPELLING.has(lower)) return read;
-        const found = [...TITLE_SPELLING].filter(word => fits(lower, word));
+        if (TITLE_SPELLING.has(lower) || TITLE_CORE.has(lower)) return read;
+        const words = lower.length === 4 ? [...TITLE_CORE].filter(word => word.length === 5) : [...TITLE_SPELLING];
+        const found = words.filter(word => fits(lower, word));
         if (found.length !== 1) return read;
         const word = found[0];
         if (read === read.toUpperCase()) return word.toUpperCase();

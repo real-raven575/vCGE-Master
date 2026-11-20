@@ -2691,6 +2691,15 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('mapping: logo debris without a domain match stays out', fm.classifyLines('Dana Whitlock\nya\\O/|*!\ndana@brightpath.com')[1].role === 'ignore');
   const handle = fm.classifyLines('Dana Whitlock\n@brightpathtech\ndana@brightpath.com');
   ok('mapping: a bare @handle line is the social profile (website)', handle[1].role === 'website' && fm.buildFields(handle).fields.websites.some(w => w.value === '@brightpathtech'), JSON.stringify(fm.buildFields(handle).fields.websites));
+  // raven575's phone run (2026-11-20), made-up card in the same shape: "Owner" read as "Ower" with a stray T in front
+  const ower = fm.classifyLines('T Ower\nM Dan Manager\n12 Main Street, Suite 4\nT Portage, MI 49024\nE jo@acmetech.com\nT 269.555.0100\nW acmetech.com');
+  const owerFields = fm.buildFields(ower).fields;
+  ok('mapping: a title word missing a letter ("T Ower") is the title "Owner", never the name', ower[0].role === 'jobTitle' && ower[0].text === 'Owner' && !ower.some(l => l.role === 'name') && owerFields.jobTitle === 'Owner' && !owerFields.firstName && !owerFields.lastName, JSON.stringify(ower.map(l => [l.text, l.role])));
+  ok('mapping: a stray capital in front of the city line is dropped ("T Portage, MI")', owerFields.city === 'Portage' && ower.find(l => l.role === 'cityStateZip').text === 'Portage, MI 49024', JSON.stringify(owerFields.city));
+  const feld = fm.classifyLines('Sam Feld\nOwner\nW Bloomfield, MI 48322\nN Charleston, SC 29405');
+  ok('mapping: a 4-letter surname near a title-area word stays the name ("Feld" is not "field")', feld[0].role === 'name' && feld[0].text === 'Sam Feld', JSON.stringify(feld[0]));
+  ok('mapping: a direction letter in front of a city stays ("W Bloomfield")', feld[2].text === 'W Bloomfield, MI 48322', JSON.stringify(feld[2]));
+  ok('mapping: "Ower" alone in a title is repaired, other 4-letter words are left alone', fm.classifyLines('Jo Ames\nOwer & General Manager')[1].text === 'Owner & General Manager' && fm.classifyLines('Jo Ames\nHead Chef')[1].text === 'Head Chef' && fm.classifyLines('Jo Ames\nLead Tech')[1].text === 'Lead Tech', fm.classifyLines('Jo Ames\nOwer & General Manager')[1].text);
   ok('mapping: "@acme.com" is not taken as a handle', fm.classifyLines('Dana Whitlock\n@acme.com')[1].role !== 'website' || fm.classifyLines('Dana Whitlock\n@acme.com')[1].text !== '@acme.com');
 }
 
