@@ -1135,13 +1135,13 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pL.selectOption('#langSelect', '2');
     await pL.waitForFunction(() => document.documentElement.lang === 'es', null, { timeout: 5000 }).catch(() => {});
     const es = await pL.evaluate(() => ({ lang: document.documentElement.lang, title: document.getElementById('settingsTitle').textContent.trim(),
-      welcome: document.getElementById('welcomeTitle').textContent.trim(), tagline: document.getElementById('welcomeTagline').textContent.trim(),
+      welcome: document.getElementById('welcomeTitle').textContent.trim(), tagline: document.getElementById('welcomeTagline')?.textContent.trim() ?? null,
       close: document.querySelector('#settingsSheet [data-sheet-close]').getAttribute('aria-label'), onoff: document.querySelector('.r5-onoff')?.textContent,
       saved: localStorage.getItem('vcge_settings'), opt: document.querySelector('#langSelect option[value="0"]').textContent }));
     ok('language: Español swaps the words at once (Settings, Welcome, labels, On / Off), html lang es, saved as lang=2',
       es.lang === 'es' && es.title === 'Ajustes' && es.welcome === 'Escanea una tarjeta. Guarda el contacto.' && es.close === 'Cerrar' && /^(Sí|No)$/.test(es.onoff || '')
       && /(^|;)lang=2(;|$)/.test(es.saved || '') && es.opt === 'Del dispositivo', JSON.stringify(es));
-    ok('language: the tagline stays "Operation: Never Lose Contact" in Spanish (Locked)', es.tagline === 'Operation: Never Lose Contact', es.tagline);
+    ok('language: the tagline stays "Operation: Never Lose Contact" in Spanish (Locked; plain has no tagline)', EDITION_PLAIN ? es.tagline === null || es.tagline === 'Operation: Never Lose Contact' : es.tagline === 'Operation: Never Lose Contact', es.tagline);
     await pL.click('#texToggle'); await pL.waitForTimeout(100);
     ok('language: a word a module changes later is translated too (the switch reads No once turned off)', (await pL.$eval('#texToggle', sw => sw.previousElementSibling.textContent)) === 'No');
     await pL.click('#texToggle');
