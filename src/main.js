@@ -825,7 +825,7 @@ async function runOcr(how) {
     readIndicator.show(photo);
     try {
         // The first scan (and the first after a wipe) starts the reader from ~7 MB of bundled files: say so.
-        const onStatus = (status, fraction) => readIndicator.status(status, fraction);
+        const onStatus = (status, fraction) => { if (status === 'reading') loadZipTowns(); readIndicator.status(status, fraction); };
         // A QR code printed on the card is read first (accuracy round 1, 2026-11-10) and painted over for the text
         // reader, whose junk readings of its squares would otherwise turn the card down.
         const found = await readCardQr(photo);
@@ -1412,16 +1412,18 @@ function boot() {
     setVaultIndicator();
     updatePurgeCountdown();
     biometricAvailable().then(ok => { biometricSupported = ok; setVaultIndicator(); });
-    loadZipTowns();
 }
 
-// The ZIP code -> town table (about 0.6 MB, the app's own file) loads once the page is idle, so it never slows the
-// start; a card read before it arrives keeps its town as read. Nothing leaves the device.
+// The ZIP code -> town table (about 0.6 MB, the app's own file) loads the first time the reader has started and is
+// reading, so it never slows the page's start or the reader's own start-up (Firefox CI, PR #59: loading it while the
+// reader was starting held the reader's start past 60 s). The read takes seconds, so the table is in by the review;
+// a card read before it arrives keeps its town as read. Nothing leaves the device.
+let zipTownsLoad = null;
 function loadZipTowns() {
-    const load = () => import('./vendor/zip-towns/zipTowns.js')
+    if (zipTownsLoad) return;
+    zipTownsLoad = import('./vendor/zip-towns/zipTowns.js')
         .then(m => formMapper.setZipTowns(parseZipTowns(m.ZIP_TOWNS)))
-        .catch(e => console.warn('[vCGE] ZIP town table not loaded:', e && e.message));
-    if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(load, { timeout: 3000 }); else setTimeout(load, 1000);
+        .catch(e => { zipTownsLoad = null; console.warn('[vCGE] ZIP town table not loaded:', e && e.message); });
 }
 
 boot();

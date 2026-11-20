@@ -518,7 +518,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const whole = fm.classifyLines('Dana Whitlock\n4120 Lakeshore Road, Springfeld, IL 62701').find(l => l.role === 'address');
   ok('ZIP towns: a whole address on one line gets the town fixed and keeps its street', whole && whole.text === '4120 Lakeshore Road, Springfield, IL 62701', JSON.stringify(whole));
   const mainJs = fsZ.readFileSync(`${R}/main.js`, 'utf8');
-  ok('ZIP towns: main.js loads the table from the app\'s own files once the page is idle', /import\('\.\/vendor\/zip-towns\/zipTowns\.js'\)/.test(mainJs) && /requestIdleCallback\(load/.test(mainJs));
+  ok('ZIP towns: main.js loads the table from the app\'s own files once the reader is reading, not during its start-up', /import\('\.\/vendor\/zip-towns\/zipTowns\.js'\)/.test(mainJs) && /status === 'reading'\) loadZipTowns\(\)/.test(mainJs) && !/requestIdleCallback\(load/.test(mainJs));
 }
 
 // OCR review steps: classifyLines (roles) + buildFields (fields from roles)
