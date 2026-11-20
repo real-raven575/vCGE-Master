@@ -128,7 +128,7 @@
                         <button id="welcomeSampleBtn" type="button" class="r2-quiet"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#id"></use></svg>Play with sample fields</button>
                         <button id="welcomeCancelBtn" type="button" class="r2-quiet r2-quiet-stop"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#x"></use></svg>CANCEL</button>
                     </div>
-                    <p class="r2-fine">This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data: it keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look, splash, tour seen), and nothing you scan, upload or type is ever saved.</p>
+                    <p class="r2-fine">This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data: it keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look, splash, tour seen, language), and nothing you scan, upload or type is ever saved.</p>
                 </div>
             </div>
         </section>
@@ -652,6 +652,14 @@
                 <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
             </div>
             <div class="r5-body">
+                <!-- Screen language (translation wave 1, raven575 2026-11-20; i18n.js): lang in vcge_settings. Each language
+                     shows in its own name; card reading stays on the English reader in every language. -->
+                <div class="r5-group">
+                    <div class="r5-sw-row r5-font-row">
+                        <label class="r5-lbl" for="langSelect"><b id="langLabel">Language</b><small id="langHint">Changes the words on vCGE's screens. Card reading stays in English.</small></label>
+                        <select id="langSelect" class="r5-select" aria-label="Screen language" aria-describedby="langHint"></select>
+                    </div>
+                </div>
                 <div class="r5-group">
                     <!-- App look (raven575, 2026-11-10): the app's colours only; the card's colours live on the Card screen -->
                     <h4 id="appThemesLabel" class="r5-look-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 18h4"/></svg>App look</h4>
@@ -747,6 +755,8 @@
                      listing). Same text as PRIVACY.md; tests/wrappers.test.mjs checks that every heading and the date match. -->
                 <details id="settingsPrivacy" class="r5-group vcge-privacy">
                     <summary>Privacy policy</summary>
+                    <!-- The policy text stays in English in every screen language (it must match PRIVACY.md word for word); the pack translates only the heading, which says so -->
+                    <div class="vcge-privacy-body" lang="en" translate="no">
                     <p class="vcge-privacy-date">Effective 2026-11-19. Every edition: web, Windows, macOS, Linux and Android, from GitHub or an app store.</p>
                     <h3>The short version</h3>
                     <p>vCGE collects nothing. It has no accounts, no ads, no analytics, no crash reporting and no internet connection. Nothing you scan or type ever reaches raven575, the Herd of Helpers or anyone else, unless you yourself press Share, Save, Email, Text or Print.</p>
@@ -765,8 +775,9 @@
                     <p>vCGE is a tool for adults' business cards. It collects nothing from anyone, children included.</p>
                     <h3>Changes and contact</h3>
                     <p>If this policy ever changes, the new version comes with a new date and is listed in the release notes. Questions: open an issue at github.com/real-raven575/vCGE-Master/issues (please never attach a real business card or anyone's real contact details).</p>
+                    </div>
                 </details>
-                <p id="settingsNote" class="r5-foot">vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look, the opening splash, and whether you have seen the tour). Nothing you scan, upload or type is ever saved.</p>
+                <p id="settingsNote" class="r5-foot">vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look, the opening splash, screen language, and whether you have seen the tour). Nothing you scan, upload or type is ever saved.</p>
             </div>
         </div>
     </div>

@@ -169,6 +169,8 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
   const date = (/\*\*Effective:\*\* (\d{4}-\d{2}-\d{2})/.exec(policy) || [])[1];
   ok('Store: Settings has the privacy policy with the same headings and date as PRIVACY.md',
     heads.length >= 5 && !!date && inApp.includes(`Effective ${date}`) && heads.every(h => inApp.includes(`<h3>${h}</h3>`)));
+  ok('Store: the in-app policy stays in English in every screen language and its heading says so in Spanish',
+    /<div class="vcge-privacy-body" lang="en" translate="no">/.test(inApp) && read('src/modules/mod01-shell/lang/es.js').includes("'Privacy policy': 'Política de privacidad (en inglés)'"));
 }
 
 // --- App stores: the Microsoft Store MSIX and the Google Play bundle ---

@@ -751,6 +751,7 @@ function renderOcrSummary() {
         const dd = document.createElement('dd');
         dd.className = 'min-w-0 break-words';
         dd.textContent = value;
+        dd.setAttribute('translate', 'no');     // the card's own words: the screen language never changes them (i18n.js)
         return [dt, dd];
     };
     // Country is only shown when the card says something other than the default.

@@ -707,7 +707,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   ok('the cog opens Settings (0.8 sheet): theme swatches, Appearance, the six styles, text size, font, the Left-handed, colour-blind, texture and Plain look switches, and the disclaimer', await page.isVisible('#settingsSheet') && await page.isVisible('#handToggle') && await page.isVisible('#cbToggle') && await page.isVisible('#dyslexiaToggle') && await page.isVisible('#themeSummary')
     && await page.isVisible('#appearanceChips') && (await page.$$eval('#styleChips button', bs => bs.map(b => b.textContent).join())) === 'Herd,Material,iOS,Windows,GNOME,KDE'
     && await page.isVisible('#sizeRange') && await page.isVisible('#fontSelect') && await page.isVisible('#texToggle') && await page.$eval('#plainToggle', c => c.disabled === (document.documentElement.dataset.edition === 'plain')) && (EDITION_PLAIN ? /This is the Plain edition/ : /Hides the Herd pilots and art/).test(await text('plainNote'))
-    && (await text('settingsNote')) === 'vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look, the opening splash, and whether you have seen the tour). Nothing you scan, upload or type is ever saved.');
+    && (await text('settingsNote')) === 'vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look, the opening splash, screen language, and whether you have seen the tour). Nothing you scan, upload or type is ever saved.');
   // raven575 (2026-11-03): the theme box starts closed, naming the theme in use; one tap shows the 3 quick picks, More themes stays closed
   ok('the theme box starts closed and names Herd; no swatch shows until it is opened', !(await page.$eval('#themePicker', d => d.open)) && (await text('themeSummaryName')) === 'Herd'
     && !(await page.isVisible('#appThemes [data-family="herd"]')));
@@ -1117,6 +1117,65 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await ctxA.close();
   }
 
+  // Screen languages (translation wave 1, Spanish first, raven575 2026-11-20): Settings > Language swaps the words at once,
+  // saves lang in vcge_settings, keeps the tagline and the pilots' English names, and English puts every line back.
+  // A device set to Spanish opens in Spanish with nothing written; the pack is a same-origin file.
+  {
+    const ctxL = await newContext();
+    const pL = await ctxL.newPage();
+    pL.on('dialog', d => d.accept());
+    const asked = [];
+    pL.on('request', r => asked.push(r.url()));
+    await pL.goto(ORIGIN); await pL.waitForTimeout(400);
+    const tl = id => pL.$eval('#' + id, el => el.textContent.trim());
+    ok('language: English by default (device in English), html lang en, the picker lists Device language, English, Español',
+      (await pL.evaluate(() => document.documentElement.lang)) === 'en' && (await tl('settingsTitle')) === 'Settings'
+      && (await pL.$$eval('#langSelect option', os => os.map(o => o.textContent).join())) === 'Device language,English,Español');
+    await pL.click('#navSettings'); await pL.waitForTimeout(200);
+    await pL.selectOption('#langSelect', '2');
+    await pL.waitForFunction(() => document.documentElement.lang === 'es', null, { timeout: 5000 }).catch(() => {});
+    const es = await pL.evaluate(() => ({ lang: document.documentElement.lang, title: document.getElementById('settingsTitle').textContent.trim(),
+      welcome: document.getElementById('welcomeTitle').textContent.trim(), tagline: document.getElementById('welcomeTagline')?.textContent.trim() ?? null,
+      close: document.querySelector('#settingsSheet [data-sheet-close]').getAttribute('aria-label'), onoff: document.querySelector('.r5-onoff')?.textContent,
+      saved: localStorage.getItem('vcge_settings'), opt: document.querySelector('#langSelect option[value="0"]').textContent }));
+    ok('language: Español swaps the words at once (Settings, Welcome, labels, On / Off), html lang es, saved as lang=2',
+      es.lang === 'es' && es.title === 'Ajustes' && es.welcome === 'Escanea una tarjeta. Guarda el contacto.' && es.close === 'Cerrar' && /^(Sí|No)$/.test(es.onoff || '')
+      && /(^|;)lang=2(;|$)/.test(es.saved || '') && es.opt === 'Del dispositivo', JSON.stringify(es));
+    ok('language: the tagline stays "Operation: Never Lose Contact" in Spanish (Locked; plain has no tagline)', EDITION_PLAIN ? es.tagline === null || es.tagline === 'Operation: Never Lose Contact' : es.tagline === 'Operation: Never Lose Contact', es.tagline);
+    await pL.click('#texToggle'); await pL.waitForTimeout(100);
+    ok('language: a word a module changes later is translated too (the switch reads No once turned off)', (await pL.$eval('#texToggle', sw => sw.previousElementSibling.textContent)) === 'No');
+    await pL.click('#texToggle');
+    const sample = await pL.$$eval('#fakeContactSelect option', os => os.map(o => o.textContent));
+    ok('language: the pilots keep their English names with the animal in Spanish beside them', EDITION_PLAIN || sample.includes('🐢 Shutout (la Tortuga de caja)'), JSON.stringify(sample));
+    await pL.reload(); await pL.waitForTimeout(500);
+    await pL.waitForFunction(() => document.documentElement.lang === 'es', null, { timeout: 5000 }).catch(() => {});
+    // A contact whose words happen to be words the pack knows (a theme name, a phone type) keeps them as typed
+    await pL.evaluate(() => { document.querySelector('#settingsSheet [data-sheet-close]')?.click(); document.getElementById('navFields').click(); });
+    await pL.waitForTimeout(700);
+    await pL.fill('#firstName', 'Holly'); await pL.fill('#lastName', 'Spring'); await pL.fill('#organization', 'Sage'); await pL.fill('#jobTitle', 'Main');
+    await pL.waitForTimeout(300);
+    const own = await pL.evaluate(() => ['previewFullName', 'previewOrg', 'previewTitle', 'backCardName'].map(id => document.getElementById(id).textContent.trim()).join('|'));
+    ok('language: the contact\'s own words are never translated on the card (Holly Spring of Sage stays as typed)', own === 'Holly Spring|Sage|Main|Holly Spring', own);
+    await pL.fill('#firstName', ''); await pL.fill('#lastName', ''); await pL.fill('#organization', ''); await pL.fill('#jobTitle', '');
+    await pL.waitForTimeout(300);
+    ok('language: the card\'s empty-field words are in Spanish', (await pL.$eval('#previewFullName', el => el.textContent.trim())) === 'Nuevo contacto' && (await pL.$eval('#previewOrg', el => el.textContent.trim())) === 'Nombre de la empresa');
+    ok('language: Español is still on after a restart', (await pL.evaluate(() => document.documentElement.lang)) === 'es' && (await tl('settingsTitle')) === 'Ajustes');
+    await pL.click('#navSettings'); await pL.waitForTimeout(200);
+    await pL.selectOption('#langSelect', '1');
+    await pL.waitForFunction(() => document.documentElement.lang === 'en', null, { timeout: 5000 }).catch(() => {});
+    ok('language: English puts every line back as it was', (await tl('settingsTitle')) === 'Settings' && (await tl('welcomeTitle')) === 'Scan a card. Keep the contact.'
+      && (await pL.$eval('#settingsSheet [data-sheet-close]', b => b.getAttribute('aria-label'))) === 'Close' && /(^|;)lang=1(;|$)/.test(await pL.evaluate(() => localStorage.getItem('vcge_settings'))));
+    ok('language: the Spanish pack and everything else came from vCGE itself (same origin)', asked.length > 0 && asked.every(u => u.startsWith(ORIGIN) || u.startsWith('data:') || u.startsWith('blob:')), JSON.stringify(asked.filter(u => !u.startsWith(ORIGIN))));
+    await ctxL.close();
+    const ctxD = await newContext({ locale: 'es-ES' });
+    const pD = await ctxD.newPage();
+    await pD.goto(ORIGIN); await pD.waitForTimeout(400);
+    await pD.waitForFunction(() => document.documentElement.lang === 'es', null, { timeout: 5000 }).catch(() => {});
+    ok('language: a device set to Spanish opens in Spanish by itself, and nothing is written for it', (await pD.evaluate(() => document.documentElement.lang)) === 'es'
+      && (await pD.$eval('#settingsTitle', el => el.textContent.trim())) === 'Ajustes' && !/lang=/.test((await pD.evaluate(() => localStorage.getItem('vcge_settings'))) || ''));
+    await ctxD.close();
+  }
+
   // Quick unlock: 4-digit session PIN after a lock (idle, screen off, Lock button); the card is held in memory only,
   // and 7 minutes without activity wipe it
   {
@@ -1465,6 +1524,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   {
     const ctxL = await browser.newContext();
     const pL = await ctxL.newPage();
+    pL.on('dialog', d => d.accept());
     const errorsL = [];
     pL.on('pageerror', e => errorsL.push(e.message));
     await pL.goto(ORIGIN); await pL.waitForTimeout(500);
@@ -2488,6 +2548,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   if (ENGINE === 'chromium') {
     const ctxL = await browser.newContext();
     const pL = await ctxL.newPage();
+    pL.on('dialog', d => d.accept());
     const looks = [];
     pL.on('console', m => { if (m.text().includes('Second look:')) looks.push(m.text()); });
     await pL.goto(ORIGIN); await pL.waitForTimeout(300);
