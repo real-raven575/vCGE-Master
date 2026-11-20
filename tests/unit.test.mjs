@@ -451,7 +451,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 
 // OCR review steps: classifyLines (roles) + buildFields (fields from roles)
 {
-  const { ContactFormMapper, LINE_ROLES } = await import(`${R}/modules/mod05-form/formMapper.js`);
+  const { ContactFormMapper, LINE_ROLES, LOW_CONFIDENCE_NOTE } = await import(`${R}/modules/mod05-form/formMapper.js`);
   const fm = new ContactFormMapper();
   const text = 'ya O/\nYour Technology Partner\nDana Whitlock\nOwner & General Manager\n4120 Lakeshore Road, Suite 210\nSpringfield, MI 49011\nE dwhitlock@BrightPathIT.com\nT 616.555.0142\nM 616.555.0187\nW BrightPathIT.com/Holland';
   const lines = fm.classifyLines(text);
@@ -500,6 +500,13 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('a ZIP code the state does not use is flagged for checking, not changed', camera.find(l => l.role === 'cityStateZip').check === '42024 is not a Michigan ZIP code. Please check it.' && fm.buildFields(camera).fields.zip === '42024', JSON.stringify(camera.find(l => l.role === 'cityStateZip')));
   ok('a ZIP code that fits its state is not flagged', zipCheck('Portage, MI 49024') === undefined && zipCheck('Boston, MA 02108') === undefined && zipCheck('Austin, TX 73301') === undefined, zipCheck('Boston, MA 02108'));
   ok('a line with words the reader was unsure of is flagged for checking', camera.find(l => l.role === 'website').check === 'The reader was not sure of some letters here. Please check them.');
+  {
+    // A reading the reader was unsure of as a whole (MOD04 lowConfidence): every line is flagged, phone numbers too
+    const low = fm.classifyLines([{ text: 'Jo Smith', lowConfidence: true }, { text: 'T 616.555.0140', lowConfidence: true }, { text: 'jo@acme.com', lowConfidence: true }, { text: '12 Main Street', lowConfidence: true }, { text: 'Portage, MI 42024', lowConfidence: true }]);
+    ok('every line of a low-confidence reading is flagged for checking, phone included', low.length === 5 && low.filter(l => l.role !== 'cityStateZip').every(l => l.check === LOW_CONFIDENCE_NOTE) && low.some(l => l.role === 'phoneWork' && l.check === LOW_CONFIDENCE_NOTE), JSON.stringify(low));
+    ok('a wrong ZIP code keeps its own, more exact note', low.find(l => l.role === 'cityStateZip').check === '42024 is not a Michigan ZIP code. Please check it.', JSON.stringify(low));
+    ok('lines of a sure reading get no low-confidence note', fm.classifyLines([{ text: 'Jo Smith' }, { text: 'T 616.555.0140' }]).every(l => !('check' in l)));
+  }
   ok('unsure phone numbers and ignored lines are not flagged', fm.classifyLines([{ text: 'Jo Smith' }, { text: 'T 616.555.0140', unsure: ['616.555.0140'] }, { text: 'ya O/', unsure: ['ya'] }]).every(l => !('check' in l)));
   ok('a short domain is not matched (too easy to confuse)', fm.parseOCRText('Jo Smith\njo@abd.com\nabc.com').emails[0].value === 'jo@abd.com');
   // The PeakLogic card read from a phone screenshot on the iPad (video review 2026-10-17, finding 53 and 56): the slogan
@@ -1149,9 +1156,9 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('OCR_TEXT_EXTRACTED is a signal: no text on the bus', !('text' in evt) && !JSON.stringify(evt).includes('Jane'), JSON.stringify(evt));
   ok('OCR uses sparse-text page segmentation', psm === ocr.OCR_PAGE_SEG_MODE && psm === '11', String(psm));
   evt = null;
-  result = { text: 'py A Year op WW es', confidence: 46, words: words(12, 70) };
+  result = { text: 'py A Year op WW es', confidence: 46, words: words(9, 70) };
   const blurry = await failure(ocr.executeOCRScan('data:image/png;base64,x'));
-  ok('low-confidence photo rejected as unreadable (retake)', blurry && blurry.code === 'OCR_UNREADABLE' && blurry.confidence === 46 && evt === null, blurry && blurry.message);
+  ok('low-confidence photo with under OCR_CHECK_MIN_WORDS readable words rejected as unreadable (retake)', blurry && blurry.code === 'OCR_UNREADABLE' && blurry.confidence === 46 && blurry.readableWords === 9 && ocr.OCR_CHECK_MIN_WORDS === 10 && evt === null, blurry && blurry.message);
   ok('a photo with no sharp edges is called blurry, not hard lettering', blurry && blurry.sharp === false && blurry.message.includes('too blurry'), blurry && blurry.message);
   // A sharp photo the reader still can't read (raven575, 2026-10-22: a clear card in a handwriting-style font)
   const stripes = (w, h) => { const d = new Uint8ClampedArray(w * h * 4); for (let i = 0; i < w * h; i++) d.fill((i % w) % 4 < 2 ? 20 : 235, i * 4, i * 4 + 4); return d; };
@@ -1183,6 +1190,17 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('gate: false (lab only) returns a reading that failed the unreadable check, marked failedGate', ungated.text === 'py A Year op WW es' && ungated.failedGate && ungated.failedGate.confidence === 46 && ungated.failedGate.readableWords === 12 && ungated.failedGate.sharp === false, JSON.stringify(ungated));
   result = { text: 'Jane Doe\njane@example.com', confidence: 88, words: words(8, 90) };
   ok('a reading that passes the check carries no failedGate', !('failedGate' in await ocr.executeOCRScan('data:image/png;base64,x', { gate: false })));
+  // OCR tuning (raven575's yes, 2026-11-20): a low-confidence read with 10+ readable words is kept, every line marked to check
+  evt = null;
+  result = { text: 'Jane Doe\nSales Manager\n616.555.0140', confidence: 46, words: words(10, 70) };
+  const kept = await ocr.executeOCRScan('data:image/png;base64,x');
+  ok('a low-confidence read with 10 readable words is kept, marked lowConfidence on the result and every line', kept.lowConfidence === true && !('failedGate' in kept) && kept.lines.length === 3 && kept.lines.every(l => l.lowConfidence === true) && evt && evt.confidence === 46, JSON.stringify(kept));
+  result = { text: 'Jane Doe\nSales Manager', confidence: 46, words: [...words(10, 70).map((w, i) => (i < 2 ? w : { ...w, text: 'x' }))] };
+  const fewReadable = await failure(ocr.executeOCRScan('data:image/png;base64,x'));
+  ok('only readable words count toward the 10 (single letters do not)', fewReadable && fewReadable.code === 'OCR_UNREADABLE' && fewReadable.readableWords === 2, fewReadable && fewReadable.message);
+  result = { text: 'Jane Doe\njane@example.com', confidence: 88, words: words(8, 90) };
+  const sure = await ocr.executeOCRScan('data:image/png;base64,x');
+  ok('a read that passes the check carries no lowConfidence', !('lowConfidence' in sure) && sure.lines.every(l => !('lowConfidence' in l)), JSON.stringify(sure));
   ok('OCR worker is started once and reused after a failure', created === 1, String(created));
   ok('OCR asks the engine for second guesses', params && params.lstm_choice_mode === '2', JSON.stringify(params));
   const word = (text, confidence) => ({ text, confidence, symbols: [] });

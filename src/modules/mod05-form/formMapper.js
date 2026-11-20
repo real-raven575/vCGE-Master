@@ -63,12 +63,12 @@ export class ContactFormMapper {
             .map(l => {
                 const read = applySecondGuesses(String(l.text || ''), l.alts);
                 // (the words the reader nearly read otherwise, for the review's guess buttons: MOD04 guesses.js)
-                return { text: read.replace(/[“”]/g, '"').replace(/[‘’]/g, "'").replace(/\s+/g, ' ').trim(), icon: l.icon || null, unsure: Array.isArray(l.unsure) && l.unsure.length > 0, swaps: wordSwaps(read, l.alts) };
+                return { text: read.replace(/[“”]/g, '"').replace(/[‘’]/g, "'").replace(/\s+/g, ' ').trim(), icon: l.icon || null, unsure: Array.isArray(l.unsure) && l.unsure.length > 0, low: l.lowConfidence === true, swaps: wordSwaps(read, l.alts) };
             })
             .filter(l => l.text.length > 0)
-            .map(({ text, icon, unsure, swaps }) => {
+            .map(({ text, icon, unsure, low, swaps }) => {
                 const parsed = splitLabel(text);
-                return { text, icon, unsure, swaps, ...parsed, label: parsed.label || ICON_LABEL[icon] || null, role: null };
+                return { text, icon, unsure, low, swaps, ...parsed, label: parsed.label || ICON_LABEL[icon] || null, role: null };
             });
         const free = (line) => line.role === null;
 
@@ -220,7 +220,9 @@ export class ContactFormMapper {
         if (place.line && place.country === DEFAULT_COUNTRY && !zipFitsState(place.zip, state)) {
             place.line.check = `${place.zip} is not a ${REGION_NAME[state] || state} ZIP code. Please check it.`;
         }
+        // A reading the reader was unsure of as a whole (MOD04 `lowConfidence`) has every line checked, phone numbers too.
         lines.forEach(l => {
+            if (!l.check && l.low) l.check = LOW_CONFIDENCE_NOTE;
             if (!l.check && l.unsure && l.role && !PHONE_ROLES.has(l.role) && l.role !== 'phone') l.check = 'The reader was not sure of some letters here. Please check them.';
         });
 
@@ -372,6 +374,8 @@ export class ContactFormMapper {
 }
 
 /** Phone styles offered on the Fields card for US and Canadian numbers: [style, example] (video review #71). */
+// Shown under every line of a reading the reader was unsure of as a whole (MOD04 `lowConfidence`).
+export const LOW_CONFIDENCE_NOTE = 'The reader was not sure of this photo. Please check this line.';
 export const PHONE_FORMATS = Object.freeze([['paren', '(616) 555-0140'], ['dots', '616.555.0140'], ['digits', '6165550140']]);
 export const DEFAULT_PHONE_STYLE = Object.freeze({ format: 'paren', countryCode: true });
 
