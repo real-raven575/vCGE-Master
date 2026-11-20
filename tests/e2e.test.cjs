@@ -3306,10 +3306,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     }
     await pV.setInputFiles('#imageUpload', await renderCardImage(pV)); await pV.waitForTimeout(300);
     ok('upload: the handles start at the full photo', await pV.isVisible('#captureReview') && (await pV.getAttribute('#cropPolygon', 'points')) === '0,0 1050,0 1050,600 0,600');
-    await pV.mouse.move(1, 1);   // (the pointer rests off the buttons, so OK shows its own green, not its hover green)
-    ok('crop step: Rotate left, Rotate right, Snap to card, Cancel and a green OK; OK is the only green one', (await pV.$$eval('#captureActions button', bs => bs.filter(b => b.offsetParent).map(b => b.textContent.trim()))).join('|') === 'Left|Right|Snap to card|Cancel|OK'
+    await pV.mouse.move(1, 1);   // (the pointer rests off the buttons, so OK shows its own colour, not its hover)
+    ok('crop step: Rotate left, Rotate right, Snap to card, Cancel and OK; OK is the theme accent (raven575 2026-11-20: buttons keep the theme)', (await pV.$$eval('#captureActions button', bs => bs.filter(b => b.offsetParent).map(b => b.textContent.trim()))).join('|') === 'Left|Right|Snap to card|Cancel|OK'
       && (await pV.getAttribute('#rotateLeftBtn', 'aria-label')).includes('counter-clockwise') && (await pV.getAttribute('#rotateRightBtn', 'aria-label')).includes(', clockwise')
-      && await pV.$eval('#runOcrBtn', b => getComputedStyle(b).backgroundColor === 'rgb(22, 163, 74)'));
+      && await pV.$eval('#runOcrBtn', b => { const i = document.createElement('i'); i.style.color = 'var(--sh-accent)'; document.body.appendChild(i); const accent = getComputedStyle(i).color; i.remove(); return getComputedStyle(b).backgroundColor === accent; }));
     // Finding 52: a two-finger pinch on the photo zooms the photo like a camera; the page, the buttons and the handles keep
     // their size; the corners do not move. At the whole photo a swipe is still the deck's (touch-action pan-x pan-y).
     await deckSettled(pV);

@@ -135,3 +135,9 @@ button.share-ready { display: inline-flex; align-items: center; gap: 0.6rem; }
 html[data-edition="plain"] .hatch, html[data-edition="plain"] .toast-falcon { display: none; }
 /* Export QR picture drop-downs (MOD01 pictureSelect): square QR pictures, big enough to see each look */
 .export-qr-group .vcge-pick-prev { width: 3rem; height: 3rem; background: transparent; }
+
+/* ui.css (loaded later) gives every button min-height var(--vcge-tap) at the same weight as these, so the taller sizes here
+   need one more step; until 2026-11-20 the icons sat on their own line above the word and hid this */
+html button.share-btn { min-height: 3.25rem; }
+html button.share-btn.share-primary, html button.print-choice, html button.export-qr-save, html button.export-qr-cancel { min-height: 3.5rem; }
+html button.share-ready { min-height: 3rem; }
