@@ -37,6 +37,7 @@ import { mergeReadings, missingParts, describeMissing, MAX_PHOTOS } from './modu
 import { readCardQr, withoutQr, parseQrPayload, withQrLines } from './modules/mod07-qr/qrReader.js';
 import { readIndicator, readThumb, renderReviewRows, initReadCard, resetBlink, READER_UNAVAILABLE_MESSAGE, READER_STOPPED_MESSAGE } from './modules/mod04-ocr/readCard.js';
 import { ContactFormMapper, LINE_ROLES, PHONE_FORMATS } from './modules/mod05-form/formMapper.js';
+import { parseZipTowns } from './modules/mod05-form/zipTowns.js';
 import { PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES } from './share/contactOptions.js';
 import { AddressAutocompleteEngine } from './modules/mod05-form/addressAutocomplete.js';
 import { initFieldsCard, SAMPLE_PROMPT, PLAIN_SAMPLE_PROMPT, unplacedLines, showUnknownLines, clearUnknownLines } from './modules/mod05-form/fieldsCard.js';
@@ -1411,6 +1412,16 @@ function boot() {
     setVaultIndicator();
     updatePurgeCountdown();
     biometricAvailable().then(ok => { biometricSupported = ok; setVaultIndicator(); });
+    loadZipTowns();
+}
+
+// The ZIP code -> town table (about 0.6 MB, the app's own file) loads once the page is idle, so it never slows the
+// start; a card read before it arrives keeps its town as read. Nothing leaves the device.
+function loadZipTowns() {
+    const load = () => import('./vendor/zip-towns/zipTowns.js')
+        .then(m => formMapper.setZipTowns(parseZipTowns(m.ZIP_TOWNS)))
+        .catch(e => console.warn('[vCGE] ZIP town table not loaded:', e && e.message));
+    if (typeof window.requestIdleCallback === 'function') window.requestIdleCallback(load, { timeout: 3000 }); else setTimeout(load, 1000);
 }
 
 boot();

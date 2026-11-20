@@ -14,9 +14,11 @@
 
 import { NAME_PREFIXES, NAME_SUFFIXES, REGIONS, DEFAULT_COUNTRY, SOCIAL_HOSTS, splitStreetUnit, websiteTypeFor, socialProfileUrl } from '../../share/contactOptions.js';
 import { wordSwaps, guessesFor } from '../mod04-ocr/guesses.js';
+import { fixTown } from './zipTowns.js';
 
 export class ContactFormMapper {
     constructor() {
+        this.zipTowns = null;   // the ZIP code -> town table (zipTowns.js parseZipTowns), once setZipTowns has it
         this.countryFormats = {
             'United States': 'US',
             'Canada': 'US',
@@ -41,6 +43,11 @@ export class ContactFormMapper {
      */
     parseOCRText(rawText) {
         return this.buildFields(this.classifyLines(rawText)).fields;
+    }
+
+    /** Hands over the ZIP code -> town table (zipTowns.js parseZipTowns); until then towns are kept as read. */
+    setZipTowns(table) {
+        this.zipTowns = table || null;
     }
 
     /**
@@ -188,6 +195,19 @@ export class ContactFormMapper {
         const place = lines.map(l => (l.role === 'cityStateZip' || l.role === 'address') && { line: l, ...findAddressLine(l.text) }).find(a => a && a.state) || {};
         const state = place.state;
         if (state) lines.forEach(l => { if (l.role === 'website') l.body = endWithStateCode(l.body, state); });
+
+        // The town as the ZIP code knows it: a town a letter or two off ("Potage" for "Portage", raven575's iPad run
+        // 2026-11-20) takes the ZIP's own spelling, and the review box says so (zipTowns.js; the table loads after start).
+        if (place.line && place.country === DEFAULT_COUNTRY && this.zipTowns) {
+            const { town, fixed } = fixTown(this.zipTowns, place);
+            if (fixed) {
+                const swap = (t) => String(t || '').replace(place.city, town);
+                place.line.text = swap(place.line.text);
+                if (place.line.body) place.line.body = swap(place.line.body);
+                place.line.check = `Town spelled as ZIP ${place.zip} has it: ${town} (read as "${place.city}"). Please check it.`;
+                place.city = town;
+            }
+        }
 
         // Lines to check before filling (shown under the line in the review box): a ZIP code the card's state doesn't use,
         // and lines with words the OCR was unsure of (MOD04 `unsure`). Phone numbers are checked by their own shape.
