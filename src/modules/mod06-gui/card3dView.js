@@ -1056,6 +1056,10 @@ export class CardView {
         button.classList.toggle('hidden', !action);
         button.onclick = action ? (e) => { e.stopPropagation(); this.hideToast(); action.onClick(); } : null;
         if (action) button.textContent = action.label;
+        // The toast goes in the top layer (a manual popover) where the browser has it: nothing on the page, not even the
+        // 3D card, can sit above it there, so a tap on it always reaches it (WebKit hit-tested the card's 3D layer first)
+        clearTimeout(this.toastOffTimer);
+        if (t.showPopover && t.hasAttribute('popover') && !t.matches(':popover-open')) t.showPopover();
         t.classList.remove('-translate-y-24', 'opacity-0', 'pointer-events-none');
         this.toastMs = action ? TOAST_ACTION_MS : TOAST_MS;
         this.armToast();
@@ -1069,8 +1073,12 @@ export class CardView {
     hideToast() {
         clearTimeout(this.toastTimer);
         this.toastTimer = null;
-        $('toast').classList.add('-translate-y-24', 'opacity-0', 'pointer-events-none');
+        const t = $('toast');
+        t.classList.add('-translate-y-24', 'opacity-0', 'pointer-events-none');
         $('toastAction').onclick = null;
+        // Out of the top layer once it has faded (the fade is 0.2 s)
+        clearTimeout(this.toastOffTimer);
+        if (t.hidePopover && t.hasAttribute('popover')) this.toastOffTimer = setTimeout(() => { if (t.classList.contains('opacity-0') && t.matches(':popover-open')) t.hidePopover(); }, 300);
     }
 
     wireToast() {

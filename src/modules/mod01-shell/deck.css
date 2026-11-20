@@ -218,6 +218,9 @@ html[data-edition="plain"] .vcge-chip-pilot { display: none; }
     background: var(--sh-ink); color: var(--sh-bg); font: 600 14px system-ui, sans-serif; box-shadow: var(--sh-shadow-lift);
     display: flex; align-items: center; gap: 12px; cursor: pointer; user-select: none; transition: opacity 200ms, transform 260ms var(--ease-out); }
 .vcge-toast.opacity-0 { transform: translate3d(-50%, 16px, 1000px); }
+/* In the top layer (popover="manual", card3dView.js) the browser's popover box is undone: the toast keeps its own place and look */
+.vcge-toast[popover] { right: auto; width: auto; height: auto; margin: 0; border: 0; overflow: visible; inset-inline-end: auto; }
+.vcge-toast[popover]:not(:popover-open) { display: flex; }
 /* The 1000px depth draws nothing different (no perspective above the toast), but WebKit (iPhone CI, PR #22, 2026-11-15)
    hit-tested the card's 3D layer (preserve-3d) above the toast, so a tap meant for the toast landed on the card and could
    flip it. A depth well in front of the card keeps the toast first in line for the tap. */
