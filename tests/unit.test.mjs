@@ -553,6 +553,9 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('mapping: newer web endings (.media, .photo, .studio) are web addresses', media.websites.length === 1 && media.websites[0].value === 'desertbloom.media'
     && fm.buildFields(lines('Lucas Moreau\nlucasmoreau.photo')).fields.websites.length === 1, JSON.stringify(media.websites));
   const photo = fm.buildFields(lines('Lucas Moreau Photo\nLucas Moreau\nPhotographer\n(269) 555-0117\nhello@lucasmoreau.photo')).fields;
+  const bracket = fm.classifyLines('Sam Feld\nsam(@feldhardware.com\nfeldhardware.com');
+  ok('mapping: a bracket or bar read against the @ is dropped and the line is the email', role(bracket, 'email') === 'sam@feldhardware.com'
+    && fm.buildFields(fm.classifyLines('Jo Doe\njo@|example.com')).fields.emails[0].value === 'jo@example.com', JSON.stringify(bracket));
   ok('mapping: "Lucas Moreau Photo" over "Lucas Moreau" is the company, the shorter line the name', photo.firstName === 'Lucas' && photo.lastName === 'Moreau' && photo.organization === 'Lucas Moreau Photo', JSON.stringify(photo));
 }
 

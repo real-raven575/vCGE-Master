@@ -703,7 +703,9 @@ function splitLabel(text) {
 
 /** Finds an email, repairing common OCR slips: "©"/"®" for "@", spaces around "@" or ".", a space where the dot was. */
 function findEmail(text) {
-    const t = repairAddressText(text).replace(/[©®]/g, '@').replace(/\s*\(\s*at\s*\)\s*|\s*\[\s*at\s*\]\s*/gi, '@');
+    const t = repairAddressText(text).replace(/[©®]/g, '@').replace(/\s*\(\s*at\s*\)\s*|\s*\[\s*at\s*\]\s*/gi, '@')
+        // A bracket or bar the reader put against the @ ("sam(@example.com", made-up card bench 2026-11-21) is dropped.
+        .replace(/(?<=[A-Za-z0-9])[(\[{|](?=@)|(?<=@)[)\]}|]/g, '');
     const m = t.match(/([A-Za-z0-9._%+-]+)\s*@\s*([A-Za-z0-9-]+(?:\s*[.,]\s*[A-Za-z0-9-]+|\s+[A-Za-z]{2,6}\b)*)/);
     if (!m) return '';
     const domain = m[2].replace(/\s*[.,]\s*/g, '.').replace(/\s+/g, '.').replace(/\.+$/, '');
