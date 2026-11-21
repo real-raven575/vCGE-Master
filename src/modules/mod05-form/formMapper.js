@@ -14,9 +14,11 @@
 
 import { NAME_PREFIXES, NAME_SUFFIXES, REGIONS, DEFAULT_COUNTRY, SOCIAL_HOSTS, splitStreetUnit, websiteTypeFor, socialProfileUrl } from '../../share/contactOptions.js';
 import { wordSwaps, guessesFor } from '../mod04-ocr/guesses.js';
+import { fixTown } from './zipTowns.js';
 
 export class ContactFormMapper {
     constructor() {
+        this.zipTowns = null;   // the ZIP code -> town table (zipTowns.js parseZipTowns), once setZipTowns has it
         this.countryFormats = {
             'United States': 'US',
             'Canada': 'US',
@@ -41,6 +43,11 @@ export class ContactFormMapper {
      */
     parseOCRText(rawText) {
         return this.buildFields(this.classifyLines(rawText)).fields;
+    }
+
+    /** Hands over the ZIP code -> town table (zipTowns.js parseZipTowns); until then towns are kept as read. */
+    setZipTowns(table) {
+        this.zipTowns = table || null;
     }
 
     /**
@@ -209,15 +216,28 @@ export class ContactFormMapper {
         // So do the words for an occasion next to the logo ("20th Anniversary", "Since 1998").
         lines.forEach(line => { if (free(line) && (isTagline(line.text) || OCCASION.test(line.text))) { line.role = 'notes'; line.text = repairYour(line.text); line.body = repairYour(line.body); } });
 
+        // A lone capital the reader picked up in front of the city line ("T Portage, MI 49024", raven575's phone run,
+        // 2026-11-20) is dropped like a logo letter in front of a name, before the town is looked up.
+        lines.forEach(l => { if (l.role === 'cityStateZip') { l.text = dropStrayLetter(l.text); if (l.body) l.body = dropStrayLetter(l.body); } });
+
         // A web path ending in the card's own state code, its I read as a bar ("Kalamazoom\" on a Michigan card), ends
         // in that code ("KalamazooMI"), also when the OCR put a space before it ("Kalamazoo Ml").
         const place = lines.map(l => (l.role === 'cityStateZip' || l.role === 'address') && { line: l, ...findAddressLine(l.text) }).find(a => a && a.state) || {};
         const state = place.state;
         if (state) lines.forEach(l => { if (l.role === 'website') l.body = endWithStateCode(l.body, state); });
 
-        // A lone capital the reader picked up in front of the city line ("T Portage, MI 49024", raven575's phone run,
-        // 2026-11-20) is dropped like a logo letter in front of a name.
-        lines.forEach(l => { if (l.role === 'cityStateZip') { l.text = dropStrayLetter(l.text); if (l.body) l.body = dropStrayLetter(l.body); } });
+        // The town as the ZIP code knows it: a town a letter or two off ("Potage" for "Portage", raven575's iPad run
+        // 2026-11-20) takes the ZIP's own spelling, and the review box says so (zipTowns.js; the table loads after start).
+        if (place.line && place.country === DEFAULT_COUNTRY && this.zipTowns) {
+            const { town, fixed } = fixTown(this.zipTowns, place);
+            if (fixed) {
+                const swap = (t) => String(t || '').replace(place.city, town);
+                place.line.text = swap(place.line.text);
+                if (place.line.body) place.line.body = swap(place.line.body);
+                place.line.check = `Town spelled as ZIP ${place.zip} has it: ${town} (read as "${place.city}"). Please check it.`;
+                place.city = town;
+            }
+        }
 
         // Lines to check before filling (shown under the line in the review box): a ZIP code the card's state doesn't use,
         // and lines with words the OCR was unsure of (MOD04 `unsure`). Phone numbers are checked by their own shape.

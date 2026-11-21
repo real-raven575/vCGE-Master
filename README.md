@@ -8,7 +8,14 @@
 
 The **vCard Generator Engine (vCGE)** is a cross-platform app that turns a photo of a business card into a phone contact. Built on a modular ES Architecture and powered by Tauri v2, vCGE processes physical business cards via hardware camera feeds or local file uploads, parses text locally via WebAssembly OCR, and generates interactive 3D business cards with scannable vCard QR codes—all without leaving your device.
 
-No ads, no tracking, no accounts, no internet: the app talks to nothing but its own bundled files, and the only thing it ever keeps is one small settings line (hand, colour-blind mode, theme, font, text size, wipe time). Everything scanned, typed or shown lives in memory and is wiped when you leave. Site: [vCGE.APP](https://vcge.app).
+No ads, no tracking, no accounts, no internet: the app talks to nothing but its own bundled files, and the only thing it ever keeps is one small settings line (hand, colour-blind mode, theme, font, text size, wipe time). Everything scanned, typed or shown lives in memory and is wiped when you leave.
+
+## 📲 Get vCGE
+
+- **Try the free beta now (0.8.1):** [real-raven575.github.io/vCGE-Master](https://real-raven575.github.io/vCGE-Master/), in your phone's or computer's browser. Its future home, vcge.app, is not live yet.
+- **Google Play, coming first at $0.99.** It starts with a closed test. To be a tester, ask to join the [vcge-testers Google Group](https://groups.google.com/g/vcge-testers).
+- **Microsoft Store**, also $0.99, is planned after Google Play.
+- The source code here stays free and open. The store builds cost $0.99 once, with no ads and no subscription.
 
 ---
 
@@ -147,7 +154,9 @@ vCGE-Master/
 
 ## 👥 Creators
 
-Created by [raven575](https://raven575.com), with Team vCGE (Claude), and Gemini for the first generation. Home: [vCGE.APP](https://vcge.app).
+Created by [raven575](https://raven575.com), with Team vCGE (Claude), and Gemini for the first generation. vCGE is the first app from **Herd of Helpers**, raven575's small app studio. Contact: admin@herdofhelpers.com.
+
+**Made with AI.** Most of the code and text here was written by AI models (Claude by Anthropic, and Gemini by Google for the first generation) working for raven575, who reviews and approves every change.
 
 ## 💬 Feedback
 

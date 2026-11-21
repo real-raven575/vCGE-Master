@@ -37,6 +37,7 @@ import { mergeReadings, missingParts, describeMissing, MAX_PHOTOS } from './modu
 import { readCardQr, withoutQr, parseQrPayload, withQrLines } from './modules/mod07-qr/qrReader.js';
 import { readIndicator, readThumb, renderReviewRows, initReadCard, resetBlink, READER_UNAVAILABLE_MESSAGE, READER_STOPPED_MESSAGE } from './modules/mod04-ocr/readCard.js';
 import { ContactFormMapper, LINE_ROLES, PHONE_FORMATS } from './modules/mod05-form/formMapper.js';
+import { parseZipTowns } from './modules/mod05-form/zipTowns.js';
 import { PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES } from './share/contactOptions.js';
 import { AddressAutocompleteEngine } from './modules/mod05-form/addressAutocomplete.js';
 import { initFieldsCard, SAMPLE_PROMPT, PLAIN_SAMPLE_PROMPT, unplacedLines, showUnknownLines, clearUnknownLines } from './modules/mod05-form/fieldsCard.js';
@@ -351,10 +352,12 @@ async function unlockHeld(method) {
 async function unlockWithBiometric() {
     if (vaultMode !== 'quick' || !biometric.isEnrolled()) return;
     $('vaultError').textContent = '';
+    expectExternalApp();   // the device's face or fingerprint sheet comes to the front
     if (await biometric.verify()) return quickUnlock('biometric');
     // The device's reason (NotAllowedError and the like) is shown, so a button that stops working can be traced.
     const why = biometric.lastError ? ` (${biometric.lastError})` : '';
-    if (vaultMode === 'quick') $('vaultError').textContent = `Face or fingerprint not confirmed${why}. Use your PIN.`;
+    const tip = biometric.profile.tip ? ` ${biometric.profile.tip}` : '';
+    if (vaultMode === 'quick') $('vaultError').textContent = `Face or fingerprint not confirmed${why}. Use your PIN.${tip}`;
 }
 
 // Unlock as soon as the 4th digit is typed: no extra tap.
@@ -443,8 +446,12 @@ async function addBiometric() {
     try {
         await biometric.enroll();
         // Only a check that passes right now turns it on: a device that enrols but cannot sign is not "on".
-        expectExternalApp();
-        if (!(await biometric.verify())) { biometric.clear(); throw new Error('BIOMETRIC_CHECK_FAILED'); }
+        // On iPhone and iPad that check is a second sheet straight after "Passkey saved", so it is skipped there
+        // (passkeyProfile, raven575's iPad run 2026-11-20); the first unlock is the check.
+        if (biometric.confirmAfterEnroll()) {
+            expectExternalApp();
+            if (!(await biometric.verify())) { biometric.clear(); throw new Error('BIOMETRIC_CHECK_FAILED'); }
+        }
         globalEventBus.publish(Events.VAULT_UNLOCK_METHOD_CHANGED, { change: 'Face ID / fingerprint added', timestamp: Date.now() });
         cardView.showToast('Face ID / fingerprint added for this session.');
     } catch (e) {
@@ -818,7 +825,7 @@ async function runOcr(how) {
     readIndicator.show(photo);
     try {
         // The first scan (and the first after a wipe) starts the reader from ~7 MB of bundled files: say so.
-        const onStatus = (status, fraction) => readIndicator.status(status, fraction);
+        const onStatus = (status, fraction) => { if (status === 'reading') loadZipTowns(); readIndicator.status(status, fraction); };
         // A QR code printed on the card is read first (accuracy round 1, 2026-11-10) and painted over for the text
         // reader, whose junk readings of its squares would otherwise turn the card down.
         const found = await readCardQr(photo);
@@ -1405,6 +1412,18 @@ function boot() {
     setVaultIndicator();
     updatePurgeCountdown();
     biometricAvailable().then(ok => { biometricSupported = ok; setVaultIndicator(); });
+}
+
+// The ZIP code -> town table (about 0.6 MB, the app's own file) loads the first time the reader has started and is
+// reading, so it never slows the page's start or the reader's own start-up (Firefox CI, PR #59: loading it while the
+// reader was starting held the reader's start past 60 s). The read takes seconds, so the table is in by the review;
+// a card read before it arrives keeps its town as read. Nothing leaves the device.
+let zipTownsLoad = null;
+function loadZipTowns() {
+    if (zipTownsLoad) return;
+    zipTownsLoad = import('./vendor/zip-towns/zipTowns.js')
+        .then(m => formMapper.setZipTowns(parseZipTowns(m.ZIP_TOWNS)))
+        .catch(e => { zipTownsLoad = null; console.warn('[vCGE] ZIP town table not loaded:', e && e.message); });
 }
 
 boot();

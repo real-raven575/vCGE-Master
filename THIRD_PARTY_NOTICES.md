@@ -23,6 +23,7 @@ vCGE bundles the following third-party software in `src/vendor/`. The files are 
 | [Simple Icons](https://simpleicons.org) | 16.33.0 | CC0 1.0 (`src/vendor/icons/LICENSE-simple-icons.md`) | 6 brand logos (X, Facebook, Instagram, GitHub, YouTube, TikTok) as SVG in `src/vendor/icons/templates.json`, used only to recognise those logos on cards | Simple Icons contributors (logos are trademarks of their owners) |
 | [Noto Emoji](https://github.com/googlefonts/noto-emoji) via [@iconify-json/noto](https://www.npmjs.com/package/@iconify-json/noto) | 1.2.9 | Apache-2.0 (`src/vendor/icons/animals/LICENSE-noto-emoji.txt`) | 10 animal drawings (turtle, raccoon, cat, owl, octopus, lizard, zebra, eagle, hamster, elephant) as SVG in `src/vendor/icons/animals/`, the logos of the "Insert Fake Contact?" samples | © 2013 Google LLC |
 | [@tesseract.js-data/eng](https://www.npmjs.com/package/@tesseract.js-data/eng) | 1.0.0 (`4.0.0_best_int` model) | MIT (package); the model comes from [tesseract-ocr/tessdata](https://github.com/tesseract-ocr/tessdata), Apache-2.0 | `src/vendor/tesseract/lang/eng.traineddata.gz` | Google / Tesseract OCR contributors |
+| [zipcodes](https://github.com/davglass/zipcodes) (US data from the Free Zipcode Database, federalgovernmentzipcodes.us) | 8.0.0 | BSD (`src/vendor/zip-towns/LICENSE-zipcodes.txt`) | `src/vendor/zip-towns/zipTowns.js` (US ZIP code to town table, built by `scripts/zip-towns.mjs`; corrects a misread town on the device) | © 2007 Dav Glass |
 
 "QR Code" is a registered trademark of DENSO WAVE INCORPORATED.
 
