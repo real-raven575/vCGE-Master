@@ -4426,11 +4426,21 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p6.waitForTimeout(700);
     ok('toast: gone after 3 s', await p6.$eval('#toast', t => t.classList.contains('opacity-0')));
     await p6.click('#paletteListContainer [data-theme="maple"]');
-    await p6.waitForTimeout(400);   // after the slide-in: what a tap at the toast's middle reaches (logged, for WebKit)
-    console.log('toast hit:', JSON.stringify(await p6.evaluate(() => { const r = document.getElementById('toastMessage').getBoundingClientRect();
-      const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return { hit: el && (el.id || el.className), r: [r.x, r.y, r.width, r.height].map(Math.round), vw: innerWidth, sw: document.documentElement.scrollWidth }; })));
-    await p6.click('#toastMessage');
+    await p6.waitForTimeout(400);   // after the slide-in
+    // A real tap at the toast's middle. The page's own hit test must say the tap reaches the toast (not the 3D card under
+    // it), then the mouse presses at exactly that point. Not p6.click('#toastMessage'): on iPhone WebKit, Playwright's own
+    // pre-click check can report the card's .card-lines layer as covering the toast while the page's elementFromPoint at
+    // the same point is #toastMessage (CI runs 44958665496 and 44851801150 logged both), so it waited 30 s and failed
+    // on a tap the app handles. The flip check below proves the card was not turned by the tap.
+    const toastTap = await p6.evaluate(() => { const r = document.getElementById('toastMessage').getBoundingClientRect();
+      const x = r.x + r.width / 2, y = r.y + r.height / 2, el = document.elementFromPoint(x, y);
+      return { x, y, hit: el && (el.id || el.className), onToast: !!(el && el.closest('#toast')), turn: document.getElementById('card3DFlipper').style.transform };
+    });
+    console.log('toast hit:', JSON.stringify(toastTap));
+    ok('toast: a tap at its middle reaches the toast, not the card under it', toastTap.onToast, JSON.stringify(toastTap));
+    await p6.mouse.click(toastTap.x, toastTap.y);
     ok('toast: a tap dismisses it at once', await p6.$eval('#toast', t => t.classList.contains('opacity-0')));
+    ok('toast: the tap does not turn the card', (await p6.$eval('#card3DFlipper', f => f.style.transform)) === toastTap.turn, JSON.stringify(toastTap));
     await p6.click('#paletteListContainer [data-theme="spruce"]');
     await p6.waitForTimeout(400);   // measured after the slide-in, or the press lands where the toast was, not where it is
     const tb = await p6.locator('#toast').boundingBox();
