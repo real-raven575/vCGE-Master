@@ -10,6 +10,7 @@
 import { globalEventBus, Events } from '../../share/eventBus.js';
 import { loadIconTemplates, grayFromDataUrl, detectLineIcons } from './iconDetector.js';
 import { refineLines, altsForText } from './glyphChoices.js';
+import { findFaintBands, usualLineHeight, trimStripText } from './faintLines.js';
 
 const MODULE_ID = 'vCGE-MOD04';
 const MODULE_NAME = 'OCR Engine Module';
@@ -93,6 +94,20 @@ export const DIGITS_LOOK_GOOD_ENOUGH = 90;
 export const DIGITS_LOOK_BUDGET_MS = 8000;
 // Letters and marks the reader gives for digits in a phone number.
 const DIGIT_LOOKALIKES = { O: '0', o: '0', D: '0', Q: '0', I: '1', l: '1', i: '1', '|': '1', '!': '1', Z: '2', z: '2', S: '5', s: '5', $: '5', G: '6', b: '6', T: '7', B: '8', g: '9', q: '9' };
+
+// Second black-and-white (raven575's ask, 2026-11-21, OCR for the Monday testers): a first reading less sure than this is
+// read again with the engine's local (Sauvola) black-and-white step instead of its whole-page one, and the surer reading
+// is kept. The whole-page step loses text on shaded, soft or unevenly lit photos; the local one loses light text on dark
+// bands, so neither alone. On the lab card bench (7 real photos, 32 made-up cards) fields right went from 70% to 88%,
+// sharp made-up cards unchanged, and 18 of the 39 photos were read twice.
+export const SECOND_BINARIZE_BELOW = 75;
+const THRESHOLD_WHOLE_PAGE = '0', THRESHOLD_LOCAL = '2';
+
+// Faint look (raven575's ask, 2026-11-21): light grey lettering the reading missed (faintLines.js) is read again as a
+// strip with its own contrast. A strip's reading is added as a line only when it is sure and has a real word; its words
+// are all marked unsure, so the review asks the user to check the line.
+export const FAINT_LOOK_MIN_CONFIDENCE = 65;
+export const FAINT_LOOK_BUDGET_MS = 6000;
 
 /** Thrown when the photo is too blurry or unclear to read; the caller should ask for a new photo. */
 export class OcrUnreadableError extends Error {
@@ -593,6 +608,71 @@ async function digitsLook(worker, processedImage, lines, started) {
     }
 }
 
+/** The strip of `page` (an image) inside `box`, padded by `pad` px, stretched between its darkest ink and its paper, enlarged. */
+function faintStripImage(page, box, pad) {
+    const x0 = Math.max(0, box.x0 - pad), x1 = Math.min(page.naturalWidth, box.x1 + pad);
+    const y0 = Math.max(0, box.y0 - pad), y1 = Math.min(page.naturalHeight, box.y1 + pad);
+    const width = Math.max(1, Math.round((x1 - x0) * SECOND_LOOK_SCALE)), height = Math.max(1, Math.round((y1 - y0) * SECOND_LOOK_SCALE));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(page, x0, y0, x1 - x0, y1 - y0, 0, 0, width, height);
+    const img = ctx.getImageData(0, 0, width, height), d = img.data;
+    const values = new Uint8Array(width * height);
+    for (let i = 0; i < values.length; i++) values[i] = d[i * 4];
+    const sorted = Uint8Array.from(values).sort();
+    const low = sorted[Math.floor(sorted.length * 0.02)], high = sorted[Math.floor(sorted.length * 0.5)];
+    const k = high - low > 4 ? 255 / (high - low) : 1;
+    for (let i = 0; i < values.length; i++) d[i * 4] = d[i * 4 + 1] = d[i * 4 + 2] = Math.max(0, Math.min(255, Math.round((values[i] - low) * k)));
+    ctx.putImageData(img, 0, 0);
+    return canvas.toDataURL('image/png');
+}
+
+/**
+ * Faint look: bands of faint ink no line covers (findFaintBands) are read again one strip at a time, and a sure reading
+ * with a real word is added to `found` in its place from the top. Changes `found` in place. Best effort like the other
+ * looks: a failure adds nothing; only a wipe ends the scan.
+ */
+async function faintLook(worker, processedImage, data, found, started) {
+    const lineHeight = usualLineHeight(data.lines);
+    if (!lineHeight || !found.length || found.some(l => l.y === undefined)) return;
+    const until = Date.now() + FAINT_LOOK_BUDGET_MS;
+    try {
+        const image = await grayFromDataUrl(processedImage);
+        const boxes = (data.lines || []).filter(l => l && l.bbox).map(l => l.bbox);
+        const bands = findFaintBands(image.gray, image.width, image.height, boxes, lineHeight);
+        if (!bands.length) return;
+        const page = new Image();
+        page.src = processedImage;
+        await page.decode();
+        await worker.setParameters({ tessedit_pageseg_mode: SECOND_LOOK_PAGE_SEG_MODE });
+        const known = new Set(found.map(l => l.text.toLowerCase()));
+        for (const band of bands) {
+            if (Date.now() > until) break;
+            const { data: strip } = await readWithin(worker, faintStripImage(page, band, Math.round(lineHeight * 0.3)), OCR_READ_TIMEOUT_MS);
+            if (generation !== started) throw new OcrCancelledError();
+            const words = (strip.words || []).filter(w => w.text && w.text.trim());
+            const confidence = meanConfidence(words);
+            const text = trimStripText(words.map(w => w.text).join(' '));
+            const real = words.some(w => w.confidence >= 60 && (w.text.match(/[A-Za-z0-9]/g) || []).length >= 3);
+            if (!text || !real || confidence < FAINT_LOOK_MIN_CONFIDENCE || known.has(text.toLowerCase())) continue;
+            console.log(`[${MODULE_ID}] Faint look: a light line read with confidence ${confidence}`);
+            known.add(text.toLowerCase());
+            const at = found.findIndex(l => l.y > band.y0);
+            const line = { text, icon: null, alts: [], unsure: text.split(' ').filter(t => t.length > 1), confidence, y: band.y0 };
+            found.splice(at < 0 ? found.length : at, 0, line);
+        }
+    } catch (error) {
+        if (error instanceof OcrCancelledError) throw error;
+        console.warn(`[${MODULE_ID}] Faint look stopped, nothing added:`, error);
+    } finally {
+        if (tesseractWorker === worker) await worker.setParameters({ tessedit_pageseg_mode: OCR_PAGE_SEG_MODE }).catch(() => {});
+    }
+}
+
 /**
  * Icons in front of each OCR line (phone handset, envelope, social logo...). Best effort: any failure means no icons,
  * never a failed scan. Returns [{ text, icon, alts, unsure, confidence, look? }] in card order (lines that were only an icon are dropped);
@@ -604,7 +684,7 @@ async function linesWithIcons(processedImage, data) {
     const lines = refineLines(data.lines || []);
     if (!lines.length) return String(data.text || '').split('\n').map(text => ({ text: text.trim(), icon: null, alts: [], unsure: [] })).filter(l => l.text);
     const withAlts = (found) => found.map((l, i) => {
-        const out = { text: l.text, icon: l.icon, alts: altsForText(l.text, lines[i].words), unsure: unsureWords(l.text, lines[i].words), confidence: meanConfidence(lines[i].words) };
+        const out = { text: l.text, icon: l.icon, alts: altsForText(l.text, lines[i].words), unsure: unsureWords(l.text, lines[i].words), confidence: meanConfidence(lines[i].words), y: lines[i].bbox ? lines[i].bbox.y0 : undefined };
         const look = secondLookTarget(lines[i], out.unsure), digits = digitsLookTarget(lines[i]);
         return { ...out, ...(look ? { look } : {}), ...(digits ? { digits } : {}) };
     }).filter(l => l.text);
@@ -681,6 +761,7 @@ async function scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started, g
         result = await readWithin(worker, processedImage, readTimeoutMs);
     }
     if (generation !== started) throw new OcrCancelledError();
+    if (Math.round(result.data.confidence || 0) < SECOND_BINARIZE_BELOW) result = await secondBinarize(worker, processedImage, result, readTimeoutMs, started);
     const text = result.data.text || '';
     const confidence = Math.round(result.data.confidence || 0);
     const readableWords = (result.data.words || []).filter(w => w.confidence >= 60 && /[A-Za-z0-9]{2,}/.test(w.text)).length;
@@ -707,7 +788,9 @@ async function scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started, g
     if (generation !== started) throw new OcrCancelledError();
     await digitsLook(worker, processedImage, found, started);
     if (generation !== started) throw new OcrCancelledError();
-    const lines = found.map(({ look, digits, ...line }) => (lowConfidence ? { ...line, lowConfidence: true } : line));
+    await faintLook(worker, processedImage, result.data, found, started);
+    if (generation !== started) throw new OcrCancelledError();
+    const lines = found.map(({ look, digits, y, ...line }) => (lowConfidence ? { ...line, lowConfidence: true } : line));
     // Where each line sits, in the reader's pixels (the photo times readerScale): the logo finder blanks out the contact
     // text with these (logoGuess.js). Boxes and text only, like the lines themselves.
     const boxes = (result.data.lines || []).filter(l => l && l.bbox && String(l.text || '').trim())
@@ -716,6 +799,27 @@ async function scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started, g
     globalEventBus.publish(Events.OCR_TEXT_EXTRACTED, { sourceModule: MODULE_ID, confidence, icons: lines.filter(l => l.icon).length, timestamp: Date.now() });
     if (failedGate) return { text, confidence, lines, boxes, failedGate };
     return lowConfidence ? { text, confidence, lines, boxes, lowConfidence } : { text, confidence, lines, boxes };
+}
+
+/**
+ * The photo read again with the local black-and-white step (SECOND_BINARIZE_BELOW); the surer of the two readings is
+ * returned. Best effort: a failure keeps the first reading; only a wipe (OcrCancelledError) ends the scan.
+ */
+async function secondBinarize(worker, processedImage, first, timeoutMs, started) {
+    try {
+        await worker.setParameters({ thresholding_method: THRESHOLD_LOCAL });
+        const second = await readWithin(worker, processedImage, timeoutMs);
+        if (generation !== started) throw new OcrCancelledError();
+        const was = Math.round(first.data.confidence || 0), now = Math.round(second.data.confidence || 0);
+        console.log(`[${MODULE_ID}] Second black-and-white: confidence ${now} (was ${was})`);
+        return now > was ? second : first;
+    } catch (error) {
+        if (error instanceof OcrCancelledError) throw error;
+        console.warn(`[${MODULE_ID}] Second black-and-white stopped, first reading kept:`, error);
+        return first;
+    } finally {
+        if (tesseractWorker === worker) await worker.setParameters({ thresholding_method: THRESHOLD_WHOLE_PAGE }).catch(() => {});
+    }
 }
 
 /** A crash inside the engine's WebAssembly (not a timeout, a cancel or a photo it could not read). */
