@@ -455,9 +455,9 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('labelled card (E/T/M/W): every field mapped despite OCR slips', eq(labelled, {
     firstName: 'Dana', lastName: 'Whitlock', jobTitle: 'Owner & General Manager',
     street: '4120 Lakeshore Road', unitType: 'Suite', unitNumber: '21%', city: 'Springfield', state: 'MI', zip: '49011' })
-    && typed(labelled, 'emails', 'work') === 'dwhitlock@BrightPathlT.com' && typed(labelled, 'websites', 'work') === 'BrightPathlT.com/Holland'
+    && typed(labelled, 'emails', 'work') === 'dwhitlock@BrightPathIT.com' && typed(labelled, 'websites', 'work') === 'BrightPathIT.com/Holland'
     && typed(labelled, 'phones', 'work') === '+1 (616) 555-0142' && typed(labelled, 'phones', 'mobile') === '+1 (616) 555-0187', JSON.stringify(labelled));
-  ok('logo debris and tagline are not the company; domain is used instead', labelled.organization === 'BrightPathlT', labelled.organization);
+  ok('logo debris and tagline are not the company; domain is used instead (its "lT" read as "IT")', labelled.organization === 'BrightPathIT', labelled.organization);
 
   const office = fm.parseOCRText('Harbor Point Realty\nSam Ortiz\nLicensed Realtor\nTel: (555) 201-3344  Fax: (555) 201-3345\nCell 555.201.9988\nsortiz © harborpointrealty . com\nharborpointrealty.com\n100 Main St\nSuite 300\nAustin Texas 78701');
   ok('name chosen by email match, not first line', office.firstName === 'Sam' && office.lastName === 'Ortiz', JSON.stringify(office));
@@ -521,6 +521,48 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('ZIP towns: a stray letter before the town is dropped first, then the town is fixed', stray && stray.text === 'Springfield, IL 62701' && /"Springfeld"/.test(stray.check || ''), JSON.stringify(stray));
   const mainJs = fsZ.readFileSync(`${R}/main.js`, 'utf8');
   ok('ZIP towns: main.js loads the table from the app\'s own files once the reader is reading, not during its start-up', /import\('\.\/vendor\/zip-towns\/zipTowns\.js'\)/.test(mainJs) && /status === 'reading'\) loadZipTowns\(\)/.test(mainJs) && !/requestIdleCallback\(load/.test(mainJs));
+}
+
+// OCR for the Monday testers (raven575's ask, 2026-11-21): faint lines and mapping slips from the lab's card bench. Fictional people.
+{
+  const fl = await import(`${R}/modules/mod04-ocr/faintLines.js`);
+  const { ContactFormMapper, repairCapitalIT } = await import(`${R}/modules/mod05-form/formMapper.js`);
+  // A 400 x 200 card at paper 230: a dark line read at y 40-60, a pale line (200) at y 100-120 nobody read, a dark
+  // blade of grass from top to bottom at x 5-8, and a dark band (a coloured stripe) at y 160-200.
+  const W = 400, H = 200, gray = new Uint8Array(W * H).fill(230);
+  const paint = (x0, y0, x1, y1, v, letters = true) => { for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (!letters || (x % 12) < 7) gray[y * W + x] = v; };
+  paint(40, 40, 300, 60, 30); paint(40, 100, 220, 120, 200); paint(5, 0, 8, 160, 40, false); paint(0, 160, 400, 200, 60, false); paint(60, 172, 200, 188, 230);
+  const bands = fl.findFaintBands(gray, W, H, [{ x0: 40, y0: 40, x1: 300, y1: 60 }], 20);
+  ok('faint lines: a pale line no reading covers is found as one band, the read line, a grass blade and a dark stripe are not',
+    bands.length === 1 && bands[0].y0 >= 96 && bands[0].y1 <= 124 && bands[0].x0 >= 36 && bands[0].x0 <= 44 && bands[0].x1 >= 210 && bands[0].x1 <= 226, JSON.stringify(bands));
+  const tallBox = fl.findFaintBands(gray, W, H, [{ x0: 40, y0: 40, x1: 300, y1: 60 }, { x0: 0, y0: 0, x1: 300, y1: 130 }], 20);
+  ok('faint lines: a reading\'s box much taller than a line (a guess over a logo) does not hide a pale line under it', tallBox.length === 1 && tallBox[0].y0 >= 96, JSON.stringify(tallBox));
+  ok('faint lines: none without a usual line height, none on a blank card', fl.findFaintBands(gray, W, H, [], 0).length === 0 && fl.findFaintBands(new Uint8Array(W * H).fill(230), W, H, [], 20).length === 0);
+  ok('faint lines: the usual line height is the middle height of the sure lines', fl.usualLineHeight([{ bbox: { y0: 0, y1: 20 }, confidence: 90 }, { bbox: { y0: 0, y1: 30 }, confidence: 80 }, { bbox: { y0: 0, y1: 200 }, confidence: 10 }, { bbox: { y0: 0, y1: 24 }, confidence: 70 }]) === 24);
+  ok('faint lines: marks at either end of a strip reading are dropped', fl.trimStripText('\\N ck Zafer |') === 'N ck Zafer' && fl.trimStripText(' "Dana Whitlock" ') === 'Dana Whitlock' && fl.trimStripText('| ~') === '');
+  ok('"lT" after a small letter is "IT" in web addresses, emails and companies', repairCapitalIT('nzafer@PeakLogiclT.com') === 'nzafer@PeakLogicIT.com' && repairCapitalIT('PeakLogiclT.com/KalamazooMI') === 'PeakLogicIT.com/KalamazooMI'
+    && repairCapitalIT('Salt Lake') === 'Salt Lake' && repairCapitalIT('BoltTech') === 'BoltTech' && repairCapitalIT('lT') === 'lT');
+  const fm = new ContactFormMapper();
+  const lines = (text) => fm.classifyLines(text);
+  const role = (ls, r) => (ls.find(l => l.role === r) || {}).text;
+  const peak = lines('Owner & Ceneral Manager\n7950 Lakeview Road\nPortage, MI 49024\nE jdoe@PeakLogiclT.com\nT 269.555.0140\nW PeakLogiclT.com/KalamazooMI');
+  ok('mapping: "Ceneral" is General in a title; "lT" is "IT" in the email and web address', role(peak, 'jobTitle') === 'Owner & General Manager' && role(peak, 'email') === 'jdoe@PeakLogicIT.com' && role(peak, 'website') === 'PeakLogicIT.com/KalamazooMI', JSON.stringify(peak));
+  const advisor = lines('Technology\nAdvisor\nOwner & General Manager\n7950 Lakeview Road\nPortage, MI 49024\nT 269.555.0140');
+  ok('mapping: with no name to sit next to, a title of two title words beats a slogan\'s last word', role(advisor, 'jobTitle') === 'Owner & General Manager', JSON.stringify(advisor));
+  const media = fm.buildFields(lines('Aisha Bello\nDesert Bloom Media\n(520) 555-0129\nabello@desertbloom.media\ndesertbloom.media')).fields;
+  ok('mapping: newer web endings (.media, .photo, .studio) are web addresses', media.websites.length === 1 && media.websites[0].value === 'desertbloom.media'
+    && fm.buildFields(lines('Lucas Moreau\nlucasmoreau.photo')).fields.websites.length === 1, JSON.stringify(media.websites));
+  const photo = fm.buildFields(lines('Lucas Moreau Photo\nLucas Moreau\nPhotographer\n(269) 555-0117\nhello@lucasmoreau.photo')).fields;
+  const pale = fm.classifyLines([{ text: 'Nick Zarter', unsure: ['Nick', 'Zarter'] }, { text: 'Owner' }, { text: 'nzafer@peaklogic.com' }, { text: 'T 269.555.0140' }]);
+  ok('mapping: an unsure surname two letters off the email user name takes its spelling; a sure, right, cut-short or far-off one is left', role(pale, 'name') === 'Nick Zafer'
+    && role(fm.classifyLines('Dana Whitlock\ndwhitlock@x.com'), 'name') === 'Dana Whitlock' && role(fm.classifyLines('Dana Whitlock\ninfo@brightfern.com'), 'name') === 'Dana Whitlock'
+    && role(fm.classifyLines([{ text: 'Sam Feld', unsure: ['Feld'] }, { text: 'sfield@x.com' }]), 'name') === 'Sam Feld'
+    && role(fm.classifyLines([{ text: 'Grace Holloway', unsure: ['Holloway'] }, { text: 'ghollow@x.com' }]), 'name') === 'Grace Holloway'
+    && role(fm.classifyLines('Nick Zarter\nnzafer@x.com'), 'name') === 'Nick Zarter', JSON.stringify(pale));
+  const bracket = fm.classifyLines('Sam Feld\nsam(@feldhardware.com\nfeldhardware.com');
+  ok('mapping: a bracket or bar read against the @ is dropped and the line is the email', role(bracket, 'email') === 'sam@feldhardware.com'
+    && fm.buildFields(fm.classifyLines('Jo Doe\njo@|example.com')).fields.emails[0].value === 'jo@example.com', JSON.stringify(bracket));
+  ok('mapping: "Lucas Moreau Photo" over "Lucas Moreau" is the company, the shorter line the name', photo.firstName === 'Lucas' && photo.lastName === 'Moreau' && photo.organization === 'Lucas Moreau Photo', JSON.stringify(photo));
 }
 
 // OCR review steps: classifyLines (roles) + buildFields (fields from roles)
@@ -1219,10 +1261,10 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   }
   ok('failed OCR publishes nothing to the form pipeline', evt === null);
 
-  let created = 0, terminated = 0, psm = null, params = null, result = null, hold = false, psms = [];
+  let created = 0, terminated = 0, psm = null, params = null, result = null, hold = false, psms = [], seenParams = [];
   const words = (n, conf) => Array.from({ length: n }, (_, i) => ({ text: `word${i}`, confidence: conf }));
   globalThis.Tesseract = { createWorker: async () => { created++; return {
-    setParameters: async (p) => { params = p; psm = p.tessedit_pageseg_mode; psms.push(psm); },
+    setParameters: async (p) => { params = p; seenParams.push(p); if ('tessedit_pageseg_mode' in p) { psm = p.tessedit_pageseg_mode; psms.push(psm); } },
     recognize: async (image) => (hold ? new Promise(() => {}) : { data: typeof result === 'function' ? result(image) : result }), terminate() { terminated++; } }; } };
   result = { text: 'Jane Doe\njane@example.com', confidence: 88, words: words(8, 90) };
   const r = await ocr.executeOCRScan('data:image/png;base64,x');
@@ -1276,7 +1318,29 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const sure = await ocr.executeOCRScan('data:image/png;base64,x');
   ok('a read that passes the check carries no lowConfidence', !('lowConfidence' in sure) && sure.lines.every(l => !('lowConfidence' in l)), JSON.stringify(sure));
   ok('OCR worker is started once and reused after a failure', created === 1, String(created));
-  ok('OCR asks the engine for second guesses', params && params.lstm_choice_mode === '2', JSON.stringify(params));
+  ok('OCR asks the engine for second guesses', seenParams.some(p => p.lstm_choice_mode === '2'), JSON.stringify(seenParams));
+  // Second black-and-white (raven575's ask, 2026-11-21): an unsure first reading is read again with the local step.
+  {
+    let reads = 0;
+    seenParams = [];
+    result = () => (++reads === 1 ? { text: 'Jane Doe\nSales Manager\n616.555.0140', confidence: 62, words: words(12, 70) } : { text: 'Jane Doe\nSales Manager\n616.555.0140\njane@example.com', confidence: 84, words: words(14, 90) });
+    const twice = await ocr.executeOCRScan('data:image/png;base64,x');
+    ok('second black-and-white: a reading under SECOND_BINARIZE_BELOW is read again with the local step, and the surer one kept',
+      ocr.SECOND_BINARIZE_BELOW === 75 && reads === 2 && twice.confidence === 84 && twice.lines.length === 4
+      && seenParams.some(p => p.thresholding_method === '2') && seenParams[seenParams.length - 1].thresholding_method === '0', JSON.stringify({ reads, seenParams, c: twice.confidence }));
+    reads = 0; seenParams = [];
+    result = () => (++reads === 1 ? { text: 'Jane Doe\nSales Manager', confidence: 70, words: words(12, 80) } : { text: 'J', confidence: 40, words: words(1, 40) });
+    const kept = await ocr.executeOCRScan('data:image/png;base64,x');
+    ok('second black-and-white: a less sure second reading leaves the first', reads === 2 && kept.confidence === 70 && kept.text === 'Jane Doe\nSales Manager', JSON.stringify(kept));
+    reads = 0; seenParams = [];
+    result = () => { ++reads; return { text: 'Jane Doe\njane@example.com', confidence: 88, words: words(8, 90) }; };
+    await ocr.executeOCRScan('data:image/png;base64,x');
+    ok('second black-and-white: a sure reading is read once', reads === 1 && !seenParams.some(p => 'thresholding_method' in p), JSON.stringify({ reads, seenParams }));
+    reads = 0;
+    result = () => { if (++reads === 2) throw new Error('boom'); return { text: 'Jane Doe\nSales Manager', confidence: 70, words: words(12, 80) }; };
+    const failedSecond = await ocr.executeOCRScan('data:image/png;base64,x');
+    ok('second black-and-white: a failing second read keeps the first reading', failedSecond.confidence === 70 && failedSecond.text === 'Jane Doe\nSales Manager', JSON.stringify(failedSecond));
+  }
   const word = (text, confidence) => ({ text, confidence, symbols: [] });
   result = { text: 'W acme.comlKala\nJane Doe', confidence: 80, words: words(6, 90),
     lines: [{ text: 'W acme.comlKala', words: [word('W', 10), word('acme.comlKala', 20)] }, { text: 'Jane Doe', words: [word('Jane', 95), word('Doe', 30)] }] };
@@ -2053,7 +2117,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     && gs.guessesFor('a b c d', [{ from: 'a', to: 'A' }, { from: 'b', to: 'B' }, { from: 'c', to: 'C' }, { from: 'd', to: 'D' }]).length === gs.MAX_GUESSES);
   {
     const { ContactFormMapper: FM } = await import(`${R}/modules/mod05-form/formMapper.js`);
-    const lines = new FM().classifyLines([{ text: 'Dana Whitlcck', alts: [{ at: 10, chars: ['c', 'o', 'e'] }], unsure: ['Whitlcck'] }, { text: 'dwhitlock@example.com' }, { text: '616.555.0142' }]);
+    const lines = new FM().classifyLines([{ text: 'Dana Whitlcck', alts: [{ at: 10, chars: ['c', 'o', 'e'] }], unsure: ['Whitlcck'] }, { text: 'dana@example.com' }, { text: '616.555.0142' }]);
     const name = lines.find(l => l.role === 'name');
     ok('guesses: a name the reader was unsure of comes to the review with its check and its guesses; a sure line has none',
       !!name && !!name.check && (name.guesses || []).join('|') === 'Dana Whitlock|Dana Whitleck' && !lines.find(l => l.role === 'email').guesses, JSON.stringify(lines));

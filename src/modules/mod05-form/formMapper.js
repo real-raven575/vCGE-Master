@@ -167,8 +167,11 @@ export class ContactFormMapper {
         // when another line could be the name (Card Inbox, 2026-11-19: it beat "Jane Doe;" to the name). On its own it
         // may be a personal domain ("janedoe.com"), so it keeps its score then.
         if (candidates.some(c => !c.ofDomain)) candidates.forEach(c => { if (c.ofDomain) c.score -= 2; });
+        // "Lucas Moreau Photo" over "Lucas Moreau": the line that is another candidate plus more words is the company.
+        const core = (c) => (c.trimmed || c.line.text).toLowerCase();
+        candidates.forEach(c => { if (candidates.some(o => o !== c && core(c).startsWith(core(o) + ' '))) c.score -= 2; });
         const best = candidates.reduce((a, c) => (!a || c.score > a.score ? c : a), null);
-        if (best && best.score > 0) { best.line.role = 'name'; if (best.trimmed) best.line.text = best.trimmed; }
+        if (best && best.score > 0) { best.line.role = 'name'; if (best.trimmed) best.line.text = best.trimmed; if (best.line.unsure || best.line.low) best.line.text = surnameFromEmail(best.line.text, local); }
 
         // Job title: title vocabulary, preferring the line next to the name; taglines ("Your ...") are not titles
         let title = null;
@@ -181,6 +184,8 @@ export class ContactFormMapper {
             // whose "Your" the reader slipped on (raven575's first phone run of 0.8, 2026-11-03).
             if (best && best.score > 0 && index === best.index + 1) score += 1;
             if (TAGLINE_START.test(line.text)) score -= 3;
+            // "Owner & General Manager" over a slogan's last word "Advisor" when the name was not found to choose by.
+            score += 0.25 * Math.min(2, titleTermCount(fixTitleSpelling(line.text)) - 1);
             if (!title || score > title.score) title = { line, score };
         });
         if (title && title.score > 0) { title.line.role = 'jobTitle'; title.line.text = fixTitleSpelling(dropStrayLetter(title.line.text)); }
@@ -253,10 +258,11 @@ export class ContactFormMapper {
         // The review box shows the value that will be filled: no line label ("E", "T", "w"...), the label having set the
         // role, and email and web addresses with their OCR slips repaired. Lines with several numbers keep their labels.
         // An email domain one or two OCR slips away from the web address takes the web address's spelling.
-        const site = (lines.map(l => l.role === 'website' && reviewText(l)).find(w => w && !websiteTypeFor(w))) || '';
+        const site = repairCapitalIT((lines.map(l => l.role === 'website' && reviewText(l)).find(w => w && !websiteTypeFor(w))) || '');
         // A line the reader was unsure of also offers two or three guesses from the letters it nearly read (step 3).
         return lines.map(line => {
-            const text = line.role === 'email' ? matchEmailToWebsite(reviewText(line), site, true) : reviewText(line);
+            const read = line.role === 'email' ? matchEmailToWebsite(reviewText(line), site, true) : reviewText(line);
+            const text = IT_ROLES.has(line.role) ? repairCapitalIT(read) : read;
             const guesses = line.check && line.unsure ? guessesFor(text, line.swaps) : [];
             return { text, role: line.role || 'ignore', icon: line.icon, ...(line.check ? { check: line.check } : {}), ...(guesses.length ? { guesses } : {}) };
         });
@@ -415,6 +421,7 @@ export const LINE_ROLES = Object.freeze([
 
 // Web endings recognised without "www."/"http" (generic, US government/education, and common country codes).
 const TLDS = 'com|net|org|edu|gov|mil|int|io|co|us|biz|info|me|app|dev|ai|tech|online|site|store|shop|pro|law|health|' +
+    'media|photo|photography|studio|design|art|agency|solutions|services|group|company|realty|dental|consulting|life|page|blog|xyz|' +
     'ca|uk|de|fr|au|nz|in|jp|mx|br|nl|es|it|ch|se|no|dk|fi|ie|be|at|eu|za|sg|hk|cn|kr|tv|cc';
 const WEB_RE = new RegExp(`^(?:https?:\\/\\/)?(?:www\\.)?[a-z0-9][a-z0-9-]*(?:\\.[a-z0-9-]+)*\\.(?:${TLDS})(?:\\/\\S*)?$`, 'i');
 const EMAIL_TLD_RE = new RegExp(`^(?:[a-z0-9-]+\\.)+(?:${TLDS}|[a-z]{2,})$`, 'i');
@@ -430,6 +437,9 @@ const TITLE_TERMS = [
     'intern', 'assistant', 'clerk', 'estimator', 'inspector', 'foreman', 'contractor', 'electrician', 'plumber', 'mechanic'
 ];
 const TITLE_WORDS = new RegExp('\\b(?:' + TITLE_TERMS.join('|') + ')\\b', 'i');
+const TITLE_WORDS_ALL = new RegExp(TITLE_WORDS.source, 'gi');
+/** How many title words `text` holds ("Owner & General Manager": 2). */
+const titleTermCount = (text) => (String(text || '').match(TITLE_WORDS_ALL) || []).length;
 // The job-title words themselves (not the words around them): a 4-letter read missing one of their letters is repaired
 // ("Ower" -> "Owner", raven575's phone run 2026-11-20). Kept to these so a surname like "Feld" never becomes "field".
 const TITLE_CORE = new Set(TITLE_TERMS.filter(t => /^[a-z]+$/.test(t)));
@@ -573,6 +583,8 @@ const SLASH_AS_BAR = new RegExp(`(?<=[A-Za-z0-9])(\\.(?:${TLDS}))[Il1|!\\\\](?=[
  * ("Ganaral" -> "General", at most 2) or one dropped letter ("Manger" -> "Manager"). Only words of 5+ letters (4 for a
  * dropped letter of a TITLE_CORE word: "Ower" -> "Owner"), and only when exactly one title word fits; capitals are kept.
  */
+// Letters the reader takes for each other in a title word: "Ceneral" is "General" (the lab's real card, 2026-11-21).
+const LOOKALIKE = new Set(['cg', 'gc', 'li', 'il', 'ce', 'ec']);
 function fixTitleSpelling(text) {
     const VOWEL = /[aeiou]/;
     const fits = (read, word) => {
@@ -580,7 +592,8 @@ function fixTitleSpelling(text) {
             let diffs = 0;
             for (let i = 0; i < word.length; i++) {
                 if (read[i] === word[i]) continue;
-                if (!VOWEL.test(read[i]) || !VOWEL.test(word[i]) || ++diffs > 2) return false;
+                const alike = (VOWEL.test(read[i]) && VOWEL.test(word[i])) || LOOKALIKE.has(read[i] + word[i]);
+                if (!alike || ++diffs > 2) return false;
             }
             return diffs > 0;
         }
@@ -653,6 +666,32 @@ function matchEmailToWebsite(email, website, capitals = false) {
     return email.slice(0, at + 1) + siteHost;
 }
 
+// The reader takes a capital I set as a plain bar for a small l: "TeamLogiclT" is "TeamLogicIT" (the lab's real card,
+// 2026-11-21, 5 photos of 7). A small l before a capital T, after a small letter, is written that way nowhere else.
+const IT_ROLES = new Set(['email', 'website', 'organization']);
+export function repairCapitalIT(text) {
+    return String(text || '').replace(/(?<=[a-z])l(?=T(?![a-z]))/g, 'I');
+}
+
+/**
+ * A surname a letter or two off the email's user name takes the email's spelling: a pale name read "Nick Zarter" next
+ * to nzafer@... is "Nick Zafer" (the lab's real card, 2026-11-21). Only a last word of 5+ letters, at most 2 letters
+ * off (1 for 5 letters; "Feld" by sfield@ stays), on a name line the reader was unsure of, against the user name, or it without its first or last letter (an initial).
+ */
+function surnameFromEmail(name, local) {
+    const words = String(name || '').split(' ');
+    const last = words[words.length - 1];
+    if (words.length < 2 || !/^[A-Za-z]{4,}$/.test(last) || !local || local.length < 4) return name;
+    const read = last.toLowerCase();
+    if (local.includes(read)) return name;
+    const limit = read.length >= 6 ? 2 : read.length === 5 ? 1 : 0;
+    // A user name cut short ("ghollow" for Holloway) is not a spelling.
+    const found = [local.slice(1), local.slice(0, -1), local].find(c => c.length >= 4 && !read.startsWith(c) && !c.startsWith(read) && editDistance(read, c) <= limit);
+    if (!found) return name;
+    const spelled = last === last.toUpperCase() ? found.toUpperCase() : found[0].toUpperCase() + found.slice(1);
+    return [...words.slice(0, -1), spelled].join(' ');
+}
+
 function editDistance(a, b) {
     let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
     for (let i = 1; i <= a.length; i++) {
@@ -683,7 +722,9 @@ function splitLabel(text) {
 
 /** Finds an email, repairing common OCR slips: "©"/"®" for "@", spaces around "@" or ".", a space where the dot was. */
 function findEmail(text) {
-    const t = repairAddressText(text).replace(/[©®]/g, '@').replace(/\s*\(\s*at\s*\)\s*|\s*\[\s*at\s*\]\s*/gi, '@');
+    const t = repairAddressText(text).replace(/[©®]/g, '@').replace(/\s*\(\s*at\s*\)\s*|\s*\[\s*at\s*\]\s*/gi, '@')
+        // A bracket or bar the reader put against the @ ("sam(@example.com", made-up card bench 2026-11-21) is dropped.
+        .replace(/(?<=[A-Za-z0-9])[(\[{|](?=@)|(?<=@)[)\]}|]/g, '');
     const m = t.match(/([A-Za-z0-9._%+-]+)\s*@\s*([A-Za-z0-9-]+(?:\s*[.,]\s*[A-Za-z0-9-]+|\s+[A-Za-z]{2,6}\b)*)/);
     if (!m) return '';
     const domain = m[2].replace(/\s*[.,]\s*/g, '.').replace(/\s+/g, '.').replace(/\.+$/, '');
