@@ -553,6 +553,12 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('mapping: newer web endings (.media, .photo, .studio) are web addresses', media.websites.length === 1 && media.websites[0].value === 'desertbloom.media'
     && fm.buildFields(lines('Lucas Moreau\nlucasmoreau.photo')).fields.websites.length === 1, JSON.stringify(media.websites));
   const photo = fm.buildFields(lines('Lucas Moreau Photo\nLucas Moreau\nPhotographer\n(269) 555-0117\nhello@lucasmoreau.photo')).fields;
+  const pale = fm.classifyLines([{ text: 'Nick Zarter', unsure: ['Nick', 'Zarter'] }, { text: 'Owner' }, { text: 'nzafer@peaklogic.com' }, { text: 'T 269.555.0140' }]);
+  ok('mapping: an unsure surname two letters off the email user name takes its spelling; a sure, right, cut-short or far-off one is left', role(pale, 'name') === 'Nick Zafer'
+    && role(fm.classifyLines('Dana Whitlock\ndwhitlock@x.com'), 'name') === 'Dana Whitlock' && role(fm.classifyLines('Dana Whitlock\ninfo@brightfern.com'), 'name') === 'Dana Whitlock'
+    && role(fm.classifyLines([{ text: 'Sam Feld', unsure: ['Feld'] }, { text: 'sfield@x.com' }]), 'name') === 'Sam Feld'
+    && role(fm.classifyLines([{ text: 'Grace Holloway', unsure: ['Holloway'] }, { text: 'ghollow@x.com' }]), 'name') === 'Grace Holloway'
+    && role(fm.classifyLines('Nick Zarter\nnzafer@x.com'), 'name') === 'Nick Zarter', JSON.stringify(pale));
   const bracket = fm.classifyLines('Sam Feld\nsam(@feldhardware.com\nfeldhardware.com');
   ok('mapping: a bracket or bar read against the @ is dropped and the line is the email', role(bracket, 'email') === 'sam@feldhardware.com'
     && fm.buildFields(fm.classifyLines('Jo Doe\njo@|example.com')).fields.emails[0].value === 'jo@example.com', JSON.stringify(bracket));
@@ -2111,7 +2117,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     && gs.guessesFor('a b c d', [{ from: 'a', to: 'A' }, { from: 'b', to: 'B' }, { from: 'c', to: 'C' }, { from: 'd', to: 'D' }]).length === gs.MAX_GUESSES);
   {
     const { ContactFormMapper: FM } = await import(`${R}/modules/mod05-form/formMapper.js`);
-    const lines = new FM().classifyLines([{ text: 'Dana Whitlcck', alts: [{ at: 10, chars: ['c', 'o', 'e'] }], unsure: ['Whitlcck'] }, { text: 'dwhitlock@example.com' }, { text: '616.555.0142' }]);
+    const lines = new FM().classifyLines([{ text: 'Dana Whitlcck', alts: [{ at: 10, chars: ['c', 'o', 'e'] }], unsure: ['Whitlcck'] }, { text: 'dana@example.com' }, { text: '616.555.0142' }]);
     const name = lines.find(l => l.role === 'name');
     ok('guesses: a name the reader was unsure of comes to the review with its check and its guesses; a sure line has none',
       !!name && !!name.check && (name.guesses || []).join('|') === 'Dana Whitlock|Dana Whitleck' && !lines.find(l => l.role === 'email').guesses, JSON.stringify(lines));

@@ -171,7 +171,7 @@ export class ContactFormMapper {
         const core = (c) => (c.trimmed || c.line.text).toLowerCase();
         candidates.forEach(c => { if (candidates.some(o => o !== c && core(c).startsWith(core(o) + ' '))) c.score -= 2; });
         const best = candidates.reduce((a, c) => (!a || c.score > a.score ? c : a), null);
-        if (best && best.score > 0) { best.line.role = 'name'; if (best.trimmed) best.line.text = best.trimmed; }
+        if (best && best.score > 0) { best.line.role = 'name'; if (best.trimmed) best.line.text = best.trimmed; if (best.line.unsure || best.line.low) best.line.text = surnameFromEmail(best.line.text, local); }
 
         // Job title: title vocabulary, preferring the line next to the name; taglines ("Your ...") are not titles
         let title = null;
@@ -671,6 +671,25 @@ function matchEmailToWebsite(email, website, capitals = false) {
 const IT_ROLES = new Set(['email', 'website', 'organization']);
 export function repairCapitalIT(text) {
     return String(text || '').replace(/(?<=[a-z])l(?=T(?![a-z]))/g, 'I');
+}
+
+/**
+ * A surname a letter or two off the email's user name takes the email's spelling: a pale name read "Nick Zarter" next
+ * to nzafer@... is "Nick Zafer" (the lab's real card, 2026-11-21). Only a last word of 5+ letters, at most 2 letters
+ * off (1 for 5 letters; "Feld" by sfield@ stays), on a name line the reader was unsure of, against the user name, or it without its first or last letter (an initial).
+ */
+function surnameFromEmail(name, local) {
+    const words = String(name || '').split(' ');
+    const last = words[words.length - 1];
+    if (words.length < 2 || !/^[A-Za-z]{4,}$/.test(last) || !local || local.length < 4) return name;
+    const read = last.toLowerCase();
+    if (local.includes(read)) return name;
+    const limit = read.length >= 6 ? 2 : read.length === 5 ? 1 : 0;
+    // A user name cut short ("ghollow" for Holloway) is not a spelling.
+    const found = [local.slice(1), local.slice(0, -1), local].find(c => c.length >= 4 && !read.startsWith(c) && !c.startsWith(read) && editDistance(read, c) <= limit);
+    if (!found) return name;
+    const spelled = last === last.toUpperCase() ? found.toUpperCase() : found[0].toUpperCase() + found.slice(1);
+    return [...words.slice(0, -1), spelled].join(' ');
 }
 
 function editDistance(a, b) {

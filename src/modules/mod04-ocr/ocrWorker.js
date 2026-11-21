@@ -106,7 +106,8 @@ const THRESHOLD_WHOLE_PAGE = '0', THRESHOLD_LOCAL = '2';
 // Faint look (raven575's ask, 2026-11-21): light grey lettering the reading missed (faintLines.js) is read again as a
 // strip with its own contrast. A strip's reading is added as a line only when it is sure and has a real word; its words
 // are all marked unsure, so the review asks the user to check the line.
-export const FAINT_LOOK_MIN_CONFIDENCE = 65;
+// 45: a pale name reads around 50 ("Nick Zarter", 49) and is still worth showing, marked for checking.
+export const FAINT_LOOK_MIN_CONFIDENCE = 45;
 export const FAINT_LOOK_BUDGET_MS = 6000;
 
 /** Thrown when the photo is too blurry or unclear to read; the caller should ask for a new photo. */
@@ -652,7 +653,10 @@ async function faintLook(worker, processedImage, data, found, started) {
         const known = new Set(found.map(l => l.text.toLowerCase()));
         for (const band of bands) {
             if (Date.now() > until) break;
-            const { data: strip } = await readWithin(worker, faintStripImage(page, band, Math.round(lineHeight * 0.3)), OCR_READ_TIMEOUT_MS);
+            // A band found only on its letters' middles is read a line high, so the strip holds whole letters.
+            const grow = Math.max(0, Math.round((lineHeight * 1.1 - (band.y1 - band.y0)) / 2));
+            const strip0 = { ...band, y0: band.y0 - grow, y1: band.y1 + grow };
+            const { data: strip } = await readWithin(worker, faintStripImage(page, strip0, Math.round(lineHeight * 0.3)), OCR_READ_TIMEOUT_MS);
             if (generation !== started) throw new OcrCancelledError();
             const words = (strip.words || []).filter(w => w.text && w.text.trim());
             const confidence = meanConfidence(words);
