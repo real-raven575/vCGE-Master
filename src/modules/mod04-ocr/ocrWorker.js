@@ -51,6 +51,10 @@ export const OCR_PAGE_SEG_MODE = '11';
 export const OCR_MIN_CONFIDENCE = 55;
 // Kept low on purpose: a sharp minimal card (name, phone, email) has only 3-4 words; blur shows in the confidence.
 export const OCR_MIN_READABLE_WORDS = 3;
+// A reading under OCR_MIN_CONFIDENCE that still has at least this many readable words is kept, with every line marked
+// for the user to check (raven575's yes, 2026-11-20, OCR tuning): on the lab sets such reads scored 56% of characters
+// on average and up to 96%, while reads with under 6 readable words scored 0-33%. Its lines carry `lowConfidence: true`.
+export const OCR_CHECK_MIN_WORDS = 10;
 // A photo that fails the check above but scores at most this on blurScore is sharp: its lettering, not the focus, beat
 // the reader (raven575, 2026-10-22: a sharp card in a handwriting-style font was called "too blurry"). Prepared photos
 // score about 0.28-0.35 sharp, 0.43-0.55 with 1 px of blur and 0.75 or more with 3 px.
@@ -622,8 +626,12 @@ async function linesWithIcons(processedImage, data) {
  * twice, with OcrUnreadableError when the photo is too
  * blurry or unclear (`sharp` when the photo was sharp but its lettering beat the reader), so neither made-up nor garbage text ever reaches the form, with OcrTimeoutError when reading took
  * longer than `readTimeoutMs` (the engine is restarted), and with OcrCancelledError when a wipe stopped it.
+ * A reading under OCR_MIN_CONFIDENCE with at least OCR_CHECK_MIN_WORDS readable words is not rejected: it comes back with
+ * `lowConfidence: true`, on the result and on every line, so the review asks the user to check each line.
+ * `gate: false` (lab use only) returns a reading that failed the unreadable check instead of rejecting it, with
+ * `failedGate: { confidence, readableWords, sharp }`, so the lab can score what that check throws away.
  */
-export async function executeOCRScan(imageSrc, { initTimeoutMs = OCR_INIT_TIMEOUT_MS, readTimeoutMs = OCR_READ_TIMEOUT_MS, onStatus = () => {} } = {}) {
+export async function executeOCRScan(imageSrc, { initTimeoutMs = OCR_INIT_TIMEOUT_MS, readTimeoutMs = OCR_READ_TIMEOUT_MS, onStatus = () => {}, gate = true } = {}) {
     console.log(`[${MODULE_ID}] Starting OCR extraction pipeline...`);
     const started = generation;
     let cancel;
@@ -631,13 +639,13 @@ export async function executeOCRScan(imageSrc, { initTimeoutMs = OCR_INIT_TIMEOU
     cancelled.catch(() => {});
     cancelRunning = cancel;
     try {
-        return await Promise.race([scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started), cancelled]);
+        return await Promise.race([scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started, gate), cancelled]);
     } finally {
         if (cancelRunning === cancel) cancelRunning = null;
     }
 }
 
-async function scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started) {
+async function scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started, gate) {
     // Preparing the photo counts as start-up: a photo the browser never finishes decoding ends at the same time limit.
     let timer;
     const late = new Promise((_, reject) => { timer = setTimeout(() => reject(new OcrUnavailableError(`preparing the photo took longer than ${Math.round(initTimeoutMs / 1000)} s`)), initTimeoutMs); });
@@ -678,12 +686,20 @@ async function scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started) {
     const readableWords = (result.data.words || []).filter(w => w.confidence >= 60 && /[A-Za-z0-9]{2,}/.test(w.text)).length;
 
     console.log(`[${MODULE_ID}] OCR extraction complete. Confidence ${confidence}, ${readableWords} readable words, raw text length ${text.length}`);
-    if (confidence < OCR_MIN_CONFIDENCE || readableWords < OCR_MIN_READABLE_WORDS) {
+    let failedGate = null;
+    let lowConfidence = false;
+    if (gate && confidence < OCR_MIN_CONFIDENCE && readableWords >= OCR_CHECK_MIN_WORDS) {
+        // Unsure overall but with many readable words: kept, and every line goes to the review marked for checking.
+        console.log(`[${MODULE_ID}] Low confidence with ${readableWords} readable words: kept, every line marked to check`);
+        lowConfidence = true;
+    } else if (confidence < OCR_MIN_CONFIDENCE || readableWords < OCR_MIN_READABLE_WORDS) {
         // Sharp or blurry decides the advice; if it can't be measured the photo is taken as blurry (the older advice).
         const blur = await photoBlurScore(processedImage).catch((err) => { console.warn(`[${MODULE_ID}] ${err.message}`); return 1; });
         if (generation !== started) throw new OcrCancelledError();
         console.log(`[${MODULE_ID}] Blur score ${blur.toFixed(2)}`);
-        throw new OcrUnreadableError(confidence, readableWords, blur <= OCR_SHARP_BLUR);
+        // The lab's Card Inbox reads with gate: false to measure what this check throws away; the app never does.
+        if (gate) throw new OcrUnreadableError(confidence, readableWords, blur <= OCR_SHARP_BLUR);
+        failedGate = { confidence, readableWords, sharp: blur <= OCR_SHARP_BLUR };
     }
     const found = await linesWithIcons(processedImage, result.data);
     if (generation !== started) throw new OcrCancelledError();
@@ -691,14 +707,15 @@ async function scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started) {
     if (generation !== started) throw new OcrCancelledError();
     await digitsLook(worker, processedImage, found, started);
     if (generation !== started) throw new OcrCancelledError();
-    const lines = found.map(({ look, digits, ...line }) => line);
+    const lines = found.map(({ look, digits, ...line }) => (lowConfidence ? { ...line, lowConfidence: true } : line));
     // Where each line sits, in the reader's pixels (the photo times readerScale): the logo finder blanks out the contact
     // text with these (logoGuess.js). Boxes and text only, like the lines themselves.
     const boxes = (result.data.lines || []).filter(l => l && l.bbox && String(l.text || '').trim())
         .map(l => ({ text: String(l.text).trim(), confidence: Math.round(l.confidence || 0), bbox: { x0: l.bbox.x0, y0: l.bbox.y0, x1: l.bbox.x1, y1: l.bbox.y1 } }));
     // A signal only: the text itself is contact data and goes back to the caller, never onto the bus.
     globalEventBus.publish(Events.OCR_TEXT_EXTRACTED, { sourceModule: MODULE_ID, confidence, icons: lines.filter(l => l.icon).length, timestamp: Date.now() });
-    return { text, confidence, lines, boxes };
+    if (failedGate) return { text, confidence, lines, boxes, failedGate };
+    return lowConfidence ? { text, confidence, lines, boxes, lowConfidence } : { text, confidence, lines, boxes };
 }
 
 /** A crash inside the engine's WebAssembly (not a timeout, a cancel or a photo it could not read). */
