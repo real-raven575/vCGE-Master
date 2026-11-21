@@ -486,6 +486,41 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('social profile typed and not used as the company', typed(intl, 'websites', 'linkedin') === 'linkedin.com/in/janeroe' && typed(intl, 'websites', 'work') === 'roelabs.ca' && intl.organization === 'Roe Labs Inc.', JSON.stringify(intl.websites));
 }
 
+// The town from the ZIP code (raven575's iPad run, 2026-11-20: the ZIP read right, the town a letter off). Fictional people.
+{
+  const fsZ = await import('node:fs');
+  const { parseZipTowns, fixTown, townDistance } = await import(`${R}/modules/mod05-form/zipTowns.js`);
+  const { ZIP_TOWNS } = await import(`${R}/vendor/zip-towns/zipTowns.js`);
+  const { ContactFormMapper } = await import(`${R}/modules/mod05-form/formMapper.js`);
+  const table = parseZipTowns(ZIP_TOWNS);
+  ok('ZIP towns: the bundled table has every US ZIP code with its town and state', table.size > 40000 && JSON.stringify(table.lookup('62701')) === '{"town":"Springfield","state":"IL"}'
+    && table.lookup('10001').town === 'New York' && table.lookup('60606-1234').town === 'Chicago' && table.lookup('00000') === null && table.lookup('abc') === null, table.size);
+  ok('ZIP towns: the table ships with its BSD licence, is listed in the notices, and is built by a pinned script',
+    /BSD License/.test(fsZ.readFileSync(`${R}/vendor/zip-towns/LICENSE-zipcodes.txt`, 'utf8')) && fsZ.readFileSync(`${R}/../THIRD_PARTY_NOTICES.md`, 'utf8').includes('src/vendor/zip-towns/zipTowns.js')
+    && /"zipcodes": "8\.0\.0"/.test(fsZ.readFileSync(`${R}/../package.json`, 'utf8')) && fsZ.existsSync(`${R}/../scripts/zip-towns.mjs`));
+  ok('ZIP towns: the table is plain data (no imports, network or storage)', !/^import |fetch\(|localStorage|XMLHttpRequest|https?:\/\//m.test(ZIP_TOWNS) && !/^import /m.test(fsZ.readFileSync(`${R}/vendor/zip-towns/zipTowns.js`, 'utf8')));
+  ok('ZIP towns: letters apart ignores capitals', townDistance('SPRINGFELD', 'Springfield') === 1 && townDistance('Chicago', 'chicago') === 0);
+  const fix = (city, state, zip) => fixTown(table, { city, state, zip });
+  ok('ZIP towns: a town a letter off takes the ZIP\'s spelling (two letters for a long name), all caps stays all caps',
+    JSON.stringify(fix('Springfeld', 'IL', '62701')) === '{"town":"Springfield","fixed":true}' && fix('Chicaqo', 'IL', '60606').town === 'Chicago'
+    && fix('Sprngfeld', 'IL', '62701').town === 'Springfield' && fix('CHICAG', 'IL', '60606').town === 'CHICAGO');
+  ok('ZIP towns: a different town (ZIP codes serve several), another state, an unknown ZIP or a right town is left as read',
+    !fix('Riverton', 'IL', '62701').fixed && !fix('Springfeld', 'MO', '62701').fixed && !fix('Springfeld', 'IL', '00000').fixed && !fix('Springfield', 'IL', '62701').fixed && !fixTown(null, { city: 'Springfeld', state: 'IL', zip: '62701' }).fixed);
+  const fm = new ContactFormMapper();
+  const card = 'Dana Whitlock\nOwner\n4120 Lakeshore Road\nSpringfeld, IL 62701\nT 217.555.0142';
+  const before = fm.classifyLines(card).find(l => l.role === 'cityStateZip');
+  fm.setZipTowns(table);
+  const after = fm.classifyLines(card).find(l => l.role === 'cityStateZip');
+  ok('ZIP towns: the review box shows the ZIP\'s town and says so; before the table loads the town stays as read',
+    before.text === 'Springfeld, IL 62701' && !before.check && after.text === 'Springfield, IL 62701' && /ZIP 62701[\s\S]*Springfield[\s\S]*"Springfeld"/.test(after.check || ''), JSON.stringify([before, after]));
+  const filled = fm.buildFields(fm.classifyLines(card));
+  ok('ZIP towns: the corrected town fills the City field', filled.fields.city === 'Springfield' && filled.fields.state === 'IL' && filled.fields.zip === '62701', JSON.stringify(filled.fields));
+  const whole = fm.classifyLines('Dana Whitlock\n4120 Lakeshore Road, Springfeld, IL 62701').find(l => l.role === 'address');
+  ok('ZIP towns: a whole address on one line gets the town fixed and keeps its street', whole && whole.text === '4120 Lakeshore Road, Springfield, IL 62701', JSON.stringify(whole));
+  const mainJs = fsZ.readFileSync(`${R}/main.js`, 'utf8');
+  ok('ZIP towns: main.js loads the table from the app\'s own files once the reader is reading, not during its start-up', /import\('\.\/vendor\/zip-towns\/zipTowns\.js'\)/.test(mainJs) && /status === 'reading'\) loadZipTowns\(\)/.test(mainJs) && !/requestIdleCallback\(load/.test(mainJs));
+}
+
 // OCR review steps: classifyLines (roles) + buildFields (fields from roles)
 {
   const { ContactFormMapper, LINE_ROLES } = await import(`${R}/modules/mod05-form/formMapper.js`);
