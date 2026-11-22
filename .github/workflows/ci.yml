@@ -185,7 +185,7 @@ jobs:
           echo "tag=$(node -p "require('./package.json').version")-${P}${{ github.run_number }}" >> "$GITHUB_OUTPUT"
 
       - name: Upload installers
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node.js 24)
         with:
           name: vCGE-${{ steps.names.outputs.tag }}
           path: src-tauri/target/release/bundle/
@@ -282,7 +282,7 @@ jobs:
           if grep -q 'android.permission.INTERNET' "$RUNNER_TEMP/aab-manifest.pb"; then echo "bundle asks for INTERNET"; exit 1; fi
 
       - name: Upload Play bundle (unsigned)
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node.js 24)
         with:
           name: vcge-play-unsigned
           path: ${{ env.AAB }}
@@ -312,7 +312,7 @@ jobs:
         run: tail -100 "$RUNNER_TEMP/emulator.log" || true
 
       - name: Upload APK
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node.js 24)
         with:
           name: vCGE-${{ env.APK_TAG }}
           path: apk/
@@ -321,7 +321,7 @@ jobs:
 
       - name: Upload Android screenshots
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node.js 24)
         with:
           name: vcge-android-screens
           path: android-smoke/
@@ -340,7 +340,7 @@ jobs:
     timeout-minutes: 10
     environment: play-upload
     steps:
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0 (Node.js 24)
         with:
           name: vcge-play-unsigned
           path: unsigned
@@ -360,7 +360,7 @@ jobs:
           jarsigner -keystore "$RUNNER_TEMP/upload.jks" -storepass:env PLAY_UPLOAD_KEYSTORE_PASSWORD \
             -sigalg SHA256withRSA -digestalg SHA-256 aab/*.aab "$PLAY_UPLOAD_KEY_ALIAS"
           jarsigner -verify aab/*.aab | tail -1
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node.js 24)
         with:
           name: vCGE-play-A${{ github.run_number }}
           path: aab/
