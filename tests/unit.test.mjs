@@ -2896,5 +2896,25 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('i18n es: the welcome and Settings disclaimers name the screen language among the saved settings', html.includes('splash, tour seen, language)') && html.includes('the opening splash, screen language, and whether'));
 }
 
+// The e2e server keeps an idle connection open past Node's 5 s default, so a browser reusing it gets an answer
+// (WebKit run 45043933837: a page drew nothing after a 22 s pause between pages)
+{
+  const { spawn } = await import('node:child_process');
+  const http = await import('node:http');
+  const port = 18000 + Math.floor(Math.random() * 900);
+  const srv = spawn(process.execPath, [new URL('../scripts/serve.mjs', import.meta.url).pathname], { env: { ...process.env, PORT: String(port) } });
+  await new Promise((resolve) => srv.stdout.once('data', resolve));
+  const agent = new http.Agent({ keepAlive: true, maxSockets: 1 });
+  const get = () => new Promise((resolve) => {
+    const req = http.get({ host: '127.0.0.1', port, path: '/index.html', agent }, (res) => { res.resume(); res.on('end', () => resolve({ status: res.statusCode, socket: req.socket })); });
+    req.on('error', (e) => resolve({ status: 0, error: e.code }));
+  });
+  const first = await get();
+  await new Promise((r) => setTimeout(r, 8000));
+  const second = await get();
+  ok('serve.mjs: an idle kept-alive connection still answers on the same connection after 8 s (Node closes it at about 5 s by default)', first.status === 200 && second.status === 200 && second.socket === first.socket, JSON.stringify({ first: first.status, second: second.status, error: second.error, same: second.socket === first.socket }));
+  agent.destroy(); srv.kill();
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;

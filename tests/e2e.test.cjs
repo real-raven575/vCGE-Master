@@ -3624,8 +3624,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const blocked = async (setup, reason) => {
       const ctxG = await browser.newContext();
       const pG = await ctxG.newPage();
-      const requested = [], pageErrors = [];
+      const requested = [], pageErrors = [], failed = [];
       pG.on('request', r => requested.push(r.url()));
+      // A request that never got its answer (WebKit run 45043933837: the page "complete" with unsupported.js asked for
+      // and no reason drawn) is named in the details with the engine's own error
+      pG.on('requestfailed', r => failed.push(`${r.url().split('/').pop()}: ${(r.failure() || {}).errorText || '?'}`));
       pG.on('pageerror', e => pageErrors.push(e.message));
       pG.on('console', m => { if (m.type() === 'error' && !/SyntaxError|Unexpected/.test(m.text())) pageErrors.push(m.text()); });
       await setup(ctxG, pG);
@@ -3644,7 +3647,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const external = requested.filter(u => !u.startsWith(ORIGIN));
       const ranMain = await pG.evaluate(() => window.name === 'vcge-main-ran').catch(() => null);
       await ctxG.close();
-      const why = `${url} (page: ${state}; unsupported.js ${requested.some(u => u.endsWith('/unsupported/unsupported.js')) ? 'requested' : 'never requested'})`;
+      const why = `${url} (page: ${state}; unsupported.js ${requested.some(u => u.endsWith('/unsupported/unsupported.js')) ? 'requested' : 'never requested'}; failed requests: ${failed.join(', ') || 'none'})`;
       return { shown, url, why, reasons, links, requested, external, pageErrors, ranMain };
     };
     // The app's entry script is swapped for a one-line marker: if the browser ever runs it, the tab's name says so
@@ -3660,7 +3663,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // Routed on the context, like the WebAssembly case: a page-level route of the page's very first script has left
     // WebKit waiting on that script for good in CI (the page never got to its checks)
     const noLock = await blocked((ctxG) => ctxG.route('**/src/modules/mod01-shell/netLock.js', r => r.fulfill({ contentType: 'text/javascript', body: '' })), 'netlock');
-    ok('gate fails closed: without vCGE\'s own network lock the app does not start', noLock.shown && noLock.reasons.includes('netlock'), noLock.url + ' (requested: ' + noLock.requested.filter(u => u.endsWith('.js')).map(u => u.split('/').pop()).join(' ') + ')');
+    ok('gate fails closed: without vCGE\'s own network lock the app does not start', noLock.shown && noLock.reasons.includes('netlock'), noLock.why + ' (requested: ' + noLock.requested.filter(u => u.endsWith('.js')).map(u => u.split('/').pop()).join(' ') + ')');
     const noCsp = await blocked((ctxG) => ctxG.addInitScript(() => { delete window.SecurityPolicyViolationEvent; }), 'csp');
     ok('gate: no Content-Security-Policy support blocks the app', noCsp.shown && noCsp.reasons.includes('csp'), noCsp.why);
     if (!process.env.SERVE_DIR) {
