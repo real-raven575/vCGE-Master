@@ -3252,9 +3252,15 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       ok('scan: the frame turns wide to match a card held wide, even in a tall viewfinder', live.frame === 'landscape', JSON.stringify(live));
       ok('shutter tip: the first camera start explains the green shutter in the hint', /Green shutter = card found|Hold still, then tap the shutter/.test(live.hint), live.hint);
       await pS.click('#scanBtn');
-      await pS.waitForFunction(() => document.documentElement.dataset.card === 'read', null, { timeout: 8000 }).catch(() => {});
+      // Wait for the app's own answer, not a fixed clock: reading starts (the Read screen), or the crop step says it found
+      // no edges. The iPhone profile runs about twice as slow as desktop WebKit, and its burst, PNG and snap once ran past
+      // 8 s (PR run 45035471345: captured, on the crop step, corners still at the full photo, no answer yet).
+      const SCAN_NO_EDGES = 'Couldn\'t find the card\'s edges';
+      const scanStart = Date.now();
+      await pS.waitForFunction((noEdges) => document.documentElement.dataset.card === 'read' || (document.getElementById('toastMessage') || {}).textContent?.includes(noEdges), SCAN_NO_EDGES, { timeout: 30000 }).catch(() => {});
       const scanned = await pS.evaluate(() => ({ card: document.documentElement.dataset.card, log: document.getElementById('eventLog').textContent, pts: document.getElementById('cropPolygon').getAttribute('points'),
-        w: document.getElementById('reviewImage').naturalWidth, h: document.getElementById('reviewImage').naturalHeight }));
+        w: document.getElementById('reviewImage').naturalWidth, h: document.getElementById('reviewImage').naturalHeight, toast: (document.getElementById('toastMessage') || {}).textContent || '' }));
+      scanned.ms = Date.now() - scanStart;
       ok('scan: Scan takes the burst, snaps the corners to the card and starts reading at once', scanned.card === 'read' && /SCAN: best of \d+ frames/.test(scanned.log) && scanned.pts !== `0,0 ${scanned.w},0 ${scanned.w},${scanned.h} 0,${scanned.h}`, JSON.stringify(scanned));
       await ctxS.close();
       // The crop step on a phone with a tall photo: Cancel and OK sit above the dock
@@ -3276,6 +3282,18 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // Finding 52: a two-finger pinch on the photo zooms the photo like a camera; the page, the buttons and the handles keep
     // their size; the corners do not move. At the whole photo a swipe is still the deck's (touch-action pan-x pan-y).
     await deckSettled(pV);
+    // A new size for the photo puts the view back to the whole photo (cropEditor.js, its ResizeObserver). On the iPhone
+    // profile WebKit can deliver the last size change of the new photo's layout after the pinch, which then undid the
+    // zoom before the pan (main run 45035284962: before and after both ""). So the pinch waits until the photo has kept one
+    // size for a few frames, and the size is logged from here on: a change during the pinch or pan shows in the details.
+    await pV.evaluate(() => new Promise((done) => {
+      const v = document.getElementById('cropView'), log = window.__cropSizes = [];
+      new ResizeObserver(() => log.push(`${Math.round(performance.now())} ms ${v.offsetWidth}x${v.offsetHeight}`)).observe(v);
+      let last = '', same = 0, frames = 0;
+      const tick = () => { const now = `${v.offsetWidth}x${v.offsetHeight}`; same = now === last ? same + 1 : 0; last = now;
+        if (same >= 3 || ++frames > 120) done(); else requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+    }));
     const okBefore = await box('#runOcrBtn');
     const actionAtFit = await pV.$eval('#cropStage', s => getComputedStyle(s).touchAction);
     const pinch = await pV.evaluate(() => {
@@ -3299,7 +3317,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const img = document.getElementById('reviewImage'), r = img.getBoundingClientRect(), v = document.getElementById('cropView'), before = v.style.transform;
       const fire = (type, x, y) => img.dispatchEvent(new PointerEvent(type, { pointerId: 3, pointerType: 'touch', isPrimary: true, clientX: x, clientY: y, bubbles: true, cancelable: true }));
       fire('pointerdown', r.left + r.width / 2, r.top + r.height / 2); fire('pointermove', r.left + r.width / 2 + 30, r.top + r.height / 2 + 10); fire('pointerup', r.left + r.width / 2 + 30, r.top + r.height / 2 + 10);
-      return { before, after: v.style.transform };
+      return { before, after: v.style.transform, sizes: window.__cropSizes.slice(-6) };
     });
     // (the scale is the pinch's, which the check above takes to 0.01: Firefox rounds touch points to 1/60 px, so 1.99996)
     const pannedScale = Number((/scale\(([\d.]+)\)/.exec(panned.after) || [])[1]);
@@ -3615,22 +3633,25 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       // draw after a fixed wait: wait for the move and the list instead (iPhone CI, #39 and #40, 2026-11-15)
       await pG.goto(base, { waitUntil: 'commit' });
       await pG.waitForURL(u => u.href.includes('unsupported/index.html#'), { timeout: 20000, waitUntil: 'commit' }).catch(() => {});
-      await pG.waitForSelector('#reasonList li', { timeout: 10000 }).catch(() => {});
+      // (20 s like the move: on the iPhone profile the list once took longer than 10 s to draw, PR run 45035471345 re-run)
+      await pG.waitForSelector('#reasonList li', { timeout: 20000 }).catch(() => {});
       await pG.waitForTimeout(300);   // room for a stray app start to show (main.js never runs)
       const url = pG.url();
+      const state = await pG.evaluate(() => `${document.readyState}, ${document.querySelectorAll('#reasonList li').length} reasons`).catch(e => `no answer (${String(e.message).split('\n')[0]})`);
       const shown = url.includes('src/modules/mod01-shell/unsupported/index.html#') && url.includes(reason);
       const reasons = shown ? await pG.$$eval('#reasonList li', els => els.map(el => el.getAttribute('data-reason'))) : [];
       const links = shown ? await pG.$$eval('.links a', els => els.map(a => ({ href: a.href, target: a.target, rel: a.rel }))) : [];
       const external = requested.filter(u => !u.startsWith(ORIGIN));
       const ranMain = await pG.evaluate(() => window.name === 'vcge-main-ran').catch(() => null);
       await ctxG.close();
-      return { shown, url, reasons, links, requested, external, pageErrors, ranMain };
+      const why = `${url} (page: ${state}; unsupported.js ${requested.some(u => u.endsWith('/unsupported/unsupported.js')) ? 'requested' : 'never requested'})`;
+      return { shown, url, why, reasons, links, requested, external, pageErrors, ranMain };
     };
     // The app's entry script is swapped for a one-line marker: if the browser ever runs it, the tab's name says so
     const isMain = (u) => /\/src\/main\.js|\/assets\/index-[^/]*\.js/.test(u);
     const noWasm = await blocked((ctxG) => Promise.all([ctxG.addInitScript(() => { delete window.WebAssembly; }),
       ctxG.route((u) => isMain(u.href), (r) => r.fulfill({ contentType: 'text/javascript', body: "window.name = 'vcge-main-ran';" }))]), 'wasm');
-    ok('gate: no WebAssembly opens the "cannot run" page with the reason listed', noWasm.shown && noWasm.reasons.includes('wasm'), noWasm.url);
+    ok('gate: no WebAssembly opens the "cannot run" page with the reason listed', noWasm.shown && noWasm.reasons.includes('wasm'), noWasm.why);
     ok('gate: blocked app never starts (main.js never runs)', noWasm.ranMain === false, String(noWasm.ranMain));
     ok('gate: blocked app never starts (main.js not even requested)', !noWasm.requested.some(u => /\/src\/main\.js|\/assets\/index-[\w-]+\.js/.test(u)), noWasm.requested.filter(u => u.endsWith('.js')).join(' '));
     ok('gate: free & open source browsers are listed first (Firefox, Firefox ESR, Brave)', noWasm.links.slice(0, 3).map(l => new URL(l.href).hostname).join() === 'www.firefox.com,support.mozilla.org,brave.com', noWasm.links.map(l => l.href).join(' '));
@@ -3641,10 +3662,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const noLock = await blocked((ctxG) => ctxG.route('**/src/modules/mod01-shell/netLock.js', r => r.fulfill({ contentType: 'text/javascript', body: '' })), 'netlock');
     ok('gate fails closed: without vCGE\'s own network lock the app does not start', noLock.shown && noLock.reasons.includes('netlock'), noLock.url + ' (requested: ' + noLock.requested.filter(u => u.endsWith('.js')).map(u => u.split('/').pop()).join(' ') + ')');
     const noCsp = await blocked((ctxG) => ctxG.addInitScript(() => { delete window.SecurityPolicyViolationEvent; }), 'csp');
-    ok('gate: no Content-Security-Policy support blocks the app', noCsp.shown && noCsp.reasons.includes('csp'), noCsp.url);
+    ok('gate: no Content-Security-Policy support blocks the app', noCsp.shown && noCsp.reasons.includes('csp'), noCsp.why);
     if (!process.env.SERVE_DIR) {
       const badCode = await blocked((ctxG, pG) => pG.route('**/src/main.js', r => r.fulfill({ contentType: 'text/javascript', body: 'let let = 1;' })), 'script');
-      ok('gate: code the browser cannot read opens the "cannot run" page, not a blank one', badCode.shown && badCode.reasons.includes('script'), badCode.url);
+      ok('gate: code the browser cannot read opens the "cannot run" page, not a blank one', badCode.shown && badCode.reasons.includes('script'), badCode.why);
     }
 
     const ctxW = await browser.newContext({ userAgent: 'Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36' });
