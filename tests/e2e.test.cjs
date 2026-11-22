@@ -3259,7 +3259,14 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const scanStart = Date.now();
       await pS.waitForFunction((noEdges) => document.documentElement.dataset.card === 'read' || (document.getElementById('toastMessage') || {}).textContent?.includes(noEdges), SCAN_NO_EDGES, { timeout: 30000 }).catch(() => {});
       const scanned = await pS.evaluate(() => ({ card: document.documentElement.dataset.card, log: document.getElementById('eventLog').textContent, pts: document.getElementById('cropPolygon').getAttribute('points'),
-        w: document.getElementById('reviewImage').naturalWidth, h: document.getElementById('reviewImage').naturalHeight, toast: (document.getElementById('toastMessage') || {}).textContent || '' }));
+        w: document.getElementById('reviewImage').naturalWidth, h: document.getElementById('reviewImage').naturalHeight, toast: (document.getElementById('toastMessage') || {}).textContent || '',
+        // What the photo holds, as a 16 x 12 grid of brightness (0-f): the made-up card shows as a light block on a dark
+        // table. iPhone plain-edition runs (job 137352666612) found no edges in the photo while the live outline had.
+        grid: (() => { const i = document.getElementById('reviewImage'); if (!i.naturalWidth) return '';
+          const c = document.createElement('canvas'); c.width = 16; c.height = 12; const x = c.getContext('2d'); x.drawImage(i, 0, 0, 16, 12);
+          const d = x.getImageData(0, 0, 16, 12).data, rows = [];
+          for (let y = 0; y < 12; y++) { let r = ''; for (let k = 0; k < 16; k++) { const o = (y * 16 + k) * 4; r += Math.min(15, Math.round((d[o] + d[o + 1] + d[o + 2]) / 3 / 17)).toString(16); } rows.push(r); }
+          return rows.join(' '); })() }));
       scanned.ms = Date.now() - scanStart;
       ok('scan: Scan takes the burst, snaps the corners to the card and starts reading at once', scanned.card === 'read' && /SCAN: best of \d+ frames/.test(scanned.log) && scanned.pts !== `0,0 ${scanned.w},0 ${scanned.w},${scanned.h} 0,${scanned.h}`, JSON.stringify(scanned));
       await ctxS.close();
