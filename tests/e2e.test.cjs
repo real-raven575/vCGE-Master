@@ -4440,7 +4440,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p6.evaluate(() => { const t = document.getElementById('toast'); window.__toastAt = null;
       new MutationObserver(() => { if (window.__toastAt === null && !t.classList.contains('opacity-0')) window.__toastAt = performance.now(); }).observe(t, { attributes: true, attributeFilter: ['class'] }); });
     await p6.click('#paletteListContainer [data-theme="sage"]');
-    await p6.waitForTimeout(400);   // it slides in over 0.3 s
+    // It slides in over 0.26 s. Measured once it has landed, not after a fixed 0.4 s: the iPhone job (PR run 45048139081)
+    // measured it still 16 px low, mid-slide, over the dock.
+    await p6.waitForFunction(() => { const t = document.getElementById('toast'); return !t.classList.contains('opacity-0') && t.getAnimations().length === 0; }, null, { timeout: 5000 }).catch(() => {});
     const toastBox = await p6.locator('#toast').boundingBox();
     const dockTop = await p6.$eval('.vcge-dock', d => d.getBoundingClientRect().top);
     ok('0.8 shell: the toast shows as a pill just above the dock (the mock-up), never over it', toastBox.y + toastBox.height <= dockTop && toastBox.y > dockTop - 200 && await p6.isVisible('#toast'), JSON.stringify({ toastBox, dockTop }));
