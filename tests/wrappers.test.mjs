@@ -1,7 +1,7 @@
 // vCGE app wrappers (Windows, macOS, Linux, Android): checks of the wrapper files themselves, in Node (`npm run test:wrappers`).
 // The app inside every wrapper is the same web build; these checks guard what each wrapper adds around it:
 // no internet, no extra permissions, the pinned Tauri versions (DESKTOP DEPENDENCIES LOCK), the vCGE icons.
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const read = (p) => readFileSync(ROOT + p, 'utf8');
@@ -171,6 +171,33 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
     heads.length >= 5 && !!date && inApp.includes(`Effective ${date}`) && heads.every(h => inApp.includes(`<h3>${h}</h3>`)));
   ok('Store: the in-app policy stays in English in every screen language and its heading says so in Spanish',
     /<div class="vcge-privacy-body" lang="en" translate="no">/.test(inApp) && read('src/modules/mod01-shell/lang/es.js').includes("'Privacy policy': 'Política de privacidad (en inglés)'"));
+}
+
+// --- Open-source licences and proof of origin (2026-11-22 IP check, raven575's yes) ---
+{
+  const notices = read('THIRD_PARTY_NOTICES.md');
+  const bundled = notices.slice(0, notices.indexOf('"QR Code" is a registered trademark'));
+  const parts = [...bundled.matchAll(/^\| \[([^\]]+)\]/gm)].map(m => m[1]);
+  const inApp = (/<details id="settingsLicences"[\s\S]*?<\/details>/.exec(read('index.html')) || [''])[0];
+  // The npm data package for the reading model is named by its file in the app
+  const shown = (name) => inApp.includes(name === '@tesseract.js-data/eng' ? 'eng.traineddata' : name);
+  ok('Licences: Settings names every bundled part from THIRD_PARTY_NOTICES.md', parts.length >= 19 && parts.every(shown), JSON.stringify(parts.filter(p => !shown(p))));
+  ok('Licences: the in-app list stays in English, names the MIT licence, AndroidX and the QR Code trademark, and its heading says so in Spanish',
+    /<div class="vcge-privacy-body" lang="en" translate="no">/.test(inApp) && /under the MIT licence/.test(inApp) && /AndroidX/.test(inApp)
+      && /QR Code" is a registered trademark of DENSO WAVE/.test(inApp)
+      && read('src/modules/mod01-shell/lang/es.js').includes("'Open-source licences': 'Licencias de código abierto (en inglés)'"));
+  // Every bundled font has its OFL licence beside it, and the build copies those licences and the notices into the app
+  const fonts = readdirSync(ROOT + 'src/vendor/fonts');
+  const families = [...new Set(fonts.filter(f => f.endsWith('.woff2')).map(f => f.replace(/-latin-.*$/, '')))];
+  ok('Licences: every bundled font family has its licence file', families.length >= 10 && families.every(f => fonts.includes(`LICENSE-${f}.txt`)), JSON.stringify(families.filter(f => !fonts.includes(`LICENSE-${f}.txt`))));
+  const vite = read('vite.config.mjs');
+  ok('Licences: the build copies the font licences, THIRD_PARTY_NOTICES.md and LICENSE.md into the app',
+    /LICENSE-\.\*\\\.txt/.test(vite) && /dist\/src\/vendor\/fonts/.test(vite) && vite.includes("['THIRD_PARTY_NOTICES.md', 'LICENSE.md']"));
+  const prov = existsSync(ROOT + 'PROVENANCE.md') ? read('PROVENANCE.md') : '';
+  const vendorDirs = readdirSync(ROOT + 'src/vendor');
+  ok('Provenance: PROVENANCE.md names every src/vendor folder, the one trained model and the v0 import',
+    vendorDirs.length >= 6 && vendorDirs.every(d => prov.includes(`src/vendor/${d}/`)) && /eng\.traineddata/.test(prov) && /archive\/v0-gemini-import/.test(prov),
+    JSON.stringify(vendorDirs.filter(d => !prov.includes(`src/vendor/${d}/`))));
 }
 
 // --- App stores: the Microsoft Store MSIX and the Google Play bundle ---
