@@ -140,7 +140,7 @@ const readStage = (page) => page.evaluate(() => {
   const bar = document.getElementById('ocrProgressBar'), toast = document.getElementById('toastMessage');
   return 'read stopped at ' + JSON.stringify({ card: document.documentElement.dataset.card, label: (document.getElementById('ocrProgressLabel') || {}).textContent,
     wash: bar && bar.getAttribute('aria-valuenow'), reading: v('ocrProgress'), review: v('ocrStepText'), timeoutPrompt: v('ocrTimeoutModal'), retakePrompt: v('ocrRetakeNotice'),
-    toast: toast && toast.textContent, log: (window.__readerLog || []).slice(-8) });
+    toast: toast && toast.textContent, log: (window.__readerLog || []).slice(-16) });   // 16: a crash, its retry's start-up and the retry's end (job 137281776598 showed only the retry)
 }).catch(e => 'read stage unknown: ' + e.message);
 // Waits up to 90 s for a read to end at `sel`; if it does not, the error says where the read stopped.
 async function readEnds(page, sel = '#ocrStepText') {
