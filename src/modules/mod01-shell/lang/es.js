@@ -446,6 +446,7 @@ const strings = {
 
     // Settings (Shutout)
     'Privacy policy': 'Política de privacidad (en inglés)',
+    'Open-source licences': 'Licencias de código abierto (en inglés)',
     'Language': 'Idioma',
     'Device language': 'Del dispositivo',
     "Changes the words on vCGE's screens. Card reading stays in English.": 'Cambia las palabras de las pantallas de vCGE. La lectura de tarjetas sigue en inglés.',
