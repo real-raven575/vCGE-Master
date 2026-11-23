@@ -749,9 +749,15 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     }
     sel.value = was2; sel.dispatchEvent(new Event('change', { bubbles: true }));
     [box.open, more.open] = was;
+    // The Language row shares the font row's layout: its hint must wrap inside the row, never run past it
+    const hint = document.getElementById('langHint'), row = hint && hint.closest('.r5-font-row');
+    if (hint && row && hint.getClientRects().length) {
+      const h = hint.getBoundingClientRect(), r = row.getBoundingClientRect();
+      if (hint.scrollWidth > hint.clientWidth + 1 || h.right > r.right + 0.5) cut.push(`langHint ${Math.round(h.right)}>${Math.round(r.right)}`);
+    }
     return { names: names.length, overlaps, cut };
   });
-  ok('Settings fit (phone test 562): no two theme names overlap, and the font box shows OpenDyslexic and Atkinson Hyperlegible in full', fitState.names > 0 && fitState.overlaps === 0 && fitState.cut.length === 0, JSON.stringify(fitState));
+  ok('Settings fit (phone test 562): no two theme names overlap, and the font box shows OpenDyslexic and Atkinson Hyperlegible in full, and the Language hint wraps inside its row', fitState.names > 0 && fitState.overlaps === 0 && fitState.cut.length === 0, JSON.stringify(fitState));
   // The dock's steps and buttons fade their colour (deck.css): read only once no fade is running on the step in view,
   // the primary button or the page (getAnimations() starts any pending fade first, so it can't be read too early)
   const themeSettled = () => page.waitForFunction(() => [document.querySelector('.vcge-step[data-state="now"]'), document.getElementById('dockNext'), document.body]
@@ -4485,7 +4491,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p6.$eval('#flipCardBtn', b => b.click());   // (no scroll to reach it: the card stays whole, not mini)
     ok('card: under reduce motion the flip is instant (one frame)', (await angle()) === 'rotateY(0deg)' && (await p6.evaluate(() => window.__spin.length)) === 1, JSON.stringify(await p6.evaluate(() => window.__spin)));
     await p6.emulateMedia({ reducedMotion: 'no-preference' });
-    // Toasts: above the dock, 3 s, a tap dismisses, a hold keeps it until 3 s after the release
+    // Toasts: at the top, 3 s, a tap dismisses, a hold keeps it until 3 s after the release
     // The page notes when the toast shows, so its 3 s are timed on the page's own clock, not from before the tap
     await p6.evaluate(() => { const t = document.getElementById('toast'); window.__toastAt = null;
       new MutationObserver(() => { if (window.__toastAt === null && !t.classList.contains('opacity-0')) window.__toastAt = performance.now(); }).observe(t, { attributes: true, attributeFilter: ['class'] }); });
@@ -4494,8 +4500,14 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // measured it still 16 px low, mid-slide, over the dock.
     await p6.waitForFunction(() => { const t = document.getElementById('toast'); return !t.classList.contains('opacity-0') && t.getAnimations().length === 0; }, null, { timeout: 5000 }).catch(() => {});
     const toastBox = await p6.locator('#toast').boundingBox();
-    const dockTop = await p6.$eval('.vcge-dock', d => d.getBoundingClientRect().top);
-    ok('0.8 shell: the toast shows as a pill just above the dock (the mock-up), never over it', toastBox.y + toastBox.height <= dockTop && toastBox.y > dockTop - 200 && await p6.isVisible('#toast'), JSON.stringify({ toastBox, dockTop }));
+    // Phone test 562 finding 10 (raven575 picked "Top", 11-23): just under the top bar, over no button, far from the dock
+    const toastRoom = await p6.evaluate(() => {
+      const t = document.getElementById('toast').getBoundingClientRect(), barBottom = document.querySelector('.vcge-bar').getBoundingClientRect().bottom;
+      const covers = [...document.querySelectorAll('button, a, input, select, [role="button"]')].filter(el => !el.closest('#toast') && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden')
+        .map(el => [el, el.getBoundingClientRect()]).filter(([, r]) => r.width && r.left < t.right && t.left < r.right && r.top < t.bottom && t.top < r.bottom).map(([el]) => el.id || el.className);
+      return { top: t.top, bottom: t.bottom, barBottom, dockTop: document.querySelector('.vcge-dock').getBoundingClientRect().top, covers };
+    });
+    ok('0.8 shell: the toast shows as a pill at the top, just under the top bar, over no button and clear of the dock', toastRoom.top >= toastRoom.barBottom - 1 && toastRoom.top < toastRoom.barBottom + 40 && toastRoom.bottom < toastRoom.dockTop && toastRoom.covers.length === 0 && await p6.isVisible('#toast'), JSON.stringify({ toastBox, ...toastRoom }));
     await p6.waitForFunction(() => window.__toastAt !== null && performance.now() - window.__toastAt >= 2600, null, { polling: 50, timeout: 5000 }).catch(() => {});
     const at26 = await p6.evaluate(() => ({ shown: !document.getElementById('toast').classList.contains('opacity-0'), ms: window.__toastAt === null ? null : Math.round(performance.now() - window.__toastAt) }));
     ok('toast: still there at 2.6 s', at26.shown && at26.ms !== null && at26.ms >= 2600 && at26.ms < 3000, JSON.stringify(at26));

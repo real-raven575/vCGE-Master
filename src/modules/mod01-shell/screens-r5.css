@@ -150,7 +150,8 @@ button.r5-swatch small { margin-top: -4px; font-size: .625rem; font-weight: 500;
 .r5-font-row { min-height: 60px; flex-wrap: wrap; }
 /* Phone test 562: the box was held to 60% and cut wide names ("OpenDyslexi", "Atkinson Hyperle"). The label keeps its own
    width and the box takes the rest; when even that is too narrow (a big text size) it drops to its own line. */
-.r5-font-row .r5-lbl { flex: 0 0 auto; }
+/* The Language row shares this class: its long hint must still wrap, so the label may shrink to the row's width */
+.r5-font-row .r5-lbl { flex: 1 1 auto; max-width: 100%; min-width: 0; }
 .r5-font-row select.r5-select { flex: 1 1 13em; max-width: 100%; min-width: 0; }
 select.r5-select { min-height: 44px; max-width: 60%; padding: 0 12px; border-radius: 12px; border: 1px solid var(--sh-line); background: var(--sh-sunk); color: var(--sh-ink);
     font: 600 .9em var(--vcge-ui-font, 'Inter'), sans-serif; }
