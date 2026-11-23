@@ -4500,14 +4500,15 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // measured it still 16 px low, mid-slide, over the dock.
     await p6.waitForFunction(() => { const t = document.getElementById('toast'); return !t.classList.contains('opacity-0') && t.getAnimations().length === 0; }, null, { timeout: 5000 }).catch(() => {});
     const toastBox = await p6.locator('#toast').boundingBox();
-    // Phone test 562 finding 10 (raven575 picked "Top", 11-23): just under the top bar, over no button, far from the dock
+    // Phone test 562 finding 10 (raven575 picked "Top", 11-23): near the top, never over the top bar, over no button, far
+    // from the dock (the iPhone profile can scroll the page so the bar is partly off screen: the toast stays put)
     const toastRoom = await p6.evaluate(() => {
       const t = document.getElementById('toast').getBoundingClientRect(), barBottom = document.querySelector('.vcge-bar').getBoundingClientRect().bottom;
       const covers = [...document.querySelectorAll('button, a, input, select, [role="button"]')].filter(el => !el.closest('#toast') && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden')
         .map(el => [el, el.getBoundingClientRect()]).filter(([, r]) => r.width && r.left < t.right && t.left < r.right && r.top < t.bottom && t.top < r.bottom).map(([el]) => el.id || el.className);
       return { top: t.top, bottom: t.bottom, barBottom, dockTop: document.querySelector('.vcge-dock').getBoundingClientRect().top, covers };
     });
-    ok('0.8 shell: the toast shows as a pill at the top, just under the top bar, over no button and clear of the dock', toastRoom.top >= toastRoom.barBottom - 1 && toastRoom.top < toastRoom.barBottom + 40 && toastRoom.bottom < toastRoom.dockTop && toastRoom.covers.length === 0 && await p6.isVisible('#toast'), JSON.stringify({ toastBox, ...toastRoom }));
+    ok('0.8 shell: the toast shows as a pill at the top, just under the top bar, over no button and clear of the dock', toastRoom.top >= Math.max(toastRoom.barBottom, 0) - 1 && toastRoom.top <= 120 && toastRoom.bottom < toastRoom.dockTop && toastRoom.covers.length === 0 && await p6.isVisible('#toast'), JSON.stringify({ toastBox, ...toastRoom }));
     await p6.waitForFunction(() => window.__toastAt !== null && performance.now() - window.__toastAt >= 2600, null, { polling: 50, timeout: 5000 }).catch(() => {});
     const at26 = await p6.evaluate(() => ({ shown: !document.getElementById('toast').classList.contains('opacity-0'), ms: window.__toastAt === null ? null : Math.round(performance.now() - window.__toastAt) }));
     ok('toast: still there at 2.6 s', at26.shown && at26.ms !== null && at26.ms >= 2600 && at26.ms < 3000, JSON.stringify(at26));
