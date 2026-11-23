@@ -115,13 +115,16 @@ button.r5-change { min-height: 44px; padding: 0 12px; font-size: .8em; }
 .vcge-btn.r5-danger { background: transparent; color: var(--sh-stop); box-shadow: 0 0 0 1.5px var(--sh-stop) inset; }
 
 /* ---- Settings: theme swatches, text size, font, credit and About ---------------------------------------------- */
-.r5-themes { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; padding: 6px 16px 14px; }
+.r5-themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(68px, 1fr)); gap: 8px; padding: 6px 16px 14px; }
+/* Phone test 562 (11-23): five 1fr columns left "Cornerstone" wider than its column, so it ran into "Shutout". 68 px fits
+   the longest name at the default size (4 columns on a phone); a bigger text size breaks a name instead of overlapping. */
 .r5-tgroup { grid-column: 1 / -1; padding: 6px 0 0; font-size: .72rem; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--sh-muted); }
 button.r5-swatch { display: grid; justify-items: center; align-content: start; gap: 6px; min-height: 48px; min-width: 44px; padding: 0;
     border: 2px solid transparent; background: transparent; color: var(--sh-ink); font: 600 .6875rem/1.25 var(--r5-body); cursor: pointer; text-align: center; }
 button.r5-swatch i { display: block; width: 44px; height: 44px; border-radius: 14px; box-shadow: 0 0 0 1px var(--sh-line);
     background: linear-gradient(135deg, var(--sw-a, #17736e) 0 50%, var(--sw-b, #18151f) 50% 100%); }
 button.r5-swatch[aria-pressed="true"] i { box-shadow: 0 0 0 3px var(--sh-ink); }
+button.r5-swatch > span { max-width: 100%; overflow-wrap: anywhere; }
 button.r5-swatch small { margin-top: -4px; font-size: .625rem; font-weight: 500; color: var(--sh-muted); }
 .r5-more { margin: -6px 0 6px; }
 .r5-more.hidden { display: none; }
@@ -144,7 +147,11 @@ button.r5-swatch small { margin-top: -4px; font-size: .625rem; font-weight: 500;
 .r5-range { display: flex; align-items: center; gap: 12px; padding: 6px 16px 14px; }
 .r5-range input { flex: 1; min-width: 0; min-height: 40px; margin: 0; accent-color: var(--sh-accent); }
 .r5-a-small { font-size: .8125rem; } .r5-a-big { font-size: 1.375rem; }
-.r5-font-row { min-height: 60px; }
+.r5-font-row { min-height: 60px; flex-wrap: wrap; }
+/* Phone test 562: the box was held to 60% and cut wide names ("OpenDyslexi", "Atkinson Hyperle"). The label keeps its own
+   width and the box takes the rest; when even that is too narrow (a big text size) it drops to its own line. */
+.r5-font-row .r5-lbl { flex: 0 0 auto; }
+.r5-font-row select.r5-select { flex: 1 1 13em; max-width: 100%; min-width: 0; }
 select.r5-select { min-height: 44px; max-width: 60%; padding: 0 12px; border-radius: 12px; border: 1px solid var(--sh-line); background: var(--sh-sunk); color: var(--sh-ink);
     font: 600 .9em var(--vcge-ui-font, 'Inter'), sans-serif; }
 .r5-sheet .vcge-pm-credit { display: flex; align-items: center; gap: 12px; padding: 14px 16px; margin: 0 0 24px; border-top: 0; }
@@ -357,7 +364,7 @@ button.vcge-pick-btn:disabled { opacity: .55; cursor: default; }
 .vcge-pick-prev.is-split > i { flex: 1; align-self: stretch; }
 .vcge-pick-square { display: block; border-radius: 3px; background: currentColor; opacity: .7; }
 .vcge-pick-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
-.vcge-pick-text b { font-weight: 600; overflow-wrap: anywhere; }
+.vcge-pick-text b { font-weight: 600; overflow-wrap: break-word; }   /* phone test 562: "anywhere" broke "Squa|re"; break-word splits only a word that cannot fit on its own */
 .vcge-pick-text small { font-size: .75rem; font-weight: 400; color: var(--sh-muted); }
 .vcge-pick-chev { flex: none; width: 9px; height: 9px; margin-left: auto; border-right: 2px solid var(--sh-muted); border-bottom: 2px solid var(--sh-muted); transform: rotate(45deg) translate(-2px, -2px); }
 .vcge-pick.is-open .vcge-pick-chev { transform: rotate(225deg); }

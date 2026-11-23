@@ -732,6 +732,26 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   const themeGroups = await page.evaluate(() => [...document.querySelectorAll('#appThemes > *, #moreThemesGrid > *')].reduce((a, el) => { if (el.classList.contains('r5-tgroup')) a.push([el.textContent, 0]); else a[a.length - 1][1]++; return a; }, []).map(g => g.join(':')).join('|'));
   ok(EDITION_PLAIN ? 'the theme swatches are 3 quick picks (Herd = Dark + Light, Signal, Graphite), then Everyday (2), Seasonal (7) and Autumn (8) under More themes, no characters in plain' : 'the theme swatches are 3 quick picks (Herd = Dark + Light, Signal, Graphite), then Everyday (2), Seasonal (7), Autumn (8) and Team vCGE (9 characters, each light and dark) under More themes',
     themeGroups === (EDITION_PLAIN ? 'Quick picks:3|Everyday:2|Seasonal:7|Autumn:8' : 'Quick picks:3|Everyday:2|Seasonal:7|Autumn:8|Team vCGE:9'), themeGroups);
+  // Phone test 562 (11-23): five fixed columns let "Cornerstone" run into "Shutout"; the font box cut "OpenDyslexi"
+  const fitState = await page.evaluate(async () => {
+    const box = document.getElementById('themePicker'), more = document.getElementById('moreThemes'), was = [box.open, more.open];
+    box.open = true; more.open = true;
+    const names = [...document.querySelectorAll('#appThemes .r5-swatch > span, #moreThemesGrid .r5-swatch > span')].map(s => s.getBoundingClientRect()).filter(r => r.width);
+    let overlaps = 0;
+    names.forEach((a, i) => names.slice(i + 1).forEach(c => { if (a.left < c.right - 0.5 && c.left < a.right - 0.5 && a.top < c.bottom - 0.5 && c.top < a.bottom - 0.5) overlaps++; }));
+    const sel = document.getElementById('fontSelect'), was2 = sel.value, cs = () => getComputedStyle(sel), ctx = document.createElement('canvas').getContext('2d');
+    const cut = [];
+    for (const v of ['3', '1']) {
+      sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true })); await document.fonts.ready;
+      ctx.font = `${cs().fontWeight} ${cs().fontSize} ${cs().fontFamily}`;
+      const need = ctx.measureText(sel.selectedOptions[0].textContent).width + parseFloat(cs().paddingLeft) + parseFloat(cs().paddingRight);
+      if (need > sel.clientWidth) cut.push(`${sel.selectedOptions[0].textContent} ${Math.round(need)}>${sel.clientWidth}`);
+    }
+    sel.value = was2; sel.dispatchEvent(new Event('change', { bubbles: true }));
+    [box.open, more.open] = was;
+    return { names: names.length, overlaps, cut };
+  });
+  ok('Settings fit (phone test 562): no two theme names overlap, and the font box shows OpenDyslexic and Atkinson Hyperlegible in full', fitState.names > 0 && fitState.overlaps === 0 && fitState.cut.length === 0, JSON.stringify(fitState));
   // The dock's steps and buttons fade their colour (deck.css): read only once no fade is running on the step in view,
   // the primary button or the page (getAnimations() starts any pending fade first, so it can't be read too early)
   const themeSettled = () => page.waitForFunction(() => [document.querySelector('.vcge-step[data-state="now"]'), document.getElementById('dockNext'), document.body]
@@ -3055,6 +3075,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const overlay = await pV.evaluate(() => Array.from(document.querySelectorAll('#viewfinderArea > *')).filter(e => getComputedStyle(e).display !== 'none').map(e => e.id || e.className));
     ok('viewfinder: over the live picture only the corners, the hint, Close and the zoom chips (the shutter is under it)', overlay.join() === 'cameraPanel,cardFrame,camHint,stopCameraBtn,zoomChips'
       && (await pV.$$('#cardFrame .cap-corner')).length === 4 && !(await pV.$('#focusRing')) && ['Fit the card inside the corners', 'Hold still, then tap the shutter', 'Green shutter = card found'].includes(await pV.textContent('#camHint')), JSON.stringify(overlay));
+    // Phone test 562 (11-23): one line with an ellipsis cut the hint to "Hold still…"; the longest hint now shows in full
+    const hintFit = await pV.evaluate(() => { const h = document.getElementById('camHint'), was = h.textContent; h.textContent = 'Hold still, then tap the shutter';
+      const r = { scroll: h.scrollWidth, client: h.clientWidth, clip: getComputedStyle(h).textOverflow }; h.textContent = was; return r; });
+    ok('viewfinder: the hint wraps instead of cutting ("Hold still, then tap the shutter" in full, no ellipsis)', hintFit.scroll <= hintFit.client && hintFit.clip !== 'ellipsis', JSON.stringify(hintFit));
     ok('viewfinder: the card frame is upright in portrait, centred and fills most of the view', (await pV.getAttribute('#cardFrame', 'data-orientation')) === 'portrait' && frame.h > frame.w && Math.abs(frame.w / frame.h - 2 / 3.5) < 0.02
       && frame.h > view.h * 0.8 && Math.abs((frame.l + frame.r) / 2 - (view.l + view.r) / 2) < 2, JSON.stringify({ view, frame }));
     // The corners (mock-up): 3 px white brackets, rounded, nothing filled in; green while a card is in them, the shutter too
@@ -4066,6 +4090,18 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('QR side: the head says Checkers ("Your QR code") and QR code design (Colours, Dots, Corners) replaces Card design, Flip card stays',
       qrSide.face === 'back' && (EDITION_PLAIN || qrSide.head === '🦓|Checkers|Your QR code') && qrSide.qr && !qrSide.tabs && !qrSide.swatches && qrSide.flip
       && qrSide.lists[0].startsWith('themed/') && qrSide.lists[0].includes('/bw/') && qrSide.lists[1] === 'square/rounded/round/diamond/bars' && qrSide.lists[2] === 'square/rounded/circle', JSON.stringify(qrSide));
+    // Phone test 562 (11-23): two pickers to a phone row left 38 px for the name, so it broke mid-word ("Squa|re", "Diamon|d")
+    const qrNames = await pT.evaluate(() => {
+      const ctx = document.createElement('canvas').getContext('2d'), cut = [];
+      for (const b of document.querySelectorAll('#qrDesign .vcge-pick-btn .vcge-pick-text b, #qrDesign .vcge-pick-row .vcge-pick-text b')) {
+        const cs = getComputedStyle(b); ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+        const longest = Math.max(...b.textContent.replace(/\u2713/g, '').split(/\s+/).filter(Boolean).map(w => ctx.measureText(w).width));
+        const room = b.getBoundingClientRect().width;
+        if (room > 0 && longest > room + 0.5) cut.push(`${b.textContent.trim()} ${Math.round(longest)}>${Math.round(room)}`);
+      }
+      return cut;
+    });
+    ok('QR side: every Colours, Dots and Corners name fits its picker whole (no word broken mid-way)', qrNames.length === 0, JSON.stringify(qrNames));
     await pT.evaluate(() => { const f = document.getElementById('firstName'); f.value = 'Sam'; f.dispatchEvent(new Event('input', { bubbles: true })); }); await pT.waitForTimeout(300);
     const qrBefore = await pT.$eval('#qrCanvas', c => c.toDataURL());
     await pT.$eval('#cardQrDots', s => { s.value = 'round'; s.dispatchEvent(new Event('change')); }); await pT.waitForTimeout(200);
