@@ -3268,6 +3268,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
           for (let y = 0; y < 12; y++) { let r = ''; for (let k = 0; k < 16; k++) { const o = (y * 16 + k) * 4; r += Math.min(15, Math.round((d[o] + d[o + 1] + d[o + 2]) / 3 / 17)).toString(16); } rows.push(r); }
           return rows.join(' '); })() }));
       scanned.ms = Date.now() - scanStart;
+      // When the snap found no edges, press Snap to card once more on the same photo: snapLater true means the photo was
+      // fine and the first snap read it too early (PR #65 iPhone job 137430389794: a clear card, yet no edges).
+      if (scanned.card !== 'read' && scanned.w) scanned.snapLater = await pS.evaluate(async () => { const before = document.getElementById('cropPolygon').getAttribute('points');
+        const b = document.getElementById('snapCardBtn'); if (!b) return 'no button'; b.click(); await new Promise(r => setTimeout(r, 50));
+        return document.getElementById('cropPolygon').getAttribute('points') !== before; }).catch(e => String(e));
       ok('scan: Scan takes the burst, snaps the corners to the card and starts reading at once', scanned.card === 'read' && /SCAN: best of \d+ frames/.test(scanned.log) && scanned.pts !== `0,0 ${scanned.w},0 ${scanned.w},${scanned.h} 0,${scanned.h}`, JSON.stringify(scanned));
       await ctxS.close();
       // The crop step on a phone with a tall photo: Cancel and OK sit above the dock

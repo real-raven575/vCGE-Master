@@ -30,7 +30,7 @@ import { LockHandoff } from './modules/mod02-vault/lockHandoff.js';
 import { WipeDialog, startFresh } from './modules/mod02-vault/wipeDialog.js';
 import { syncLockFace, syncSetupFace, farewell } from './modules/mod02-vault/lockFace.js';
 import { VCGEActiveCamera } from './modules/mod03-camera/camera.js';
-import { CropEditor } from './modules/mod03-camera/cropEditor.js';
+import { CropEditor, whenDrawable } from './modules/mod03-camera/cropEditor.js';
 import { executeOCRScan, shutdownOCREngine } from './modules/mod04-ocr/ocrWorker.js';
 import { guessLogo } from './modules/mod04-ocr/logoGuess.js';
 import { mergeReadings, missingParts, describeMissing, MAX_PHOTOS } from './modules/mod04-ocr/readingQuality.js';
@@ -1157,11 +1157,13 @@ function wireIntake() {
         turnsTried = 0;
         // Scan: crop and straighten to the card, then read at once; Back to photo opens the corners to adjust. No card edges
         // in the photo: the crop step stays open and says so.
-        if (shot && shot.scan) $('reviewImage').addEventListener('load', () => setTimeout(() => {
+        // The snap reads the photo's pixels, so it waits until the photo is decoded as well as loaded: WebKit can fire load
+        // before its pixels are ready to draw (iPhone CI, PR #65: a clear card in the photo, yet the snap found no edges).
+        if (shot && shot.scan) $('reviewImage').addEventListener('load', () => whenDrawable($('reviewImage')).then(() => setTimeout(() => {
             if ($('runOcrBtn').disabled) return;
             if (cropEditor.snapToCard()) runOcr();
             else deckToast(SCAN_NO_EDGES);
-        }, 0), { once: true });
+        }, 0)), { once: true });
         // Go: read the photo as soon as it is on the crop step (its whole frame, as OK would)
         else if (goMode) $('reviewImage').addEventListener('load', () => setTimeout(() => { if (goMode && !$('runOcrBtn').disabled) runOcr(); }, 0), { once: true });
     });
