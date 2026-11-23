@@ -229,6 +229,13 @@ export function swatchFamilies(families, group) {
     if (group === 'Quick') return QUICK_THEMES.map(id => families.find(f => f.id === id)).filter(Boolean);
     return families.filter(f => f.group === group && !QUICK_THEMES.includes(f.id));
 }
+/** The page half of a swatch: the dark page (the mock-up), except for Team vCGE. Most of the Team share an amber accent over a
+ *  near-black page, so Cornerstone and Shutout looked the same (phone test 562, 11-23); their light pages carry each
+ *  character's own tint (lilac, sage, sky blue...), so the Team shows that instead. */
+export function swatchPage(family, light, dark) {
+    if (family.group === 'Team vCGE' && light) return light.vars.bg;
+    return (dark || light).vars.bg;
+}
 /** The font code the Dyslexia-friendly switch sets: OpenDyslexic on, Inter (the default) off. */
 export const DYSLEXIA_FONT = FONT_CODES['OpenDyslexic'];
 export const dyslexiaFont = (on) => (on ? DYSLEXIA_FONT : FONT_CODES[DEFAULT_UI_FONT]);
@@ -312,7 +319,7 @@ export function initSettings(doc = document, { hasContacts = () => false, restar
                 const i = doc.createElement('i');
                 i.setAttribute('aria-hidden', 'true');
                 i.style.setProperty('--sw-a', (light || darkT).vars.accent);
-                i.style.setProperty('--sw-b', (darkT || light).vars.bg);
+                i.style.setProperty('--sw-b', swatchPage(f, light, darkT));
                 const name = doc.createElement('span');
                 name.textContent = f.label;
                 b.append(i, name);
