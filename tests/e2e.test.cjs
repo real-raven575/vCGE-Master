@@ -4331,14 +4331,16 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     let flipper = await p6.locator('#card3DFlipper').boundingBox();
     const angle = () => p6.$eval('#card3DFlipper', el => el.style.transform);
     const frames = [];
-    await p6.evaluate(() => { window.__spin = []; window.__spinT = []; new MutationObserver(() => { window.__spin.push(document.getElementById('card3DFlipper').style.transform); window.__spinT.push(performance.now()); }).observe(document.getElementById('card3DFlipper'), { attributes: true, attributeFilter: ['style'] }); });
-    const flipT0 = await p6.evaluate(() => performance.now());
+    // The flip's clock starts when the app marks the card moving (data-spin="moving", set as the tween starts), not at the
+    // first drawn frame: on a slow phone (iPhone WebKit, PR #65 job 137388950048) that first frame came about 80 ms late.
+    await p6.evaluate(() => { window.__spin = []; window.__spinT = []; window.__spinStart = null; new MutationObserver((list) => { const el = document.getElementById('card3DFlipper'); for (const m of list) { if (m.attributeName === 'data-spin' && el.dataset.spin === 'moving' && window.__spinStart === null) window.__spinStart = performance.now(); if (m.attributeName === 'style') { window.__spin.push(el.style.transform); window.__spinT.push(performance.now()); } } }).observe(document.getElementById('card3DFlipper'), { attributes: true, attributeFilter: ['style', 'data-spin'] }); });
     await p6.click('#flipCardBtn'); await settled(p6);
     frames.push(...await p6.evaluate(() => window.__spin));
     const spinT = await p6.evaluate(() => window.__spinT);
+    const spinStart = await p6.evaluate(() => window.__spinStart);
     const degs = frames.map(f => parseFloat(/rotateY\(([-\d.]+)deg\)/.exec(f)[1]));
-    const flipMs = spinT.length ? Math.round(spinT[spinT.length - 1] - Math.max(flipT0, spinT[0] - 1000 / 60)) : 0;
-    ok('0.8 card: a flip takes about 0.62 s with a soft ease out (many smooth frames, never past 180, never back) and settles exactly on 180', (await angle()) === 'rotateY(180deg)' && degs.length >= 15 && Math.max(...degs) === 180 && degs.every((d, i) => i === 0 || d >= degs[i - 1]) && flipMs >= 560 && flipMs <= 1000 && (await p6.$eval('#card3DFlipper', el => el.dataset.spin)) === 'still', JSON.stringify({ flipMs, n: degs.length, degs: degs.map(Math.round) }));
+    const flipMs = spinT.length && spinStart !== null ? Math.round(spinT[spinT.length - 1] - spinStart) : 0;
+    ok('0.8 card: a flip takes about 0.62 s with a soft ease out (many smooth frames, never past 180, never back) and settles exactly on 180', (await angle()) === 'rotateY(180deg)' && degs.length >= 15 && Math.max(...degs) === 180 && degs.every((d, i) => i === 0 || d >= degs[i - 1]) && flipMs >= 560 && flipMs <= 1000 && (await p6.$eval('#card3DFlipper', el => el.dataset.spin)) === 'still', JSON.stringify({ flipMs, firstFrameMs: spinT.length && spinStart !== null ? Math.round(spinT[0] - spinStart) : null, n: degs.length, degs: degs.map(Math.round) }));
     // Measured again once the card is in view: on a short phone the 0.8 dock covers the bottom of the deck, and the
     // Flip click above may have scrolled the card body, so the first box can be stale or partly under the dock.
     // Flip card turns the card where it is (raven575's Android run, 2026-11-16), so a body scrolled to reach it leaves
