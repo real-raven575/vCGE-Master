@@ -20,7 +20,7 @@ const TYPES = {
     '.woff2': 'font/woff2'
 };
 
-http.createServer((req, res) => {
+const server = http.createServer((req, res) => {
     const urlPath = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
     let file = path.join(ROOT, urlPath === '/' ? 'index.html' : urlPath);
     if (!file.startsWith(ROOT + path.sep) || file.includes(`${path.sep}node_modules${path.sep}`)) {
@@ -32,6 +32,12 @@ http.createServer((req, res) => {
         res.writeHead(200, { 'Content-Type': TYPES[path.extname(file)] || 'application/octet-stream' });
         fs.createReadStream(file).pipe(res);
     });
-}).listen(PORT, '127.0.0.1', () => {
+});
+// Node closes a kept-alive connection after 5 s idle. A browser that reuses it at that moment gets a failed request
+// (no answer at all), which a test then reads as a page that never drew. The e2e run keeps WebKit idle for longer than
+// that between pages, so idle connections stay open for 2 minutes here instead.
+server.keepAliveTimeout = 120000;
+server.headersTimeout = 121000;
+server.listen(PORT, '127.0.0.1', () => {
     console.log(`vCGE running at http://localhost:${PORT}/`);
 });
