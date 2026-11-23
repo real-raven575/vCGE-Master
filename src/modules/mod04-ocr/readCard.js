@@ -205,7 +205,9 @@ export function renderReviewRows(lines, { roles, iconNames, onEdit = () => {}, o
         row.append(field, chip);
         item.append(row);
 
-        if (line.icon && iconNames[line.icon]) {
+        // The icon is named only under a line it says something about: under a line left on Ignore or put in Notes it read
+        // as stray text ("Email icon" under a logo or a scrap, build 562 phone run 2026-11-23).
+        if (line.icon && iconNames[line.icon] && line.role !== 'ignore' && line.role !== 'notes') {
             const seen = document.createElement('span');
             seen.id = `ocrLineIcon${i}`;
             seen.className = 'read-line-icon';

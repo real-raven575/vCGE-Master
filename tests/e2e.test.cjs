@@ -147,6 +147,14 @@ async function readEnds(page, sel = '#ocrStepText') {
   try { await page.waitForSelector(sel, { state: 'visible', timeout: 90000 }); }
   catch (e) { throw new Error(`${e.message}\n${await readStage(page)}`); }
 }
+// The toast's Undo is tapped only once the toast has landed: it slides in over 0.26 s, and since Play 562 finding 10 it
+// slides down over the screen's content, so a tap mid-slide on the slow iPhone job hit the Details form under it
+// (job 137879315210). Waits on the toast's own transition ending, not a clock.
+const toastUndo = async (page) => {
+  await page.waitForFunction(() => { const t = document.getElementById('toast'), a = document.getElementById('toastAction');
+    return t && a && !t.classList.contains('opacity-0') && !a.classList.contains('hidden') && t.getAnimations().length === 0; }, null, { timeout: 5000 }).catch(() => {});
+  await page.click('#toastAction');
+};
 const proceed = async (page) => { await page.click('#dockNext'); await page.waitForSelector('#cropReviewModal', { state: 'hidden', timeout: 5000 }); };
 
 async function decodeQr(page) {
@@ -1427,6 +1435,26 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('idle lock noticed late but within its 7 minutes: locked, not wiped', await p8.isVisible('#vaultModal') && /^(2:2\d|2:1\d)$/.test(await t8('vaultLockRingTime')), await t8('vaultLockRingTime'));
     await p8.fill('#vaultPin', '4321'); await p8.waitForSelector('#vaultModal', { state: 'hidden' });
 
+    // Play 562 (raven575 2026-11-23): the logo pickers (Export QR's centre logo and the 3D Card's Logo) open the photo
+    // picker too, so leaving for it gets the same grace as Capture's Upload: no lock, and the picked logo lands.
+    await p8.fill('#firstName', 'Picker3'); await fastForward(p8, 1000);
+    await p8.evaluate(() => { document.getElementById('exportQrBtn').click(); });
+    await p8.waitForSelector('#exportQrSheet', { state: 'visible' });
+    await p8.evaluate(() => { document.querySelector('input[name="qrLogo"][value="upload"]').click(); document.getElementById('exportQrLogoFile').blur(); });   // the app opens the picker
+    await setVisibility(p8, 'hidden'); await fastForward(p8, 2000);   // Google Photos has the screen
+    await setVisibility(p8, 'visible'); await fastForward(p8, 500);
+    const qrLogoPng = await p8.evaluate(() => { const c = document.createElement('canvas'); c.width = 160; c.height = 80; const x = c.getContext('2d'); x.fillStyle = '#1d4ed8'; x.font = 'bold 48px Arial'; x.fillText('LOGO', 8, 58); return c.toDataURL('image/png'); });
+    await p8.setInputFiles('#exportQrLogoFile', { name: 'logo.png', mimeType: 'image/png', buffer: Buffer.from(qrLogoPng.split(',')[1], 'base64') });
+    await p8.waitForFunction(() => document.querySelector('input[name="qrLogo"][value="upload"]').checked, null, { timeout: 5000 }).catch(() => {});
+    const qrBack = await p8.evaluate(() => ({ locked: !document.getElementById('vaultModal').classList.contains('hidden'), sheet: !document.getElementById('exportQrSheet').classList.contains('hidden'),
+      upload: document.querySelector('input[name="qrLogo"][value="upload"]').checked, save: document.getElementById('exportQrSaveBtn').disabled, name: document.getElementById('firstName').value }));
+    ok('Export QR logo picker: coming back from the photo picker does not lock, the logo is set and Save PNG works', !qrBack.locked && qrBack.sheet && qrBack.upload && !qrBack.save && qrBack.name === 'Picker3', JSON.stringify(qrBack));
+    await p8.keyboard.press('Escape'); await p8.waitForSelector('#exportQrSheet', { state: 'hidden' });
+    await p8.evaluate(() => { const u = document.getElementById('avatarUpload'); u.dispatchEvent(new MouseEvent('click')); u.blur(); });   // the 3D Card's Logo button
+    await setVisibility(p8, 'hidden'); await fastForward(p8, 2000);
+    await setVisibility(p8, 'visible'); await fastForward(p8, 500);
+    ok('3D Card logo picker: coming back from the photo picker does not lock', !(await p8.isVisible('#vaultModal')) && (await p8.inputValue('#firstName')) === 'Picker3');
+
     // Unlocking goes back to the card that was in view, and to the Vault page when its Lock now locked it
     await p8.click('#navShare'); await deckSettled(p8);
     // On a phone the header Lock is hidden, so a lock that starts on a card is the idle lock: the same button, pressed by the app
@@ -1848,7 +1876,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p11.click('#clearFormBtn');
     const cleared = await p11.evaluate(() => ({ font: document.getElementById('cardFontSelect').value, serif: document.getElementById('cardFront').classList.contains('font-serif'), flip: document.getElementById('card3DFlipper').style.transform, logo: !!document.querySelector('#previewLogoStrip img, #previewLogoStrip svg') }));
     ok('Clear form: Sans typeface, front side up, no logo', cleared.font === 'font-sans' && !cleared.serif && cleared.flip === 'rotateY(0deg)' && !cleared.logo, JSON.stringify(cleared));
-    await p11.click('#toastAction');
+    await toastUndo(p11);
     await p11.waitForTimeout(300);
     const undone = await p11.evaluate(() => ({ font: document.getElementById('cardFontSelect').value, back: document.getElementById('cardBack').classList.contains('font-serif'), logo: !!document.querySelector('#previewLogoStrip img, #previewLogoStrip svg') }));
     ok('Undo brings back the typeface and the logo strip', undone.font === 'font-serif' && undone.back && undone.logo, JSON.stringify(undone));
@@ -1926,7 +1954,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pU.click('#reopenScanBtn');
     await proceed(pU);
     ok('F4: proceeding again refills the tray from the lines', (await trayLines()).includes('Northwind Systems'));
-    await pU.click('#toastAction');
+    await toastUndo(pU);
     ok('F4: the scan\'s Undo empties the tray', (await trayLines()).length === 0 && await pU.$eval('#fieldsUnknown', t => t.classList.contains('hidden')));
     ok('make it cute: no page errors', errorsU.length === 0, errorsU.join(' | '));
     await ctxU.close();
@@ -1951,7 +1979,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const filled = await card();
     ok('scan into a sample: the sample is replaced, nothing of it left', filled.first === 'Maria' && !filled.middle && !filled.suffix && !filled.unit
       && filled.phones.length === 1 && filled.phones[0].value === '+1 (312) 555-0147' && filled.front === '+1 (312) 555-0147', JSON.stringify(filled));
-    await pS.click('#toastAction');
+    await toastUndo(pS);
     ok('Undo brings the sample back', (await pS.inputValue('#firstName')) === samples()[4][0] && (await rows(pS, 'phone')).length === 3);
     await pS.click('#reopenScanBtn');
     await proceed(pS);
@@ -2161,11 +2189,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p9.fill('#firstName', 'Typed'); await p9.fill('#emailValue0', 'typed@example.com');
     await p9.selectOption('#fakeContactSelect', '0');
     ok('sample preset replaces the form and offers Undo', (await p9.inputValue('#firstName')) !== 'Typed' && await p9.isVisible('#toastAction') && (await p9.textContent('#toastAction')).trim() === 'Undo');
-    await p9.click('#toastAction');
+    await toastUndo(p9);
     ok('Undo brings the typed card back', (await p9.inputValue('#firstName')) === 'Typed' && (await p9.inputValue('#emailValue0')) === 'typed@example.com' && (await p9.textContent('#toastMessage')).includes('Undone'));
     await p9.click('#clearFormBtn');
     ok('Clear form empties the form, with Undo', (await p9.inputValue('#firstName')) === '' && await p9.isVisible('#toastAction'));
-    await p9.click('#toastAction');
+    await toastUndo(p9);
     ok('Undo after Clear form restores it', (await p9.inputValue('#firstName')) === 'Typed');
 
     // Scan, fill, then reopen the last scan without new OCR
@@ -2175,7 +2203,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await readEnds(p9);
     await proceed(p9);
     ok('Fill form offers Undo and "Reopen last scan"', (await p9.inputValue('#firstName')) === 'Maria' && await p9.isVisible('#toastAction') && await onScreen(p9, '#reopenScanBtn'));
-    await p9.click('#toastAction'); await p9.waitForTimeout(600);
+    await toastUndo(p9); await p9.waitForTimeout(600);
     ok('Undo after Fill form restores the card from before the scan', (await p9.inputValue('#firstName')) === 'Typed');
     // Video review #59, #60: Undo never ends on an empty form: it reopens the scan's lines on the Read card, as edited
     ok('Undo after Fill form reopens the lines on the Read card, nothing lost, no new OCR', (await p9.evaluate(() => document.documentElement.dataset.card)) === 'read' && await p9.isVisible('#ocrStepText')
@@ -4084,6 +4112,15 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const mini = await pT.evaluate(() => { const body = document.querySelector('#cardCard .r4-card'), c = document.getElementById('card3DFlipper').getBoundingClientRect(), v = body.getBoundingClientRect();
       return { mini: body.dataset.mini, scrolled: body.scrollTop > 0, inView: c.top >= v.top - 1 && c.bottom <= v.bottom && c.width > 60, small: c.width < 200, w: Math.round(c.width) }; });
     ok('mini card: with a long box scrolled, the card stays in view, shrunk into the corner', mini.mini === 'on' && mini.scrolled && mini.inView && mini.small, JSON.stringify(mini));
+    // The choices scroll away under a band as tall as the mini card, so none is left half under it (raven575's Play build
+    // 562 run, 2026-11-23: the mini card hid the Dots picker, Style and Paper buttons, Icons and the hint)
+    const band = await pT.evaluate(() => { const body = document.querySelector('#cardCard .r4-card'), st = getComputedStyle(body, '::before'), v = body.getBoundingClientRect(),
+      c = document.getElementById('card3DFlipper').getBoundingClientRect();
+      const below = [...body.querySelectorAll('button, select, label')].find(el => { const r = el.getBoundingClientRect(); return r.height > 0 && r.width > 0 && r.top > v.top + parseFloat(st.height) + 2 && r.bottom < v.bottom; });
+      const br = below && below.getBoundingClientRect(), hit = below && document.elementFromPoint(br.left + br.width / 2, br.top + Math.min(br.height / 2, 6));
+      return { pos: st.position, h: Math.round(parseFloat(st.height)), cardBottom: Math.round(c.bottom - v.top), bg: st.backgroundColor, below: below && (below.id || below.className), hitEl: hit && (hit.id || hit.tagName), belowHit: !!(hit && (hit === below || below.contains(hit))) }; });
+    ok('mini card: it sits on a band across the box, at least as tall as the card, and a choice just under the band takes the tap',
+      band.pos === 'sticky' && band.h >= band.cardBottom && band.h < 200 && band.bg !== 'rgba(0, 0, 0, 0)' && band.belowHit, JSON.stringify(band));
     // A category button changes the box where it is: no jump back to the top, the mini card stays (raven575's phone run, 2026-11-14)
     // (Paper is shorter than Logo: the box keeps its length so it can stay where it is)
     // (pressed where it is: Playwright's click would first scroll the button into view, which a finger never does)
@@ -4142,6 +4179,16 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pT.$eval('#flipCardBtn', b => b.click()); await pT.waitForTimeout(1000);
     const frontAgain = await pT.evaluate(() => ({ head: [hEmoji.textContent, hName.textContent].join('|'), qr: qrDesign.getClientRects().length > 0, tabs: cardTabs.getClientRects().length > 0 }));
     ok('QR side: turning back to the front brings Flipside and Card design back', (EDITION_PLAIN || frontAgain.head === '🦎|Flipside') && !frontAgain.qr && frontAgain.tabs, JSON.stringify(frontAgain));
+    // A long name and title wrap onto more lines, whole, instead of ending in "…" (raven575's Play build 562 run,
+    // 2026-11-23: "Checkers the Ze…", worse in Mono at Extra large)
+    await pT.evaluate(() => {
+      for (const [id, v] of [['firstName', 'Checkers'], ['lastName', 'the Zebra'], ['jobTitle', 'QR pilot: a whole person in a square']]) { const f = document.getElementById(id); f.value = v; f.dispatchEvent(new Event('input', { bubbles: true })); }
+      for (const [id, v] of [['cardFontSelect', 'font-mono'], ['cardSizeSelect', 'xl']]) { const s = document.getElementById(id); s.value = v; s.dispatchEvent(new Event('change', { bubbles: true })); }
+    }); await pT.waitForTimeout(300);
+    const head = await pT.evaluate(() => ['previewFullName', 'previewTitle'].map(id => { const el = document.getElementById(id), st = getComputedStyle(el), lh = parseFloat(st.lineHeight);
+      return { text: el.textContent, fits: el.scrollWidth <= el.clientWidth + 1, ellipsis: st.textOverflow === 'ellipsis' && st.whiteSpace === 'nowrap', lines: Math.round(el.offsetHeight / lh) }; }));   // (layout size: the card may be the shrunk mini card here)
+    ok('card: a long name and title in Mono at Extra large wrap onto more lines, whole, with no "…"',
+      head[0].text === 'Checkers the Zebra' && head.every(h => h.fits && !h.ellipsis && h.lines >= 2), JSON.stringify(head));
     await ctxT.close();
   }
 
@@ -4629,9 +4676,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p6.click('#removeAvatarBtn'); await p6.click('#removeLogoYes');
     ok('logo: Remove takes the logo off and says so; the initials are back', !(await p6.$(LOGO6)) && (await p6.textContent('#previewAvatar')).trim() === (EDITION_PLAIN ? s1First[0] + s1Last[0] : 'GR') && (await p6.textContent('#toastMessage')) === 'Logo removed.');
     ok('card: with the logo removed the rim goes too', await p6.$eval('#card3DFlipper', el => !('rim' in el.dataset) && !el.style.getPropertyValue('--card-rim')));
-    await p6.click('#toastAction').catch(() => {});
+    await toastUndo(p6).catch(() => {});
     await p6.click('#navFields'); await p6.waitForTimeout(300);
-    await p6.click('#clearFormBtn'); await p6.click('#toastAction');
+    await p6.click('#clearFormBtn'); await toastUndo(p6);
     await p6.waitForTimeout(300);
     ok('sample: Undo after Clear brings the sample back without its logo (removed before) and with its theme', (await p6.inputValue('#firstName')) === s1First && (await p6.textContent('#currentPaletteLabel')) === 'Twilight' && !(await p6.$(LOGO6)));
     // The logo's look and the card's finish (raven575 test report, 2026-10-22)
@@ -4866,7 +4913,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pV.click('#navFields'); await pV.waitForTimeout(400);
     await pV.click('#clearFormBtn');
     const clearedLook = await pV.evaluate(() => ({ font: document.getElementById('cardFontSelect').value, size: document.getElementById('cardSizeSelect').value }));
-    await pV.click('#toastAction'); await pV.waitForTimeout(200);
+    await toastUndo(pV); await pV.waitForTimeout(200);
     const undoneLook = await pV.evaluate(() => ({ font: document.getElementById('cardFontSelect').value, size: document.getElementById('cardSizeSelect').value, icons: document.getElementById('cardIconsBtn').getAttribute('aria-pressed') }));
     ok('#85 Clear goes back to Sans and medium text; Undo brings back the typeface and the size', clearedLook.font === 'font-sans' && clearedLook.size === 'md' && undoneLook.font === 'card-font-lexend' && undoneLook.size === 'xl' && undoneLook.icons === 'true', JSON.stringify([clearedLook, undoneLook]));
     await pV.selectOption('#cardSizeSelect', 'md');

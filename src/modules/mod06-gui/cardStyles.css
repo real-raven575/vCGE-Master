@@ -53,6 +53,9 @@ body { font-family: 'Inter', sans-serif; }
 /* The card face takes the theme (card3dView.js sets the variables on #card3DFlipper): card colour, ink, accent. */
 .card-face { background: var(--card-bg, #3e5572); color: var(--card-ink, #eef3f9); border: 1px solid rgba(0, 0, 0, 0.12); }
 .card-muted { opacity: 0.82; }
+/* Name, title and company wrap onto more lines instead of ending in "…"; a word too long for the line breaks only as a
+   last resort (raven575's Play build 562 run, 2026-11-23: "Checkers the Ze…", worse in Mono at Extra large). */
+.card-head-line { white-space: normal; overflow-wrap: break-word; }
 /* The detail lines (card3dView.js renderLines): one grid of icon, label and value for every line, phones to address,
    so every value starts at the same place. The lists and lines step aside (display: contents) to let their cells join
    the grid; without icons the grid drops that column. */

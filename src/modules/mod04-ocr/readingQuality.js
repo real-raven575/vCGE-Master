@@ -105,7 +105,8 @@ function alike(a, b) {
  * are the same line in several readings (SAME_LINE alike) become one, in card order. For each, a reading that two photos
  * agree on wins, otherwise the surest; garbage never beats text. Where the readings disagree and the kept one isn't sure
  * (AGREE_CONFIDENCE), the line is passed on as unsure and the other reading's letters join its second guesses. Lines
- * that are garbage in every reading are kept only when the latest photo has them, marked `unreadable`. A line with no
+ * that are garbage in every reading are kept only when the latest photo has them and they hold more than 3 letters or
+ * digits, marked `unreadable`. A line with no
  * letter or digit at all is logo or border debris and is dropped (raven575, 2026-10-22: ". {) ——" was listed), and a
  * "%" read after a suite or house number is mended (fixNumberPercent).
  */
@@ -129,7 +130,10 @@ export function mergeReadings(readings) {
     const latest = list.length - 1;
     return groups.flatMap((group) => {
         const good = group.filter(m => !m.garbage);
-        if (!good.length) return group.some(m => m.reading === latest) ? [{ ...strip(group[group.length - 1]), unreadable: true }] : [];
+        // Garbage of 3 letters or digits at most ("cad", "Xe.", "o") is wood grain or a logo's edge, never a line worth
+        // typing in: it is not shown as unreadable (build 562 phone run, 2026-11-23: six such lines on a wood table).
+        const last = group[group.length - 1];
+        if (!good.length) return group.some(m => m.reading === latest) && (String(last.text).match(/[A-Za-z0-9]/g) || []).length > 3 ? [{ ...strip(last), unreadable: true }] : [];
         return mergeGroup(good).map(fixNumberPercent);
     });
 }

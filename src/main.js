@@ -1087,7 +1087,8 @@ function restoreScan(scan) {
 }
 
 function wireIntake() {
-    $('imageUpload').addEventListener('click', expectExternalApp);
+    // Every photo picker gets the grace: Capture's Upload, Export QR's centre logo and the 3D Card's Logo (Play 562)
+    ['imageUpload', 'exportQrLogoFile', 'avatarUpload'].forEach(id => $(id).addEventListener('click', expectExternalApp));
     $('imageUpload').addEventListener('change', (e) => {
         camera.handleGalleryUpload(e.target.files[0]);
         e.target.value = '';
