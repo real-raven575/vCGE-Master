@@ -247,7 +247,7 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
   const srcs = [...page.matchAll(/\s(?:src|href)="([^"]+)"/g)].map(m => m[1]);
   const away = srcs.filter(u => /^https?:/.test(u));
   ok('Testers page: the only outside links are the tester group and the Play testing link',
-    away.length === 2 && away.includes('https://groups.google.com/g/vcge-testers') && away.includes('https://play.google.com/apps/testing/app.vcge.vcge'), away.join(' '));
+    JSON.stringify([...away].sort()) === JSON.stringify(['https://groups.google.com/g/vcge-testers', 'https://play.google.com/apps/testing/app.vcge.vcge']), away.join(' '));
   const local = srcs.filter(u => !/^https?:/.test(u) && u !== '../');
   ok('Testers page: every local file it uses exists on the site',
     local.every(u => existsSync(ROOT + (u.startsWith('../') ? u.slice(3) : 'site/testers/' + u))), local.join(' '));
