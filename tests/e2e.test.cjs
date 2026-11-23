@@ -416,7 +416,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const light = q => q[0] > 150 && q[1] > 150 && q[2] > 150, slate = q => Math.abs(q[0] - 51) < 20 && Math.abs(q[1] - 65) < 20 && Math.abs(q[2] - 85) < 20;
       return light(at(0.5, 0.29)) && light(at(0.35, 0.44)) && slate(at(0.5, 0.5)) && slate(at(0.5, 0.12));
     }, href)));
-    ok('plain edition: every tab and home-screen icon is the plain icon', icons.length === 3 && plainIcon.every(Boolean), JSON.stringify(icons.map((h, i) => [h, plainIcon[i]])));
+    ok('plain edition: every tab and home-screen icon is the plain icon', icons.length === 4 && plainIcon.every(Boolean), JSON.stringify(icons.map((h, i) => [h, plainIcon[i]])));
   }
   if (EDITION_PLAIN) {
     const navNames = await page.$$eval('.deck-header button, .vcge-dock button', bs => bs.map(b => [b.id, b.getAttribute('aria-label') || '', b.title || '', (b.querySelector(':scope > span') || {}).textContent || '']));
@@ -822,12 +822,16 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   // Blue-weak: colour-blind mode's "on" fill (the dock's main button, pressed switches) turns teal with the set, not
   // the old fixed blue (raven575's Android run, 2026-11-16: "Scan another" stayed blue)
   await page.click('.r5-cvd-row .vcge-pick-btn');
-  await page.click('.r5-cvd-row [role="option"][data-value="4"]'); await page.waitForTimeout(450);   // past the button's 200 ms colour fade
-  // (waits on the colour itself as well: the iPhone WebKit job, slow under load, was still mid-fade at 450 ms on PR #47)
+  await page.click('.r5-cvd-row [role="option"][data-value="4"]');
+  // Wait for the choice to land on the page (WebKit can be slow to close the list), then on the dock's colour itself
+  // (the iPhone WebKit job, slow under load, was still mid-fade at 450 ms on PR #47)
+  await page.waitForFunction(() => document.documentElement.dataset.cvd === 'tritan', null, { timeout: 5000 }).catch(() => {});
+  await page.waitForTimeout(450);   // past the button's 200 ms colour fade
   await page.waitForFunction(() => { const probe = document.createElement('i'); probe.style.color = 'var(--good-600)'; document.body.appendChild(probe);
     const good = getComputedStyle(probe).color; probe.remove(); return getComputedStyle(document.getElementById('dockNext')).backgroundColor === good; }, null, { timeout: 3000 }).catch(() => {});
-  const tritan = await page.evaluate(() => getComputedStyle(document.getElementById('dockNext')).backgroundColor);
-  ok('colour vision: Blue-weak turns the dock\'s main button teal (its good colour), not blue', tritan === (await swatch('--good-600')) && tritan === 'rgb(13, 148, 136)', tritan);
+  const tritan = await page.evaluate(() => { const d = document.getElementById('dockNext'), r = document.documentElement, cs = getComputedStyle(r);
+    return { bg: getComputedStyle(d).backgroundColor, cvd: r.dataset.cvd || '', cb: r.dataset.cb || '', cbOn: cs.getPropertyValue('--cb-on').trim(), disabled: d.disabled }; });
+  ok('colour vision: Blue-weak turns the dock\'s main button teal (its good colour), not blue', tritan.bg === (await swatch('--good-600')) && tritan.bg === 'rgb(13, 148, 136)', JSON.stringify(tritan));
   await page.selectOption('#cvdSelect', '0');
   ok('colour vision (step 6): Typical gives the named set back its green and red', (await swatch('--good-600')) === 'rgb(22, 163, 74)' && (await swatch('--stop-600')) === 'rgb(220, 38, 38)');
   ok('colour vision: Typical goes back to plain colour-blind mode (cb=1)', !(await page.evaluate(() => document.documentElement.dataset.cvd)) && /cb=1;/.test((await htmlState()).entry));
