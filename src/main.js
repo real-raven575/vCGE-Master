@@ -30,13 +30,14 @@ import { LockHandoff } from './modules/mod02-vault/lockHandoff.js';
 import { WipeDialog, startFresh } from './modules/mod02-vault/wipeDialog.js';
 import { syncLockFace, syncSetupFace, farewell } from './modules/mod02-vault/lockFace.js';
 import { VCGEActiveCamera } from './modules/mod03-camera/camera.js';
-import { CropEditor } from './modules/mod03-camera/cropEditor.js';
+import { CropEditor, whenDrawable } from './modules/mod03-camera/cropEditor.js';
 import { executeOCRScan, shutdownOCREngine } from './modules/mod04-ocr/ocrWorker.js';
 import { guessLogo } from './modules/mod04-ocr/logoGuess.js';
 import { mergeReadings, missingParts, describeMissing, MAX_PHOTOS } from './modules/mod04-ocr/readingQuality.js';
 import { readCardQr, withoutQr, parseQrPayload, withQrLines } from './modules/mod07-qr/qrReader.js';
 import { readIndicator, readThumb, renderReviewRows, initReadCard, resetBlink, READER_UNAVAILABLE_MESSAGE, READER_STOPPED_MESSAGE } from './modules/mod04-ocr/readCard.js';
 import { ContactFormMapper, LINE_ROLES, PHONE_FORMATS } from './modules/mod05-form/formMapper.js';
+import { parseZipTowns } from './modules/mod05-form/zipTowns.js';
 import { PHONE_TYPES, EMAIL_TYPES, WEBSITE_TYPES } from './share/contactOptions.js';
 import { AddressAutocompleteEngine } from './modules/mod05-form/addressAutocomplete.js';
 import { initFieldsCard, SAMPLE_PROMPT, PLAIN_SAMPLE_PROMPT, unplacedLines, showUnknownLines, clearUnknownLines } from './modules/mod05-form/fieldsCard.js';
@@ -351,10 +352,12 @@ async function unlockHeld(method) {
 async function unlockWithBiometric() {
     if (vaultMode !== 'quick' || !biometric.isEnrolled()) return;
     $('vaultError').textContent = '';
+    expectExternalApp();   // the device's face or fingerprint sheet comes to the front
     if (await biometric.verify()) return quickUnlock('biometric');
     // The device's reason (NotAllowedError and the like) is shown, so a button that stops working can be traced.
     const why = biometric.lastError ? ` (${biometric.lastError})` : '';
-    if (vaultMode === 'quick') $('vaultError').textContent = `Face or fingerprint not confirmed${why}. Use your PIN.`;
+    const tip = biometric.profile.tip ? ` ${biometric.profile.tip}` : '';
+    if (vaultMode === 'quick') $('vaultError').textContent = `Face or fingerprint not confirmed${why}. Use your PIN.${tip}`;
 }
 
 // Unlock as soon as the 4th digit is typed: no extra tap.
@@ -443,8 +446,12 @@ async function addBiometric() {
     try {
         await biometric.enroll();
         // Only a check that passes right now turns it on: a device that enrols but cannot sign is not "on".
-        expectExternalApp();
-        if (!(await biometric.verify())) { biometric.clear(); throw new Error('BIOMETRIC_CHECK_FAILED'); }
+        // On iPhone and iPad that check is a second sheet straight after "Passkey saved", so it is skipped there
+        // (passkeyProfile, raven575's iPad run 2026-11-20); the first unlock is the check.
+        if (biometric.confirmAfterEnroll()) {
+            expectExternalApp();
+            if (!(await biometric.verify())) { biometric.clear(); throw new Error('BIOMETRIC_CHECK_FAILED'); }
+        }
         globalEventBus.publish(Events.VAULT_UNLOCK_METHOD_CHANGED, { change: 'Face ID / fingerprint added', timestamp: Date.now() });
         cardView.showToast('Face ID / fingerprint added for this session.');
     } catch (e) {
@@ -751,6 +758,7 @@ function renderOcrSummary() {
         const dd = document.createElement('dd');
         dd.className = 'min-w-0 break-words';
         dd.textContent = value;
+        dd.setAttribute('translate', 'no');     // the card's own words: the screen language never changes them (i18n.js)
         return [dt, dd];
     };
     // Country is only shown when the card says something other than the default.
@@ -786,8 +794,25 @@ let ocrStoppedByUser = false;
 
 // OK on the Capture card: the deck moves to the Read card, where the photo is read; the crop step stays behind on
 // the Capture card for Back, Cancel and Retake.
-async function runOcr() {
+const SCAN_NO_EDGES = 'Couldn\'t find the card\'s edges. Drag the corners onto the card, then press OK.';
+// Auto-turn (Android run 11-16: a card held sideways read as nothing until it was turned): a photo the reader can't make
+// out is turned a quarter each way and read again before the retake prompt; then it goes back the way it was.
+const AUTO_TURN = Symbol('auto-turn');
+let turnsTried = 0;
+function turnPhoto(direction, times) {
+    return new Promise(resolve => {
+        let left = times;
+        const step = () => {
+            if (left-- <= 0) { resolve(); return; }
+            $('reviewImage').addEventListener('load', () => setTimeout(step, 0), { once: true });
+            cropEditor.rotate(direction);
+        };
+        step();
+    });
+}
+async function runOcr(how) {
     if (!$('reviewImage').getAttribute('src')) return;
+    if (how !== AUTO_TURN) turnsTried = 0;
     showRetakePrompt(false);
     ocrStoppedByUser = false;
     $('runOcrBtn').disabled = true;
@@ -800,7 +825,7 @@ async function runOcr() {
     readIndicator.show(photo);
     try {
         // The first scan (and the first after a wipe) starts the reader from ~7 MB of bundled files: say so.
-        const onStatus = (status, fraction) => readIndicator.status(status, fraction);
+        const onStatus = (status, fraction) => { if (status === 'reading') loadZipTowns(); readIndicator.status(status, fraction); };
         // A QR code printed on the card is read first (accuracy round 1, 2026-11-10) and painted over for the text
         // reader, whose junk readings of its squares would otherwise turn the card down.
         const found = await readCardQr(photo);
@@ -833,7 +858,15 @@ async function runOcr() {
             return;
         }
         console.error('[vCGE] OCR failed:', e);
+        if (e && e.code === 'OCR_UNREADABLE' && turnsTried < 2 && !ocrStoppedByUser && !$('cropReviewModal').classList.contains('hidden')) {
+            // A quarter turn right, then (from there) a half turn back to a quarter turn left; each is snapped to the card again
+            turnsTried++;
+            await turnPhoto(turnsTried === 1 ? 1 : -1, turnsTried === 1 ? 1 : 2);
+            cropEditor.snapToCard();
+            return runOcr(AUTO_TURN);
+        }
         if (e && e.code === 'OCR_UNREADABLE') {
+            if (turnsTried === 2) { turnsTried = 3; await turnPhoto(1, 1); }   // both turns failed: the photo goes back the way it was
             backToPhoto();
             showRetakePrompt(true, !!e.sharp);
         } else if (e && e.code === 'OCR_TIMEOUT') {
@@ -1119,10 +1152,20 @@ function wireIntake() {
         else $('imageUpload').click();
     });
     // A new photo starts over at the crop step on the Capture card and drops any text extracted from the previous one.
-    globalEventBus.subscribe(Events.IMAGE_CAPTURED, () => {
+    globalEventBus.subscribe(Events.IMAGE_CAPTURED, (shot) => {
         showRetakePrompt(false); closeReviewDialog(); forgetLastScan(); $('ocrBackBtn').classList.remove('hidden'); showCard('capture');
+        turnsTried = 0;
+        // Scan: crop and straighten to the card, then read at once; Back to photo opens the corners to adjust. No card edges
+        // in the photo: the crop step stays open and says so.
+        // The snap reads the photo's pixels, so it waits until the photo is decoded as well as loaded: WebKit can fire load
+        // before its pixels are ready to draw (iPhone CI, PR #65: a clear card in the photo, yet the snap found no edges).
+        if (shot && shot.scan) $('reviewImage').addEventListener('load', () => whenDrawable($('reviewImage')).then(() => setTimeout(() => {
+            if ($('runOcrBtn').disabled) return;
+            if (cropEditor.snapToCard()) runOcr();
+            else deckToast(SCAN_NO_EDGES);
+        }, 0)), { once: true });
         // Go: read the photo as soon as it is on the crop step (its whole frame, as OK would)
-        if (goMode) $('reviewImage').addEventListener('load', () => setTimeout(() => { if (goMode && !$('runOcrBtn').disabled) runOcr(); }, 0), { once: true });
+        else if (goMode) $('reviewImage').addEventListener('load', () => setTimeout(() => { if (goMode && !$('runOcrBtn').disabled) runOcr(); }, 0), { once: true });
     });
     globalEventBus.subscribe(Events.VAULT_WIPED, () => setGo(false));
     globalEventBus.subscribe(Events.MEMORY_PURGED, () => setGo(false));
@@ -1371,6 +1414,18 @@ function boot() {
     setVaultIndicator();
     updatePurgeCountdown();
     biometricAvailable().then(ok => { biometricSupported = ok; setVaultIndicator(); });
+}
+
+// The ZIP code -> town table (about 0.6 MB, the app's own file) loads the first time the reader has started and is
+// reading, so it never slows the page's start or the reader's own start-up (Firefox CI, PR #59: loading it while the
+// reader was starting held the reader's start past 60 s). The read takes seconds, so the table is in by the review;
+// a card read before it arrives keeps its town as read. Nothing leaves the device.
+let zipTownsLoad = null;
+function loadZipTowns() {
+    if (zipTownsLoad) return;
+    zipTownsLoad = import('./vendor/zip-towns/zipTowns.js')
+        .then(m => formMapper.setZipTowns(parseZipTowns(m.ZIP_TOWNS)))
+        .catch(e => { zipTownsLoad = null; console.warn('[vCGE] ZIP town table not loaded:', e && e.message); });
 }
 
 boot();

@@ -1,0 +1,1 @@
+© 2026 raven575, Herd of Helpers (Claude) & Gemini. Made with AI: built by AI models (Claude by Anthropic, Gemini by Google) working for raven575, who reviews every change. · [Report a bug](https://github.com/real-raven575/vCGE-Master/issues/new/choose)

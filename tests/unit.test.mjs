@@ -236,6 +236,43 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('a tampered signature is refused', !(await verifyAssertion(tampered)));
 }
 
+// Biometric per device (raven575's iPad run, 2026-11-20): one passkey that is replaced, one sheet at a time
+{
+  const { BiometricUnlock, deviceKind, passkeyProfile, PASSKEY_USER_ID } = await import(`${R}/modules/mod02-vault/biometric.js`);
+  const ipadUA = 'Mozilla/5.0 (iPad; CPU OS 18_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/131.0 Mobile/15E148 Safari/604.1';
+  const ipadDesktopUA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.1 Safari/605.1.15';
+  ok('biometric: the kind of device is read from the browser (iPad, iPad in desktop mode, Mac, Android, Windows)',
+    deviceKind({ userAgent: ipadUA }) === 'apple-mobile' && deviceKind({ userAgent: ipadDesktopUA, platform: 'MacIntel', maxTouchPoints: 5 }) === 'apple-mobile'
+    && deviceKind({ userAgent: ipadDesktopUA, platform: 'MacIntel', maxTouchPoints: 0 }) === 'mac'
+    && deviceKind({ userAgent: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/131.0 Mobile' }) === 'android'
+    && deviceKind({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0', platform: 'Win32' }) === 'windows' && deviceKind({}) === 'other');
+  const ios = passkeyProfile('apple-mobile'), droid = passkeyProfile('android'), win = passkeyProfile('windows');
+  ok('biometric: iPhone and iPad skip the second sheet after enrolling, and get a tip for "More from Chrome"; other devices still confirm once',
+    ios.confirmAfterEnroll === false && /More from Chrome/.test(ios.tip) && droid.confirmAfterEnroll && win.confirmAfterEnroll && !droid.tip
+    && [ios, droid, win].every(p => p.hints.join() === 'client-device'));
+  // A fake device: counts the sheets and records what was asked
+  const realCreds = globalThis.navigator.credentials;
+  const asked = { create: [], get: 0 };
+  let release;
+  const fakeCreds = {
+    create: async (o) => { asked.create.push(o.publicKey); throw Object.assign(new Error('cancel'), { name: 'NotAllowedError' }); },
+    get: () => { asked.get++; return new Promise((_, no) => { release = () => no(Object.assign(new Error('x'), { name: 'NotAllowedError' })); }); }
+  };
+  Object.defineProperty(globalThis.navigator, 'credentials', { value: fakeCreds, configurable: true });
+  const b = new BiometricUnlock(ios);
+  for (let i = 0; i < 2; i++) { try { await b.enroll(); } catch (e) { /* cancelled */ } }
+  ok('biometric: every enrolment uses the same account id, so the password manager replaces the vCGE passkey instead of adding one',
+    asked.create.length === 2 && asked.create.every(p => p.user.id.length === PASSKEY_USER_ID.length && p.user.id.every((x, i) => x === PASSKEY_USER_ID[i]))
+    && String.fromCharCode(...PASSKEY_USER_ID) === 'vcge-session-unlock' && asked.create[0].hints.join() === 'client-device');
+  b.credential = { id: new Uint8Array(16), publicKey: null, algorithm: -7 };
+  const first = b.verify(), second = b.verify();
+  ok('biometric: a second tap while the face or fingerprint sheet is open does not open a second sheet', asked.get === 1 && first === second);
+  release();
+  ok('biometric: a cancelled check says why and frees the button for the next tap', (await first) === false && b.lastError === 'NotAllowedError' && b.busy === null);
+  b.verify(); ok('biometric: after a check ends, the next tap asks the device again', asked.get === 2); release();
+  Object.defineProperty(globalThis.navigator, 'credentials', { value: realCreds, configurable: true });
+}
+
 // Vault store: the hub every module goes through (memory only, per-module rights, no data in notices)
 {
   const { VaultStore, SLOTS, MODULE_RIGHTS, READINGS } = await import(`${R}/modules/mod02-vault/vaultStore.js`);
@@ -418,9 +455,9 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('labelled card (E/T/M/W): every field mapped despite OCR slips', eq(labelled, {
     firstName: 'Dana', lastName: 'Whitlock', jobTitle: 'Owner & General Manager',
     street: '4120 Lakeshore Road', unitType: 'Suite', unitNumber: '21%', city: 'Springfield', state: 'MI', zip: '49011' })
-    && typed(labelled, 'emails', 'work') === 'dwhitlock@BrightPathlT.com' && typed(labelled, 'websites', 'work') === 'BrightPathlT.com/Holland'
+    && typed(labelled, 'emails', 'work') === 'dwhitlock@BrightPathIT.com' && typed(labelled, 'websites', 'work') === 'BrightPathIT.com/Holland'
     && typed(labelled, 'phones', 'work') === '+1 (616) 555-0142' && typed(labelled, 'phones', 'mobile') === '+1 (616) 555-0187', JSON.stringify(labelled));
-  ok('logo debris and tagline are not the company; domain is used instead', labelled.organization === 'BrightPathlT', labelled.organization);
+  ok('logo debris and tagline are not the company; domain is used instead (its "lT" read as "IT")', labelled.organization === 'BrightPathIT', labelled.organization);
 
   const office = fm.parseOCRText('Harbor Point Realty\nSam Ortiz\nLicensed Realtor\nTel: (555) 201-3344  Fax: (555) 201-3345\nCell 555.201.9988\nsortiz © harborpointrealty . com\nharborpointrealty.com\n100 Main St\nSuite 300\nAustin Texas 78701');
   ok('name chosen by email match, not first line', office.firstName === 'Sam' && office.lastName === 'Ortiz', JSON.stringify(office));
@@ -449,9 +486,88 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('social profile typed and not used as the company', typed(intl, 'websites', 'linkedin') === 'linkedin.com/in/janeroe' && typed(intl, 'websites', 'work') === 'roelabs.ca' && intl.organization === 'Roe Labs Inc.', JSON.stringify(intl.websites));
 }
 
+// The town from the ZIP code (raven575's iPad run, 2026-11-20: the ZIP read right, the town a letter off). Fictional people.
+{
+  const fsZ = await import('node:fs');
+  const { parseZipTowns, fixTown, townDistance } = await import(`${R}/modules/mod05-form/zipTowns.js`);
+  const { ZIP_TOWNS } = await import(`${R}/vendor/zip-towns/zipTowns.js`);
+  const { ContactFormMapper } = await import(`${R}/modules/mod05-form/formMapper.js`);
+  const table = parseZipTowns(ZIP_TOWNS);
+  ok('ZIP towns: the bundled table has every US ZIP code with its town and state', table.size > 40000 && JSON.stringify(table.lookup('62701')) === '{"town":"Springfield","state":"IL"}'
+    && table.lookup('10001').town === 'New York' && table.lookup('60606-1234').town === 'Chicago' && table.lookup('00000') === null && table.lookup('abc') === null, table.size);
+  ok('ZIP towns: the table ships with its BSD licence, is listed in the notices, and is built by a pinned script',
+    /BSD License/.test(fsZ.readFileSync(`${R}/vendor/zip-towns/LICENSE-zipcodes.txt`, 'utf8')) && fsZ.readFileSync(`${R}/../THIRD_PARTY_NOTICES.md`, 'utf8').includes('src/vendor/zip-towns/zipTowns.js')
+    && /"zipcodes": "8\.0\.0"/.test(fsZ.readFileSync(`${R}/../package.json`, 'utf8')) && fsZ.existsSync(`${R}/../scripts/zip-towns.mjs`));
+  ok('ZIP towns: the table is plain data (no imports, network or storage)', !/^import |fetch\(|localStorage|XMLHttpRequest|https?:\/\//m.test(ZIP_TOWNS) && !/^import /m.test(fsZ.readFileSync(`${R}/vendor/zip-towns/zipTowns.js`, 'utf8')));
+  ok('ZIP towns: letters apart ignores capitals', townDistance('SPRINGFELD', 'Springfield') === 1 && townDistance('Chicago', 'chicago') === 0);
+  const fix = (city, state, zip) => fixTown(table, { city, state, zip });
+  ok('ZIP towns: a town a letter off takes the ZIP\'s spelling (two letters for a long name), all caps stays all caps',
+    JSON.stringify(fix('Springfeld', 'IL', '62701')) === '{"town":"Springfield","fixed":true}' && fix('Chicaqo', 'IL', '60606').town === 'Chicago'
+    && fix('Sprngfeld', 'IL', '62701').town === 'Springfield' && fix('CHICAG', 'IL', '60606').town === 'CHICAGO');
+  ok('ZIP towns: a different town (ZIP codes serve several), another state, an unknown ZIP or a right town is left as read',
+    !fix('Riverton', 'IL', '62701').fixed && !fix('Springfeld', 'MO', '62701').fixed && !fix('Springfeld', 'IL', '00000').fixed && !fix('Springfield', 'IL', '62701').fixed && !fixTown(null, { city: 'Springfeld', state: 'IL', zip: '62701' }).fixed);
+  const fm = new ContactFormMapper();
+  const card = 'Dana Whitlock\nOwner\n4120 Lakeshore Road\nSpringfeld, IL 62701\nT 217.555.0142';
+  const before = fm.classifyLines(card).find(l => l.role === 'cityStateZip');
+  fm.setZipTowns(table);
+  const after = fm.classifyLines(card).find(l => l.role === 'cityStateZip');
+  ok('ZIP towns: the review box shows the ZIP\'s town and says so; before the table loads the town stays as read',
+    before.text === 'Springfeld, IL 62701' && !before.check && after.text === 'Springfield, IL 62701' && /ZIP 62701[\s\S]*Springfield[\s\S]*"Springfeld"/.test(after.check || ''), JSON.stringify([before, after]));
+  const filled = fm.buildFields(fm.classifyLines(card));
+  ok('ZIP towns: the corrected town fills the City field', filled.fields.city === 'Springfield' && filled.fields.state === 'IL' && filled.fields.zip === '62701', JSON.stringify(filled.fields));
+  const whole = fm.classifyLines('Dana Whitlock\n4120 Lakeshore Road, Springfeld, IL 62701').find(l => l.role === 'address');
+  ok('ZIP towns: a whole address on one line gets the town fixed and keeps its street', whole && whole.text === '4120 Lakeshore Road, Springfield, IL 62701', JSON.stringify(whole));
+  const stray = fm.classifyLines('Dana Whitlock\nOwner\n4120 Lakeshore Road\nT Springfeld, IL 62701').find(l => l.role === 'cityStateZip');
+  ok('ZIP towns: a stray letter before the town is dropped first, then the town is fixed', stray && stray.text === 'Springfield, IL 62701' && /"Springfeld"/.test(stray.check || ''), JSON.stringify(stray));
+  const mainJs = fsZ.readFileSync(`${R}/main.js`, 'utf8');
+  ok('ZIP towns: main.js loads the table from the app\'s own files once the reader is reading, not during its start-up', /import\('\.\/vendor\/zip-towns\/zipTowns\.js'\)/.test(mainJs) && /status === 'reading'\) loadZipTowns\(\)/.test(mainJs) && !/requestIdleCallback\(load/.test(mainJs));
+}
+
+// OCR for the Monday testers (raven575's ask, 2026-11-21): faint lines and mapping slips from the lab's card bench. Fictional people.
+{
+  const fl = await import(`${R}/modules/mod04-ocr/faintLines.js`);
+  const { ContactFormMapper, repairCapitalIT } = await import(`${R}/modules/mod05-form/formMapper.js`);
+  // A 400 x 200 card at paper 230: a dark line read at y 40-60, a pale line (200) at y 100-120 nobody read, a dark
+  // blade of grass from top to bottom at x 5-8, and a dark band (a coloured stripe) at y 160-200.
+  const W = 400, H = 200, gray = new Uint8Array(W * H).fill(230);
+  const paint = (x0, y0, x1, y1, v, letters = true) => { for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) if (!letters || (x % 12) < 7) gray[y * W + x] = v; };
+  paint(40, 40, 300, 60, 30); paint(40, 100, 220, 120, 200); paint(5, 0, 8, 160, 40, false); paint(0, 160, 400, 200, 60, false); paint(60, 172, 200, 188, 230);
+  const bands = fl.findFaintBands(gray, W, H, [{ x0: 40, y0: 40, x1: 300, y1: 60 }], 20);
+  ok('faint lines: a pale line no reading covers is found as one band, the read line, a grass blade and a dark stripe are not',
+    bands.length === 1 && bands[0].y0 >= 96 && bands[0].y1 <= 124 && bands[0].x0 >= 36 && bands[0].x0 <= 44 && bands[0].x1 >= 210 && bands[0].x1 <= 226, JSON.stringify(bands));
+  const tallBox = fl.findFaintBands(gray, W, H, [{ x0: 40, y0: 40, x1: 300, y1: 60 }, { x0: 0, y0: 0, x1: 300, y1: 130 }], 20);
+  ok('faint lines: a reading\'s box much taller than a line (a guess over a logo) does not hide a pale line under it', tallBox.length === 1 && tallBox[0].y0 >= 96, JSON.stringify(tallBox));
+  ok('faint lines: none without a usual line height, none on a blank card', fl.findFaintBands(gray, W, H, [], 0).length === 0 && fl.findFaintBands(new Uint8Array(W * H).fill(230), W, H, [], 20).length === 0);
+  ok('faint lines: the usual line height is the middle height of the sure lines', fl.usualLineHeight([{ bbox: { y0: 0, y1: 20 }, confidence: 90 }, { bbox: { y0: 0, y1: 30 }, confidence: 80 }, { bbox: { y0: 0, y1: 200 }, confidence: 10 }, { bbox: { y0: 0, y1: 24 }, confidence: 70 }]) === 24);
+  ok('faint lines: marks at either end of a strip reading are dropped', fl.trimStripText('\\N ck Zafer |') === 'N ck Zafer' && fl.trimStripText(' "Dana Whitlock" ') === 'Dana Whitlock' && fl.trimStripText('| ~') === '');
+  ok('"lT" after a small letter is "IT" in web addresses, emails and companies', repairCapitalIT('nzafer@PeakLogiclT.com') === 'nzafer@PeakLogicIT.com' && repairCapitalIT('PeakLogiclT.com/KalamazooMI') === 'PeakLogicIT.com/KalamazooMI'
+    && repairCapitalIT('Salt Lake') === 'Salt Lake' && repairCapitalIT('BoltTech') === 'BoltTech' && repairCapitalIT('lT') === 'lT');
+  const fm = new ContactFormMapper();
+  const lines = (text) => fm.classifyLines(text);
+  const role = (ls, r) => (ls.find(l => l.role === r) || {}).text;
+  const peak = lines('Owner & Ceneral Manager\n7950 Lakeview Road\nPortage, MI 49024\nE jdoe@PeakLogiclT.com\nT 269.555.0140\nW PeakLogiclT.com/KalamazooMI');
+  ok('mapping: "Ceneral" is General in a title; "lT" is "IT" in the email and web address', role(peak, 'jobTitle') === 'Owner & General Manager' && role(peak, 'email') === 'jdoe@PeakLogicIT.com' && role(peak, 'website') === 'PeakLogicIT.com/KalamazooMI', JSON.stringify(peak));
+  const advisor = lines('Technology\nAdvisor\nOwner & General Manager\n7950 Lakeview Road\nPortage, MI 49024\nT 269.555.0140');
+  ok('mapping: with no name to sit next to, a title of two title words beats a slogan\'s last word', role(advisor, 'jobTitle') === 'Owner & General Manager', JSON.stringify(advisor));
+  const media = fm.buildFields(lines('Aisha Bello\nDesert Bloom Media\n(520) 555-0129\nabello@desertbloom.media\ndesertbloom.media')).fields;
+  ok('mapping: newer web endings (.media, .photo, .studio) are web addresses', media.websites.length === 1 && media.websites[0].value === 'desertbloom.media'
+    && fm.buildFields(lines('Lucas Moreau\nlucasmoreau.photo')).fields.websites.length === 1, JSON.stringify(media.websites));
+  const photo = fm.buildFields(lines('Lucas Moreau Photo\nLucas Moreau\nPhotographer\n(269) 555-0117\nhello@lucasmoreau.photo')).fields;
+  const pale = fm.classifyLines([{ text: 'Nick Zarter', unsure: ['Nick', 'Zarter'] }, { text: 'Owner' }, { text: 'nzafer@peaklogic.com' }, { text: 'T 269.555.0140' }]);
+  ok('mapping: an unsure surname two letters off the email user name takes its spelling; a sure, right, cut-short or far-off one is left', role(pale, 'name') === 'Nick Zafer'
+    && role(fm.classifyLines('Dana Whitlock\ndwhitlock@x.com'), 'name') === 'Dana Whitlock' && role(fm.classifyLines('Dana Whitlock\ninfo@brightfern.com'), 'name') === 'Dana Whitlock'
+    && role(fm.classifyLines([{ text: 'Sam Feld', unsure: ['Feld'] }, { text: 'sfield@x.com' }]), 'name') === 'Sam Feld'
+    && role(fm.classifyLines([{ text: 'Grace Holloway', unsure: ['Holloway'] }, { text: 'ghollow@x.com' }]), 'name') === 'Grace Holloway'
+    && role(fm.classifyLines('Nick Zarter\nnzafer@x.com'), 'name') === 'Nick Zarter', JSON.stringify(pale));
+  const bracket = fm.classifyLines('Sam Feld\nsam(@feldhardware.com\nfeldhardware.com');
+  ok('mapping: a bracket or bar read against the @ is dropped and the line is the email', role(bracket, 'email') === 'sam@feldhardware.com'
+    && fm.buildFields(fm.classifyLines('Jo Doe\njo@|example.com')).fields.emails[0].value === 'jo@example.com', JSON.stringify(bracket));
+  ok('mapping: "Lucas Moreau Photo" over "Lucas Moreau" is the company, the shorter line the name', photo.firstName === 'Lucas' && photo.lastName === 'Moreau' && photo.organization === 'Lucas Moreau Photo', JSON.stringify(photo));
+}
+
 // OCR review steps: classifyLines (roles) + buildFields (fields from roles)
 {
-  const { ContactFormMapper, LINE_ROLES } = await import(`${R}/modules/mod05-form/formMapper.js`);
+  const { ContactFormMapper, LINE_ROLES, LOW_CONFIDENCE_NOTE } = await import(`${R}/modules/mod05-form/formMapper.js`);
   const fm = new ContactFormMapper();
   const text = 'ya O/\nYour Technology Partner\nDana Whitlock\nOwner & General Manager\n4120 Lakeshore Road, Suite 210\nSpringfield, MI 49011\nE dwhitlock@BrightPathIT.com\nT 616.555.0142\nM 616.555.0187\nW BrightPathIT.com/Holland';
   const lines = fm.classifyLines(text);
@@ -500,6 +616,13 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('a ZIP code the state does not use is flagged for checking, not changed', camera.find(l => l.role === 'cityStateZip').check === '42024 is not a Michigan ZIP code. Please check it.' && fm.buildFields(camera).fields.zip === '42024', JSON.stringify(camera.find(l => l.role === 'cityStateZip')));
   ok('a ZIP code that fits its state is not flagged', zipCheck('Portage, MI 49024') === undefined && zipCheck('Boston, MA 02108') === undefined && zipCheck('Austin, TX 73301') === undefined, zipCheck('Boston, MA 02108'));
   ok('a line with words the reader was unsure of is flagged for checking', camera.find(l => l.role === 'website').check === 'The reader was not sure of some letters here. Please check them.');
+  {
+    // A reading the reader was unsure of as a whole (MOD04 lowConfidence): every line is flagged, phone numbers too
+    const low = fm.classifyLines([{ text: 'Jo Smith', lowConfidence: true }, { text: 'T 616.555.0140', lowConfidence: true }, { text: 'jo@acme.com', lowConfidence: true }, { text: '12 Main Street', lowConfidence: true }, { text: 'Portage, MI 42024', lowConfidence: true }]);
+    ok('every line of a low-confidence reading is flagged for checking, phone included', low.length === 5 && low.filter(l => l.role !== 'cityStateZip').every(l => l.check === LOW_CONFIDENCE_NOTE) && low.some(l => l.role === 'phoneWork' && l.check === LOW_CONFIDENCE_NOTE), JSON.stringify(low));
+    ok('a wrong ZIP code keeps its own, more exact note', low.find(l => l.role === 'cityStateZip').check === '42024 is not a Michigan ZIP code. Please check it.', JSON.stringify(low));
+    ok('lines of a sure reading get no low-confidence note', fm.classifyLines([{ text: 'Jo Smith' }, { text: 'T 616.555.0140' }]).every(l => !('check' in l)));
+  }
   ok('unsure phone numbers and ignored lines are not flagged', fm.classifyLines([{ text: 'Jo Smith' }, { text: 'T 616.555.0140', unsure: ['616.555.0140'] }, { text: 'ya O/', unsure: ['ya'] }]).every(l => !('check' in l)));
   ok('a short domain is not matched (too easy to confuse)', fm.parseOCRText('Jo Smith\njo@abd.com\nabc.com').emails[0].value === 'jo@abd.com');
   // The PeakLogic card read from a phone screenshot on the iPad (video review 2026-10-17, finding 53 and 56): the slogan
@@ -684,6 +807,15 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const run = (hits) => hits.reduce((st, h) => nextSeen(st, h), { found: false, run: 0 }).found;
   ok('card watch: one look that finds a card is not enough; two in a row turn the corners green', FOUND_RUN === 2 && !run([true]) && run([true, true]) && !run([true, false, true]));
   ok('card watch: once found, one miss keeps it green and two misses turn it back (no flicker)', run([true, true, false]) && !run([true, true, false, false]) && run([true, true, false, true, false]));
+  // Scan mode (raven575 11-16): the live outline in viewfinder pixels, and the frame that turns with the card in view
+  const vf = await import(`${R}/modules/mod03-camera/viewfinder.js`);
+  const q = [{ x: 24, y: 30 }, { x: 216, y: 34 }, { x: 214, y: 140 }, { x: 22, y: 136 }];
+  const v = vf.quadToView(q, 240, 180, 480, 360);
+  ok('scan outline: the card\'s corners on the small copy land on the same spots of the viewfinder', JSON.stringify(v[0]) === '{"x":48,"y":60}' && JSON.stringify(v[2]) === '{"x":428,"y":280}' && vf.quadToView(null, 240, 180, 1, 1) === null);
+  ok('scan outline: SVG points to a tenth of a pixel, empty with no card', vf.outlinePoints([{ x: 1.234, y: 2 }, { x: 3, y: 4.56 }, { x: 5, y: 6 }, { x: 7, y: 8 }]) === '1.2,2 3,4.6 5,6 7,8' && vf.outlinePoints(null) === '');
+  ok('scan: a card held wide reads landscape, one held upright portrait', vf.quadOrientation(q) === 'landscape' && vf.quadOrientation([{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 90 }, { x: 0, y: 90 }]) === 'portrait');
+  const upright = vf.cardFrameRect(390, 520), turned = vf.cardFrameRect(390, 520, 'landscape');
+  ok('card frame: in a tall view it stands upright, and turns wide when a card held wide is in view (Android run 11-16)', upright.orientation === 'portrait' && turned.orientation === 'landscape' && turned.width > turned.height && Math.abs(turned.width / turned.height - vf.CARD_ASPECT) < 1e-9 && vf.cardFrameRect(390, 520, 'sideways').orientation === 'portrait');
   ok('zoom chips: the chip for the zoom asked for, none for a zoom between them', chipFor(1, [0.5, 1, 2]) === 1 && chipFor(2.02, [0.5, 1, 2]) === 2 && chipFor(0.5, [0.5, 1, 2]) === 0 && chipFor(1.5, [0.5, 1, 2]) === -1 && chipFor(NaN, [1]) === -1);
 }
 
@@ -780,6 +912,29 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   cam3.activeStream = { getVideoTracks: () => [{ applyConstraints: () => Promise.reject(new Error('no')) }], getTracks: () => [] };
   ok('light: a camera that refuses says so and keeps the light as it was', (await cam3.setLight(false)) === false && cam3.lightOn && toasts[0] === 'The light would not turn off.', JSON.stringify(toasts));
   cam3.activeStream = null;
+  // Scan: the button and the outline show only while a card is found; Scan with no card in view does nothing
+  const mk = () => { const c = new Set(['hidden']); return { ...el(), cls: c, classList: { add: x => c.add(x), remove: x => c.delete(x), contains: x => c.has(x) } }; };
+  const poly = { attrs: {}, setAttribute(k, x) { this.attrs[k] = x; } };
+  const scanBtn = mk(), outline = Object.assign(mk(), { querySelector: () => poly });
+  const cam4 = new VCGEActiveCamera({ ...cfg, scanButton: scanBtn, outline, hint: el(), shutterLabel: el() });
+  cam4.liveQuad = [{ x: 10, y: 20 }, { x: 110, y: 20 }, { x: 110, y: 80 }, { x: 10, y: 80 }];
+  cam4.showFound(true);
+  ok('scan: while a card is found, Scan shows and the outline is drawn round it', !scanBtn.cls.has('hidden') && !outline.cls.has('hidden') && poly.attrs.points === '10,20 110,20 110,80 10,80', poly.attrs.points);
+  cam4.liveQuad = null; cam4.showFound(false);
+  ok('scan: no card, no Scan and no outline', scanBtn.cls.has('hidden') && outline.cls.has('hidden') && poly.attrs.points === '');
+  let scanShots = 0; cam4.captureFrame = () => { scanShots++; };
+  cam4.activeStream = { getVideoTracks: () => [], getTracks: () => [] }; cam4.scan();
+  ok('scan: Scan with no card in view takes no photo', scanShots === 0 && !cam4.scanNext);
+  cam4.seen = { found: true, run: 0 }; cam4.scan();
+  ok('scan: Scan with a card in view takes the shot (the same Smart burst) as a scan', scanShots === 1);
+  cam4.tipUntil = Date.now() + 1000; cam4.showFound(false);
+  const tipText = cam4.hint.textContent; cam4.tipUntil = 0; cam4.showFound(false);
+  ok('shutter tip: the first camera start says what the green shutter means, then the hint goes back to normal', tipText === 'Green shutter = card found' && cam4.hint.textContent === 'Fit the card inside the corners', tipText);
+  cam4.activeStream = null;
+  const stg = await import(`${R}/modules/mod01-shell/settings.js`);
+  const memStore = new Map(); const mem = { getItem: k => memStore.get(k) ?? null, setItem: (k, x) => memStore.set(k, String(x)), removeItem: k => memStore.delete(k) };
+  const before = stg.tipSeen(mem); stg.rememberTipSeen(mem);
+  ok('shutter tip: shown once, then remembered as tip=1 in vcge_settings', before === false && stg.tipSeen(mem) === true && /(^|;)tip=1(;|$)/.test(memStore.get('vcge_settings') || ''), memStore.get('vcge_settings'));
   globalThis.addEventListener = savedAdd;
 }
 
@@ -844,6 +999,21 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 
 // Snap to card: the on-device edge finder (MOD03)
 {
+  {
+    // The scan's snap waits for the photo's pixels (decode), never forever, and never fails on a bad decode
+    const { whenDrawable, DECODE_WAIT_MS } = await import(`${R}/modules/mod03-camera/cropEditor.js`);
+    const order = [];
+    let finish; const img = { decode: () => new Promise(r => { finish = r; }) };
+    const waiting = whenDrawable(img, { schedule: () => {} }).then(() => order.push('snap'));
+    await Promise.resolve(); await Promise.resolve();
+    order.push('decoded'); finish(); await waiting;
+    ok('scan snap: waits until the photo is decoded before reading its pixels', order.join() === 'decoded,snap', order.join());
+    let timer = null; const stuck = whenDrawable({ decode: () => new Promise(() => {}) }, { schedule: (fn, ms) => { timer = ms; fn(); } });
+    ok('scan snap: a decode that never ends is waited on for at most DECODE_WAIT_MS (2 s)', (await stuck.then(() => 'went on')) === 'went on' && timer === DECODE_WAIT_MS && DECODE_WAIT_MS === 2000, String(timer));
+    const bad = await whenDrawable({ decode: () => Promise.reject(new Error('EncodingError')) }, { schedule: () => {} }).then(() => 'went on', () => 'rejected');
+    ok('scan snap: a failed decode still goes on to the snap (which then says no edges were found)', bad === 'went on', bad);
+    ok('scan snap: a browser without decode() snaps at once', (await whenDrawable({}).then(() => 'went on')) === 'went on');
+  }
   const { findCardQuad, convexHull, orderCorners, isCutCorner } = await import(`${R}/modules/mod03-camera/cardFinder.js`);
   // A white 1050 x 600 card, rotated and sheared on a grey background, with dark "text" rows on it (the e2e crooked card)
   const deg = Math.PI / 180;
@@ -1106,10 +1276,10 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   }
   ok('failed OCR publishes nothing to the form pipeline', evt === null);
 
-  let created = 0, terminated = 0, psm = null, params = null, result = null, hold = false, psms = [];
+  let created = 0, terminated = 0, psm = null, params = null, result = null, hold = false, psms = [], seenParams = [];
   const words = (n, conf) => Array.from({ length: n }, (_, i) => ({ text: `word${i}`, confidence: conf }));
   globalThis.Tesseract = { createWorker: async () => { created++; return {
-    setParameters: async (p) => { params = p; psm = p.tessedit_pageseg_mode; psms.push(psm); },
+    setParameters: async (p) => { params = p; seenParams.push(p); if ('tessedit_pageseg_mode' in p) { psm = p.tessedit_pageseg_mode; psms.push(psm); } },
     recognize: async (image) => (hold ? new Promise(() => {}) : { data: typeof result === 'function' ? result(image) : result }), terminate() { terminated++; } }; } };
   result = { text: 'Jane Doe\njane@example.com', confidence: 88, words: words(8, 90) };
   const r = await ocr.executeOCRScan('data:image/png;base64,x');
@@ -1117,9 +1287,9 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('OCR_TEXT_EXTRACTED is a signal: no text on the bus', !('text' in evt) && !JSON.stringify(evt).includes('Jane'), JSON.stringify(evt));
   ok('OCR uses sparse-text page segmentation', psm === ocr.OCR_PAGE_SEG_MODE && psm === '11', String(psm));
   evt = null;
-  result = { text: 'py A Year op WW es', confidence: 46, words: words(12, 70) };
+  result = { text: 'py A Year op WW es', confidence: 46, words: words(9, 70) };
   const blurry = await failure(ocr.executeOCRScan('data:image/png;base64,x'));
-  ok('low-confidence photo rejected as unreadable (retake)', blurry && blurry.code === 'OCR_UNREADABLE' && blurry.confidence === 46 && evt === null, blurry && blurry.message);
+  ok('low-confidence photo with under OCR_CHECK_MIN_WORDS readable words rejected as unreadable (retake)', blurry && blurry.code === 'OCR_UNREADABLE' && blurry.confidence === 46 && blurry.readableWords === 9 && ocr.OCR_CHECK_MIN_WORDS === 10 && evt === null, blurry && blurry.message);
   ok('a photo with no sharp edges is called blurry, not hard lettering', blurry && blurry.sharp === false && blurry.message.includes('too blurry'), blurry && blurry.message);
   // A sharp photo the reader still can't read (raven575, 2026-10-22: a clear card in a handwriting-style font)
   const stripes = (w, h) => { const d = new Uint8ClampedArray(w * h * 4); for (let i = 0; i < w * h; i++) d.fill((i % w) % 4 < 2 ? 20 : 235, i * 4, i * 4 + 4); return d; };
@@ -1146,8 +1316,46 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   result = { text: 'Jo', confidence: 80, words: words(2, 90) };
   const sparse = await failure(ocr.executeOCRScan('data:image/png;base64,x'));
   ok('photo with too few readable words rejected as unreadable', sparse && sparse.code === 'OCR_UNREADABLE' && sparse.readableWords === 2, sparse && sparse.message);
+  result = { text: 'py A Year op WW es', confidence: 46, words: words(12, 70) };
+  const ungated = await ocr.executeOCRScan('data:image/png;base64,x', { gate: false });
+  ok('gate: false (lab only) returns a reading that failed the unreadable check, marked failedGate', ungated.text === 'py A Year op WW es' && ungated.failedGate && ungated.failedGate.confidence === 46 && ungated.failedGate.readableWords === 12 && ungated.failedGate.sharp === false, JSON.stringify(ungated));
+  result = { text: 'Jane Doe\njane@example.com', confidence: 88, words: words(8, 90) };
+  ok('a reading that passes the check carries no failedGate', !('failedGate' in await ocr.executeOCRScan('data:image/png;base64,x', { gate: false })));
+  // OCR tuning (raven575's yes, 2026-11-20): a low-confidence read with 10+ readable words is kept, every line marked to check
+  evt = null;
+  result = { text: 'Jane Doe\nSales Manager\n616.555.0140', confidence: 46, words: words(10, 70) };
+  const kept = await ocr.executeOCRScan('data:image/png;base64,x');
+  ok('a low-confidence read with 10 readable words is kept, marked lowConfidence on the result and every line', kept.lowConfidence === true && !('failedGate' in kept) && kept.lines.length === 3 && kept.lines.every(l => l.lowConfidence === true) && evt && evt.confidence === 46, JSON.stringify(kept));
+  result = { text: 'Jane Doe\nSales Manager', confidence: 46, words: [...words(10, 70).map((w, i) => (i < 2 ? w : { ...w, text: 'x' }))] };
+  const fewReadable = await failure(ocr.executeOCRScan('data:image/png;base64,x'));
+  ok('only readable words count toward the 10 (single letters do not)', fewReadable && fewReadable.code === 'OCR_UNREADABLE' && fewReadable.readableWords === 2, fewReadable && fewReadable.message);
+  result = { text: 'Jane Doe\njane@example.com', confidence: 88, words: words(8, 90) };
+  const sure = await ocr.executeOCRScan('data:image/png;base64,x');
+  ok('a read that passes the check carries no lowConfidence', !('lowConfidence' in sure) && sure.lines.every(l => !('lowConfidence' in l)), JSON.stringify(sure));
   ok('OCR worker is started once and reused after a failure', created === 1, String(created));
-  ok('OCR asks the engine for second guesses', params && params.lstm_choice_mode === '2', JSON.stringify(params));
+  ok('OCR asks the engine for second guesses', seenParams.some(p => p.lstm_choice_mode === '2'), JSON.stringify(seenParams));
+  // Second black-and-white (raven575's ask, 2026-11-21): an unsure first reading is read again with the local step.
+  {
+    let reads = 0;
+    seenParams = [];
+    result = () => (++reads === 1 ? { text: 'Jane Doe\nSales Manager\n616.555.0140', confidence: 62, words: words(12, 70) } : { text: 'Jane Doe\nSales Manager\n616.555.0140\njane@example.com', confidence: 84, words: words(14, 90) });
+    const twice = await ocr.executeOCRScan('data:image/png;base64,x');
+    ok('second black-and-white: a reading under SECOND_BINARIZE_BELOW is read again with the local step, and the surer one kept',
+      ocr.SECOND_BINARIZE_BELOW === 75 && reads === 2 && twice.confidence === 84 && twice.lines.length === 4
+      && seenParams.some(p => p.thresholding_method === '2') && seenParams[seenParams.length - 1].thresholding_method === '0', JSON.stringify({ reads, seenParams, c: twice.confidence }));
+    reads = 0; seenParams = [];
+    result = () => (++reads === 1 ? { text: 'Jane Doe\nSales Manager', confidence: 70, words: words(12, 80) } : { text: 'J', confidence: 40, words: words(1, 40) });
+    const kept = await ocr.executeOCRScan('data:image/png;base64,x');
+    ok('second black-and-white: a less sure second reading leaves the first', reads === 2 && kept.confidence === 70 && kept.text === 'Jane Doe\nSales Manager', JSON.stringify(kept));
+    reads = 0; seenParams = [];
+    result = () => { ++reads; return { text: 'Jane Doe\njane@example.com', confidence: 88, words: words(8, 90) }; };
+    await ocr.executeOCRScan('data:image/png;base64,x');
+    ok('second black-and-white: a sure reading is read once', reads === 1 && !seenParams.some(p => 'thresholding_method' in p), JSON.stringify({ reads, seenParams }));
+    reads = 0;
+    result = () => { if (++reads === 2) throw new Error('boom'); return { text: 'Jane Doe\nSales Manager', confidence: 70, words: words(12, 80) }; };
+    const failedSecond = await ocr.executeOCRScan('data:image/png;base64,x');
+    ok('second black-and-white: a failing second read keeps the first reading', failedSecond.confidence === 70 && failedSecond.text === 'Jane Doe\nSales Manager', JSON.stringify(failedSecond));
+  }
   const word = (text, confidence) => ({ text, confidence, symbols: [] });
   result = { text: 'W acme.comlKala\nJane Doe', confidence: 80, words: words(6, 90),
     lines: [{ text: 'W acme.comlKala', words: [word('W', 10), word('acme.comlKala', 20)] }, { text: 'Jane Doe', words: [word('Jane', 95), word('Doe', 30)] }] };
@@ -1924,7 +2132,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     && gs.guessesFor('a b c d', [{ from: 'a', to: 'A' }, { from: 'b', to: 'B' }, { from: 'c', to: 'C' }, { from: 'd', to: 'D' }]).length === gs.MAX_GUESSES);
   {
     const { ContactFormMapper: FM } = await import(`${R}/modules/mod05-form/formMapper.js`);
-    const lines = new FM().classifyLines([{ text: 'Dana Whitlcck', alts: [{ at: 10, chars: ['c', 'o', 'e'] }], unsure: ['Whitlcck'] }, { text: 'dwhitlock@example.com' }, { text: '616.555.0142' }]);
+    const lines = new FM().classifyLines([{ text: 'Dana Whitlcck', alts: [{ at: 10, chars: ['c', 'o', 'e'] }], unsure: ['Whitlcck'] }, { text: 'dana@example.com' }, { text: '616.555.0142' }]);
     const name = lines.find(l => l.role === 'name');
     ok('guesses: a name the reader was unsure of comes to the review with its check and its guesses; a sure line has none',
       !!name && !!name.check && (name.guesses || []).join('|') === 'Dana Whitlock|Dana Whitleck' && !lines.find(l => l.role === 'email').guesses, JSON.stringify(lines));
@@ -1952,6 +2160,18 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   fakeWin.innerWidth = 1366; fakeRo();
   ok('layout: a new page size seen by the resize observer updates the tier at once (WebKit can be late with the resize event)',
     fakeRoOn === fakeRoot && fakeRoot.dataset.tier === 'laptop', fakeRoot.dataset.tier);
+  // iPad run 2026-11-20: the page opened slid sideways; the tier check puts it back at the left edge and runs again on
+  // turning, coming back to the tab, load and the fonts arriving
+  {
+    const heard = [], moved = [];
+    const w2 = { innerWidth: 970, innerHeight: 1389, scrollX: 240, scrollY: 0, scrollTo: (x, y) => moved.push([x, y]),
+      document: { documentElement: { dataset: {}, style: { getPropertyValue: () => '' } }, fonts: { ready: Promise.resolve() } },
+      addEventListener: (n) => heard.push(n), requestAnimationFrame: (f) => f() };
+    tier.initTier(w2);
+    ok('layout: a page slid sideways is put back at the left edge, and the check reruns on turn, pageshow, load and fonts',
+      moved.length === 1 && moved[0][0] === 0 && ['resize', 'orientationchange', 'pageshow', 'load'].every(n => heard.includes(n)), JSON.stringify([moved, heard]));
+    ok('layout: the page never scrolls sideways (html overflow-x: clip)', /html \{ overflow-x: clip; \}/.test(fs.readFileSync(`${R}/modules/mod01-shell/ui.css`, 'utf8')));
+  }
   const uiCssL = fs.readFileSync(`${R}/modules/mod01-shell/ui.css`, 'utf8');
   ok('layout: screens measure their own width, the shell is one centred column (the mock-up is a phone), drop-downs are 44 px',
     /@supports \(container-type: inline-size\) \{\s*\.deck-card \{ container: deck-card \/ inline-size; \}/.test(deckCss)
@@ -1965,7 +2185,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const st = await import(`${R}/modules/mod01-shell/settings.js`);
   const ui = await import(`${R}/modules/mod01-shell/ui.js`);
   localStorage.clear();
-  ok('settings: one key, defaults right hand, colour-blind off, dark theme, Inter, normal text size', st.SETTINGS_KEY === 'vcge_settings' && JSON.stringify(st.DEFAULTS) === '{"hand":0,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0}' && st.fontFor(0) === 'Inter' && st.scaleFor(0) === 1);
+  ok('settings: one key, defaults right hand, colour-blind off, dark theme, Inter, normal text size', st.SETTINGS_KEY === 'vcge_settings' && JSON.stringify(st.DEFAULTS) === '{"hand":0,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0,"tip":0,"lang":0}' && st.fontFor(0) === 'Inter' && st.scaleFor(0) === 1);
   ok('settings: the wipe after the lock is 7, 10 or 15 minutes, codes 0, 1, 2; 7 is the default and an unknown code is 7', st.WIPE_TIMES.map(t => `${t.code}:${t.minutes}`).join() === '0:7,1:10,2:15'
     && st.wipeMinutesFor(0) === 7 && st.wipeMinutesFor(1) === 10 && st.wipeMinutesFor(2) === 15 && st.wipeMinutesFor(9) === 7);
   {
@@ -1977,10 +2197,10 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('settings: nine text sizes, Smallest to Largest, smallest first, each with its own fixed code (the first four keep theirs); an unknown code is Normal', st.TEXT_SIZES.map(t => t.name).join() === 'Smallest,Small,Normal,Large,Larger,Big,Bigger,Huge,Largest'
     && st.TEXT_SIZES.every((t, i) => i === 0 || t.scale > st.TEXT_SIZES[i - 1].scale) && new Set(st.TEXT_SIZES.map(t => t.code)).size === 9 && st.scaleFor(0) === 1 && st.scaleFor(3) === 0.875 && st.scaleFor(2) === 1.25 && st.scaleFor(8) === 1.75 && st.scaleFor(9) === 1);
   ok('settings: every Settings font has its own fixed code, Inter 0, no code shared', ui.UI_FONTS.every(n => Number.isInteger(st.FONT_CODES[n])) && new Set(Object.values(st.FONT_CODES)).size === ui.UI_FONTS.length && Object.keys(st.FONT_CODES).length === ui.UI_FONTS.length);
-  ok('settings: a line of name=number pairs reads back', JSON.stringify(st.parseSettings('hand=1;cb=1;theme=1;font=3;size=2;wipe=1')) === '{"hand":1,"cb":1,"theme":1,"font":3,"size":2,"wipe":1,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0}');
-  ok('settings: an entry saved before the text size and wipe time existed reads as Normal and 7 minutes', JSON.stringify(st.parseSettings('hand=1;cb=0;theme=0;font=2')) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0}');
+  ok('settings: a line of name=number pairs reads back', JSON.stringify(st.parseSettings('hand=1;cb=1;theme=1;font=3;size=2;wipe=1')) === '{"hand":1,"cb":1,"theme":1,"font":3,"size":2,"wipe":1,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0,"tip":0,"lang":0}');
+  ok('settings: an entry saved before the text size and wipe time existed reads as Normal and 7 minutes', JSON.stringify(st.parseSettings('hand=1;cb=0;theme=0;font=2')) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0,"tip":0,"lang":0}');
   ok('settings: missing or unreadable means the defaults', JSON.stringify(st.parseSettings(null)) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('garbage')) === JSON.stringify(st.DEFAULTS) && JSON.stringify(st.parseSettings('')) === JSON.stringify(st.DEFAULTS));
-  ok('settings: an unknown name, an out-of-range or non-numeric value falls back to its default, the rest is kept', JSON.stringify(st.parseSettings('hand=1;name=Maria;cb=9;theme=x;font=99;size=9')) === '{"hand":1,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0}');
+  ok('settings: an unknown name, an out-of-range or non-numeric value falls back to its default, the rest is kept', JSON.stringify(st.parseSettings('hand=1;name=Maria;cb=9;theme=x;font=99;size=9')) === '{"hand":1,"cb":0,"theme":0,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0,"tip":0,"lang":0}');
   ok('settings: serialises every name in a fixed order and clamps', st.serializeSettings({ font: 2, hand: 1, size: 3 }) === 'hand=1;cb=0;theme=0;font=2;size=3;wipe=0' && st.serializeSettings({ cb: 6 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0');
   ok('settings: Plain look is look=1, written only while on (an entry nobody switched reads as before); look=2 is out of range',
     st.serializeSettings({ look: 1 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0;look=1' && st.serializeSettings({ look: 0 }) === 'hand=0;cb=0;theme=0;font=0;size=0;wipe=0'
@@ -2009,16 +2229,16 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('settings: save writes the one key and nothing else', localStorage.getItem('vcge_settings') === 'hand=1;cb=0;theme=0;font=2;size=0;wipe=0' && store.size === 1);
   ok('settings (step 7): Easy touch is easy=1, written only once it is on', st.parseSettings('easy=1').easy === 1 && st.parseSettings('').easy === 0
     && !st.serializeSettings(st.parseSettings('')).includes('easy') && /(^|;)easy=1(;|$)/.test(st.serializeSettings({ ...st.parseSettings(''), easy: 1 })));
-  ok('settings: load reads it back', JSON.stringify(st.loadSettings()) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0}');
+  ok('settings: load reads it back', JSON.stringify(st.loadSettings()) === '{"hand":1,"cb":0,"theme":0,"font":2,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0,"tip":0,"lang":0}');
   st.clearSettings();
   ok('settings: clear removes it', store.size === 0 && JSON.stringify(st.loadSettings()) === JSON.stringify(st.DEFAULTS));
   localStorage.setItem('vcge_theme_preference', 'light');
-  ok('settings: the old theme key is carried over once and removed', JSON.stringify(st.loadSettings()) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0}' && localStorage.getItem('vcge_theme_preference') === null && store.size === 0);
+  ok('settings: the old theme key is carried over once and removed', JSON.stringify(st.loadSettings()) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0,"tip":0,"lang":0}' && localStorage.getItem('vcge_theme_preference') === null && store.size === 0);
   const code = fs.readFileSync(`${R}/modules/mod01-shell/settings.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
-  ok('settings: subscribes to SETTINGS_WIPE_REQUESTED, imports only the bus, ui.js, themes.js, edition.js and pictureSelect.js, no network, cookies or markup', /subscribe\(Events\.SETTINGS_WIPE_REQUESTED/.test(code)
-    && (code.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ui.js'") || l.includes("'./themes.js'") || l.includes("'./edition.js'") || l.includes("'./pictureSelect.js'")) && !/fetch\(|document\.cookie|sessionStorage|indexedDB|innerHTML|publish\(/.test(code));
+  ok('settings: subscribes to SETTINGS_WIPE_REQUESTED, imports only the bus, ui.js, themes.js, edition.js, pictureSelect.js and i18n.js, no network, cookies or markup', /subscribe\(Events\.SETTINGS_WIPE_REQUESTED/.test(code)
+    && (code.match(/^import .* from '([^']+)'/gm) || []).every(l => l.includes('share/eventBus.js') || l.includes("'./ui.js'") || l.includes("'./themes.js'") || l.includes("'./edition.js'") || l.includes("'./pictureSelect.js'") || l.includes("'./i18n.js'")) && !/fetch\(|document\.cookie|sessionStorage|indexedDB|innerHTML|publish\(/.test(code));
   ok('settings: the only storage key named in the code is the settings key (plus the old theme key it removes)', [...code.matchAll(/(?:getItem|setItem|removeItem)\((\w+)/g)].every(m => m[1] === 'SETTINGS_KEY' || m[1] === 'OLD_THEME_KEY'));
-  ok('settings: the Settings sheet and the Welcome card carry the one-file disclaimer', fs.readFileSync(`${R}/../index.html`, 'utf8').includes('vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look, the opening splash, and whether you have seen the tour). Nothing you scan, upload or type is ever saved.')
+  ok('settings: the Settings sheet and the Welcome card carry the one-file disclaimer', fs.readFileSync(`${R}/../index.html`, 'utf8').includes('vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look, the opening splash, screen language, and whether you have seen the tour). Nothing you scan, upload or type is ever saved.')
     && /<section id="cardWelcome"[\s\S]*?remembers none of your sensitive data[\s\S]*?<\/section>/.test(fs.readFileSync(`${R}/../index.html`, 'utf8')) && !fs.existsSync(`${R}/modules/mod01-shell/themeManager.js`));
   // App themes (themes.js, theme step 1): fixed codes, readable colours, branded ones left out of plain
   const th = await import(`${R}/modules/mod01-shell/themes.js`);
@@ -2072,7 +2292,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('settings 0.8: the six styles keep fixed codes (Herd 0, Material 1, iOS 2, Windows 3, GNOME 4, KDE 5); an unknown code is Herd',
     st.STYLES.map(t => `${t.code}:${t.id}`).join() === '0:herd,1:material,2:ios,3:windows,4:gnome,5:kde' && st.styleFor(9).id === 'herd' && st.parseSettings('style=6').style === 0);
   ok('settings 0.8: an entry from 0.7 (no mode, style or tex) reads as the fixed theme, Herd style and the texture on',
-    JSON.stringify(st.parseSettings('hand=0;cb=0;theme=1;font=0;size=0;wipe=0')) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0}'
+    JSON.stringify(st.parseSettings('hand=0;cb=0;theme=1;font=0;size=0;wipe=0')) === '{"hand":0,"cb":0,"theme":1,"font":0,"size":0,"wipe":0,"mode":0,"style":0,"tex":0,"look":0,"tour":0,"splash":0,"easy":0,"tip":0,"lang":0}'
     && st.effectiveTheme(st.parseSettings('theme=1'), true) === 1 && st.effectiveTheme(st.parseSettings('theme=0'), false) === 0);
   ok('settings 0.8: Appearance System shows the family\'s light or dark code by the device; a one-version theme stays itself',
     st.effectiveTheme({ theme: 1, mode: 1 }, true) === 0 && st.effectiveTheme({ theme: 0, mode: 1 }, false) === 1
@@ -2121,6 +2341,13 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
       && ['texToggle', 'plainToggle'].every(id => set5.indexOf(`<input id="${id}"`) > comfort));
     ok('Settings: the dyslexia switch sets the font code only (OpenDyslexic on, Inter off), so nothing new is stored', st.DYSLEXIA_FONT === st.FONT_CODES['OpenDyslexic'] && st.dyslexiaFont(true) === 3 && st.dyslexiaFont(false) === 0
       && st.serializeSettings({ font: st.dyslexiaFont(true) }) === 'hand=0;cb=0;theme=0;font=3;size=0;wipe=0');
+    {
+      const ui = fs.readFileSync(`${R}/modules/mod01-shell/ui.css`, 'utf8'), deck = fs.readFileSync(`${R}/modules/mod01-shell/deck.css`, 'utf8');
+      ok('iPad run 11-20: OpenDyslexic (code 3) is pulled in to a normal width, buttons and fields too',
+        /html\[data-font="3"\] body \{ letter-spacing: -0\.05em; word-spacing: -0\.15em; \}/.test(ui) && /html\[data-font="3"\] body :is\(button, input, select, textarea\) \{ letter-spacing: inherit;/.test(ui));
+      ok('iPad run 11-20: a button picture sits beside its word (inline, not the block every svg gets from the base styles)',
+        /\.vcge-icon\.ic-btn \{ display: inline-block;/.test(deck));
+    }
     ok('R5: the texture switch hides the dot texture, and each of the five other styles has its own look',
       /html\[data-tex="off"\] \.vcge-tex \{ display: none; \}/.test(css5) && ['material', 'ios', 'windows', 'gnome', 'kde'].every(k => css5.includes(`html[data-style="${k}"]`)));
     ok('R5: the Vault and Settings sheets carry Ghost\'s and Shutout\'s emblems', Object.entries(em.SHEET_EMBLEMS).map(([id, e]) => `${id}:${e.pilot}`).join() === 'vaultPage:ghost,settingsSheet:shutout'
@@ -2605,6 +2832,103 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('logo guess: the cut-out is the pick in photo pixels with a little card around it, kept on the photo',
     cut.x < 78 && cut.y < 58 && cut.x + cut.w > 264 && cut.y + cut.h > 244 && cut.w < 220 && edge.x === 0 && edge.y === 0 && edge.w <= 1200, JSON.stringify({ cut, edge }));
   ok('logo guess: the reader\'s scale matches its photo preparation (small photos enlarged, big ones shrunk)', readerScale(600) === 3 && readerScale(1500) === 1 && readerScale(4800) === 0.5);
+}
+
+// Field-mapping slips from the Card Inbox run (2026-11-19), with made-up cards in the same shapes.
+{
+  const { ContactFormMapper } = await import(`${R}/modules/mod05-form/formMapper.js`);
+  const fm = new ContactFormMapper();
+  const roles = (t) => fm.classifyLines(t).map(l => l.role).join();
+  const debris = fm.classifyLines('Dana Whitlock a Bq\nOwner\nT 616.555.0142\nBrightPathIT.com');
+  ok('mapping: a name with OCR debris after it is still the name, without the debris', debris[0].role === 'name' && debris[0].text === 'Dana Whitlock' && fm.buildFields(debris).fields.lastName === 'Whitlock', JSON.stringify(debris[0]));
+  const own = fm.classifyLines('Dana Whitlock a Bq\nDana Whitlock Studio\nwww.danawhitlock.com');
+  ok('mapping: a name with debris is the name on a card with a personal domain too', own[0].role === 'name' && own[0].text === 'Dana Whitlock', JSON.stringify(own.map(l => l.role)));
+  const rival = fm.classifyLines('Dana Whitlock a Bq\nOwner\nBrightpath Tech\nT 616.555.0142\nwww.brightpathtech.com');
+  ok('mapping: a company line that spells the domain does not beat a name with debris to the name', rival[0].role === 'name' && rival[2].role === 'organization', JSON.stringify(rival.map(l => l.role)));
+  const rival2 = fm.classifyLines('Dana Whitlock;\nBrightpath Tech\nbrightpathtech.com');
+  ok('mapping: the same with a trailing mark', rival2[0].role === 'name' && rival2[0].text === 'Dana Whitlock' && rival2[1].role === 'organization', JSON.stringify(rival2.map(l => l.role)));
+  const two = fm.classifyLines('Dana Whitlock;\nOwner\nSecond Wave\nT 616.555.0142');
+  ok('mapping: a name with a trailing mark, above a name-shaped company and no domain, is the name', two[0].role === 'name' && two[0].text === 'Dana Whitlock' && two[2].role === 'organization', JSON.stringify(two.map(l => l.role)));
+  const logoLetter = fm.classifyLines('B Dana R Whitlock.\nOwner\nT 616.555.0142');
+  ok('mapping: a logo letter read in front of a name is dropped', logoLetter[0].role === 'name' && logoLetter[0].text === 'Dana R Whitlock', JSON.stringify(logoLetter[0]));
+  const semi = fm.classifyLines('Dana Whitlock;\nOwner\nT 616.555.0142');
+  ok('mapping: a name with a trailing mark is the name', semi[0].role === 'name' && semi[0].text === 'Dana Whitlock', JSON.stringify(semi[0]));
+  ok('mapping: a phrase is not trimmed into a name ("Serving Ohio since 1998")', fm.classifyLines('Dana Whitlock\nServing Ohio since 1998')[1].role !== 'name');
+  ok('mapping: a company line that matches the domain is not trimmed into a name', roles('Jo Ames\nBrightpath Tech a Co\njo@brightpath.com').startsWith('name,organization'), roles('Jo Ames\nBrightpath Tech a Co\njo@brightpath.com'));
+  ok('mapping: a printed name keeps its particles ("Maria de la Cruz")', fm.classifyLines('Maria de la Cruz\nOwner')[0].text === 'Maria de la Cruz');
+  const comma = fm.classifyLines('Cell 616.555,0187\nT 312-555,0100');
+  ok('mapping: a phone number with a comma slip is found and repaired', comma[0].role === 'phoneMobile' && fm.buildFields(comma).fields.phones.map(p => p.type + p.value.replace(/\D/g, '')).join() === 'mobile16165550187,work13125550100' && comma[0].text === '616.555.0187', JSON.stringify(fm.buildFields(comma).fields.phones));
+  const marks = fm.classifyLines('Dana Whitlock\nBrightpath\\Tw\'\ndana@brightpath.com');
+  ok('mapping: a company with OCR marks that matches the domain is the company, trimmed to the domain', marks[1].role === 'organization' && marks[1].text === 'Brightpath', JSON.stringify(marks[1]));
+  ok('mapping: logo debris without a domain match stays out', fm.classifyLines('Dana Whitlock\nya\\O/|*!\ndana@brightpath.com')[1].role === 'ignore');
+  const handle = fm.classifyLines('Dana Whitlock\n@brightpathtech\ndana@brightpath.com');
+  ok('mapping: a bare @handle line is the social profile (website)', handle[1].role === 'website' && fm.buildFields(handle).fields.websites.some(w => w.value === '@brightpathtech'), JSON.stringify(fm.buildFields(handle).fields.websites));
+  // raven575's phone run (2026-11-20), made-up card in the same shape: "Owner" read as "Ower" with a stray T in front
+  const ower = fm.classifyLines('T Ower\nM Dan Manager\n12 Main Street, Suite 4\nT Portage, MI 49024\nE jo@acmetech.com\nT 269.555.0100\nW acmetech.com');
+  const owerFields = fm.buildFields(ower).fields;
+  ok('mapping: a title word missing a letter ("T Ower") is the title "Owner", never the name', ower[0].role === 'jobTitle' && ower[0].text === 'Owner' && !ower.some(l => l.role === 'name') && owerFields.jobTitle === 'Owner' && !owerFields.firstName && !owerFields.lastName, JSON.stringify(ower.map(l => [l.text, l.role])));
+  ok('mapping: a stray capital in front of the city line is dropped ("T Portage, MI")', owerFields.city === 'Portage' && ower.find(l => l.role === 'cityStateZip').text === 'Portage, MI 49024', JSON.stringify(owerFields.city));
+  const feld = fm.classifyLines('Sam Feld\nOwner\nW Bloomfield, MI 48322\nN Charleston, SC 29405');
+  ok('mapping: a 4-letter surname near a title-area word stays the name ("Feld" is not "field")', feld[0].role === 'name' && feld[0].text === 'Sam Feld', JSON.stringify(feld[0]));
+  ok('mapping: a direction letter in front of a city stays ("W Bloomfield")', feld[2].text === 'W Bloomfield, MI 48322', JSON.stringify(feld[2]));
+  ok('mapping: "Ower" alone in a title is repaired, other 4-letter words are left alone', fm.classifyLines('Jo Ames\nOwer & General Manager')[1].text === 'Owner & General Manager' && fm.classifyLines('Jo Ames\nHead Chef')[1].text === 'Head Chef' && fm.classifyLines('Jo Ames\nLead Tech')[1].text === 'Lead Tech', fm.classifyLines('Jo Ames\nOwer & General Manager')[1].text);
+  ok('mapping: "@acme.com" is not taken as a handle', fm.classifyLines('Dana Whitlock\n@acme.com')[1].role !== 'website' || fm.classifyLines('Dana Whitlock\n@acme.com')[1].text !== '@acme.com');
+}
+
+// Screen languages (i18n.js + lang/es.js; translation wave 1, Spanish first, raven575 2026-11-20)
+{
+  const fs = await import('node:fs');
+  const i18n = await import(`${R}/modules/mod01-shell/i18n.js`);
+  const es = (await import(`${R}/modules/mod01-shell/lang/es.js`));
+  const pack = es.default, st = await import(`${R}/modules/mod01-shell/settings.js`);
+  ok('i18n: fixed language codes, 0 device (the default), 1 English, 2 Español, each in its own name', i18n.LANGUAGES.map(l => `${l.code}:${l.id}:${l.name}`).join() === '0:device:Device language,1:en:English,2:es:Español' && i18n.DEFAULT_LANG === 0 && st.DEFAULTS.lang === 0);
+  ok('i18n: Device follows the first device language vCGE has a pack for, English when none; explicit picks win',
+    i18n.resolveLanguage(0, ['es-MX', 'en-US']) === 'es' && i18n.resolveLanguage(0, ['en-GB', 'es']) === 'en' && i18n.resolveLanguage(0, ['ja-JP']) === 'en' && i18n.resolveLanguage(0, []) === 'en'
+    && i18n.resolveLanguage(1, ['es-ES']) === 'en' && i18n.resolveLanguage(2, ['en-US']) === 'es' && i18n.resolveLanguage(99, ['es']) === 'es');
+  ok('i18n: lang is saved only once it differs from Device, and an out-of-range code reads as Device', st.serializeSettings(st.DEFAULTS).includes('lang') === false && st.serializeSettings({ ...st.DEFAULTS, lang: 2 }).endsWith(';lang=2') && st.parseSettings('lang=2').lang === 2 && st.parseSettings('lang=9').lang === 0);
+  ok('i18n: a known line translates with its spaces folded; an unknown line stays English (null); no pack means none', i18n.translateLine(pack, '  Settings \n') === 'Ajustes' && i18n.translateLine(pack, 'Some line nobody wrote') === null && i18n.translateLine(null, 'Settings') === null && i18n.t('Settings') === 'Settings');
+  ok('i18n: patterns cover steps, themes, swatches and picture drop-downs, and say no when a part is unknown',
+    i18n.translateLine(pack, 'Step 2 of 6') === 'Paso 2 de 6' && i18n.translateLine(pack, 'Step 4 of 5 · Card') === 'Paso 4 de 5 · Tarjeta'
+    && i18n.translateLine(pack, 'Pumpkin theme, Oct (Seasonal)') === 'Tema Calabaza, oct (De temporada)' && i18n.translateLine(pack, 'Shutout theme (Team vCGE)') === 'Tema Shutout (Team vCGE)'
+    && i18n.translateLine(pack, 'Maple stock') === 'Cartulina Arce' && i18n.translateLine(pack, 'Dot shape: Square') === 'Forma de los puntos: Cuadrado'
+    && i18n.translateLine(pack, 'Tel: 555 0100') === null && i18n.translateLine(pack, 'Contrast 15 to 1') === 'Contraste 15 a 1' && i18n.translateLine(pack, '3.5 cm wide') === '3,5 cm de ancho');
+  ok('i18n es: pilot names stay English with the animal in Spanish beside them (raven575, 2026-11-20)',
+    i18n.translateLine(pack, '🐢 Shutout the Box Turtle') === '🐢 Shutout (la Tortuga de caja)' && i18n.translateLine(pack, 'Cornerstone the Elephant') === 'Cornerstone (la Elefanta)'
+    && Object.keys(es.NAMES).length === 10 && Object.keys(es.NAMES).every(n => i18n.translateLine(pack, `${n} ${es.NAMES[n].en}`).startsWith(`${n} (`)));
+  const keys = Object.keys(pack.strings), vals = Object.values(pack.strings);
+  ok('i18n es: every key is one folded line and every value a non-empty string', keys.every(k => k === i18n.normalize(k) && k.length) && vals.every(v => typeof v === 'string' && v.trim().length), keys.find(k => k !== i18n.normalize(k)));
+  ok('i18n es: the tagline is never translated (Locked) and the pack never says "local contact management"', !keys.includes('Operation: Never Lose Contact') && !vals.some(v => /Operation: Never Lose Contact|local contact management/i.test(v)) && i18n.translateLine(pack, 'Operation: Never Lose Contact') === null);
+  ok('i18n es: the pack is pure data (no imports, network, storage or markup), and i18n.js reaches no network or storage',
+    !/^import |fetch\(|localStorage|innerHTML|XMLHttpRequest/m.test(fs.readFileSync(`${R}/modules/mod01-shell/lang/es.js`, 'utf8'))
+    && !/fetch\(|localStorage|sessionStorage|innerHTML|XMLHttpRequest|https?:\/\//.test(fs.readFileSync(`${R}/modules/mod01-shell/i18n.js`, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '')));
+  // Every line the Settings sheet and the Welcome card show in English is in the pack (index.html's own text)
+  const html = fs.readFileSync(`${R}/../index.html`, 'utf8');
+  const sheet = html.slice(html.indexOf('<div id="settingsSheet"'), html.indexOf('<div id="settingsAbout"'));
+  const lines = [...sheet.split('<!--').map((part, i) => (i ? part.slice(part.indexOf('-->') + 3) : part)).join('').split('<svg').map((part, i) => (i ? part.slice(part.indexOf('</svg>') + 6) : part)).join('').matchAll(/>([^<>]*[A-Za-z][^<>]*)</g)].map(m => i18n.normalize(m[1])).filter(Boolean);
+  const brand = new Set(['Herd', 'Material', 'iOS', 'Windows', 'GNOME', 'KDE', 'A', 'Cornerstone']);
+  const missing = lines.filter(l => !brand.has(l) && i18n.translateLine(pack, l) === null);
+  ok('i18n es: every line in the Settings sheet has its Spanish', lines.length > 40 && missing.length === 0, JSON.stringify(missing));
+  ok('i18n es: the welcome and Settings disclaimers name the screen language among the saved settings', html.includes('splash, tour seen, language)') && html.includes('the opening splash, screen language, and whether'));
+}
+
+// The e2e server keeps an idle connection open past Node's 5 s default, so a browser reusing it gets an answer
+// (WebKit run 45043933837: a page drew nothing after a 22 s pause between pages)
+{
+  const { spawn } = await import('node:child_process');
+  const http = await import('node:http');
+  const port = 18000 + Math.floor(Math.random() * 900);
+  const srv = spawn(process.execPath, [new URL('../scripts/serve.mjs', import.meta.url).pathname], { env: { ...process.env, PORT: String(port) } });
+  await new Promise((resolve) => srv.stdout.once('data', resolve));
+  const agent = new http.Agent({ keepAlive: true, maxSockets: 1 });
+  const get = () => new Promise((resolve) => {
+    const req = http.get({ host: '127.0.0.1', port, path: '/index.html', agent }, (res) => { res.resume(); res.on('end', () => resolve({ status: res.statusCode, socket: req.socket })); });
+    req.on('error', (e) => resolve({ status: 0, error: e.code }));
+  });
+  const first = await get();
+  await new Promise((r) => setTimeout(r, 8000));
+  const second = await get();
+  ok('serve.mjs: an idle kept-alive connection still answers on the same connection after 8 s (Node closes it at about 5 s by default)', first.status === 200 && second.status === 200 && second.socket === first.socket, JSON.stringify({ first: first.status, second: second.status, error: second.error, same: second.socket === first.socket }));
+  agent.destroy(); srv.kill();
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -28,7 +28,9 @@
  *   tex    the halftone background texture: 0 on (the default), 1 off: html[data-tex="on|off"].
  *   easy   Easy touch (easy + premium step 7): 0 off (the default), 1 on: html[data-easy="on"]: bigger buttons
  *          everywhere, the wipe's Yes is a tap (tap Wipe, then a big Yes) instead of a hold, and Welcome's start is Go.
- *          mode, style, tex and easy are written only once they differ from their defaults, so older entries read the same.
+ *   lang   the screen language by its fixed code (i18n.js LANGUAGES; 0 the device's language when vCGE has a pack for it,
+ *          else English, the default; 1 English; 2 Español): <html lang> and the words on the screens. Card reading stays English.
+ *          mode, style, tex, easy and lang are written only once they differ from their defaults, so older entries read the same.
  *
  * Each font and size keeps its number for good, so adding more later and re-sorting a list never changes a saved choice.
  * An entry saved before the size or wipe setting existed simply has none: Normal, 7 minutes.
@@ -41,6 +43,7 @@ import { THEMES, THEME_FAMILIES, themeFor, familyOf, familyCode, applyTheme } fr
 
 import { SETTINGS_KEY, isPlainLook } from './edition.js';
 import { pictureSelect } from './pictureSelect.js';
+import { LANGUAGES, DEFAULT_LANG, resolveLanguage, setLanguage } from './i18n.js';
 export { SETTINGS_KEY };
 const OLD_THEME_KEY = 'vcge_theme_preference';
 
@@ -63,12 +66,12 @@ export const STYLES = Object.freeze([
     { code: 0, id: 'herd', name: 'Herd' }, { code: 1, id: 'material', name: 'Material' }, { code: 2, id: 'ios', name: 'iOS' },
     { code: 3, id: 'windows', name: 'Windows' }, { code: 4, id: 'gnome', name: 'GNOME' }, { code: 5, id: 'kde', name: 'KDE' }
 ]);
-export const DEFAULTS = Object.freeze({ hand: 0, cb: 0, theme: 0, font: FONT_CODES[DEFAULT_UI_FONT], size: 0, wipe: 0, mode: 0, style: 0, tex: 0, look: 0, tour: 0, splash: 0, easy: 0 });
+export const DEFAULTS = Object.freeze({ hand: 0, cb: 0, theme: 0, font: FONT_CODES[DEFAULT_UI_FONT], size: 0, wipe: 0, mode: 0, style: 0, tex: 0, look: 0, tour: 0, splash: 0, easy: 0, tip: 0, lang: DEFAULT_LANG });
 // The names every entry has carried since step 4; the 0.8 ones (mode, style, tex) are written only once they differ from
 // their defaults, so an entry nobody changed them in reads exactly as before.
 const CORE = ['hand', 'cb', 'theme', 'font', 'size', 'wipe'];
 const RANGE = { hand: 1, cb: 5, theme: Math.max(...THEMES.map(t => t.code)), font: Math.max(...Object.values(FONT_CODES)), size: Math.max(...TEXT_SIZES.map(t => t.code)),
-    wipe: Math.max(...WIPE_TIMES.map(t => t.code)), mode: 1, style: Math.max(...STYLES.map(t => t.code)), tex: 1, look: 1, tour: 1, splash: 1, easy: 1 };
+    wipe: Math.max(...WIPE_TIMES.map(t => t.code)), mode: 1, style: Math.max(...STYLES.map(t => t.code)), tex: 1, look: 1, tour: 1, splash: 1, easy: 1, tip: 1, lang: Math.max(...LANGUAGES.map(l => l.code)) };
 
 /** Colour vision (Settings > Accessibility): fixed codes, the cb setting's 2 to 5; 0 is Typical. Each moves the good and
  *  stop colours (light page, dark page) to a pair that person tells apart; colourSet.css swaps the good and stop ramps the
@@ -174,6 +177,15 @@ export function rememberTourSeen(storage = typeof localStorage !== 'undefined' ?
     if (liveSet) return liveSet({ tour: 1 });
     if (storage) saveSettings({ ...loadSettings(storage), tour: 1 }, storage);
 }
+// The shutter tip (Android run, 11-16: the red shutter that turns green puzzled at first): shown on the first camera
+// start only; tip=1 in vcge_settings once it has been shown.
+export function tipSeen(storage = typeof localStorage !== 'undefined' ? localStorage : null) {
+    try { return storage ? loadSettings(storage).tip === 1 : false; } catch { return false; }
+}
+export function rememberTipSeen(storage = typeof localStorage !== 'undefined' ? localStorage : null) {
+    if (liveSet) return liveSet({ tip: 1 });
+    if (storage) saveSettings({ ...loadSettings(storage), tip: 1 }, storage);
+}
 // Opening splash switch (raven575, 2026-11-11): the splash covers no loading (a fixed CSS fade; the reader loads on the first
 // scan), so Settings > Comfort can turn it off. splash=1 is Off (html[data-splash="off"]); browserGate.js also reads it before
 // the page is drawn, so the splash never shows for a moment.
@@ -275,6 +287,8 @@ export function initSettings(doc = document, { hasContacts = () => false, restar
         const splash = $('splashToggle');
         if (splash) splash.checked = s.splash === 0;
         if (font) font.value = String(s.font);
+        const lang = $('langSelect');
+        if (lang) lang.value = String(s.lang);
     };
 
     // Theme swatches: one per palette, its light accent over its dark page (the mock-up), grouped as in the mock-up
@@ -324,6 +338,19 @@ export function initSettings(doc = document, { hasContacts = () => false, restar
     $('appearanceChips')?.querySelectorAll('[data-v]').forEach(b => b.addEventListener('click', () => pickAppearance(b.dataset.v)));
     $('styleChips')?.querySelectorAll('[data-style]').forEach(b => b.addEventListener('click', () => set({ style: STYLES.find(t => t.id === b.dataset.style)?.code ?? 0 })));
     $('wipeChips')?.querySelectorAll('[data-wipe]').forEach(b => b.addEventListener('click', () => set({ wipe: Number(b.dataset.wipe) })));
+
+    // Screen language: each in its own name; the words change at once, nothing restarts (i18n.js)
+    const showLang = () => setLanguage(resolveLanguage(s.lang), doc).catch(() => { /* the pack failed to load: English stays */ });
+    const lang = $('langSelect');
+    if (lang && !lang.options.length) {
+        for (const l of LANGUAGES) {
+            const o = doc.createElement('option');
+            o.value = String(l.code); o.textContent = l.name;
+            lang.append(o);
+        }
+        lang.addEventListener('change', () => { set({ lang: Number(lang.value) }); showLang(); });
+    }
+    if (resolveLanguage(s.lang) !== 'en') showLang();
 
     const font = $('fontSelect');
     if (font && !font.options.length) {

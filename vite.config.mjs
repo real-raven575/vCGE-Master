@@ -14,6 +14,12 @@ const copyVendor = {
             recursive: true,
             filter: (src) => !src.includes(`${path.sep}vendor${path.sep}fonts`)
         });
+        // The font files themselves were emitted from CSS above, but their OFL licences must travel with them (OFL 1.1 §2),
+        // and the notices and vCGE's own licence go at the top of the app (Apache-2.0 §4, BSD). 2026-11-22 IP check.
+        fs.mkdirSync(path.resolve('dist/src/vendor/fonts'), { recursive: true });
+        fs.readdirSync(path.resolve('src/vendor/fonts')).filter(f => /^LICENSE-.*\.txt$/.test(f)).forEach(f => fs.copyFileSync(
+            path.resolve('src/vendor/fonts', f), path.resolve('dist/src/vendor/fonts', f)));
+        ['THIRD_PARTY_NOTICES.md', 'LICENSE.md'].forEach(file => fs.copyFileSync(path.resolve(file), path.resolve('dist', file)));
         // MOD01's classic scripts (network lock, OCR worker lock, browser gate) and the bundled "cannot run in this
         // browser" page are loaded by URL too (index.html, the OCR worker, the gate), not imported.
         fs.mkdirSync(path.resolve('dist/src/modules/mod01-shell'), { recursive: true });

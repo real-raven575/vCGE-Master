@@ -29,6 +29,20 @@ const FINDER_MAX_SIDE = 1200; // the edge finder reads a copy no larger than thi
 const CORNER_NAMES = ['Top-left', 'Top-right', 'Bottom-right', 'Bottom-left'];
 export const SNAP_ZOOM_MS = 420;    // the zoom onto a snapped card eases in (at once under reduce motion)
 
+export const DECODE_WAIT_MS = 2000; // the longest a snap waits for the photo's pixels before reading it anyway
+
+/**
+ * Resolves once `img`'s pixels are ready to draw (HTMLImageElement.decode), or after DECODE_WAIT_MS, or at once where
+ * decode is missing. Never rejects: a failed decode leaves the snap to find no edges and say so, as before.
+ */
+export function whenDrawable(img, { waitMs = DECODE_WAIT_MS, schedule = setTimeout } = {}) {
+    if (!img || typeof img.decode !== 'function') return Promise.resolve();
+    return new Promise((resolve) => {
+        schedule(resolve, waitMs);
+        img.decode().then(resolve, resolve);
+    });
+}
+
 export class CropEditor {
     constructor(config = {}) {
         this.image = config.image || document.getElementById('reviewImage');

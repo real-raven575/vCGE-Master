@@ -8,7 +8,14 @@
 
 The **vCard Generator Engine (vCGE)** is a cross-platform app that turns a photo of a business card into a phone contact. Built on a modular ES Architecture and powered by Tauri v2, vCGE processes physical business cards via hardware camera feeds or local file uploads, parses text locally via WebAssembly OCR, and generates interactive 3D business cards with scannable vCard QR codes—all without leaving your device.
 
-No ads, no tracking, no accounts, no internet: the app talks to nothing but its own bundled files, and the only thing it ever keeps is one small settings line (hand, colour-blind mode, theme, font, text size, wipe time). Everything scanned, typed or shown lives in memory and is wiped when you leave. Site: [vCGE.APP](https://vcge.app).
+No ads, no tracking, no accounts, no internet: the app talks to nothing but its own bundled files, and the only thing it ever keeps is one small settings line (hand, colour-blind mode, theme, font, text size, wipe time). Everything scanned, typed or shown lives in memory and is wiped when you leave.
+
+## 📲 Get vCGE
+
+- **Try the free beta now (0.8.1):** [real-raven575.github.io/vCGE-Master](https://real-raven575.github.io/vCGE-Master/), in your phone's or computer's browser. Its future home, vcge.app, is not live yet.
+- **Google Play, coming first at $0.99.** It starts with a closed test. To be a tester, ask to join the [vcge-testers Google Group](https://groups.google.com/g/vcge-testers).
+- **Microsoft Store**, also $0.99, is planned after Google Play.
+- The source code here stays free and open. The store builds cost $0.99 once, with no ads and no subscription.
 
 ---
 
@@ -32,6 +39,8 @@ No ads, no tracking, no accounts, no internet: the app talks to nothing but its 
 - **3D Card (MOD06, with the QR on its back, MOD07):** eight fall themes, eleven typefaces, four text sizes, line icons (on or off), the logo traced on the device, flip and spin (tap the right half to turn right, the left half to turn left).
 - **Share (MOD08):** .vcf (folded to 75 characters per line, as contact apps expect), share sheet, Export QR pop-up (Themed or Black & White, square or round dots, a frame, an optional centre logo, saved exactly as previewed), email, SMS and Print / Save as PDF (Themed or Black & White, one 6 × 3.5 in page, taller when the card needs it; nothing is cut off; an opt-in box names the PDF after the contact).
 - **Vault page (MOD02) and Settings sheet (MOD01)** open over the deck from the header: session PIN and biometric unlock; hand, colour-blind mode, light or dark theme, one of seven fonts (Inter, Atkinson Hyperlegible, Lexend, OpenDyslexic, Tinos, Comic Neue, Macondo), text size (Small, Normal, Large, Larger; the header keeps its size) and the wipe time after a lock (7, 10 or 15 minutes).
+
+- **Screen languages (MOD01, translation wave 1):** Settings > Language picks Device language (the default: Spanish on a Spanish device, else English), English or Español. The words change at once and come from a bundled pack (`src/modules/mod01-shell/lang/`); the tagline stays English, the pilots keep their English names with the animal in the screen's language beside them, and card reading stays English. Next packs: Português (Brasil), Français, Deutsch, Bahasa Indonesia, then Hindi screens.
 
 All of this happens with no network access: the MOD01 network lock and a Content-Security-Policy block every non-local request. The MOD01 browser gate starts the app only after checking that the browser has every protection vCGE relies on; otherwise the app's code is never even fetched and a page explains what is missing. OCR (Tesseract.js) and QR generation (qrcode-generator) run entirely on-device from bundled files in `src/vendor/`.
 
@@ -145,7 +154,9 @@ vCGE-Master/
 
 ## 👥 Creators
 
-Created by [raven575](https://raven575.com), with Team vCGE (Claude), and Gemini for the first generation. Home: [vCGE.APP](https://vcge.app).
+Created by [raven575](https://raven575.com), with Team vCGE (Claude), and Gemini for the first generation. vCGE is the first app from **Herd of Helpers**, raven575's small app studio. Contact: admin@herdofhelpers.com.
+
+**Made with AI.** Most of the code and text here was written by AI models (Claude by Anthropic, and Gemini by Google for the first generation) working for raven575, who reviews and approves every change.
 
 ## 💬 Feedback
 

@@ -128,7 +128,7 @@
                         <button id="welcomeSampleBtn" type="button" class="r2-quiet"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#id"></use></svg>Play with sample fields</button>
                         <button id="welcomeCancelBtn" type="button" class="r2-quiet r2-quiet-stop"><svg class="vcge-icon ic-btn" aria-hidden="true" focusable="false"><use href="src/vendor/icons/app/sprite.svg#x"></use></svg>CANCEL</button>
                     </div>
-                    <p class="r2-fine">This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data: it keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look, splash, tour seen), and nothing you scan, upload or type is ever saved.</p>
+                    <p class="r2-fine">This greeting appears each time you open vCGE. vCGE remembers none of your sensitive data: it keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look, splash, tour seen, language), and nothing you scan, upload or type is ever saved.</p>
                 </div>
             </div>
         </section>
@@ -154,6 +154,9 @@
                         <div id="cardFrame" class="cap-frame r2-corners" aria-hidden="true">
                             <span class="cap-corner tl"></span><span class="cap-corner tr"></span><span class="cap-corner br"></span><span class="cap-corner bl"></span>
                         </div>
+                        <!-- Scan mode: the card's edges as the camera sees them, and Scan, shown while a card is in view (camera.js) -->
+                        <svg id="scanOutline" class="r2-outline hidden" aria-hidden="true" focusable="false"><polygon points=""></polygon></svg>
+                        <button id="scanBtn" type="button" class="r2-scan hidden" aria-label="Scan the card: crop, straighten and read it" title="Scan the card"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><path d="M8 10h8M8 14h5"/></svg><span>Scan</span></button>
                         <div id="camHint" class="r2-hint" aria-live="polite">Fit the card inside the corners</div>
                         <!-- The light (Smart burst, CAM-0028): shown only when the camera has a torch the page may switch (camera.js setupLight) -->
                         <button id="lightBtn" type="button" class="r2-light hidden" aria-pressed="false" aria-label="Light" title="Light"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 3L5 14h6l-1 7 8-11h-6z"/></svg></button>
@@ -649,6 +652,14 @@
                 <button type="button" class="vcge-sheet-close" data-sheet-close aria-label="Close" title="Close"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
             </div>
             <div class="r5-body">
+                <!-- Screen language (translation wave 1, raven575 2026-11-20; i18n.js): lang in vcge_settings. Each language
+                     shows in its own name; card reading stays on the English reader in every language. -->
+                <div class="r5-group">
+                    <div class="r5-sw-row r5-font-row">
+                        <label class="r5-lbl" for="langSelect"><b id="langLabel">Language</b><small id="langHint">Changes the words on vCGE's screens. Card reading stays in English.</small></label>
+                        <select id="langSelect" class="r5-select" aria-label="Screen language" aria-describedby="langHint"></select>
+                    </div>
+                </div>
                 <div class="r5-group">
                     <!-- App look (raven575, 2026-11-10): the app's colours only; the card's colours live on the Card screen -->
                     <h4 id="appThemesLabel" class="r5-look-head"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true" focusable="false"><rect x="6" y="2" width="12" height="20" rx="3"/><path d="M10 18h4"/></svg>App look</h4>
@@ -740,7 +751,65 @@
                     <p>vCGE 0.8</p>
                     <p>&copy; 2026 raven575, Herd of Helpers (claude) &amp; gemini</p>
                 </div>
-                <p id="settingsNote" class="r5-foot">vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look, the opening splash, and whether you have seen the tour). Nothing you scan, upload or type is ever saved.</p>
+                <!-- Privacy policy, built in so it opens with no internet (Google Play asks for it inside the app as well as on the
+                     listing). Same text as PRIVACY.md; tests/wrappers.test.mjs checks that every heading and the date match. -->
+                <details id="settingsPrivacy" class="r5-group vcge-privacy">
+                    <summary>Privacy policy</summary>
+                    <!-- The policy text stays in English in every screen language (it must match PRIVACY.md word for word); the pack translates only the heading, which says so -->
+                    <div class="vcge-privacy-body" lang="en" translate="no">
+                    <p class="vcge-privacy-date">Effective 2026-11-19. Every edition: web, Windows, macOS, Linux and Android, from GitHub or an app store.</p>
+                    <h3>The short version</h3>
+                    <p>vCGE collects nothing. It has no accounts, no ads, no analytics, no crash reporting and no internet connection. Nothing you scan or type ever reaches raven575, the Herd of Helpers or anyone else, unless you yourself press Share, Save, Email, Text or Print.</p>
+                    <h3>What happens on your device</h3>
+                    <ul>
+                        <li><b>Camera and photos.</b> vCGE uses the camera, or a photo you pick, only to read the business card in front of it. The photo is read on your device and is never uploaded.</li>
+                        <li><b>The card you make.</b> The text read from the card, and anything you type, live only in the app's memory. Leaving or reloading the app, or a few idle minutes, wipes them. With a session PIN the card is locked first, then wiped.</li>
+                        <li><b>Settings.</b> The only thing vCGE keeps is one small settings line on your device. It holds no contact data. Android backup of it is turned off.</li>
+                        <li><b>No internet.</b> The Android app does not even ask for the internet permission. The web and desktop editions block every request that is not to their own bundled files.</li>
+                    </ul>
+                    <h3>When data leaves the app</h3>
+                    <p>Data leaves vCGE only when you press one of its buttons: save a contact, share a .vcf file, save a QR picture, email, text or print. It then goes where you send it, to the app or person you pick, under that app's own privacy policy. On Android, the contact file handed to the other app sits in vCGE's private cache only until you come back to vCGE, which then deletes it.</p>
+                    <h3>Permissions</h3>
+                    <p>Camera only, to photograph a business card. You can say no and upload a photo instead. No contacts permission: saving a contact hands the card to your phone's own contacts app, which asks you to confirm.</p>
+                    <h3>Children</h3>
+                    <p>vCGE is a tool for adults' business cards. It collects nothing from anyone, children included.</p>
+                    <h3>Changes and contact</h3>
+                    <p>If this policy ever changes, the new version comes with a new date and is listed in the release notes. Questions: open an issue at github.com/real-raven575/vCGE-Master/issues (please never attach a real business card or anyone's real contact details).</p>
+                    </div>
+                </details>
+                <!-- Open-source licences (2026-11-22 IP check): who made the parts vCGE bundles, and under which licence. Same list as
+                     THIRD_PARTY_NOTICES.md (tests/wrappers.test.mjs checks every bundled part is named here). The full licence texts ship
+                     inside the app next to each part (src/vendor/**/LICENSE*, plus THIRD_PARTY_NOTICES.md and LICENSE.md at the top). -->
+                <details id="settingsLicences" class="r5-group vcge-privacy">
+                    <summary>Open-source licences</summary>
+                    <div class="vcge-privacy-body" lang="en" translate="no">
+                    <p>vCGE is open source under the MIT licence, &copy; 2026 raven575, Herd of Helpers (claude) &amp; gemini. It is built with these free parts, each kept with its own licence text inside the app.</p>
+                    <h3>Reading and codes</h3>
+                    <ul>
+                        <li><b>Tesseract.js 5.1.1</b> and <b>tesseract.js-core 5.1.1</b>: Apache-2.0, Tesseract.js contributors, Tesseract OCR / Google.</li>
+                        <li><b>English reading model</b> (eng.traineddata, tessdata best): Apache-2.0, Google / Tesseract OCR contributors.</li>
+                        <li><b>jsQR 1.4.0</b>: Apache-2.0, jsQR contributors (Cosmo Wolfe).</li>
+                        <li><b>qrcode-generator 1.4.4</b>: MIT, &copy; 2009 Kazuhiko Arase.</li>
+                        <li><b>zipcodes 8.0.0</b> (US ZIP code to town table): BSD, &copy; 2007 Dav Glass.</li>
+                    </ul>
+                    <h3>Icons</h3>
+                    <ul>
+                        <li><b>Tabler Icons 3.48.0</b>: MIT, &copy; 2020-2026 Pawe&#322; Kuna.</li>
+                        <li><b>Lucide 1.48.0</b>: ISC, &copy; 2026 Lucide Icons and Contributors.</li>
+                        <li><b>Simple Icons 16.33.0</b>: CC0 1.0. The brand logos are trademarks of their owners and are used only to recognise them on a card.</li>
+                        <li><b>Noto Emoji</b> (animal drawings): Apache-2.0, &copy; 2013 Google LLC.</li>
+                    </ul>
+                    <h3>Fonts</h3>
+                    <p>SIL Open Font License 1.1: Inter (&copy; 2016 The Inter Project Authors), Playfair Display (&copy; 2017 The Playfair Display Project Authors), Fira Code (&copy; 2014-2020 The Fira Code Project Authors), Sixtyfour (&copy; 2021 The Sixtyfour Project Authors), Atkinson Hyperlegible (&copy; 2020 Braille Institute of America, Inc.), Comic Neue (&copy; 2014 The Comic Neue Project Authors), Lexend (&copy; 2019 The Lexend Project Authors), Macondo (&copy; 1997-2011 John Vargas Beltr&aacute;n), OpenDyslexic (&copy; 2019 Abbie Gonzalez) and Tinos (&copy; 2026 The Tinos Project Authors).</p>
+                    <h3>App frames</h3>
+                    <ul>
+                        <li><b>Tauri 2</b> and its Rust crates (desktop and Android): MIT or Apache-2.0; a few build-time crates are MPL-2.0, unmodified.</li>
+                        <li><b>AndroidX and Material Components for Android</b>: Apache-2.0, &copy; The Android Open Source Project / Google LLC.</li>
+                    </ul>
+                    <p>"QR Code" is a registered trademark of DENSO WAVE INCORPORATED.</p>
+                    </div>
+                </details>
+                <p id="settingsNote" class="r5-foot">vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look, the opening splash, screen language, and whether you have seen the tour). Nothing you scan, upload or type is ever saved.</p>
             </div>
         </div>
     </div>

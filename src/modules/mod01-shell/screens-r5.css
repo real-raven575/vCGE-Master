@@ -392,3 +392,11 @@ html[data-easy="on"] .r2-go-btn { width: 132px; }
 @media (max-width: 700px) { html[data-easy="on"] .r2-go-btn { width: max(132px, min(55vw, 40vh)); } }
 html[data-easy="on"] .r5-toggle { transform: scale(1.25); }
 html[data-easy="on"] #cardCapture .r2-shutter { width: 104px; height: 104px; min-width: 104px; min-height: 104px; }
+
+/* Privacy policy in Settings: a plain fold-out under About, closed by default */
+.r5-sheet .vcge-privacy { padding: 12px 16px; font-size: .85rem; line-height: 1.45; }
+.r5-sheet .vcge-privacy summary { cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; }
+.r5-sheet .vcge-privacy h3 { font-size: .9rem; margin: 14px 0 4px; }
+.r5-sheet .vcge-privacy p, .r5-sheet .vcge-privacy ul { margin: 0 0 6px; }
+.r5-sheet .vcge-privacy ul { padding-left: 1.2em; }
+.r5-sheet .vcge-privacy-date { color: var(--sh-muted); }

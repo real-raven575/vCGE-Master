@@ -43,9 +43,11 @@ export function visibleSourceRect(viewW, viewH, videoW, videoH, zoom = 1) {
  * wider than it is tall and upright otherwise, centred, spanning FRAME_FILL of the viewfinder along the side that
  * limits it. Returned in viewfinder pixels plus the orientation.
  */
-export function cardFrameRect(viewW, viewH) {
+export function cardFrameRect(viewW, viewH, turn = null) {
     if (!(viewW > 0) || !(viewH > 0)) return { x: 0, y: 0, width: 0, height: 0, orientation: 'landscape' };
-    const orientation = viewW >= viewH ? 'landscape' : 'portrait';
+    // `turn` ('landscape' or 'portrait') is the way a card the watch sees is held (Android run 11-16: the upright frame
+    // told people to hold the card sideways); without one the frame follows the viewfinder's shape
+    const orientation = turn === 'landscape' || turn === 'portrait' ? turn : (viewW >= viewH ? 'landscape' : 'portrait');
     const aspect = orientation === 'landscape' ? CARD_ASPECT : 1 / CARD_ASPECT;   // width over height
     let width = viewW * FRAME_FILL, height = width / aspect;
     if (height > viewH * FRAME_FILL) { height = viewH * FRAME_FILL; width = height * aspect; }
@@ -97,4 +99,24 @@ export function tween(from, to, ms, apply, { instant = false, now = () => Date.n
     };
     timer = schedule(step, 1000 / STEP_FPS);
     return () => { if (timer !== null) { cancel(timer); timer = null; } };
+}
+
+// ---- Scan mode (raven575, 23:50 UTC 11-16: a live outline of the card's edges, like a phone's own scanner) ----------
+
+/** A card's corners found on a small copy of the visible window (srcW x srcH), in the viewfinder's own pixels. */
+export function quadToView(quad, srcW, srcH, viewW, viewH) {
+    if (!quad || !(srcW > 0) || !(srcH > 0)) return null;
+    return quad.map(p => ({ x: (p.x * viewW) / srcW, y: (p.y * viewH) / srcH }));
+}
+
+/** 'landscape' when a card's corners run wider than tall (the mean of its top and bottom sides against its left and right). */
+export function quadOrientation(quad) {
+    const d = (a, b) => Math.hypot(b.x - a.x, b.y - a.y);
+    const across = (d(quad[0], quad[1]) + d(quad[3], quad[2])) / 2, down = (d(quad[0], quad[3]) + d(quad[1], quad[2])) / 2;
+    return across >= down ? 'landscape' : 'portrait';
+}
+
+/** An SVG polygon's points for the outline, to a tenth of a pixel. */
+export function outlinePoints(quad) {
+    return quad ? quad.map(p => `${Math.round(p.x * 10) / 10},${Math.round(p.y * 10) / 10}`).join(' ') : '';
 }

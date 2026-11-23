@@ -707,7 +707,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   ok('the cog opens Settings (0.8 sheet): theme swatches, Appearance, the six styles, text size, font, the Left-handed, colour-blind, texture and Plain look switches, and the disclaimer', await page.isVisible('#settingsSheet') && await page.isVisible('#handToggle') && await page.isVisible('#cbToggle') && await page.isVisible('#dyslexiaToggle') && await page.isVisible('#themeSummary')
     && await page.isVisible('#appearanceChips') && (await page.$$eval('#styleChips button', bs => bs.map(b => b.textContent).join())) === 'Herd,Material,iOS,Windows,GNOME,KDE'
     && await page.isVisible('#sizeRange') && await page.isVisible('#fontSelect') && await page.isVisible('#texToggle') && await page.$eval('#plainToggle', c => c.disabled === (document.documentElement.dataset.edition === 'plain')) && (EDITION_PLAIN ? /This is the Plain edition/ : /Hides the Herd pilots and art/).test(await text('plainNote'))
-    && (await text('settingsNote')) === 'vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look, the opening splash, and whether you have seen the tour). Nothing you scan, upload or type is ever saved.');
+    && (await text('settingsNote')) === 'vCGE keeps one small settings file on this device (hand, colors, theme, appearance, style, texture, font, text size, wipe time, Plain look, the opening splash, screen language, and whether you have seen the tour). Nothing you scan, upload or type is ever saved.');
   // raven575 (2026-11-03): the theme box starts closed, naming the theme in use; one tap shows the 3 quick picks, More themes stays closed
   ok('the theme box starts closed and names Herd; no swatch shows until it is opened', !(await page.$eval('#themePicker', d => d.open)) && (await text('themeSummaryName')) === 'Herd'
     && !(await page.isVisible('#appThemes [data-family="herd"]')));
@@ -1121,6 +1121,65 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await ctxA.close();
   }
 
+  // Screen languages (translation wave 1, Spanish first, raven575 2026-11-20): Settings > Language swaps the words at once,
+  // saves lang in vcge_settings, keeps the tagline and the pilots' English names, and English puts every line back.
+  // A device set to Spanish opens in Spanish with nothing written; the pack is a same-origin file.
+  {
+    const ctxL = await newContext();
+    const pL = await ctxL.newPage();
+    pL.on('dialog', d => d.accept());
+    const asked = [];
+    pL.on('request', r => asked.push(r.url()));
+    await pL.goto(ORIGIN); await pL.waitForTimeout(400);
+    const tl = id => pL.$eval('#' + id, el => el.textContent.trim());
+    ok('language: English by default (device in English), html lang en, the picker lists Device language, English, Español',
+      (await pL.evaluate(() => document.documentElement.lang)) === 'en' && (await tl('settingsTitle')) === 'Settings'
+      && (await pL.$$eval('#langSelect option', os => os.map(o => o.textContent).join())) === 'Device language,English,Español');
+    await pL.click('#navSettings'); await pL.waitForTimeout(200);
+    await pL.selectOption('#langSelect', '2');
+    await pL.waitForFunction(() => document.documentElement.lang === 'es', null, { timeout: 5000 }).catch(() => {});
+    const es = await pL.evaluate(() => ({ lang: document.documentElement.lang, title: document.getElementById('settingsTitle').textContent.trim(),
+      welcome: document.getElementById('welcomeTitle').textContent.trim(), tagline: document.getElementById('welcomeTagline')?.textContent.trim() ?? null,
+      close: document.querySelector('#settingsSheet [data-sheet-close]').getAttribute('aria-label'), onoff: document.querySelector('.r5-onoff')?.textContent,
+      saved: localStorage.getItem('vcge_settings'), opt: document.querySelector('#langSelect option[value="0"]').textContent }));
+    ok('language: Español swaps the words at once (Settings, Welcome, labels, On / Off), html lang es, saved as lang=2',
+      es.lang === 'es' && es.title === 'Ajustes' && es.welcome === 'Escanea una tarjeta. Guarda el contacto.' && es.close === 'Cerrar' && /^(Sí|No)$/.test(es.onoff || '')
+      && /(^|;)lang=2(;|$)/.test(es.saved || '') && es.opt === 'Del dispositivo', JSON.stringify(es));
+    ok('language: the tagline stays "Operation: Never Lose Contact" in Spanish (Locked; plain has no tagline)', EDITION_PLAIN ? es.tagline === null || es.tagline === 'Operation: Never Lose Contact' : es.tagline === 'Operation: Never Lose Contact', es.tagline);
+    await pL.click('#texToggle'); await pL.waitForTimeout(100);
+    ok('language: a word a module changes later is translated too (the switch reads No once turned off)', (await pL.$eval('#texToggle', sw => sw.previousElementSibling.textContent)) === 'No');
+    await pL.click('#texToggle');
+    const sample = await pL.$$eval('#fakeContactSelect option', os => os.map(o => o.textContent));
+    ok('language: the pilots keep their English names with the animal in Spanish beside them', EDITION_PLAIN || sample.includes('🐢 Shutout (la Tortuga de caja)'), JSON.stringify(sample));
+    await pL.reload(); await pL.waitForTimeout(500);
+    await pL.waitForFunction(() => document.documentElement.lang === 'es', null, { timeout: 5000 }).catch(() => {});
+    // A contact whose words happen to be words the pack knows (a theme name, a phone type) keeps them as typed
+    await pL.evaluate(() => { document.querySelector('#settingsSheet [data-sheet-close]')?.click(); document.getElementById('navFields').click(); });
+    await pL.waitForTimeout(700);
+    await pL.fill('#firstName', 'Holly'); await pL.fill('#lastName', 'Spring'); await pL.fill('#organization', 'Sage'); await pL.fill('#jobTitle', 'Main');
+    await pL.waitForTimeout(300);
+    const own = await pL.evaluate(() => ['previewFullName', 'previewOrg', 'previewTitle', 'backCardName'].map(id => document.getElementById(id).textContent.trim()).join('|'));
+    ok('language: the contact\'s own words are never translated on the card (Holly Spring of Sage stays as typed)', own === 'Holly Spring|Sage|Main|Holly Spring', own);
+    await pL.fill('#firstName', ''); await pL.fill('#lastName', ''); await pL.fill('#organization', ''); await pL.fill('#jobTitle', '');
+    await pL.waitForTimeout(300);
+    ok('language: the card\'s empty-field words are in Spanish', (await pL.$eval('#previewFullName', el => el.textContent.trim())) === 'Nuevo contacto' && (await pL.$eval('#previewOrg', el => el.textContent.trim())) === 'Nombre de la empresa');
+    ok('language: Español is still on after a restart', (await pL.evaluate(() => document.documentElement.lang)) === 'es' && (await tl('settingsTitle')) === 'Ajustes');
+    await pL.click('#navSettings'); await pL.waitForTimeout(200);
+    await pL.selectOption('#langSelect', '1');
+    await pL.waitForFunction(() => document.documentElement.lang === 'en', null, { timeout: 5000 }).catch(() => {});
+    ok('language: English puts every line back as it was', (await tl('settingsTitle')) === 'Settings' && (await tl('welcomeTitle')) === 'Scan a card. Keep the contact.'
+      && (await pL.$eval('#settingsSheet [data-sheet-close]', b => b.getAttribute('aria-label'))) === 'Close' && /(^|;)lang=1(;|$)/.test(await pL.evaluate(() => localStorage.getItem('vcge_settings'))));
+    ok('language: the Spanish pack and everything else came from vCGE itself (same origin)', asked.length > 0 && asked.every(u => u.startsWith(ORIGIN) || u.startsWith('data:') || u.startsWith('blob:')), JSON.stringify(asked.filter(u => !u.startsWith(ORIGIN))));
+    await ctxL.close();
+    const ctxD = await newContext({ locale: 'es-ES' });
+    const pD = await ctxD.newPage();
+    await pD.goto(ORIGIN); await pD.waitForTimeout(400);
+    await pD.waitForFunction(() => document.documentElement.lang === 'es', null, { timeout: 5000 }).catch(() => {});
+    ok('language: a device set to Spanish opens in Spanish by itself, and nothing is written for it', (await pD.evaluate(() => document.documentElement.lang)) === 'es'
+      && (await pD.$eval('#settingsTitle', el => el.textContent.trim())) === 'Ajustes' && !/lang=/.test((await pD.evaluate(() => localStorage.getItem('vcge_settings'))) || ''));
+    await ctxD.close();
+  }
+
   // Quick unlock: 4-digit session PIN after a lock (idle, screen off, Lock button); the card is held in memory only,
   // and 7 minutes without activity wipe it
   {
@@ -1469,6 +1528,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   {
     const ctxL = await browser.newContext();
     const pL = await ctxL.newPage();
+    pL.on('dialog', d => d.accept());
     const errorsL = [];
     pL.on('pageerror', e => errorsL.push(e.message));
     await pL.goto(ORIGIN); await pL.waitForTimeout(500);
@@ -2492,6 +2552,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   if (ENGINE === 'chromium') {
     const ctxL = await browser.newContext();
     const pL = await ctxL.newPage();
+    pL.on('dialog', d => d.accept());
     const looks = [];
     pL.on('console', m => { if (m.text().includes('Second look:')) looks.push(m.text()); });
     await pL.goto(ORIGIN); await pL.waitForTimeout(300);
@@ -2997,7 +3058,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const view = await box('#viewfinderArea'), frame = await box('#cardFrame'), fader = await box('#zoomChips'), shutter = await box('#captureBtn');
     const overlay = await pV.evaluate(() => Array.from(document.querySelectorAll('#viewfinderArea > *')).filter(e => getComputedStyle(e).display !== 'none').map(e => e.id || e.className));
     ok('viewfinder: over the live picture only the corners, the hint, Close and the zoom chips (the shutter is under it)', overlay.join() === 'cameraPanel,cardFrame,camHint,stopCameraBtn,zoomChips'
-      && (await pV.$$('#cardFrame .cap-corner')).length === 4 && !(await pV.$('#focusRing')) && ['Fit the card inside the corners', 'Hold still, then tap the shutter'].includes(await pV.textContent('#camHint')), JSON.stringify(overlay));
+      && (await pV.$$('#cardFrame .cap-corner')).length === 4 && !(await pV.$('#focusRing')) && ['Fit the card inside the corners', 'Hold still, then tap the shutter', 'Green shutter = card found'].includes(await pV.textContent('#camHint')), JSON.stringify(overlay));
     ok('viewfinder: the card frame is upright in portrait, centred and fills most of the view', (await pV.getAttribute('#cardFrame', 'data-orientation')) === 'portrait' && frame.h > frame.w && Math.abs(frame.w / frame.h - 2 / 3.5) < 0.02
       && frame.h > view.h * 0.8 && Math.abs((frame.l + frame.r) / 2 - (view.l + view.r) / 2) < 2, JSON.stringify({ view, frame }));
     // The corners (mock-up): 3 px white brackets, rounded, nothing filled in; green while a card is in them, the shutter too
@@ -3170,6 +3231,64 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('Close camera stops the feed', await pV.evaluate(() => document.getElementById('cameraStream').srcObject === null && document.getElementById('cameraPanel').classList.contains('hidden')));
     }
     }
+    // Scan mode (raven575 11-16): a made-up card on a plain table. The outline follows its edges, Scan shows, and Scan crops
+    // to the card and reads it at once. The crop step fits above the dock (Android run 11-16: X and OK sat under it).
+    {
+      const ctxS = await browser.newContext({ viewport: { width: 412, height: 800 } });
+      await ctxS.addInitScript(() => {
+        const fake = async () => {
+          const c = document.createElement('canvas'); c.width = 640; c.height = 480; const x = c.getContext('2d');
+          const draw = () => { x.fillStyle = '#3b3f46'; x.fillRect(0, 0, 640, 480); x.fillStyle = '#f7f7f2'; x.fillRect(150, 150, 340, 196);
+            x.fillStyle = '#111'; x.font = 'bold 28px sans-serif'; x.fillText('Alex Sample', 180, 205); x.font = '20px sans-serif'; x.fillText('555-0100', 180, 250); x.fillText('alex@example.com', 180, 285); };
+          draw(); setInterval(draw, 200);
+          return c.captureStream(5);
+        };
+        try { Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: fake } }); } catch (e) {}
+      });
+      const pS = await ctxS.newPage();
+      const errorsS = []; pS.on('pageerror', e => errorsS.push(e.message));
+      await pS.goto(ORIGIN); await pS.waitForTimeout(500);
+      await pS.click('#startCameraBtn').catch(() => {});
+      await pS.waitForSelector('#scanBtn', { state: 'visible', timeout: 8000 }).catch(() => {});
+      const live = await pS.evaluate(() => ({ scan: !!document.getElementById('scanBtn').offsetParent, pts: document.querySelector('#scanOutline polygon').getAttribute('points'),
+        outline: !document.getElementById('scanOutline').classList.contains('hidden'), frame: document.getElementById('cardFrame').dataset.orientation, hint: document.getElementById('camHint').textContent }));
+      ok('scan: with a card in view the outline is drawn round its edges and Scan shows', live.scan && live.outline && live.pts.split(' ').length === 4, JSON.stringify(live));
+      ok('scan: the frame turns wide to match a card held wide, even in a tall viewfinder', live.frame === 'landscape', JSON.stringify(live));
+      ok('shutter tip: the first camera start explains the green shutter in the hint', /Green shutter = card found|Hold still, then tap the shutter/.test(live.hint), live.hint);
+      await pS.click('#scanBtn');
+      // Wait for the app's own answer, not a fixed clock: reading starts (the Read screen), or the crop step says it found
+      // no edges. The iPhone profile runs about twice as slow as desktop WebKit, and its burst, PNG and snap once ran past
+      // 8 s (PR run 45035471345: captured, on the crop step, corners still at the full photo, no answer yet).
+      const SCAN_NO_EDGES = 'Couldn\'t find the card\'s edges';
+      const scanStart = Date.now();
+      await pS.waitForFunction((noEdges) => document.documentElement.dataset.card === 'read' || (document.getElementById('toastMessage') || {}).textContent?.includes(noEdges), SCAN_NO_EDGES, { timeout: 30000 }).catch(() => {});
+      const scanned = await pS.evaluate(() => ({ card: document.documentElement.dataset.card, log: document.getElementById('eventLog').textContent, pts: document.getElementById('cropPolygon').getAttribute('points'),
+        w: document.getElementById('reviewImage').naturalWidth, h: document.getElementById('reviewImage').naturalHeight, toast: (document.getElementById('toastMessage') || {}).textContent || '',
+        // What the photo holds, as a 16 x 12 grid of brightness (0-f): the made-up card shows as a light block on a dark
+        // table. iPhone plain-edition runs (job 137352666612) found no edges in the photo while the live outline had.
+        grid: (() => { const i = document.getElementById('reviewImage'); if (!i.naturalWidth) return '';
+          const c = document.createElement('canvas'); c.width = 16; c.height = 12; const x = c.getContext('2d'); x.drawImage(i, 0, 0, 16, 12);
+          const d = x.getImageData(0, 0, 16, 12).data, rows = [];
+          for (let y = 0; y < 12; y++) { let r = ''; for (let k = 0; k < 16; k++) { const o = (y * 16 + k) * 4; r += Math.min(15, Math.round((d[o] + d[o + 1] + d[o + 2]) / 3 / 17)).toString(16); } rows.push(r); }
+          return rows.join(' '); })() }));
+      scanned.ms = Date.now() - scanStart;
+      // When the snap found no edges, press Snap to card once more on the same photo: snapLater true means the photo was
+      // fine and the first snap read it too early (PR #65 iPhone job 137430389794: a clear card, yet no edges).
+      if (scanned.card !== 'read' && scanned.w) scanned.snapLater = await pS.evaluate(async () => { const before = document.getElementById('cropPolygon').getAttribute('points');
+        const b = document.getElementById('snapCardBtn'); if (!b) return 'no button'; b.click(); await new Promise(r => setTimeout(r, 50));
+        return document.getElementById('cropPolygon').getAttribute('points') !== before; }).catch(e => String(e));
+      ok('scan: Scan takes the burst, snaps the corners to the card and starts reading at once', scanned.card === 'read' && /SCAN: best of \d+ frames/.test(scanned.log) && scanned.pts !== `0,0 ${scanned.w},0 ${scanned.w},${scanned.h} 0,${scanned.h}`, JSON.stringify(scanned));
+      await ctxS.close();
+      // The crop step on a phone with a tall photo: Cancel and OK sit above the dock
+      const ctxF = await browser.newContext({ viewport: { width: 412, height: 800 } });
+      const pF = await ctxF.newPage(); await pF.goto(ORIGIN); await pF.waitForTimeout(500);
+      const tall = await pF.evaluate(() => { const c = document.createElement('canvas'); c.width = 900; c.height = 1200; const x = c.getContext('2d'); x.fillStyle = '#556'; x.fillRect(0, 0, 900, 1200); x.fillStyle = '#fff'; x.fillRect(200, 300, 500, 600); return c.toDataURL('image/png').split(',')[1]; });
+      await pF.setInputFiles('#imageUpload', { name: 'tall.png', mimeType: 'image/png', buffer: Buffer.from(tall, 'base64') }); await pF.waitForTimeout(600);
+      const fit = await pF.evaluate(() => { const b = s => document.querySelector(s).getBoundingClientRect(); return { ok: Math.round(b('#runOcrBtn').bottom), cancel: Math.round(b('#cancelReviewBtn').bottom), dock: Math.round(b('.vcge-dock').top) }; });
+      ok('crop step: with a tall photo on a phone, Cancel and OK sit fully above the dock (Android run 11-16)', fit.ok <= fit.dock && fit.cancel <= fit.dock, JSON.stringify(fit));
+      await ctxF.close();
+      ok('scan: no page errors', errorsS.length === 0, errorsS.join(' | '));
+    }
     await pV.setInputFiles('#imageUpload', await renderCardImage(pV)); await pV.waitForTimeout(300);
     ok('upload: the handles start at the full photo', await pV.isVisible('#captureReview') && (await pV.getAttribute('#cropPolygon', 'points')) === '0,0 1050,0 1050,600 0,600');
     await pV.mouse.move(1, 1);   // (the pointer rests off the buttons, so OK shows its own green, not its hover green)
@@ -3179,6 +3298,18 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // Finding 52: a two-finger pinch on the photo zooms the photo like a camera; the page, the buttons and the handles keep
     // their size; the corners do not move. At the whole photo a swipe is still the deck's (touch-action pan-x pan-y).
     await deckSettled(pV);
+    // A new size for the photo puts the view back to the whole photo (cropEditor.js, its ResizeObserver). On the iPhone
+    // profile WebKit can deliver the last size change of the new photo's layout after the pinch, which then undid the
+    // zoom before the pan (main run 45035284962: before and after both ""). So the pinch waits until the photo has kept one
+    // size for a few frames, and the size is logged from here on: a change during the pinch or pan shows in the details.
+    await pV.evaluate(() => new Promise((done) => {
+      const v = document.getElementById('cropView'), log = window.__cropSizes = [];
+      new ResizeObserver(() => log.push(`${Math.round(performance.now())} ms ${v.offsetWidth}x${v.offsetHeight}`)).observe(v);
+      let last = '', same = 0, frames = 0;
+      const tick = () => { const now = `${v.offsetWidth}x${v.offsetHeight}`; same = now === last ? same + 1 : 0; last = now;
+        if (same >= 3 || ++frames > 120) done(); else requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+    }));
     const okBefore = await box('#runOcrBtn');
     const actionAtFit = await pV.$eval('#cropStage', s => getComputedStyle(s).touchAction);
     const pinch = await pV.evaluate(() => {
@@ -3202,7 +3333,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       const img = document.getElementById('reviewImage'), r = img.getBoundingClientRect(), v = document.getElementById('cropView'), before = v.style.transform;
       const fire = (type, x, y) => img.dispatchEvent(new PointerEvent(type, { pointerId: 3, pointerType: 'touch', isPrimary: true, clientX: x, clientY: y, bubbles: true, cancelable: true }));
       fire('pointerdown', r.left + r.width / 2, r.top + r.height / 2); fire('pointermove', r.left + r.width / 2 + 30, r.top + r.height / 2 + 10); fire('pointerup', r.left + r.width / 2 + 30, r.top + r.height / 2 + 10);
-      return { before, after: v.style.transform };
+      return { before, after: v.style.transform, sizes: window.__cropSizes.slice(-6) };
     });
     // (the scale is the pinch's, which the check above takes to 0.01: Firefox rounds touch points to 1/60 px, so 1.99996)
     const pannedScale = Number((/scale\(([\d.]+)\)/.exec(panned.after) || [])[1]);
@@ -3509,8 +3640,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const blocked = async (setup, reason) => {
       const ctxG = await browser.newContext();
       const pG = await ctxG.newPage();
-      const requested = [], pageErrors = [];
+      const requested = [], pageErrors = [], failed = [];
       pG.on('request', r => requested.push(r.url()));
+      // A request that never got its answer (WebKit run 45043933837: the page "complete" with unsupported.js asked for
+      // and no reason drawn) is named in the details with the engine's own error
+      pG.on('requestfailed', r => failed.push(`${r.url().split('/').pop()}: ${(r.failure() || {}).errorText || '?'}`));
       pG.on('pageerror', e => pageErrors.push(e.message));
       pG.on('console', m => { if (m.type() === 'error' && !/SyntaxError|Unexpected/.test(m.text())) pageErrors.push(m.text()); });
       await setup(ctxG, pG);
@@ -3518,22 +3652,25 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       // draw after a fixed wait: wait for the move and the list instead (iPhone CI, #39 and #40, 2026-11-15)
       await pG.goto(base, { waitUntil: 'commit' });
       await pG.waitForURL(u => u.href.includes('unsupported/index.html#'), { timeout: 20000, waitUntil: 'commit' }).catch(() => {});
-      await pG.waitForSelector('#reasonList li', { timeout: 10000 }).catch(() => {});
+      // (20 s like the move: on the iPhone profile the list once took longer than 10 s to draw, PR run 45035471345 re-run)
+      await pG.waitForSelector('#reasonList li', { timeout: 20000 }).catch(() => {});
       await pG.waitForTimeout(300);   // room for a stray app start to show (main.js never runs)
       const url = pG.url();
+      const state = await pG.evaluate(() => `${document.readyState}, ${document.querySelectorAll('#reasonList li').length} reasons`).catch(e => `no answer (${String(e.message).split('\n')[0]})`);
       const shown = url.includes('src/modules/mod01-shell/unsupported/index.html#') && url.includes(reason);
       const reasons = shown ? await pG.$$eval('#reasonList li', els => els.map(el => el.getAttribute('data-reason'))) : [];
       const links = shown ? await pG.$$eval('.links a', els => els.map(a => ({ href: a.href, target: a.target, rel: a.rel }))) : [];
       const external = requested.filter(u => !u.startsWith(ORIGIN));
       const ranMain = await pG.evaluate(() => window.name === 'vcge-main-ran').catch(() => null);
       await ctxG.close();
-      return { shown, url, reasons, links, requested, external, pageErrors, ranMain };
+      const why = `${url} (page: ${state}; unsupported.js ${requested.some(u => u.endsWith('/unsupported/unsupported.js')) ? 'requested' : 'never requested'}; failed requests: ${failed.join(', ') || 'none'})`;
+      return { shown, url, why, reasons, links, requested, external, pageErrors, ranMain };
     };
     // The app's entry script is swapped for a one-line marker: if the browser ever runs it, the tab's name says so
     const isMain = (u) => /\/src\/main\.js|\/assets\/index-[^/]*\.js/.test(u);
     const noWasm = await blocked((ctxG) => Promise.all([ctxG.addInitScript(() => { delete window.WebAssembly; }),
       ctxG.route((u) => isMain(u.href), (r) => r.fulfill({ contentType: 'text/javascript', body: "window.name = 'vcge-main-ran';" }))]), 'wasm');
-    ok('gate: no WebAssembly opens the "cannot run" page with the reason listed', noWasm.shown && noWasm.reasons.includes('wasm'), noWasm.url);
+    ok('gate: no WebAssembly opens the "cannot run" page with the reason listed', noWasm.shown && noWasm.reasons.includes('wasm'), noWasm.why);
     ok('gate: blocked app never starts (main.js never runs)', noWasm.ranMain === false, String(noWasm.ranMain));
     ok('gate: blocked app never starts (main.js not even requested)', !noWasm.requested.some(u => /\/src\/main\.js|\/assets\/index-[\w-]+\.js/.test(u)), noWasm.requested.filter(u => u.endsWith('.js')).join(' '));
     ok('gate: free & open source browsers are listed first (Firefox, Firefox ESR, Brave)', noWasm.links.slice(0, 3).map(l => new URL(l.href).hostname).join() === 'www.firefox.com,support.mozilla.org,brave.com', noWasm.links.map(l => l.href).join(' '));
@@ -3542,12 +3679,12 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // Routed on the context, like the WebAssembly case: a page-level route of the page's very first script has left
     // WebKit waiting on that script for good in CI (the page never got to its checks)
     const noLock = await blocked((ctxG) => ctxG.route('**/src/modules/mod01-shell/netLock.js', r => r.fulfill({ contentType: 'text/javascript', body: '' })), 'netlock');
-    ok('gate fails closed: without vCGE\'s own network lock the app does not start', noLock.shown && noLock.reasons.includes('netlock'), noLock.url + ' (requested: ' + noLock.requested.filter(u => u.endsWith('.js')).map(u => u.split('/').pop()).join(' ') + ')');
+    ok('gate fails closed: without vCGE\'s own network lock the app does not start', noLock.shown && noLock.reasons.includes('netlock'), noLock.why + ' (requested: ' + noLock.requested.filter(u => u.endsWith('.js')).map(u => u.split('/').pop()).join(' ') + ')');
     const noCsp = await blocked((ctxG) => ctxG.addInitScript(() => { delete window.SecurityPolicyViolationEvent; }), 'csp');
-    ok('gate: no Content-Security-Policy support blocks the app', noCsp.shown && noCsp.reasons.includes('csp'), noCsp.url);
+    ok('gate: no Content-Security-Policy support blocks the app', noCsp.shown && noCsp.reasons.includes('csp'), noCsp.why);
     if (!process.env.SERVE_DIR) {
       const badCode = await blocked((ctxG, pG) => pG.route('**/src/main.js', r => r.fulfill({ contentType: 'text/javascript', body: 'let let = 1;' })), 'script');
-      ok('gate: code the browser cannot read opens the "cannot run" page, not a blank one', badCode.shown && badCode.reasons.includes('script'), badCode.url);
+      ok('gate: code the browser cannot read opens the "cannot run" page, not a blank one', badCode.shown && badCode.reasons.includes('script'), badCode.why);
     }
 
     const ctxW = await browser.newContext({ userAgent: 'Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/109.0.0.0 Safari/537.36' });
@@ -4203,14 +4340,16 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     let flipper = await p6.locator('#card3DFlipper').boundingBox();
     const angle = () => p6.$eval('#card3DFlipper', el => el.style.transform);
     const frames = [];
-    await p6.evaluate(() => { window.__spin = []; window.__spinT = []; new MutationObserver(() => { window.__spin.push(document.getElementById('card3DFlipper').style.transform); window.__spinT.push(performance.now()); }).observe(document.getElementById('card3DFlipper'), { attributes: true, attributeFilter: ['style'] }); });
-    const flipT0 = await p6.evaluate(() => performance.now());
+    // The flip's clock starts when the app marks the card moving (data-spin="moving", set as the tween starts), not at the
+    // first drawn frame: on a slow phone (iPhone WebKit, PR #65 job 137388950048) that first frame came about 80 ms late.
+    await p6.evaluate(() => { window.__spin = []; window.__spinT = []; window.__spinStart = null; new MutationObserver((list) => { const el = document.getElementById('card3DFlipper'); for (const m of list) { if (m.attributeName === 'data-spin' && el.dataset.spin === 'moving' && window.__spinStart === null) window.__spinStart = performance.now(); if (m.attributeName === 'style') { window.__spin.push(el.style.transform); window.__spinT.push(performance.now()); } } }).observe(document.getElementById('card3DFlipper'), { attributes: true, attributeFilter: ['style', 'data-spin'] }); });
     await p6.click('#flipCardBtn'); await settled(p6);
     frames.push(...await p6.evaluate(() => window.__spin));
     const spinT = await p6.evaluate(() => window.__spinT);
+    const spinStart = await p6.evaluate(() => window.__spinStart);
     const degs = frames.map(f => parseFloat(/rotateY\(([-\d.]+)deg\)/.exec(f)[1]));
-    const flipMs = spinT.length ? Math.round(spinT[spinT.length - 1] - Math.max(flipT0, spinT[0] - 1000 / 60)) : 0;
-    ok('0.8 card: a flip takes about 0.62 s with a soft ease out (many smooth frames, never past 180, never back) and settles exactly on 180', (await angle()) === 'rotateY(180deg)' && degs.length >= 15 && Math.max(...degs) === 180 && degs.every((d, i) => i === 0 || d >= degs[i - 1]) && flipMs >= 560 && flipMs <= 1000 && (await p6.$eval('#card3DFlipper', el => el.dataset.spin)) === 'still', JSON.stringify({ flipMs, n: degs.length, degs: degs.map(Math.round) }));
+    const flipMs = spinT.length && spinStart !== null ? Math.round(spinT[spinT.length - 1] - spinStart) : 0;
+    ok('0.8 card: a flip takes about 0.62 s with a soft ease out (many smooth frames, never past 180, never back) and settles exactly on 180', (await angle()) === 'rotateY(180deg)' && degs.length >= 15 && Math.max(...degs) === 180 && degs.every((d, i) => i === 0 || d >= degs[i - 1]) && flipMs >= 560 && flipMs <= 1000 && (await p6.$eval('#card3DFlipper', el => el.dataset.spin)) === 'still', JSON.stringify({ flipMs, firstFrameMs: spinT.length && spinStart !== null ? Math.round(spinT[0] - spinStart) : null, n: degs.length, degs: degs.map(Math.round) }));
     // Measured again once the card is in view: on a short phone the 0.8 dock covers the bottom of the deck, and the
     // Flip click above may have scrolled the card body, so the first box can be stale or partly under the dock.
     // Flip card turns the card where it is (raven575's Android run, 2026-11-16), so a body scrolled to reach it leaves
@@ -4319,7 +4458,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p6.evaluate(() => { const t = document.getElementById('toast'); window.__toastAt = null;
       new MutationObserver(() => { if (window.__toastAt === null && !t.classList.contains('opacity-0')) window.__toastAt = performance.now(); }).observe(t, { attributes: true, attributeFilter: ['class'] }); });
     await p6.click('#paletteListContainer [data-theme="sage"]');
-    await p6.waitForTimeout(400);   // it slides in over 0.3 s
+    // It slides in over 0.26 s. Measured once it has landed, not after a fixed 0.4 s: the iPhone job (PR run 45048139081)
+    // measured it still 16 px low, mid-slide, over the dock.
+    await p6.waitForFunction(() => { const t = document.getElementById('toast'); return !t.classList.contains('opacity-0') && t.getAnimations().length === 0; }, null, { timeout: 5000 }).catch(() => {});
     const toastBox = await p6.locator('#toast').boundingBox();
     const dockTop = await p6.$eval('.vcge-dock', d => d.getBoundingClientRect().top);
     ok('0.8 shell: the toast shows as a pill just above the dock (the mock-up), never over it', toastBox.y + toastBox.height <= dockTop && toastBox.y > dockTop - 200 && await p6.isVisible('#toast'), JSON.stringify({ toastBox, dockTop }));
@@ -4329,11 +4470,21 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p6.waitForTimeout(700);
     ok('toast: gone after 3 s', await p6.$eval('#toast', t => t.classList.contains('opacity-0')));
     await p6.click('#paletteListContainer [data-theme="maple"]');
-    await p6.waitForTimeout(400);   // after the slide-in: what a tap at the toast's middle reaches (logged, for WebKit)
-    console.log('toast hit:', JSON.stringify(await p6.evaluate(() => { const r = document.getElementById('toastMessage').getBoundingClientRect();
-      const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return { hit: el && (el.id || el.className), r: [r.x, r.y, r.width, r.height].map(Math.round), vw: innerWidth, sw: document.documentElement.scrollWidth }; })));
-    await p6.click('#toastMessage');
+    await p6.waitForTimeout(400);   // after the slide-in
+    // A real tap at the toast's middle. The page's own hit test must say the tap reaches the toast (not the 3D card under
+    // it), then the mouse presses at exactly that point. Not p6.click('#toastMessage'): on iPhone WebKit, Playwright's own
+    // pre-click check can report the card's .card-lines layer as covering the toast while the page's elementFromPoint at
+    // the same point is #toastMessage (CI runs 44958665496 and 44851801150 logged both), so it waited 30 s and failed
+    // on a tap the app handles. The flip check below proves the card was not turned by the tap.
+    const toastTap = await p6.evaluate(() => { const r = document.getElementById('toastMessage').getBoundingClientRect();
+      const x = r.x + r.width / 2, y = r.y + r.height / 2, el = document.elementFromPoint(x, y);
+      return { x, y, hit: el && (el.id || el.className), onToast: !!(el && el.closest('#toast')), turn: document.getElementById('card3DFlipper').style.transform };
+    });
+    console.log('toast hit:', JSON.stringify(toastTap));
+    ok('toast: a tap at its middle reaches the toast, not the card under it', toastTap.onToast, JSON.stringify(toastTap));
+    await p6.mouse.click(toastTap.x, toastTap.y);
     ok('toast: a tap dismisses it at once', await p6.$eval('#toast', t => t.classList.contains('opacity-0')));
+    ok('toast: the tap does not turn the card', (await p6.$eval('#card3DFlipper', f => f.style.transform)) === toastTap.turn, JSON.stringify(toastTap));
     await p6.click('#paletteListContainer [data-theme="spruce"]');
     await p6.waitForTimeout(400);   // measured after the slide-in, or the press lands where the toast was, not where it is
     const tb = await p6.locator('#toast').boundingBox();

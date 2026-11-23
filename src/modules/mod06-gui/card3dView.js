@@ -541,8 +541,13 @@ export class CardView {
     // ---- Rendering -----------------------------------------------------------------------------------------
 
     render(contact) {
-        const fullName = [contact.namePrefix, contact.firstName, contact.middleName, contact.lastName].filter(Boolean).join(' ')
-            + (contact.nameSuffix ? `, ${contact.nameSuffix}` : '') || 'New Contact';
+        const typed = [contact.namePrefix, contact.firstName, contact.middleName, contact.lastName].filter(Boolean).join(' ')
+            + (contact.nameSuffix ? `, ${contact.nameSuffix}` : '');
+        const fullName = typed || 'New Contact';
+        // The contact's own words are never translated (MOD01 i18n.js skips translate="no"); the placeholders are
+        const own = (el, mine) => el && el.setAttribute('translate', mine ? 'no' : 'yes');
+        own($('previewFullName'), !!typed); own($('backCardName'), !!typed);
+        own($('previewOrg'), !!contact.organization); own($('previewTitle'), !!contact.jobTitle);
         const unit = contact.unitType ? [contact.unitType, contact.unitNumber].filter(Boolean).join(' ') : '';
         $('previewFullName').textContent = fullName;
         $('previewOrg').textContent = contact.organization || 'Company Name';
@@ -550,7 +555,7 @@ export class CardView {
         Object.entries(LISTS).forEach(([key, cfg]) => this.renderLines($(cfg.preview), contact[key] || [], cfg, key));
         const address = cardAddressLine(contact, unit);
         const addressType = (ADDRESS_TYPES.find(([v]) => v === contact.addressType) || [])[1] || '';
-        $('previewAddress').replaceChildren(...this.lineCells('address', contact.addressType, address ? addressType : '', address || 'No address provided'));
+        $('previewAddress').replaceChildren(...this.lineCells('address', contact.addressType, address ? addressType : '', address || 'No address provided', !address));
         $('backCardName').textContent = fullName;
 
         const initials = initialsOf(contact);
@@ -576,7 +581,7 @@ export class CardView {
             return p;
         };
         if (!shown.length) {
-            box.replaceChildren(line(this.lineCells(kind, '', '', cfg.empty)));
+            box.replaceChildren(line(this.lineCells(kind, '', '', cfg.empty, true)));
             return;
         }
         box.replaceChildren(...shown.map((entry, i) => {
@@ -586,7 +591,7 @@ export class CardView {
     }
 
     /** The three cells of a detail line: icon, label and value (the card's grid lines every value up, cardStyles.css). */
-    lineCells(kind, type, typeLabel, text) {
+    lineCells(kind, type, typeLabel, text, placeholder = false) {
         const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
         icon.setAttribute('class', 'vcge-icon card-line-icon');
         icon.setAttribute('aria-hidden', 'true');
@@ -599,6 +604,7 @@ export class CardView {
         const value = document.createElement('span');
         value.className = 'card-line-value';
         value.textContent = text;
+        value.setAttribute('translate', placeholder ? 'yes' : 'no');   // a phone, email, site or address is the contact's own
         return [icon, label, value];
     }
 

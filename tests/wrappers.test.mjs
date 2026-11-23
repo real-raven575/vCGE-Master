@@ -1,7 +1,7 @@
 // vCGE app wrappers (Windows, macOS, Linux, Android): checks of the wrapper files themselves, in Node (`npm run test:wrappers`).
 // The app inside every wrapper is the same web build; these checks guard what each wrapper adds around it:
 // no internet, no extra permissions, the pinned Tauri versions (DESKTOP DEPENDENCIES LOCK), the vCGE icons.
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
 
 const ROOT = new URL('..', import.meta.url).pathname;
 const read = (p) => readFileSync(ROOT + p, 'utf8');
@@ -135,6 +135,125 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
   ok('Downloads: CI names the desktop installers and the APK, and the artifacts carry the same tag (${P}: bash read $P418 as one unset name)',
     /name-downloads\.mjs src-tauri\/target\/release\/bundle "\$P" "\$\{\{ github\.run_number \}\}"/.test(ci) && /Windows\) P=W ;; macOS\) P=M ;; \*\) P=L/.test(ci)
       && /name: vCGE-\$\{\{ steps\.names\.outputs\.tag \}\}/.test(ci) && /echo "tag=[^\n]*-\$\{P\}\$\{\{ github\.run_number \}\}" >> "\$GITHUB_OUTPUT"/.test(ci) && /-A\$\{\{ github\.run_number \}\}/.test(ci) && /--out "apk\/vCGE-\$TAG\.apk"/.test(ci) && /name: vCGE-\$\{\{ env\.APK_TAG \}\}/.test(ci));
+}
+
+// --- App stores: listing text (store/listing.json) and the privacy policy (PRIVACY.md) ---
+{
+  const listing = JSON.parse(read('store/listing.json'));
+  const play = listing.googlePlay, ms = listing.microsoftStore;
+  // Google Play limits: title 30, short description 80, full description 4000. Microsoft Store: short description
+  // 100 (shown on Xbox and in search), description 10000, each feature 200, at most 20 features and 7 search terms.
+  ok('Store: Google Play text fits its limits',
+    play.title.length <= 30 && play.shortDescription.length <= 80 && play.fullDescription.length <= 4000,
+    `${play.title.length}/${play.shortDescription.length}/${play.fullDescription.length}`);
+  ok('Store: Microsoft Store text fits its limits',
+    ms.shortDescription.length <= 100 && ms.description.length <= 10000 && ms.features.length <= 20
+      && ms.features.every(f => f.length <= 200) && ms.searchTerms.length <= 7);
+  const all = JSON.stringify(listing);
+  ok('Store: the tagline leads both descriptions',
+    play.fullDescription.startsWith('Operation: Never Lose Contact') && ms.description.startsWith('Operation: Never Lose Contact'));
+  ok('Store: no banned wording ("local contact management") and no emoji in the Play title',
+    !/local contact management/i.test(all) && !/\p{Extended_Pictographic}/u.test(play.title));
+  ok('Store: package name and copyright match the app', read('src-tauri/tauri.conf.json').includes('"identifier": "app.vcge.vcge"')
+    && listing.copyright === '© 2026 raven575, Herd of Helpers (claude) & gemini');
+  ok('Store: the privacy policy URL names PRIVACY.md, and it exists', /\/PRIVACY\.md$/.test(listing.privacyPolicyUrl) && existsSync(ROOT + 'PRIVACY.md'));
+  // The policy promises "camera only, no internet": hold it to the Android manifest it describes.
+  const policy = read('PRIVACY.md');
+  const perms = permissions(read(ANDROID + 'main/AndroidManifest.xml'));
+  ok('Store: the privacy policy says no internet and camera only, and the manifest agrees',
+    /does not even ask for the internet permission/.test(policy) && /No other permissions/.test(policy)
+      && perms.length === 1 && perms[0] === 'android.permission.CAMERA');
+  // Google Play wants the policy inside the app too: Settings carries a built-in copy (no internet needed).
+  const inApp = (/<details id="settingsPrivacy"[\s\S]*?<\/details>/.exec(read('index.html')) || [''])[0];
+  const heads = [...policy.matchAll(/^## (.+)$/gm)].map(m => m[1]);
+  const date = (/\*\*Effective:\*\* (\d{4}-\d{2}-\d{2})/.exec(policy) || [])[1];
+  ok('Store: Settings has the privacy policy with the same headings and date as PRIVACY.md',
+    heads.length >= 5 && !!date && inApp.includes(`Effective ${date}`) && heads.every(h => inApp.includes(`<h3>${h}</h3>`)));
+  ok('Store: the in-app policy stays in English in every screen language and its heading says so in Spanish',
+    /<div class="vcge-privacy-body" lang="en" translate="no">/.test(inApp) && read('src/modules/mod01-shell/lang/es.js').includes("'Privacy policy': 'Política de privacidad (en inglés)'"));
+}
+
+// --- Open-source licences and proof of origin (2026-11-22 IP check, raven575's yes) ---
+{
+  const notices = read('THIRD_PARTY_NOTICES.md');
+  const bundled = notices.slice(0, notices.indexOf('"QR Code" is a registered trademark'));
+  const parts = [...bundled.matchAll(/^\| \[([^\]]+)\]/gm)].map(m => m[1]);
+  const inApp = (/<details id="settingsLicences"[\s\S]*?<\/details>/.exec(read('index.html')) || [''])[0];
+  // The npm data package for the reading model is named by its file in the app
+  const shown = (name) => inApp.includes(name === '@tesseract.js-data/eng' ? 'eng.traineddata' : name);
+  ok('Licences: Settings names every bundled part from THIRD_PARTY_NOTICES.md', parts.length >= 19 && parts.every(shown), JSON.stringify(parts.filter(p => !shown(p))));
+  ok('Licences: the in-app list stays in English, names the MIT licence, AndroidX and the QR Code trademark, and its heading says so in Spanish',
+    /<div class="vcge-privacy-body" lang="en" translate="no">/.test(inApp) && /under the MIT licence/.test(inApp) && /AndroidX/.test(inApp)
+      && /QR Code" is a registered trademark of DENSO WAVE/.test(inApp)
+      && read('src/modules/mod01-shell/lang/es.js').includes("'Open-source licences': 'Licencias de código abierto (en inglés)'"));
+  // Every bundled font has its OFL licence beside it, and the build copies those licences and the notices into the app
+  const fonts = readdirSync(ROOT + 'src/vendor/fonts');
+  const families = [...new Set(fonts.filter(f => f.endsWith('.woff2')).map(f => f.replace(/-latin-.*$/, '')))];
+  ok('Licences: every bundled font family has its licence file', families.length >= 10 && families.every(f => fonts.includes(`LICENSE-${f}.txt`)), JSON.stringify(families.filter(f => !fonts.includes(`LICENSE-${f}.txt`))));
+  const vite = read('vite.config.mjs');
+  ok('Licences: the build copies the font licences, THIRD_PARTY_NOTICES.md and LICENSE.md into the app',
+    /LICENSE-\.\*\\\.txt/.test(vite) && /dist\/src\/vendor\/fonts/.test(vite) && vite.includes("['THIRD_PARTY_NOTICES.md', 'LICENSE.md']"));
+  const prov = existsSync(ROOT + 'PROVENANCE.md') ? read('PROVENANCE.md') : '';
+  const vendorDirs = readdirSync(ROOT + 'src/vendor');
+  ok('Provenance: PROVENANCE.md names every src/vendor folder, the one trained model and the v0 import',
+    vendorDirs.length >= 6 && vendorDirs.every(d => prov.includes(`src/vendor/${d}/`)) && /eng\.traineddata/.test(prov) && /archive\/v0-gemini-import/.test(prov),
+    JSON.stringify(vendorDirs.filter(d => !prov.includes(`src/vendor/${d}/`))));
+}
+
+// --- App stores: the Microsoft Store MSIX and the Google Play bundle ---
+{
+  const { msixVersion, manifest } = await import('../scripts/make-msix.mjs');
+  ok('MSIX: version gets four parts ending in 0 (Store rule)', msixVersion('0.8.1') === '0.8.1.0' && msixVersion('1.0.0') === '1.0.0.0');
+  let bad = 0;
+  for (const v of ['0.8', '0.8.1.2', '1.70000.0', 'x']) { try { msixVersion(v); } catch (e) { bad++; } }
+  ok('MSIX: a version the Store would refuse stops the build', bad === 4);
+  const template = read('store/msix/AppxManifest.template.xml');
+  const identity = JSON.parse(read('store/msix/identity.json'));
+  const out = manifest(template, identity, JSON.parse(read('src-tauri/tauri.conf.json')).version);
+  ok('MSIX: the manifest is filled in, with no value left over', !/\{\{/.test(out) && out.includes(`Name="${identity.identityName}"`) && out.includes('Version="0.8.1.0"'));
+  const caps = [...out.matchAll(/Capability Name="([^"]+)"/g)].map(m => m[1]).sort();
+  ok('MSIX: capabilities are the desktop app and the webcam only (no internetClient)',
+    caps.join(',') === 'runFullTrust,webcam' && !/internetClient/.test(template), caps.join(','));
+  ok('MSIX: it starts the same vcge.exe the installers ship', /Executable="vcge\.exe" EntryPoint="Windows\.FullTrustApplication"/.test(out));
+  let refused = 0;
+  try { manifest(template, { ...identity, publisher: 'raven575' }, '0.8.1'); } catch (e) { refused++; }
+  try { manifest(template + '{{OOPS}}', identity, '0.8.1'); } catch (e) { refused++; }
+  ok('MSIX: a publisher without CN= or an unknown value stops the build', refused === 2);
+  ok('MSIX: its tile logos exist', ['StoreLogo.png', 'Square150x150Logo.png', 'Square44x44Logo.png'].every(f => existsSync(ROOT + 'src-tauri/icons/' + f)));
+  const ci = read('.github/workflows/ci.yml');
+  ok('MSIX: CI packs it on Windows and test-installs a signed copy',
+    /node scripts\/make-msix\.mjs/.test(ci) && /Add-AppxPackage -Path \$signed/.test(ci) && /Remove-AppxPackage/.test(ci));
+  ok('Play: CI builds the App Bundle and fails it if it asks for INTERNET or misses a chip',
+    /npx tauri android build --aab/.test(ci) && /bundle asks for INTERNET/.test(ci) && /bundle is missing a chip/.test(ci));
+  const sign = ci.slice(ci.indexOf('  play-sign:'));
+  ok('Play: the upload key lives only in the protected play-upload environment (main only, never a pull request)',
+    /environment: play-upload/.test(sign) && /if: github\.ref == 'refs\/heads\/main' && github\.event_name != 'pull_request'/.test(sign)
+      && ci.split('secrets.PLAY_UPLOAD').length - 1 === 3 && ci.indexOf('secrets.PLAY_UPLOAD') > ci.indexOf('  play-sign:'));
+  ok('Play: the key file is deleted however the signing step ends', /trap 'rm -f "\$RUNNER_TEMP\/upload\.jks"' EXIT/.test(sign));
+  ok('Play: every CI build gets a higher version code (the run number)',
+    /VCGE_VERSION_CODE: \$\{\{ github\.run_number \}\}/.test(ci)
+      && /System\.getenv\("VCGE_VERSION_CODE"\)\?\.toIntOrNull\(\)/.test(read('src-tauri/gen/android/app/build.gradle.kts')));
+}
+
+// --- Tester welcome page (site/testers, public site only) ---
+{
+  const page = read('site/testers/index.html');
+  const pages = read('.github/workflows/pages.yml');
+  const vite = read('vite.config.mjs');
+  ok('Testers page: published by the Pages workflow after the build, and never copied into the app bundles',
+    /run: cp -r site\/testers dist\/testers/.test(pages) && pages.indexOf('cp -r site/testers') > pages.indexOf('npm run build') && !/site\/testers|'site'/.test(vite));
+  ok('Testers page: no scripts, and its own CSP loads nothing from another site',
+    !/<script/i.test(page) && /default-src 'none'; style-src 'self'; img-src 'self'/.test(page));
+  const srcs = [...page.matchAll(/\s(?:src|href)="([^"]+)"/g)].map(m => m[1]);
+  const away = srcs.filter(u => /^https?:/.test(u));
+  ok('Testers page: the only outside links are the tester group and the Play testing link',
+    JSON.stringify([...away].sort()) === JSON.stringify(['https://groups.google.com/g/vcge-testers', 'https://play.google.com/apps/testing/app.vcge.vcge']), away.join(' '));
+  const local = srcs.filter(u => !/^https?:/.test(u) && u !== '../');
+  ok('Testers page: every local file it uses exists on the site',
+    local.every(u => existsSync(ROOT + (u.startsWith('../') ? u.slice(3) : 'site/testers/' + u))), local.join(' '));
+  ok('Testers page: the banner has alt text naming the group', /class="banner"[^>]*alt="[^"]*groups\.google\.com\/g\/vcge-testers/.test(page.replace(/\n\s*/g, ' ')));
+  ok('Testers page: no tagline until the trademark check (CASH-0053), and never "local contact management"',
+    !/Never Lose Contact|Keep the person for good|local contact management/i.test(page));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -60,7 +60,8 @@ jobs:
   browsers:
     name: Browser e2e (${{ matrix.name }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 45   # WebKit on the iPhone profile ran 23-30 min by 2026-11-14 and was cut off at 30
+    timeout-minutes: 75   # WebKit on the iPhone profile: 23-30 min by 2026-11-14 (cut off at 30); by 2026-11-22 each pass
+                          # (source, then Vite build) took about 24 min, and the second was cut off at 45 (runs 44966180632, 44851801150)
     strategy:
       fail-fast: false
       matrix:
@@ -148,6 +149,32 @@ jobs:
         run: |
           if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a npm run test:desktop-smoke; else npm run test:desktop-smoke; fi
 
+      # Microsoft Store package (store/README.md). The Store signs the real one; here a copy is signed with a throwaway
+      # certificate (made for this run, subject = the package's publisher) only to prove it installs.
+      - name: MSIX for the Microsoft Store (pack, then test-install a signed copy)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          node scripts/make-msix.mjs
+          $msix = Get-ChildItem src-tauri/target/release/bundle/msix/*.msix | Select-Object -First 1
+          $id = Get-Content store/msix/identity.json -Raw | ConvertFrom-Json
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject $id.publisher -CertStoreLocation Cert:\CurrentUser\My -NotAfter (Get-Date).AddDays(1)
+          $pfx = Join-Path $env:RUNNER_TEMP 'test.pfx'
+          $pw = ConvertTo-SecureString -String ([guid]::NewGuid().ToString()) -Force -AsPlainText
+          Export-PfxCertificate -Cert $cert -FilePath $pfx -Password $pw | Out-Null
+          Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\LocalMachine\TrustedPeople -Password $pw | Out-Null
+          $signed = Join-Path $env:RUNNER_TEMP 'signed.msix'
+          Copy-Item $msix.FullName $signed
+          $signtool = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\10.*\x64\signtool.exe' | Sort-Object FullName | Select-Object -Last 1
+          & $signtool.FullName sign /fd SHA256 /sha1 $cert.Thumbprint /s My $signed
+          if ($LASTEXITCODE) { throw 'signtool failed' }
+          Add-AppxPackage -Path $signed
+          $pkg = Get-AppxPackage -Name $id.identityName
+          if (-not $pkg) { throw 'the MSIX did not install' }
+          Write-Host "Installed $($pkg.PackageFullName)"
+          Remove-AppxPackage $pkg.PackageFullName
+          Remove-Item $pfx, $signed
+
       # Each download says its version, platform and build: vCGE-0.8.1-W417_x64-setup.exe (raven575, 2026-11-15)
       - name: Name the downloads
         id: names
@@ -158,7 +185,7 @@ jobs:
           echo "tag=$(node -p "require('./package.json').version")-${P}${{ github.run_number }}" >> "$GITHUB_OUTPUT"
 
       - name: Upload installers
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node.js 24)
         with:
           name: vCGE-${{ steps.names.outputs.tag }}
           path: src-tauri/target/release/bundle/
@@ -173,6 +200,9 @@ jobs:
     name: Android (build + emulator)
     runs-on: ubuntu-24.04
     timeout-minutes: 75
+    env:
+      # Play needs a higher version code on every upload: the CI run number always grows (gen/android build.gradle.kts).
+      VCGE_VERSION_CODE: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
@@ -238,6 +268,27 @@ jobs:
           "$BT/apksigner" verify "apk/vCGE-$TAG.apk"
           ls -l apk
 
+      # Google Play takes an Android App Bundle. Built every run and checked (three chips, no INTERNET permission);
+      # the play-sign job below signs it.
+      - name: Build Play bundle (.aab)
+        run: |
+          npx tauri android build --aab --target aarch64 --target armv7 --target x86_64
+          AAB=$(ls src-tauri/gen/android/app/build/outputs/bundle/*Release/*.aab | head -1)
+          echo "AAB=$AAB" >> "$GITHUB_ENV"
+          unzip -l "$AAB" | grep -E 'base/lib/(arm64-v8a|armeabi-v7a|x86_64)/' | awk '{print $4}' | cut -d/ -f3 | sort -u | tee "$RUNNER_TEMP/abis"
+          [ "$(wc -l < "$RUNNER_TEMP/abis")" = 3 ] || { echo "bundle is missing a chip"; exit 1; }
+          unzip -p "$AAB" base/manifest/AndroidManifest.xml > "$RUNNER_TEMP/aab-manifest.pb"
+          grep -q 'android.permission.CAMERA' "$RUNNER_TEMP/aab-manifest.pb" || { echo "bundle manifest unreadable"; exit 1; }
+          if grep -q 'android.permission.INTERNET' "$RUNNER_TEMP/aab-manifest.pb"; then echo "bundle asks for INTERNET"; exit 1; fi
+
+      - name: Upload Play bundle (unsigned)
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node.js 24)
+        with:
+          name: vcge-play-unsigned
+          path: ${{ env.AAB }}
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Wait for the emulator
         timeout-minutes: 10
         run: |
@@ -261,7 +312,7 @@ jobs:
         run: tail -100 "$RUNNER_TEMP/emulator.log" || true
 
       - name: Upload APK
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node.js 24)
         with:
           name: vCGE-${{ env.APK_TAG }}
           path: apk/
@@ -270,9 +321,48 @@ jobs:
 
       - name: Upload Android screenshots
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node.js 24)
         with:
           name: vcge-android-screens
           path: android-smoke/
           if-no-files-found: ignore
+          retention-days: 14
+
+  # Signs the Play bundle with the upload key (raven575 chose "Protected CI", 2026-11-19 17:08 UTC). The key lives only
+  # in the "play-upload" environment's secrets: that environment allows the main branch only and waits for raven575 to
+  # click Approve, so no other branch, pull request or workflow run can read it. Google holds the app signing key
+  # (Play App Signing); this upload key can be reset by Google if it is ever lost or leaked.
+  play-sign:
+    name: Sign Play bundle (main, approved by raven575)
+    needs: android
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: play-upload
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0 (Node.js 24)
+        with:
+          name: vcge-play-unsigned
+          path: unsigned
+      - name: Sign with the upload key
+        env:
+          PLAY_UPLOAD_KEYSTORE_B64: ${{ secrets.PLAY_UPLOAD_KEYSTORE_B64 }}
+          PLAY_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.PLAY_UPLOAD_KEYSTORE_PASSWORD }}
+          PLAY_UPLOAD_KEY_ALIAS: ${{ secrets.PLAY_UPLOAD_KEY_ALIAS }}
+        run: |
+          [ -n "$PLAY_UPLOAD_KEYSTORE_B64" ] || { echo "The play-upload environment has no upload key yet."; exit 1; }
+          [ -n "$PLAY_UPLOAD_KEY_ALIAS" ] || { echo "The play-upload environment has no PLAY_UPLOAD_KEY_ALIAS secret (the key's alias, e.g. vcge-upload)."; exit 1; }
+          [ -n "$PLAY_UPLOAD_KEYSTORE_PASSWORD" ] || { echo "The play-upload environment has no PLAY_UPLOAD_KEYSTORE_PASSWORD secret."; exit 1; }
+          trap 'rm -f "$RUNNER_TEMP/upload.jks"' EXIT
+          echo "$PLAY_UPLOAD_KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+          mkdir -p aab
+          cp unsigned/*.aab "aab/vCGE-$(date -u +%Y%m%d)-A${{ github.run_number }}.aab"
+          jarsigner -keystore "$RUNNER_TEMP/upload.jks" -storepass:env PLAY_UPLOAD_KEYSTORE_PASSWORD \
+            -sigalg SHA256withRSA -digestalg SHA-256 aab/*.aab "$PLAY_UPLOAD_KEY_ALIAS"
+          jarsigner -verify aab/*.aab | tail -1
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node.js 24)
+        with:
+          name: vCGE-play-A${{ github.run_number }}
+          path: aab/
+          if-no-files-found: error
           retention-days: 14
