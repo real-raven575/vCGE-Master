@@ -545,6 +545,28 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const fm = new ContactFormMapper();
   const lines = (text) => fm.classifyLines(text);
   const role = (ls, r) => (ls.find(l => l.role === r) || {}).text;
+  // The card checks itself (raven575, 2026-11-23: an i read as an l in an email domain bounced a tester invite). Made-up card.
+  const line = (ls, r) => ls.find(l => l.role === r) || {};
+  const lookL = lines('Dana Quill\nOwner\ndquill@peaklogiclt.com\nT 269.555.0140');
+  ok('self-check: an l between consonants in an email domain asks "Did you mean an i here?" with the i spelling as a guess, the text kept as read',
+    role(lookL, 'email') === 'dquill@peaklogiclt.com' && /^Did you mean an i here\? "peaklogicit\.com"/.test(line(lookL, 'email').check || '') && JSON.stringify(line(lookL, 'email').guesses) === '["dquill@peaklogicit.com"]', JSON.stringify(lookL));
+  const lookW = lines('Dana Quill\nW www.peaklogiclt.com/about');
+  ok('self-check: the same in a web address', JSON.stringify(line(lookW, 'website').guesses) === '["www.peaklogicit.com/about"]', JSON.stringify(lookW));
+  const one = lines('Dana Quill\nhello@tab1e.studio');
+  ok('self-check: a 1 between letters asks whether it is an i or an l', /^Is the 1 here a letter\? "tabie\.studio" or "table\.studio"/.test(line(one, 'email').check || '') && JSON.stringify(line(one, 'email').guesses) === '["hello@tabie.studio","hello@table.studio"]', JSON.stringify(one));
+  ok('self-check: ordinary domains are not asked about (worldwide, carlsberg, "ltd", settlement, a capital-IT repair)',
+    ['sam@worldwide.com', 'sam@carlsberg.com', 'sam@acmeltd.com', 'sam@settlement.com', 'sam@acme.com'].every(e => !line(lines(`Sam Lee\n${e}`), 'email').check)
+    && !line(lines('jdoe@PeakLogiclT.com\nW PeakLogiclT.com'), 'email').check);
+  const differ = lines('Dana Quill\ndquill@brightfern.com\nwww.northwindtrails.com');
+  ok('self-check: an email domain that is not the card\'s web address is asked about, with the web address\'s domain as a guess',
+    /^The email ends in brightfern\.com but the web address is northwindtrails\.com\./.test(line(differ, 'email').check || '') && JSON.stringify(line(differ, 'email').guesses) === '["dquill@northwindtrails.com"]', JSON.stringify(differ));
+  ok('self-check: personal mail, the same domain, a mail subdomain and a near miss (fixed from the web address) are not asked about',
+    ['dquill@gmail.com\nwww.brightfern.com', 'dquill@brightfern.com\nbrightfern.com', 'dquill@mail.brightfern.com\nbrightfern.com', 'dquill@brightfem.com\nbrightfern.com'].every(t => !line(lines(`Dana Quill\n${t}`), 'email').check));
+  const co = lines('Dana Quill\nNorthwind Trials\nwww.northwindtrails.com');
+  ok('self-check: a company name a letter or two off the web address is asked about; a matching or far-off one is not',
+    /^The company name is close to the card's web address \(northwindtrails\)/.test(line(co, 'organization').check || '')
+    && !line(lines('Dana Quill\nNorthwind Trails\nwww.northwindtrails.com'), 'organization').check
+    && line(lines('Dana Quill\nNorthwind Trails\nwww.northwindtrails.com'), 'organization').text === 'Northwind Trails', JSON.stringify(co));
   const peak = lines('Owner & Ceneral Manager\n7950 Lakeview Road\nPortage, MI 49024\nE jdoe@PeakLogiclT.com\nT 269.555.0140\nW PeakLogiclT.com/KalamazooMI');
   ok('mapping: "Ceneral" is General in a title; "lT" is "IT" in the email and web address', role(peak, 'jobTitle') === 'Owner & General Manager' && role(peak, 'email') === 'jdoe@PeakLogicIT.com' && role(peak, 'website') === 'PeakLogicIT.com/KalamazooMI', JSON.stringify(peak));
   const advisor = lines('Technology\nAdvisor\nOwner & General Manager\n7950 Lakeview Road\nPortage, MI 49024\nT 269.555.0140');
