@@ -4028,6 +4028,15 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const mini = await pT.evaluate(() => { const body = document.querySelector('#cardCard .r4-card'), c = document.getElementById('card3DFlipper').getBoundingClientRect(), v = body.getBoundingClientRect();
       return { mini: body.dataset.mini, scrolled: body.scrollTop > 0, inView: c.top >= v.top - 1 && c.bottom <= v.bottom && c.width > 60, small: c.width < 200, w: Math.round(c.width) }; });
     ok('mini card: with a long box scrolled, the card stays in view, shrunk into the corner', mini.mini === 'on' && mini.scrolled && mini.inView && mini.small, JSON.stringify(mini));
+    // The choices scroll away under a band as tall as the mini card, so none is left half under it (raven575's Play build
+    // 562 run, 2026-11-23: the mini card hid the Dots picker, Style and Paper buttons, Icons and the hint)
+    const band = await pT.evaluate(() => { const body = document.querySelector('#cardCard .r4-card'), st = getComputedStyle(body, '::before'), v = body.getBoundingClientRect(),
+      c = document.getElementById('card3DFlipper').getBoundingClientRect();
+      const below = [...body.querySelectorAll('button, select, label')].find(el => { const r = el.getBoundingClientRect(); return r.height > 0 && r.width > 0 && r.top > v.top + parseFloat(st.height) + 2 && r.bottom < v.bottom; });
+      const br = below && below.getBoundingClientRect(), hit = below && document.elementFromPoint(br.left + br.width / 2, br.top + Math.min(br.height / 2, 6));
+      return { pos: st.position, h: Math.round(parseFloat(st.height)), cardBottom: Math.round(c.bottom - v.top), bg: st.backgroundColor, below: below && (below.id || below.className), hitEl: hit && (hit.id || hit.tagName), belowHit: !!(hit && (hit === below || below.contains(hit))) }; });
+    ok('mini card: it sits on a band across the box, at least as tall as the card, and a choice just under the band takes the tap',
+      band.pos === 'sticky' && band.h >= band.cardBottom && band.h < 200 && band.bg !== 'rgba(0, 0, 0, 0)' && band.belowHit, JSON.stringify(band));
     // A category button changes the box where it is: no jump back to the top, the mini card stays (raven575's phone run, 2026-11-14)
     // (Paper is shorter than Logo: the box keeps its length so it can stay where it is)
     // (pressed where it is: Playwright's click would first scroll the button into view, which a finger never does)
@@ -4074,6 +4083,16 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pT.$eval('#flipCardBtn', b => b.click()); await pT.waitForTimeout(1000);
     const frontAgain = await pT.evaluate(() => ({ head: [hEmoji.textContent, hName.textContent].join('|'), qr: qrDesign.getClientRects().length > 0, tabs: cardTabs.getClientRects().length > 0 }));
     ok('QR side: turning back to the front brings Flipside and Card design back', (EDITION_PLAIN || frontAgain.head === '🦎|Flipside') && !frontAgain.qr && frontAgain.tabs, JSON.stringify(frontAgain));
+    // A long name and title wrap onto more lines, whole, instead of ending in "…" (raven575's Play build 562 run,
+    // 2026-11-23: "Checkers the Ze…", worse in Mono at Extra large)
+    await pT.evaluate(() => {
+      for (const [id, v] of [['firstName', 'Checkers'], ['lastName', 'the Zebra'], ['jobTitle', 'QR pilot: a whole person in a square']]) { const f = document.getElementById(id); f.value = v; f.dispatchEvent(new Event('input', { bubbles: true })); }
+      for (const [id, v] of [['cardFontSelect', 'font-mono'], ['cardSizeSelect', 'xl']]) { const s = document.getElementById(id); s.value = v; s.dispatchEvent(new Event('change', { bubbles: true })); }
+    }); await pT.waitForTimeout(300);
+    const head = await pT.evaluate(() => ['previewFullName', 'previewTitle'].map(id => { const el = document.getElementById(id), st = getComputedStyle(el), lh = parseFloat(st.lineHeight);
+      return { text: el.textContent, fits: el.scrollWidth <= el.clientWidth + 1, ellipsis: st.textOverflow === 'ellipsis' && st.whiteSpace === 'nowrap', lines: Math.round(el.offsetHeight / lh) }; }));   // (layout size: the card may be the shrunk mini card here)
+    ok('card: a long name and title in Mono at Extra large wrap onto more lines, whole, with no "…"',
+      head[0].text === 'Checkers the Zebra' && head.every(h => h.fits && !h.ellipsis && h.lines >= 2), JSON.stringify(head));
     await ctxT.close();
   }
 

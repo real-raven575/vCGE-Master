@@ -194,3 +194,10 @@ html[data-cb="1"] button.r4-tab[aria-pressed="true"] span { font-weight: 800; te
 .r4-card > .r4-stage { position: sticky; top: 0; z-index: 4; transform-origin: 100% 0; }
 @media (prefers-reduced-motion: no-preference) { .r4-card > .r4-stage { transition: transform 240ms var(--r4-ease-out); } }
 .r4-card[data-mini="on"] > .r4-stage { transform: scale(0.42); cursor: zoom-in; }
+/* Behind the mini card, a band across the whole box, as tall as the mini card (cardTabs.js sets --r4-mini-band), in the
+   dock's frosted look: the choices scroll away under it instead of sliding half under the card (raven575's Play build
+   562 run, 2026-11-23). It takes no room (the negative margin) and catches taps meant for what is hidden under it. */
+.r4-card[data-mini="on"]::before { content: ''; display: block; position: sticky; top: 0; z-index: 3; height: var(--r4-mini-band, 0px);
+    margin: 0 -20px calc(-1 * var(--r4-mini-band, 0px)); border-bottom: 1px solid var(--sh-line);
+    background: color-mix(in srgb, var(--sh-bg) 92%, transparent); -webkit-backdrop-filter: blur(18px) saturate(1.4); backdrop-filter: blur(18px) saturate(1.4); }
+@media (prefers-reduced-transparency: reduce) { .r4-card[data-mini="on"]::before { background: var(--sh-bg); -webkit-backdrop-filter: none; backdrop-filter: none; } }
