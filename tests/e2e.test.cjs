@@ -4430,6 +4430,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const faceNow = await p6.$eval('#card3DFlipper', el => el.dataset.face);
     ok('card: after a drag the browser sent no click for (WebKit), the next tap still flips', afterDrag === 'rotateY(180deg)' && (await angle()) !== afterDrag && faceNow === 'front', `${afterDrag} -> ${await angle()} ${faceNow}`);
     await p6.$eval('#flipCardBtn', b => b.click()); await settled(p6);   // (no scroll to reach it: the card stays whole, not mini)
+    // Flip card keeps its button under the finger by scrolling the box as far as the button moved (cardTabs.js). On the
+    // iPhone profile the back's QR picks (a full row each since Play 562 finding 13) push it past the mini card's 40%,
+    // and a mini card takes a tap as "show the whole card". These checks are about the whole card, so it comes back first.
+    await p6.evaluate(() => { const b = document.querySelector('#cardCard .r4-card'); if (b) b.scrollTop = 0; });
+    await p6.waitForFunction(() => document.querySelector('#cardCard .r4-card')?.dataset.mini !== 'on', null, { timeout: 5000 }).catch(() => {});
     // A tap is taken on the lift, not from a click: a press and lift with no click after it (as WebKit sends after a
     // drag) flips the card, and el.click() with no press behind it flips it too, the short way.
     const faceBefore = await p6.$eval('#card3DFlipper', el => el.dataset.face);
