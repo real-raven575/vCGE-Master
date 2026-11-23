@@ -999,6 +999,21 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 
 // Snap to card: the on-device edge finder (MOD03)
 {
+  {
+    // The scan's snap waits for the photo's pixels (decode), never forever, and never fails on a bad decode
+    const { whenDrawable, DECODE_WAIT_MS } = await import(`${R}/modules/mod03-camera/cropEditor.js`);
+    const order = [];
+    let finish; const img = { decode: () => new Promise(r => { finish = r; }) };
+    const waiting = whenDrawable(img, { schedule: () => {} }).then(() => order.push('snap'));
+    await Promise.resolve(); await Promise.resolve();
+    order.push('decoded'); finish(); await waiting;
+    ok('scan snap: waits until the photo is decoded before reading its pixels', order.join() === 'decoded,snap', order.join());
+    let timer = null; const stuck = whenDrawable({ decode: () => new Promise(() => {}) }, { schedule: (fn, ms) => { timer = ms; fn(); } });
+    ok('scan snap: a decode that never ends is waited on for at most DECODE_WAIT_MS (2 s)', (await stuck.then(() => 'went on')) === 'went on' && timer === DECODE_WAIT_MS && DECODE_WAIT_MS === 2000, String(timer));
+    const bad = await whenDrawable({ decode: () => Promise.reject(new Error('EncodingError')) }, { schedule: () => {} }).then(() => 'went on', () => 'rejected');
+    ok('scan snap: a failed decode still goes on to the snap (which then says no edges were found)', bad === 'went on', bad);
+    ok('scan snap: a browser without decode() snaps at once', (await whenDrawable({}).then(() => 'went on')) === 'went on');
+  }
   const { findCardQuad, convexHull, orderCorners, isCutCorner } = await import(`${R}/modules/mod03-camera/cardFinder.js`);
   // A white 1050 x 600 card, rotated and sheared on a grey background, with dark "text" rows on it (the e2e crooked card)
   const deg = Math.PI / 180;
