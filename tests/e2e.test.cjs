@@ -140,7 +140,7 @@ const readStage = (page) => page.evaluate(() => {
   const bar = document.getElementById('ocrProgressBar'), toast = document.getElementById('toastMessage');
   return 'read stopped at ' + JSON.stringify({ card: document.documentElement.dataset.card, label: (document.getElementById('ocrProgressLabel') || {}).textContent,
     wash: bar && bar.getAttribute('aria-valuenow'), reading: v('ocrProgress'), review: v('ocrStepText'), timeoutPrompt: v('ocrTimeoutModal'), retakePrompt: v('ocrRetakeNotice'),
-    toast: toast && toast.textContent, log: (window.__readerLog || []).slice(-8) });
+    toast: toast && toast.textContent, log: (window.__readerLog || []).slice(-16) });   // 16: a crash, its retry's start-up and the retry's end (job 137281776598 showed only the retry)
 }).catch(e => 'read stage unknown: ' + e.message);
 // Waits up to 90 s for a read to end at `sel`; if it does not, the error says where the read stopped.
 async function readEnds(page, sel = '#ocrStepText') {
@@ -319,7 +319,14 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   }).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-wired'] });
   // VCGE_EDITION=plain: every load of the app's page gets <html data-edition="plain">, as the plain branch's index.html has
   const editionRoute = (c) => (FORCE_PLAIN ? c.route(u => u.origin + u.pathname === ORIGIN || u.origin + u.pathname === ORIGIN + 'index.html',
-    async (route) => { const r = await route.fetch(); await route.fulfill({ response: r, body: (await r.text()).replace('<html lang="en"', '<html lang="en" data-edition="plain"') }); }) : null);
+    async (route) => {
+      // The fetch is tried twice: one "socket hang up" from the test server threw out of this handler, unhandled, and
+      // ended the whole run (Plain edition job 137296815293). A second failure aborts the load, so only that check fails.
+      let r;
+      try { r = await route.fetch(); } catch (e) { r = await route.fetch().catch(err => { console.log('plain page load failed twice:', err.message); return null; }); }
+      if (!r) return route.abort('failed').catch(() => {});
+      await route.fulfill({ response: r, body: (await r.text()).replace('<html lang="en"', '<html lang="en" data-edition="plain"') }).catch(() => {});
+    }) : null);
   // The reader's own log lines ([vCGE-MOD04]) are kept on the page, so a read that never ends can say how far it got
   const keepReaderLog = () => ['log', 'warn', 'error'].forEach(k => { const f = console[k]; console[k] = (...a) => {
     // The reader's own lines, and the error behind "Could not read that image." (an iPhone run, 2026-10-20, ended there
