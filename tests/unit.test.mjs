@@ -2131,6 +2131,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('card tabs: Colour, Logo, Style and Paper, in that order', tabs.CARD_TABS.join() === 'colour,logo,style,paper');
   ok('card tabs: the mini card shows only once the box has scrolled more than 40% of the card\'s height',
     !tabs.miniWanted(0, 240) && !tabs.miniWanted(96, 240) && tabs.miniWanted(97, 240) && !tabs.miniWanted(500, 0));
+  ok('card tabs: the band behind the mini card is as tall as the shrunk card plus a small gap, and none without a card',
+    tabs.miniBandHeight(240) === Math.ceil(240 * tabs.MINI_SCALE) + 8 && tabs.miniBandHeight(0) === 0, String(tabs.miniBandHeight(240)));
   {
     const btn = (t) => ({ dataset: { tab: t }, attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } });
     const bs = tabs.CARD_TABS.map(btn), body = { dataset: { tab: 'colour' } }, look = { open: false };
