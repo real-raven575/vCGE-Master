@@ -57,6 +57,10 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
       && /VERSION_CODES\.Q/.test(activity) && /IS_PENDING, 0/.test(activity) && !/WRITE_EXTERNAL_STORAGE/.test(main));
   ok('Android: Print opens Android\'s print screen for the page on the UI thread, named by the page',
     /fun print\(jobName: String\): Boolean/.test(activity) && /runOnUiThread/.test(activity) && /PrintManager/.test(activity) && /createPrintDocumentAdapter\(name\)/.test(activity));
+  ok('Android: Email with the .vcf tries mail apps first and falls back to the share menu when no mail app takes the pair (Play 562 phone test)',
+    /fun emailFile\(vcard: String, fileName: String, subject: String, body: String\): Boolean/.test(activity)
+      && /Intent\(send\)\.apply \{ selector = Intent\(Intent\.ACTION_SENDTO,\s*Uri\.parse\("mailto:"\)\) \}/.test(activity)
+      && /launch\(mailOnly\)\s*\|\|\s*launch\(Intent\.createChooser\(send,\s*subject\)\)/.test(activity));
   ok('Android: the bridge still never loads a page or opens a web link (no ACTION_VIEW on http)', !/https?:\/\//.test(activity.replace(/\/\/.*$/gm, '')));
   const paths = read(ANDROID + 'main/res/xml/file_paths.xml');
   ok('Android: the FileProvider shares the app cache, where the card is written', /<cache-path\s+name="[^"]+"\s+path="\."/.test(paths) && /\$\{applicationId\}\.fileprovider/.test(main));
