@@ -147,6 +147,14 @@ async function readEnds(page, sel = '#ocrStepText') {
   try { await page.waitForSelector(sel, { state: 'visible', timeout: 90000 }); }
   catch (e) { throw new Error(`${e.message}\n${await readStage(page)}`); }
 }
+// The toast's Undo is tapped only once the toast has landed: it slides in over 0.26 s, and since Play 562 finding 10 it
+// slides down over the screen's content, so a tap mid-slide on the slow iPhone job hit the Details form under it
+// (job 137879315210). Waits on the toast's own transition ending, not a clock.
+const toastUndo = async (page) => {
+  await page.waitForFunction(() => { const t = document.getElementById('toast'), a = document.getElementById('toastAction');
+    return t && a && !t.classList.contains('opacity-0') && !a.classList.contains('hidden') && t.getAnimations().length === 0; }, null, { timeout: 5000 }).catch(() => {});
+  await page.click('#toastAction');
+};
 const proceed = async (page) => { await page.click('#dockNext'); await page.waitForSelector('#cropReviewModal', { state: 'hidden', timeout: 5000 }); };
 
 async function decodeQr(page) {
@@ -1849,7 +1857,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p11.click('#clearFormBtn');
     const cleared = await p11.evaluate(() => ({ font: document.getElementById('cardFontSelect').value, serif: document.getElementById('cardFront').classList.contains('font-serif'), flip: document.getElementById('card3DFlipper').style.transform, logo: !!document.querySelector('#previewLogoStrip img, #previewLogoStrip svg') }));
     ok('Clear form: Sans typeface, front side up, no logo', cleared.font === 'font-sans' && !cleared.serif && cleared.flip === 'rotateY(0deg)' && !cleared.logo, JSON.stringify(cleared));
-    await p11.click('#toastAction');
+    await toastUndo(p11);
     await p11.waitForTimeout(300);
     const undone = await p11.evaluate(() => ({ font: document.getElementById('cardFontSelect').value, back: document.getElementById('cardBack').classList.contains('font-serif'), logo: !!document.querySelector('#previewLogoStrip img, #previewLogoStrip svg') }));
     ok('Undo brings back the typeface and the logo strip', undone.font === 'font-serif' && undone.back && undone.logo, JSON.stringify(undone));
@@ -1927,7 +1935,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pU.click('#reopenScanBtn');
     await proceed(pU);
     ok('F4: proceeding again refills the tray from the lines', (await trayLines()).includes('Northwind Systems'));
-    await pU.click('#toastAction');
+    await toastUndo(pU);
     ok('F4: the scan\'s Undo empties the tray', (await trayLines()).length === 0 && await pU.$eval('#fieldsUnknown', t => t.classList.contains('hidden')));
     ok('make it cute: no page errors', errorsU.length === 0, errorsU.join(' | '));
     await ctxU.close();
@@ -1952,7 +1960,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const filled = await card();
     ok('scan into a sample: the sample is replaced, nothing of it left', filled.first === 'Maria' && !filled.middle && !filled.suffix && !filled.unit
       && filled.phones.length === 1 && filled.phones[0].value === '+1 (312) 555-0147' && filled.front === '+1 (312) 555-0147', JSON.stringify(filled));
-    await pS.click('#toastAction');
+    await toastUndo(pS);
     ok('Undo brings the sample back', (await pS.inputValue('#firstName')) === samples()[4][0] && (await rows(pS, 'phone')).length === 3);
     await pS.click('#reopenScanBtn');
     await proceed(pS);
@@ -2162,11 +2170,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p9.fill('#firstName', 'Typed'); await p9.fill('#emailValue0', 'typed@example.com');
     await p9.selectOption('#fakeContactSelect', '0');
     ok('sample preset replaces the form and offers Undo', (await p9.inputValue('#firstName')) !== 'Typed' && await p9.isVisible('#toastAction') && (await p9.textContent('#toastAction')).trim() === 'Undo');
-    await p9.click('#toastAction');
+    await toastUndo(p9);
     ok('Undo brings the typed card back', (await p9.inputValue('#firstName')) === 'Typed' && (await p9.inputValue('#emailValue0')) === 'typed@example.com' && (await p9.textContent('#toastMessage')).includes('Undone'));
     await p9.click('#clearFormBtn');
     ok('Clear form empties the form, with Undo', (await p9.inputValue('#firstName')) === '' && await p9.isVisible('#toastAction'));
-    await p9.click('#toastAction');
+    await toastUndo(p9);
     ok('Undo after Clear form restores it', (await p9.inputValue('#firstName')) === 'Typed');
 
     // Scan, fill, then reopen the last scan without new OCR
@@ -2176,7 +2184,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await readEnds(p9);
     await proceed(p9);
     ok('Fill form offers Undo and "Reopen last scan"', (await p9.inputValue('#firstName')) === 'Maria' && await p9.isVisible('#toastAction') && await onScreen(p9, '#reopenScanBtn'));
-    await p9.click('#toastAction'); await p9.waitForTimeout(600);
+    await toastUndo(p9); await p9.waitForTimeout(600);
     ok('Undo after Fill form restores the card from before the scan', (await p9.inputValue('#firstName')) === 'Typed');
     // Video review #59, #60: Undo never ends on an empty form: it reopens the scan's lines on the Read card, as edited
     ok('Undo after Fill form reopens the lines on the Read card, nothing lost, no new OCR', (await p9.evaluate(() => document.documentElement.dataset.card)) === 'read' && await p9.isVisible('#ocrStepText')
@@ -4630,9 +4638,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p6.click('#removeAvatarBtn'); await p6.click('#removeLogoYes');
     ok('logo: Remove takes the logo off and says so; the initials are back', !(await p6.$(LOGO6)) && (await p6.textContent('#previewAvatar')).trim() === (EDITION_PLAIN ? s1First[0] + s1Last[0] : 'GR') && (await p6.textContent('#toastMessage')) === 'Logo removed.');
     ok('card: with the logo removed the rim goes too', await p6.$eval('#card3DFlipper', el => !('rim' in el.dataset) && !el.style.getPropertyValue('--card-rim')));
-    await p6.click('#toastAction').catch(() => {});
+    await toastUndo(p6).catch(() => {});
     await p6.click('#navFields'); await p6.waitForTimeout(300);
-    await p6.click('#clearFormBtn'); await p6.click('#toastAction');
+    await p6.click('#clearFormBtn'); await toastUndo(p6);
     await p6.waitForTimeout(300);
     ok('sample: Undo after Clear brings the sample back without its logo (removed before) and with its theme', (await p6.inputValue('#firstName')) === s1First && (await p6.textContent('#currentPaletteLabel')) === 'Twilight' && !(await p6.$(LOGO6)));
     // The logo's look and the card's finish (raven575 test report, 2026-10-22)
@@ -4867,7 +4875,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pV.click('#navFields'); await pV.waitForTimeout(400);
     await pV.click('#clearFormBtn');
     const clearedLook = await pV.evaluate(() => ({ font: document.getElementById('cardFontSelect').value, size: document.getElementById('cardSizeSelect').value }));
-    await pV.click('#toastAction'); await pV.waitForTimeout(200);
+    await toastUndo(pV); await pV.waitForTimeout(200);
     const undoneLook = await pV.evaluate(() => ({ font: document.getElementById('cardFontSelect').value, size: document.getElementById('cardSizeSelect').value, icons: document.getElementById('cardIconsBtn').getAttribute('aria-pressed') }));
     ok('#85 Clear goes back to Sans and medium text; Undo brings back the typeface and the size', clearedLook.font === 'font-sans' && clearedLook.size === 'md' && undoneLook.font === 'card-font-lexend' && undoneLook.size === 'xl' && undoneLook.icons === 'true', JSON.stringify([clearedLook, undoneLook]));
     await pV.selectOption('#cardSizeSelect', 'md');
