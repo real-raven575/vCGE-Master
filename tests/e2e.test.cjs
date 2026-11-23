@@ -140,7 +140,7 @@ const readStage = (page) => page.evaluate(() => {
   const bar = document.getElementById('ocrProgressBar'), toast = document.getElementById('toastMessage');
   return 'read stopped at ' + JSON.stringify({ card: document.documentElement.dataset.card, label: (document.getElementById('ocrProgressLabel') || {}).textContent,
     wash: bar && bar.getAttribute('aria-valuenow'), reading: v('ocrProgress'), review: v('ocrStepText'), timeoutPrompt: v('ocrTimeoutModal'), retakePrompt: v('ocrRetakeNotice'),
-    toast: toast && toast.textContent, log: (window.__readerLog || []).slice(-8) });
+    toast: toast && toast.textContent, log: (window.__readerLog || []).slice(-16) });   // 16: a crash, its retry's start-up and the retry's end (job 137281776598 showed only the retry)
 }).catch(e => 'read stage unknown: ' + e.message);
 // Waits up to 90 s for a read to end at `sel`; if it does not, the error says where the read stopped.
 async function readEnds(page, sel = '#ocrStepText') {
@@ -319,7 +319,14 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   }).observe(document, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-wired'] });
   // VCGE_EDITION=plain: every load of the app's page gets <html data-edition="plain">, as the plain branch's index.html has
   const editionRoute = (c) => (FORCE_PLAIN ? c.route(u => u.origin + u.pathname === ORIGIN || u.origin + u.pathname === ORIGIN + 'index.html',
-    async (route) => { const r = await route.fetch(); await route.fulfill({ response: r, body: (await r.text()).replace('<html lang="en"', '<html lang="en" data-edition="plain"') }); }) : null);
+    async (route) => {
+      // The fetch is tried twice: one "socket hang up" from the test server threw out of this handler, unhandled, and
+      // ended the whole run (Plain edition job 137296815293). A second failure aborts the load, so only that check fails.
+      let r;
+      try { r = await route.fetch(); } catch (e) { r = await route.fetch().catch(err => { console.log('plain page load failed twice:', err.message); return null; }); }
+      if (!r) return route.abort('failed').catch(() => {});
+      await route.fulfill({ response: r, body: (await r.text()).replace('<html lang="en"', '<html lang="en" data-edition="plain"') }).catch(() => {});
+    }) : null);
   // The reader's own log lines ([vCGE-MOD04]) are kept on the page, so a read that never ends can say how far it got
   const keepReaderLog = () => ['log', 'warn', 'error'].forEach(k => { const f = console[k]; console[k] = (...a) => {
     // The reader's own lines, and the error behind "Could not read that image." (an iPhone run, 2026-10-20, ended there
@@ -1374,6 +1381,26 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await setVisibility(p8, 'visible'); await fastForward(p8, 1000);
     ok('idle lock noticed late but within its 7 minutes: locked, not wiped', await p8.isVisible('#vaultModal') && /^(2:2\d|2:1\d)$/.test(await t8('vaultLockRingTime')), await t8('vaultLockRingTime'));
     await p8.fill('#vaultPin', '4321'); await p8.waitForSelector('#vaultModal', { state: 'hidden' });
+
+    // Play 562 (raven575 2026-11-23): the logo pickers (Export QR's centre logo and the 3D Card's Logo) open the photo
+    // picker too, so leaving for it gets the same grace as Capture's Upload: no lock, and the picked logo lands.
+    await p8.fill('#firstName', 'Picker3'); await fastForward(p8, 1000);
+    await p8.evaluate(() => { document.getElementById('exportQrBtn').click(); });
+    await p8.waitForSelector('#exportQrSheet', { state: 'visible' });
+    await p8.evaluate(() => { document.querySelector('input[name="qrLogo"][value="upload"]').click(); document.getElementById('exportQrLogoFile').blur(); });   // the app opens the picker
+    await setVisibility(p8, 'hidden'); await fastForward(p8, 2000);   // Google Photos has the screen
+    await setVisibility(p8, 'visible'); await fastForward(p8, 500);
+    const qrLogoPng = await p8.evaluate(() => { const c = document.createElement('canvas'); c.width = 160; c.height = 80; const x = c.getContext('2d'); x.fillStyle = '#1d4ed8'; x.font = 'bold 48px Arial'; x.fillText('LOGO', 8, 58); return c.toDataURL('image/png'); });
+    await p8.setInputFiles('#exportQrLogoFile', { name: 'logo.png', mimeType: 'image/png', buffer: Buffer.from(qrLogoPng.split(',')[1], 'base64') });
+    await p8.waitForFunction(() => document.querySelector('input[name="qrLogo"][value="upload"]').checked, null, { timeout: 5000 }).catch(() => {});
+    const qrBack = await p8.evaluate(() => ({ locked: !document.getElementById('vaultModal').classList.contains('hidden'), sheet: !document.getElementById('exportQrSheet').classList.contains('hidden'),
+      upload: document.querySelector('input[name="qrLogo"][value="upload"]').checked, save: document.getElementById('exportQrSaveBtn').disabled, name: document.getElementById('firstName').value }));
+    ok('Export QR logo picker: coming back from the photo picker does not lock, the logo is set and Save PNG works', !qrBack.locked && qrBack.sheet && qrBack.upload && !qrBack.save && qrBack.name === 'Picker3', JSON.stringify(qrBack));
+    await p8.keyboard.press('Escape'); await p8.waitForSelector('#exportQrSheet', { state: 'hidden' });
+    await p8.evaluate(() => { const u = document.getElementById('avatarUpload'); u.dispatchEvent(new MouseEvent('click')); u.blur(); });   // the 3D Card's Logo button
+    await setVisibility(p8, 'hidden'); await fastForward(p8, 2000);
+    await setVisibility(p8, 'visible'); await fastForward(p8, 500);
+    ok('3D Card logo picker: coming back from the photo picker does not lock', !(await p8.isVisible('#vaultModal')) && (await p8.inputValue('#firstName')) === 'Picker3');
 
     // Unlocking goes back to the card that was in view, and to the Vault page when its Lock now locked it
     await p8.click('#navShare'); await deckSettled(p8);

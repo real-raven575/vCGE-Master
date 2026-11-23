@@ -1277,10 +1277,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('failed OCR publishes nothing to the form pipeline', evt === null);
 
   let created = 0, terminated = 0, psm = null, params = null, result = null, hold = false, psms = [], seenParams = [];
+  let stopping = null, order = [];   // stopping: what terminate() returns (a slow stop); order: starts and stops, in turn
   const words = (n, conf) => Array.from({ length: n }, (_, i) => ({ text: `word${i}`, confidence: conf }));
-  globalThis.Tesseract = { createWorker: async () => { created++; return {
+  globalThis.Tesseract = { createWorker: async () => { created++; order.push('start'); return {
     setParameters: async (p) => { params = p; seenParams.push(p); if ('tessedit_pageseg_mode' in p) { psm = p.tessedit_pageseg_mode; psms.push(psm); } },
-    recognize: async (image) => (hold ? new Promise(() => {}) : { data: typeof result === 'function' ? result(image) : result }), terminate() { terminated++; } }; } };
+    recognize: async (image) => (hold ? new Promise(() => {}) : { data: typeof result === 'function' ? result(image) : result }), terminate() { terminated++; order.push('stop'); return stopping ? stopping().then(() => order.push('stopped')) : undefined; } }; } };
   result = { text: 'Jane Doe\njane@example.com', confidence: 88, words: words(8, 90) };
   const r = await ocr.executeOCRScan('data:image/png;base64,x');
   ok('OCR returns raw text and confidence, publishes OCR_TEXT_EXTRACTED', r.text === 'Jane Doe\njane@example.com' && r.confidence === 88 && evt && evt.confidence === 88 && !('simulated' in r));
@@ -1532,6 +1533,27 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     result = () => { reads++; throw new Error('some other failure'); };
     const other = await failure(ocr.executeOCRScan('data:image/png;base64,x'));
     ok('other errors are not retried', !!other && reads === 1 && !ocr.isEngineCrash(new Error('x')) && ['unreachable executed', 'Out of bounds memory access', 'Division by zero', 'access to a null reference'].every(m => ocr.isEngineCrash(Object.assign(new Error(m), { name: 'RuntimeError' }))), String(reads));
+    // The fresh reader starts only once the crashed one is gone (iPhone CI job 137281776598: the read after a crash
+    // crashed too, right after a wipe had stopped another reader), and the label says "Extracting" again for its read
+    reads = 0; order = []; statuses = [];
+    stopping = () => new Promise(res => setTimeout(res, 50));
+    result = () => { if (reads++ === 0) { const e = new Error('Out of bounds memory access'); e.name = 'RuntimeError'; throw e; } return { text: 'Jane Doe\njane@example.com', confidence: 88, words: words(8, 90) }; };
+    const waited = await ocr.executeOCRScan('data:image/png;base64,x', { onStatus: s => statuses.push(s) });
+    ok('after a crash the fresh reader starts only once the crashed one has stopped', waited.text.startsWith('Jane Doe') && order.join() === 'stop,stopped,start', order.join());
+    ok('after a crash the read is shown as reading again once the fresh reader is up', statuses.join() === 'reading,starting,reading', statuses.join());
+    // A stop that never ends holds the fresh reader back RETIRE_WAIT_MS at most
+    reads = 0; order = [];
+    stopping = () => new Promise(() => {});
+    const t0 = Date.now();
+    const stuck = await ocr.executeOCRScan('data:image/png;base64,x');
+    const waitedMs = Date.now() - t0;
+    ok('a crashed reader that never stops holds the fresh one back RETIRE_WAIT_MS at most', stuck.text.startsWith('Jane Doe') && order.join() === 'stop,start' && waitedMs >= ocr.RETIRE_WAIT_MS - 50 && waitedMs < ocr.RETIRE_WAIT_MS + 1500, `${order.join()} ${waitedMs} ms`);
+    // A wipe stops the reader too: the next scan's reader starts after it has stopped
+    order = []; stopping = () => new Promise(res => setTimeout(res, 50));
+    share.globalEventBus.publish(share.Events.VAULT_WIPED, { reason: 'test' });
+    await ocr.executeOCRScan('data:image/png;base64,x');
+    ok('after a wipe the next scan starts its reader only once the old one has stopped', order.join() === 'stop,stopped,start', order.join());
+    stopping = null;
     result = { text: 'Jane Doe\njane@example.com', confidence: 88, words: words(8, 90) };
   }
 
@@ -2531,6 +2553,12 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const homeOnly = new EgressController();
   homeOnly.setPayload('BEGIN:VCARD', { firstName: 'Kai', addressType: 'other', city: 'Boise', websites: [{ type: 'other', value: 'kai.dev' }] }, { hasDetails: true });
   ok('MOD08 summary: an "Other" website and address read "Website" and "Address"', homeOnly.contactSummary() === 'Kai\nWebsite:  kai.dev\nAddress:  Boise', JSON.stringify(homeOnly.contactSummary()));
+  const countryOnly = new EgressController();
+  countryOnly.setPayload('BEGIN:VCARD', { firstName: 'Kai', addressType: 'work', country: 'United States', phones: [{ type: 'work', value: '555-0100' }] }, { hasDetails: true });
+  ok('MOD08 summary: a country alone writes no address line (Play 562 phone test: "Work address:  United States")', countryOnly.contactSummary() === 'Kai\nWork phone:  555-0100', JSON.stringify(countryOnly.contactSummary()));
+  const cityOnly = new EgressController();
+  cityOnly.setPayload('BEGIN:VCARD', { firstName: 'Kai', addressType: 'work', city: 'Boise', country: 'United States' }, { hasDetails: true });
+  ok('MOD08 summary: a city with the country still writes the address', cityOnly.contactSummary() === 'Kai\nWork address:  Boise, United States', JSON.stringify(cityOnly.contactSummary()));
 
   // Save .vcf in the Android app (raven575's phone run, 2026-11-14: "saved", but no contact): the WebView cannot download,
   // so the card goes to the phone's Contacts app through MainActivity.kt's "vcgeAndroid"

@@ -25,6 +25,19 @@ let tesseractWorker = null;
 // Bumped by every shutdown, so a scan or start-up that was running at the time ends instead of finishing.
 let generation = 0;
 let cancelRunning = null;
+// The last stopped reader, until its WebAssembly memory is given back. A new reader waits for it (up to
+// RETIRE_WAIT_MS), so two readers' memory is never held at once. On WebKit the fresh reader started right after a
+// crash crashed too, inside Recognize ("Out of bounds memory access"), and the read ended with nothing (iPhone CI job
+// 137281776598, right after a wipe had stopped another reader); memory held by the old reader is the likely cause.
+let retiring = null;
+export const RETIRE_WAIT_MS = 3000;
+
+/** Stops `worker` and notes it, so the next reader starts only once it is gone. */
+function retire(worker) {
+    const stopped = Promise.resolve().then(() => worker.terminate()).catch(() => {});
+    retiring = stopped;
+    stopped.then(() => { if (retiring === stopped) retiring = null; });
+}
 
 // How long the engine may take to start (core + English model, ~7 MB from local files) before we give up.
 export const OCR_INIT_TIMEOUT_MS = 60000;
@@ -185,6 +198,12 @@ async function initOCREngine(timeoutMs, onStep = () => {}) {
     if (tesseractWorker) return tesseractWorker;
     const started = generation;
     if (typeof Tesseract === 'undefined') throw new OcrUnavailableError('Tesseract.js is not loaded');
+    if (retiring) {
+        let wait;
+        await Promise.race([retiring, new Promise(res => { wait = setTimeout(res, RETIRE_WAIT_MS); })]);
+        clearTimeout(wait);
+        if (generation !== started) throw new OcrCancelledError();
+    }
 
     console.log(`[${MODULE_ID}] Initializing offline Tesseract WASM worker...`);
     let fail, filesLoaded = false;
@@ -235,7 +254,7 @@ export function shutdownOCREngine() {
     if (cancelRunning) cancelRunning(new OcrCancelledError());
     const worker = tesseractWorker;
     tesseractWorker = null;
-    if (worker) Promise.resolve().then(() => worker.terminate()).catch(() => {});
+    if (worker) retire(worker);
 }
 globalEventBus.subscribe(Events.VAULT_WIPED, shutdownOCREngine);
 globalEventBus.subscribe(Events.MEMORY_PURGED, shutdownOCREngine);
@@ -759,9 +778,11 @@ async function scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started, g
         if (!isEngineCrash(error) || generation !== started) throw error;
         console.warn(`[${MODULE_ID}] The reader crashed (${error.message}); reading once more with a fresh reader`);
         if (tesseractWorker === worker) tesseractWorker = null;
-        Promise.resolve().then(() => worker.terminate()).catch(() => {});
+        retire(worker);
+        onStatus('starting', 0);
         worker = await startEngine();
         if (generation !== started) throw new OcrCancelledError();
+        onStatus('reading');   // the fresh reader's start-up said "Preparing the reader"; the read is back on
         result = await readWithin(worker, processedImage, readTimeoutMs);
     }
     if (generation !== started) throw new OcrCancelledError();
@@ -843,7 +864,7 @@ async function readWithin(worker, image, timeoutMs) {
         if (error instanceof OcrTimeoutError) {
             console.error(`[${MODULE_ID}] ${error.message}: restarting the engine`);
             if (tesseractWorker === worker) tesseractWorker = null;
-            Promise.resolve().then(() => worker.terminate()).catch(() => {});
+            retire(worker);
         }
         throw error;
     } finally {
