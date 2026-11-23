@@ -765,6 +765,25 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     return { names: names.length, overlaps, cut };
   });
   ok('Settings fit (phone test 562): no two theme names overlap, and the font box shows OpenDyslexic and Atkinson Hyperlegible in full, and the Language hint wraps inside its row', fitState.names > 0 && fitState.overlaps === 0 && fitState.cut.length === 0, JSON.stringify(fitState));
+  // Premium controls (raven575 11-23): in the Herd style buttons get a lift (top light line, bottom shadow) and sliders an
+  // accent fill up to their value; the platform styles keep their own look
+  const premium = await page.evaluate(async () => {
+    const html = document.documentElement, was = html.dataset.style, quiet = document.getElementById('navSettings'), range = document.getElementById('sizeRange');
+    const lang = document.getElementById('langSelect'), flip = document.getElementById('flipCardBtn');
+    const look = () => ({ shadow: getComputedStyle(quiet).boxShadow, face: getComputedStyle(quiet).backgroundImage, select: getComputedStyle(lang).appearance,
+      chevron: (getComputedStyle(lang).backgroundImage.match(/linear-gradient/g) || []).length, pill: getComputedStyle(flip).boxShadow });
+    html.dataset.style = 'herd'; const herd = look();
+    html.dataset.style = 'material'; const material = look();
+    html.dataset.style = was;
+    const old = range.value, fills = [];
+    for (const v of [range.min, range.max]) { range.value = v; range.dispatchEvent(new Event('input', { bubbles: true })); fills.push(range.style.getPropertyValue('--ctl-fill')); }
+    range.value = old; range.dispatchEvent(new Event('input', { bubbles: true }));
+    return { herd, material, fills, now: range.style.getPropertyValue('--ctl-fill') };
+  });
+  ok('premium controls: Herd buttons and the card pills carry the lift (inset top line + shadow) and a face, drop-downs show the drawn chevron; Material does not; the text size slider fills 0% to 100% with its value',
+    /inset/.test(premium.herd.shadow) && /gradient/.test(premium.herd.face) && !/gradient/.test(premium.material.face) && premium.herd.shadow !== premium.material.shadow
+    && premium.herd.select === 'none' && premium.herd.chevron === 3 && premium.material.select !== 'none' && /inset/.test(premium.herd.pill) && premium.herd.pill !== premium.material.pill
+    && premium.fills.join() === '0%,100%' && /%$/.test(premium.now), JSON.stringify(premium));
   // The dock's steps and buttons fade their colour (deck.css): read only once no fade is running on the step in view,
   // the primary button or the page (getAnimations() starts any pending fade first, so it can't be read too early)
   const themeSettled = () => page.waitForFunction(() => [document.querySelector('.vcge-step[data-state="now"]'), document.getElementById('dockNext'), document.body]
