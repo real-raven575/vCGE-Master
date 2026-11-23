@@ -269,6 +269,14 @@ export function tween(from, to, ms, apply, { instant = false, now = () => Date.n
     timer = schedule(step, 1000 / fps);
     return () => { if (timer !== null) { cancel(timer); timer = null; } };
 }
+/** A slider's filled part (premium controls, raven575 2026-11-23): --ctl-fill is how far along the thumb is, 0% to 100%. */
+export function rangeFill(value, min, max) {
+    const lo = Number(min), hi = Number(max), v = Number(value);
+    if (!(hi > lo) || !Number.isFinite(v)) return '0%';
+    return `${Math.round(Math.min(1, Math.max(0, (v - lo) / (hi - lo))) * 1000) / 10}%`;
+}
+function paintRange(el) { if (el) el.style.setProperty('--ctl-fill', rangeFill(el.value, el.min || 0, el.max || 100)); }
+
 const reducedMotion = () => typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 export const TOAST_MS = 3000;            // a plain toast; one with a button (Undo) stays 8 s
@@ -705,6 +713,7 @@ export class CardView {
         const pick = LOGO_BACKS.find(([, , c]) => c === this.logoBack);
         $('logoBgGroup').querySelectorAll('button[data-back]').forEach(b => b.setAttribute('aria-pressed', String(!!pick && b.dataset.back === pick[0])));
         $('logoBgPicker').classList.toggle('is-on', !pick);
+        $('logoBgPicker').closest('.logo-bg-wheel-wrap')?.classList.toggle('is-on', !pick);   // (its check mark)
         if (this.logoBack) $('logoBgPicker').value = this.logoBack;
         this.render(this.getContact());
     }
@@ -731,6 +740,7 @@ export class CardView {
         const blurIn = $('cardFinishBlur');
         if (blurIn) { blurIn.value = String(this.finishBlur); blurIn.disabled = flat; blurIn.setAttribute('aria-valuetext', `${this.finishBlur} per cent`); }
         const blurOut = $('cardFinishBlurOut'); if (blurOut) blurOut.textContent = flat ? '' : `${this.finishBlur}%`;
+        [$('cardFinishStrength'), blurIn].forEach(paintRange);
         this.pickers.finish?.refresh();
     }
 
@@ -785,7 +795,7 @@ export class CardView {
             btn.setAttribute('aria-pressed', String(key === 'auto'));
             if (colour) btn.style.background = colour;
             btn.addEventListener('click', () => { this.applyLogoBack(colour); this.changed(); });
-            picker.before(btn);
+            (picker.closest('.logo-bg-wheel-wrap') || picker).before(btn);
         });
     }
 
@@ -1152,6 +1162,7 @@ export class CardView {
             btn.title = stockName(t);
             btn.setAttribute('aria-pressed', String(key === this.themeKey));
             btn.style.background = `linear-gradient(135deg, ${t.card} 45%, ${t.accent})`;
+            btn.style.setProperty('--sw-ink', t.ink);   // the ring in the card's own ink (premium controls, 2026-11-23)
             const label = document.createElement('span');
             label.className = 'vcge-sr-only';
             label.textContent = t.label;

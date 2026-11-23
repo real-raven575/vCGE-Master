@@ -4611,7 +4611,17 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const dark = await badge();
     await p6.evaluate(() => { const w = document.getElementById('logoBgPicker'); w.value = '#ff8800'; w.dispatchEvent(new Event('input', { bubbles: true })); });
     const wheel = { ...(await badge()), on: await p6.$eval('#logoBgPicker', w => w.classList.contains('is-on')), pressed: await p6.$$eval('#logoBgGroup [aria-pressed="true"]', bs => bs.length) };
+    const wheelMark = await p6.$eval('#logoBgPicker', w => { const wrap = w.closest('.logo-bg-wheel-wrap'); return !!wrap && wrap.classList.contains('is-on') && getComputedStyle(wrap, '::after').content !== 'none'; });
     await p6.click('#logoBgGroup [data-back="auto"]');
+    // Premium controls (raven575, 2026-11-23): the picked swatch shows a check mark as well as a ring, never colour alone
+    const marks = await p6.evaluate(() => ({ auto: getComputedStyle(document.querySelector('#logoBgGroup [data-back="auto"]'), '::after').content,
+      other: getComputedStyle(document.querySelector('#logoBgGroup [data-back="dark"]'), '::after').content,
+      wheelOff: getComputedStyle(document.querySelector('.logo-bg-wheel-wrap'), '::after').content,
+      card: getComputedStyle(document.querySelector('#paletteListContainer [aria-pressed="true"]'), '::after').content,
+      cardOther: getComputedStyle(document.querySelector('#paletteListContainer [aria-pressed="false"]'), '::after').content,
+      autoLook: getComputedStyle(document.querySelector('#logoBgGroup [data-back="auto"]')).backgroundImage.slice(0, 26) }));
+    ok('premium controls: the picked card colour, behind-logo swatch or colour wheel carries a check mark; the others none; Auto shows the no-background checkerboard',
+      marks.autoLook.startsWith('repeating-conic-gradient') && wheelMark && marks.auto !== 'none' && marks.other === 'none' && marks.wheelOff === 'none' && marks.card !== 'none' && marks.cardOther === 'none', JSON.stringify({ wheelMark, ...marks }));
     const auto = { ...(await badge()), pressed: await p6.$eval('#logoBgGroup [data-back="auto"]', b => b.getAttribute('aria-pressed')) };
     ok('logo: Dark gray sits behind the logo, the colour wheel sets any colour (no swatch then lit), Auto takes it away again',
       dark.bg === 'rgb(51, 65, 85)' && wheel.bg === 'rgb(255, 136, 0)' && wheel.on && wheel.pressed === 0 && auto.bg !== 'rgb(255, 136, 0)' && auto.pressed === 'true', JSON.stringify({ dark, wheel, auto }));
@@ -4630,6 +4640,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const dots = await finish();
     await p6.fill('#cardFinishStrength', '30');
     const strong = await finish();
+    // The slider's filled part follows the thumb (premium controls, 2026-11-23): 30 on 5 to 100 is 26.3% along
+    const fill = await p6.$eval('#cardFinishStrength', el => ({ fill: el.style.getPropertyValue('--ctl-fill'), track: getComputedStyle(el).getPropertyValue('--r4-track').includes('var(--ctl-fill') || getComputedStyle(el).appearance }));
+    ok('premium controls: the Strength slider is filled in the accent up to its thumb', fill.fill === '26.3%', JSON.stringify(fill));
     await p6.fill('#cardFinishBlur', '20');
     const soft = await finish();
     // Behind the text by construction: the texture is stacked below the face's own content (z-index -1) inside the face

@@ -2109,6 +2109,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('card tabs: Colour, Logo, Style and Paper, in that order', tabs.CARD_TABS.join() === 'colour,logo,style,paper');
   ok('card tabs: the mini card shows only once the box has scrolled more than 40% of the card\'s height',
     !tabs.miniWanted(0, 240) && !tabs.miniWanted(96, 240) && tabs.miniWanted(97, 240) && !tabs.miniWanted(500, 0));
+  {
+    const { rangeFill } = await import(`${R}/modules/mod06-gui/card3dView.js`);
+    ok('premium controls: a slider is filled up to its thumb, clamped to its ends', rangeFill(30, 5, 100) === '26.3%' && rangeFill(5, 5, 100) === '0%' && rangeFill(200, 0, 20) === '100%' && rangeFill(1, 3, 3) === '0%',
+      [rangeFill(30, 5, 100), rangeFill(200, 0, 20)].join());
+  }
   ok('card tabs: the band behind the mini card is as tall as the shrunk card plus a small gap, and none without a card',
     tabs.miniBandHeight(240) === Math.ceil(240 * tabs.MINI_SCALE) + 8 && tabs.miniBandHeight(0) === 0, String(tabs.miniBandHeight(240)));
   {
