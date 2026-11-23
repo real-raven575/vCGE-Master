@@ -2524,6 +2524,12 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const homeOnly = new EgressController();
   homeOnly.setPayload('BEGIN:VCARD', { firstName: 'Kai', addressType: 'other', city: 'Boise', websites: [{ type: 'other', value: 'kai.dev' }] }, { hasDetails: true });
   ok('MOD08 summary: an "Other" website and address read "Website" and "Address"', homeOnly.contactSummary() === 'Kai\nWebsite:  kai.dev\nAddress:  Boise', JSON.stringify(homeOnly.contactSummary()));
+  const countryOnly = new EgressController();
+  countryOnly.setPayload('BEGIN:VCARD', { firstName: 'Kai', addressType: 'work', country: 'United States', phones: [{ type: 'work', value: '555-0100' }] }, { hasDetails: true });
+  ok('MOD08 summary: a country alone writes no address line (Play 562 phone test: "Work address:  United States")', countryOnly.contactSummary() === 'Kai\nWork phone:  555-0100', JSON.stringify(countryOnly.contactSummary()));
+  const cityOnly = new EgressController();
+  cityOnly.setPayload('BEGIN:VCARD', { firstName: 'Kai', addressType: 'work', city: 'Boise', country: 'United States' }, { hasDetails: true });
+  ok('MOD08 summary: a city with the country still writes the address', cityOnly.contactSummary() === 'Kai\nWork address:  Boise, United States', JSON.stringify(cityOnly.contactSummary()));
 
   // Save .vcf in the Android app (raven575's phone run, 2026-11-14: "saved", but no contact): the WebView cannot download,
   // so the card goes to the phone's Contacts app through MainActivity.kt's "vcgeAndroid"
