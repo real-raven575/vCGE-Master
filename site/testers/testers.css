@@ -1,0 +1,25 @@
+:root{--bg:#faf4e4;--ink:#17213a;--soft:#3b4560;--muted:#6b7184;--card:#fffdf7;--line:#eadfc6;--red:#d9533f;--orange:#e8803a;--gold:#d8ad5a;--teal:#2a8c86}
+@media (prefers-color-scheme:dark){:root{--bg:#131a2b;--ink:#f3eee2;--soft:#cfd5e4;--muted:#9aa2b8;--card:#1b2439;--line:#2c3854}}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+body::before{content:"";display:block;height:6px;background:linear-gradient(90deg,var(--teal),#e7b748,var(--orange),var(--red))}
+.top,main,footer{max-width:760px;margin:0 auto;padding:0 16px}
+.top{padding-top:18px;padding-bottom:10px}
+.brand{display:inline-flex;align-items:center;gap:10px;color:var(--ink);text-decoration:none;font-weight:700;font-size:19px}
+.brand span{font-weight:600;color:var(--muted)}
+.banner{display:block;width:100%;height:auto;border-radius:16px;border:1px solid var(--line);margin:8px 0 26px}
+h1{font-size:clamp(28px,6vw,40px);line-height:1.1;margin:0 0 12px}
+h2{font-size:19px;margin:0 0 6px}
+p{margin:0 0 12px;color:var(--soft)}
+.steps{list-style:none;counter-reset:s;padding:0;margin:26px 0;display:grid;gap:14px}
+.steps li{counter-increment:s;position:relative;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:18px 18px 16px 70px}
+.steps li::before{content:counter(s);position:absolute;left:18px;top:16px;width:36px;height:36px;border-radius:50%;background:var(--ink);color:#e7b748;font-weight:700;display:grid;place-items:center}
+@media (prefers-color-scheme:dark){.steps li::before{background:#e7b748;color:#17213a}}
+.btn{display:inline-block;background:var(--red);color:#fff;text-decoration:none;font-weight:700;padding:11px 18px;border-radius:999px;min-height:44px;margin-top:2px}
+.btn:hover,.btn:focus-visible{background:#b9412f}
+.btn:focus-visible{outline:3px solid var(--gold);outline-offset:2px}
+.btn.alt{background:var(--ink);color:var(--bg)}
+.note{border-left:4px solid var(--gold);padding:4px 0 4px 16px;margin:24px 0}
+footer{padding-top:18px;padding-bottom:36px;border-top:1px solid var(--line);margin-top:30px}
+footer p{font-size:14px;color:var(--muted);margin:0 0 4px}

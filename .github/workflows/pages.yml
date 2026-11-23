@@ -31,6 +31,9 @@ jobs:
         run: npm test
       - name: Vite build
         run: npm run build
+      # The tester welcome page (site/testers) goes only on the public site, never inside the app bundles.
+      - name: Tester welcome page
+        run: cp -r site/testers dist/testers
       - uses: actions/upload-pages-artifact@v4
         with:
           path: dist

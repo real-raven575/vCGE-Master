@@ -235,5 +235,26 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
       && /System\.getenv\("VCGE_VERSION_CODE"\)\?\.toIntOrNull\(\)/.test(read('src-tauri/gen/android/app/build.gradle.kts')));
 }
 
+// --- Tester welcome page (site/testers, public site only) ---
+{
+  const page = read('site/testers/index.html');
+  const pages = read('.github/workflows/pages.yml');
+  const vite = read('vite.config.mjs');
+  ok('Testers page: published by the Pages workflow after the build, and never copied into the app bundles',
+    /run: cp -r site\/testers dist\/testers/.test(pages) && pages.indexOf('cp -r site/testers') > pages.indexOf('npm run build') && !/site\/testers|'site'/.test(vite));
+  ok('Testers page: no scripts, and its own CSP loads nothing from another site',
+    !/<script/i.test(page) && /default-src 'none'; style-src 'self'; img-src 'self'/.test(page));
+  const srcs = [...page.matchAll(/\s(?:src|href)="([^"]+)"/g)].map(m => m[1]);
+  const away = srcs.filter(u => /^https?:/.test(u));
+  ok('Testers page: the only outside links are the tester group and the Play testing link',
+    away.length === 2 && away.includes('https://groups.google.com/g/vcge-testers') && away.includes('https://play.google.com/apps/testing/app.vcge.vcge'), away.join(' '));
+  const local = srcs.filter(u => !/^https?:/.test(u) && u !== '../');
+  ok('Testers page: every local file it uses exists on the site',
+    local.every(u => existsSync(ROOT + (u.startsWith('../') ? u.slice(3) : 'site/testers/' + u))), local.join(' '));
+  ok('Testers page: the banner has alt text naming the group', /class="banner"[^>]*alt="[^"]*groups\.google\.com\/g\/vcge-testers/.test(page.replace(/\n\s*/g, ' ')));
+  ok('Testers page: no tagline until the trademark check (CASH-0053), and never "local contact management"',
+    !/Never Lose Contact|Keep the person for good|local contact management/i.test(page));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;
