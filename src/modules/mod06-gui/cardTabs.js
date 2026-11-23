@@ -6,7 +6,8 @@
  * Colour, Logo, Style and Paper: one picture button per category over one box that shows only that category
  * (.r4-card[data-tab], screens-r4.css). Logo and Paper live in the "Paper & logo" panel, which opens with them.
  * On a phone, when the box is long enough to scroll, the card shrinks to a mini card in the top corner and keeps
- * showing every change; a tap on the mini card scrolls back to the full card. Nothing is stored.
+ * showing every change, over a band the choices scroll away under; a tap on the mini card scrolls back to the full
+ * card. Nothing is stored.
  */
 
 export const CARD_TABS = Object.freeze(['colour', 'logo', 'style', 'paper']);
@@ -21,6 +22,14 @@ export function showCardTab(doc, tab) {
     const look = doc.getElementById('cardLookPanel');
     if (look) look.open = LOOK_TABS.has(tab);
     return tab;
+}
+
+/** How small the mini card is drawn (the scale in screens-r4.css, .r4-card[data-mini="on"] > .r4-stage). */
+export const MINI_SCALE = 0.42;
+
+/** The band behind the mini card, in px: the shrunk card and a small gap under it (the choices scroll away under it). */
+export function miniBandHeight(stageHeight) {
+    return stageHeight > 0 ? Math.ceil(stageHeight * MINI_SCALE) + 8 : 0;
 }
 
 /** The mini card: on once the box has scrolled more than 40% of the card's height (the card stays pinned at the top). */
@@ -72,10 +81,13 @@ export function initCardTabs(doc = document, win = window) {
         queued = false;
         const on = !isWide() && miniWanted(body.scrollTop, stage.offsetHeight);
         if (on !== isMini()) { if (on) body.dataset.mini = 'on'; else delete body.dataset.mini; }
+        // The choices scroll away under a band as tall as the mini card, so none sits half under it (raven575's Play
+        // build 562 run, 2026-11-23: the mini card hid the Dots picker, Style and Paper buttons, Icons and the hint)
+        if (on) body.style.setProperty('--r4-mini-band', `${miniBandHeight(stage.offsetHeight)}px`);
     };
     const queue = () => { if (!queued) { queued = true; win.requestAnimationFrame(sync); } };
     body.addEventListener('scroll', queue, { passive: true });
-    if (win.ResizeObserver) new win.ResizeObserver(queue).observe(body);
+    if (win.ResizeObserver) { const watch = new win.ResizeObserver(queue); watch.observe(body); watch.observe(stage); }
     // A tap on the mini card brings the whole card back (scrolls up) instead of spinning it
     const reduce = () => !!(win.matchMedia && win.matchMedia('(prefers-reduced-motion: reduce)').matches);
     for (const type of ['pointerdown', 'pointermove', 'click']) stage.addEventListener(type, (e) => { if (isMini()) e.stopPropagation(); }, true);
