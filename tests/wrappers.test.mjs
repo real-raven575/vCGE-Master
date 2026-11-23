@@ -246,11 +246,15 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
     !/<script/i.test(page) && /default-src 'none'; style-src 'self'; img-src 'self'/.test(page));
   const srcs = [...page.matchAll(/\s(?:src|href)="([^"]+)"/g)].map(m => m[1]);
   const away = srcs.filter(u => /^https?:/.test(u));
-  ok('Testers page: the only outside links are the tester group and the Play testing link',
-    JSON.stringify([...away].sort()) === JSON.stringify(['https://groups.google.com/g/vcge-testers', 'https://play.google.com/apps/testing/app.vcge.vcge']), away.join(' '));
+  ok('Testers page: the only outside links are the tester group, the Play testing link and the web beta',
+    JSON.stringify([...away].sort()) === JSON.stringify(['https://groups.google.com/g/vcge-testers', 'https://play.google.com/apps/testing/app.vcge.vcge', 'https://real-raven575.github.io/vCGE-Master/']), away.join(' '));
+  // The same folder is mirrored at herdofhelpers.com/vcge/testers/ (HQ-0366/0367), so every file it uses sits inside it.
   const local = srcs.filter(u => !/^https?:/.test(u) && u !== '../');
-  ok('Testers page: every local file it uses exists on the site',
-    local.every(u => existsSync(ROOT + (u.startsWith('../') ? u.slice(3) : 'site/testers/' + u))), local.join(' '));
+  ok('Testers page: every local file it uses is inside its own folder, so it works on any host',
+    local.length >= 4 && local.every(u => !u.includes('/') && existsSync(ROOT + 'site/testers/' + u)), local.join(' '));
+  const css = read('site/testers/testers.css');
+  ok('Testers page: buttons keep white text above 4.5:1 (Creative HQ-0366 contrast fix)',
+    /\.btn\{[^}]*background:#c2412d/.test(css) && /\.btn:hover,\.btn:focus-visible\{background:#a5362a\}/.test(css));
   ok('Testers page: the banner has alt text naming the group', /class="banner"[^>]*alt="[^"]*groups\.google\.com\/g\/vcge-testers/.test(page.replace(/\n\s*/g, ' ')));
   ok('Testers page: no tagline until the trademark check (CASH-0053), and never "local contact management"',
     !/Never Lose Contact|Keep the person for good|local contact management/i.test(page));
