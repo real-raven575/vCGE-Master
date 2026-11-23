@@ -1,0 +1,114 @@
+# One place to launch from (raven575, 2026-11-23): pick a finished CI run on main whose Play bundle raven575 approved,
+# and this gathers every store file from it into one draft GitHub Release, then hands each file to its store.
+# Pricing (raven575, 2026-11-23): corporate stores (Play, Microsoft, Samsung) 0.99 USD; sideload stores (itch.io, Aptoide,
+# APKPure) free with the tip jar. Each store job runs only once its key is in the "stores" environment; until then it
+# says what it is waiting for and the file stays in the release for a manual upload.
+name: Release to stores
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "CI run ID on main (the number in the run's web address), with the Play bundle signed"
+        required: true
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  gather:
+    name: Gather every store file into a draft release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - name: Check the run
+        id: meta
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          [[ "$RUN_ID" =~ ^[0-9]+$ ]] || { echo "run_id must be a number"; exit 1; }
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" > run.json
+          [ "$(jq -r .head_branch run.json)" = main ] || { echo "That run is not on main."; exit 1; }
+          [ "$(jq -r .event run.json)" = push ] || { echo "That run is not a push to main."; exit 1; }
+          echo "sha=$(jq -r .head_sha run.json)" >> "$GITHUB_OUTPUT"
+          echo "number=$(jq -r .run_number run.json)" >> "$GITHUB_OUTPUT"
+          gh api "repos/$GITHUB_REPOSITORY/contents/package.json?ref=$(jq -r .head_sha run.json)" --jq .content \
+            | base64 -d | jq -r .version > version.txt
+          echo "version=$(cat version.txt)" >> "$GITHUB_OUTPUT"
+      - name: Download the store files from that run
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0 (Node.js 24)
+        with:
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+          path: got
+      - name: Pick the files each store takes
+        run: |
+          mkdir -p out
+          ls -R got | head -100
+          # Play: the signed bundle. Sideload: the APK signed with the lasting key. Desktop: installers + MSIX.
+          find got -path '*vCGE-play-A*' -name '*.aab' -exec cp {} out/ \;
+          find got -path '*vCGE-sideload-S*' -name '*.apk' -exec cp {} out/ \;
+          find got -path '*vCGE-*-[WML][0-9]*' -type f \( -name '*.msi' -o -name '*-setup.exe' -o -name '*.msix' \
+            -o -name '*.dmg' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \) -exec cp {} out/ \;
+          ls -l out
+          ls out/*.aab > /dev/null 2>&1 || { echo "No signed Play bundle in that run: approve its sign step first."; exit 1; }
+          ls out/*.apk > /dev/null 2>&1 || { echo "No signed sideload APK in that run (runs before 2026-11-23 have none)."; exit 1; }
+          (cd out && sha256sum * > SHA256SUMS.txt)
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node.js 24)
+        with:
+          name: vcge-release-files
+          path: out/
+          if-no-files-found: error
+      - name: Draft GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          NUMBER: ${{ steps.meta.outputs.number }}
+          SHA: ${{ steps.meta.outputs.sha }}
+        run: |
+          TAG="v$VERSION-b$NUMBER"
+          gh release create "$TAG" out/* --repo "$GITHUB_REPOSITORY" --target "$SHA" --draft \
+            --title "vCGE $VERSION (build $NUMBER)" \
+            --notes "Store files from CI run $NUMBER. Check SHA256SUMS.txt. Publish this draft when every store is live."
+
+  itch:
+    name: itch.io (free, with the tip jar)
+    needs: gather
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: stores
+    steps:
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0 (Node.js 24)
+        with:
+          name: vcge-release-files
+          path: files
+      - name: Push with butler
+        env:
+          BUTLER_API_KEY: ${{ secrets.BUTLER_API_KEY }}
+          ITCH_TARGET: ${{ vars.ITCH_TARGET }}
+          VERSION: ${{ needs.gather.outputs.version }}
+        run: |
+          if [ -z "$BUTLER_API_KEY" ] || [ -z "$ITCH_TARGET" ]; then
+            echo "::notice::itch.io waits for its key: add secret BUTLER_API_KEY and variable ITCH_TARGET (user/game) to the 'stores' environment."
+            exit 0
+          fi
+          curl -fsSL -o butler.zip https://broth.itch.zone/butler/linux-amd64/LATEST/archive/default
+          unzip -q butler.zip -d butler && chmod +x butler/butler
+          for f in files/*.apk; do ./butler/butler push "$f" "$ITCH_TARGET:android" --userversion "$VERSION"; done
+          for f in files/*-setup.exe; do ./butler/butler push "$f" "$ITCH_TARGET:windows" --userversion "$VERSION"; done
+          for f in files/*.AppImage; do ./butler/butler push "$f" "$ITCH_TARGET:linux" --userversion "$VERSION"; done
+          for f in files/*.dmg; do ./butler/butler push "$f" "$ITCH_TARGET:mac" --userversion "$VERSION"; done
+
+  waiting:
+    name: Stores still uploaded by hand (until their keys are added)
+    needs: gather
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - run: |
+          echo "::notice::Google Play (.aab), Microsoft Store (.msix), Samsung Galaxy Store, Aptoide and APKPure (.apk):"
+          echo "::notice::files are in the draft release; automatic upload jobs get added as each store's API key is set up."
