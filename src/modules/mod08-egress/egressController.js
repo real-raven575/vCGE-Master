@@ -302,7 +302,9 @@ export class EgressController {
     contactSummary() {
         const c = this.contactData;
         const street = [c.street, [c.unitType, c.unitNumber].filter(Boolean).join(' ')].filter(Boolean).join(', ');
-        const address = [street, c.city, [c.state, c.zip].filter(Boolean).join(' '), c.country].filter(Boolean).join(', ');
+        // A country alone (the form fills one in) is not an address, as in the .vcf: the card says "No address provided".
+        const placed = [street, c.city, c.state, c.zip].some(Boolean);
+        const address = placed && [street, c.city, [c.state, c.zip].filter(Boolean).join(' '), c.country].filter(Boolean).join(', ');
         const line = (label, value) => `${label}${SUMMARY_GAP}${value}`;
         return [
             this.displayName(),

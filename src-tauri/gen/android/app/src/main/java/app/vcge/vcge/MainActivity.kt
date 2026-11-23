@@ -163,7 +163,8 @@ class MainActivity : TauriActivity() {
     }
 
     // Email with the .vcf attached: a new message in a mail app (the selector keeps it to apps that answer "mailto:"),
-    // with the subject, the readable details and the file. False when no mail app takes it.
+    // with the subject, the readable details and the file. Some phones find no app for that pair (a Samsung with Gmail
+    // and Outlook, Play test 2026-11-23), so the share menu opens instead, as Share... does. False when nothing takes it.
     @JavascriptInterface
     fun emailFile(vcard: String, fileName: String, subject: String, body: String): Boolean {
       return try {
@@ -175,8 +176,8 @@ class MainActivity : TauriActivity() {
           .putExtra(Intent.EXTRA_TEXT, body)
           .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         send.clipData = ClipData.newRawUri(file.name, uri)
-        send.selector = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:"))
-        launch(send)
+        val mailOnly = Intent(send).apply { selector = Intent(Intent.ACTION_SENDTO, Uri.parse("mailto:")) }
+        launch(mailOnly) || launch(Intent.createChooser(send, subject))
       } catch (e: Exception) {
         clearShareFiles()
         false
