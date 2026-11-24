@@ -1,0 +1,141 @@
+/* ---- Premium controls (raven575, 2026-11-23 05:41 UTC, after the Play 562 run) --------------------------------------
+   "All of the buttons need an upgrade": the icon and the words centred together, even padding to the edge, a body a
+   step off the page it sits on, a thin light line along the top and a soft shadow line along the bottom so it lifts
+   away, and a small press: the lift drops and a warm glow comes up. The colour pickers and the sliders get the same
+   treatment. Herd style only (the five platform styles keep their own look, screens-r5.css), loaded last so it only
+   adds to the shapes the other sheets set. Nothing moves for reduced motion; forced colours keep plain borders. */
+
+:root {
+    --ctl-hi: inset 0 1px 0 color-mix(in srgb, #fff 16%, transparent);              /* the light line along the top */
+    --ctl-lo: 0 1px 0 color-mix(in srgb, #000 28%, transparent), 0 3px 8px -2px color-mix(in srgb, #000 30%, transparent);
+    --ctl-ring: 0 0 0 1px color-mix(in srgb, var(--sh-ink) 12%, transparent);       /* a hairline, softer than --sh-line */
+    --ctl-glow: 0 0 0 4px color-mix(in srgb, var(--sh-accent) 28%, transparent);    /* the warm glow on a press */
+    --ctl-face: linear-gradient(180deg, color-mix(in srgb, #fff 7%, transparent), transparent 70%);
+    --ctl-press: 140ms;
+}
+html.dark, html[data-mode="dark"] { --ctl-hi: inset 0 1px 0 color-mix(in srgb, #fff 10%, transparent); }
+
+/* ---- Buttons: the dock's two, the top bar's round ones, the sheet's close, pop-up buttons, chips and the card tabs -- */
+html[data-style="herd"] :is(button.vcge-btn, button.vcge-iconbtn, button.vcge-sheet-close, button.r5-chip, button.r4-tab, button.vcge-pick-btn) {
+    background-image: var(--ctl-face);
+    transition: transform var(--ctl-press) var(--ease-out), box-shadow var(--ctl-press) var(--ease-out), filter 200ms, background-color 200ms, color 200ms, border-color 200ms;
+}
+html[data-style="herd"] button.vcge-btn { padding: 0 22px; gap: 10px; letter-spacing: .005em; }
+html[data-style="herd"] button.vcge-btn-primary {
+    background-image: linear-gradient(180deg, color-mix(in srgb, #fff 18%, transparent), transparent 75%);
+    box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 35%, transparent), inset 0 -2px 0 color-mix(in srgb, #000 14%, transparent), var(--ctl-lo);
+}
+html[data-style="herd"] :is(button.vcge-btn-quiet, button.vcge-iconbtn, button.vcge-sheet-close) { box-shadow: var(--ctl-hi), var(--ctl-ring), var(--ctl-lo); }
+html[data-style="herd"] button.r5-chip { padding: 0 16px; box-shadow: var(--ctl-hi), var(--ctl-ring), 0 1px 0 color-mix(in srgb, #000 22%, transparent); }
+html[data-style="herd"] button.r5-chip[aria-pressed="true"] { box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 30%, transparent), 0 0 0 1px var(--sh-accent), var(--ctl-lo); }
+html[data-style="herd"] button.r4-tab { border-color: transparent; box-shadow: var(--ctl-hi), var(--ctl-ring), var(--ctl-lo); }
+html[data-style="herd"] button.r4-tab[aria-pressed="true"] { box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 30%, transparent), 0 0 0 1px var(--sh-accent), var(--ctl-lo); }
+html[data-style="herd"] button.vcge-pick-btn { border-color: transparent; box-shadow: var(--ctl-hi), var(--ctl-ring), var(--ctl-lo); }
+html[data-style="herd"] .vcge-pick.is-open > button.vcge-pick-btn { box-shadow: var(--ctl-hi), 0 0 0 2px var(--sh-accent), var(--ctl-lo); }
+
+/* Drop-down boxes (Font, and the plain lists elsewhere) take the same body as a quiet button */
+html[data-style="herd"] select:is(.r5-select, .vcge-select) { border-color: transparent;
+    box-shadow: var(--ctl-hi), var(--ctl-ring), var(--ctl-lo); transition: box-shadow var(--ctl-press) var(--ease-out); }
+html[data-style="herd"] select:is(.r5-select, .vcge-select):focus-visible { outline: none; box-shadow: var(--ctl-hi), 0 0 0 2px var(--sh-accent), var(--ctl-glow); }
+
+/* Hover (a mouse or a pen): a touch brighter. Press: the lift drops, the body sinks 1 px, the glow comes up. */
+@media (hover: hover) {
+    html[data-style="herd"] :is(button.vcge-btn, button.vcge-iconbtn, button.vcge-sheet-close, button.r5-chip, button.r4-tab, button.vcge-pick-btn):not(:disabled):hover { filter: brightness(1.06); }
+}
+html[data-style="herd"] :is(button.vcge-btn, button.vcge-iconbtn, button.vcge-sheet-close, button.r5-chip, button.r4-tab, button.vcge-pick-btn):not(:disabled):active {
+    transform: translateY(1px); box-shadow: var(--ctl-ring), var(--ctl-glow); filter: brightness(.97);
+}
+
+/* ---- Colour pickers: the app's theme swatches (Settings). The card's colour swatches are 🦎 Flipside's (MOD06) and use
+   the same picked look: a soft 2 px ring in the ink, a warm accent glow, and a check badge at the top right. */
+html[data-style="herd"] button.r5-swatch i {
+    border-radius: 14px;
+    box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 30%, transparent), inset 0 0 0 1px color-mix(in srgb, #000 18%, transparent), var(--ctl-lo);
+    transition: transform var(--ctl-press) var(--ease-out), box-shadow var(--ctl-press) var(--ease-out);
+}
+html[data-style="herd"] button.r5-swatch[aria-pressed="true"] i {
+    box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 30%, transparent), 0 0 0 2px color-mix(in srgb, var(--sh-ink) 70%, transparent), 0 0 0 6px color-mix(in srgb, var(--sh-accent) 28%, transparent), var(--ctl-lo);
+}
+/* A picked swatch also says so with a check, not the ring alone */
+html[data-style="herd"] button.r5-swatch[aria-pressed="true"] { position: relative; }
+html[data-style="herd"] button.r5-swatch[aria-pressed="true"]::after {
+    content: "\2713"; position: absolute; top: -4px; right: calc(50% - 30px); width: 18px; height: 18px; border-radius: 50%;
+    display: grid; place-items: center; font: 800 11px/1 system-ui, sans-serif; background: var(--sh-accent); color: var(--sh-on);
+    box-shadow: 0 0 0 2px var(--sh-surface); pointer-events: none;
+}
+html[data-style="herd"] button.r5-swatch:not(:disabled):active i { transform: scale(.94); }
+
+/* ---- Sliders: text size, Paper strength and soft blur --------------------------------------------------------- */
+html[data-style="herd"] :is(.r5-range, .r4-strength) input[type="range"] {
+    -webkit-appearance: none; appearance: none; height: 32px; background: transparent; cursor: pointer;
+    --ctl-fill: 50%;
+}
+html[data-style="herd"] :is(.r5-range, .r4-strength) input[type="range"]::-webkit-slider-runnable-track {
+    height: 8px; border-radius: 999px;
+    background: linear-gradient(90deg, var(--sh-accent) 0 var(--ctl-fill), var(--sh-sunk) var(--ctl-fill) 100%);
+    box-shadow: inset 0 1px 2px color-mix(in srgb, #000 35%, transparent), 0 1px 0 color-mix(in srgb, #fff 8%, transparent);
+}
+html[data-style="herd"] :is(.r5-range, .r4-strength) input[type="range"]::-moz-range-track {
+    height: 8px; border-radius: 999px; background: var(--sh-sunk); box-shadow: inset 0 1px 2px color-mix(in srgb, #000 35%, transparent);
+}
+html[data-style="herd"] :is(.r5-range, .r4-strength) input[type="range"]::-moz-range-progress { height: 8px; border-radius: 999px; background: var(--sh-accent); }
+html[data-style="herd"] :is(.r5-range, .r4-strength) input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none; width: 26px; height: 26px; margin-top: -9px; border-radius: 50%; border: 0;
+    background: radial-gradient(circle at 50% 35%, #fff 0 55%, #eceef2 100%);
+    box-shadow: inset 0 -1px 0 color-mix(in srgb, #000 12%, transparent), 0 0 0 1px color-mix(in srgb, #000 14%, transparent), 0 2px 6px color-mix(in srgb, #000 35%, transparent);
+    transition: transform var(--ctl-press) var(--ease-out), box-shadow var(--ctl-press) var(--ease-out);
+}
+html[data-style="herd"] :is(.r5-range, .r4-strength) input[type="range"]::-moz-range-thumb {
+    width: 26px; height: 26px; border-radius: 50%; border: 0; background: #fff;
+    box-shadow: 0 0 0 1px color-mix(in srgb, #000 14%, transparent), 0 2px 6px color-mix(in srgb, #000 35%, transparent);
+}
+html[data-style="herd"] :is(.r5-range, .r4-strength) input[type="range"]:active::-webkit-slider-thumb {
+    transform: scale(1.12); box-shadow: 0 0 0 1px color-mix(in srgb, #000 14%, transparent), 0 2px 6px color-mix(in srgb, #000 35%, transparent), var(--ctl-glow);
+}
+html[data-style="herd"] :is(.r5-range, .r4-strength) input[type="range"]:focus-visible { outline: none; }
+html[data-style="herd"] :is(.r5-range, .r4-strength) input[type="range"]:focus-visible::-webkit-slider-thumb { box-shadow: 0 0 0 3px var(--sh-accent), 0 2px 6px color-mix(in srgb, #000 35%, transparent); }
+html[data-style="herd"] :is(.r5-range, .r4-strength) input[type="range"]:focus-visible::-moz-range-thumb { box-shadow: 0 0 0 3px var(--sh-accent); }
+
+/* ---- The card's pills (Flip card, the logo's Upload / Remove): lifted off the panel like the tabs above them -------- */
+html[data-style="herd"] #cardCard :is(button, label).r4-pill:not(.r4-pill-stop) {
+    background-image: var(--ctl-face); box-shadow: var(--ctl-hi), var(--ctl-ring), var(--ctl-lo);
+    transition: transform var(--ctl-press) var(--ease-out), box-shadow var(--ctl-press) var(--ease-out), background-color 200ms;
+}
+html[data-style="herd"] #cardCard :is(button, label).r4-pill:not(.r4-pill-stop):not(.r4-upload) { background-color: var(--sh-surface); }
+html[data-style="herd"] #cardCard :is(button, label).r4-pill:not(.r4-pill-stop):active { transform: translateY(1px); box-shadow: var(--ctl-ring), var(--ctl-glow); }
+
+/* ---- Drop-down boxes: the browser's own arrow gives way to the picture drop-downs' chevron, in its own even slot ---- */
+html[data-style="herd"] select:is(.r5-select, .vcge-select) {
+    -webkit-appearance: none; appearance: none; padding-right: 44px;
+    background-image: var(--ctl-face),
+        linear-gradient(45deg, transparent calc(50% - 1px), var(--sh-muted) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px)),
+        linear-gradient(135deg, transparent calc(50% - 1px), var(--sh-muted) calc(50% - 1px) calc(50% + 1px), transparent calc(50% + 1px));
+    background-size: 100% 100%, 7px 7px, 7px 7px; background-repeat: no-repeat;
+    background-position: 0 0, calc(100% - 22px) 50%, calc(100% - 15px) 50%;
+}
+
+/* ---- The pop-up message's Undo: a small soft pill on the message, not a bare outlined box ----------------------- */
+html[data-style="herd"] .vcge-toast #toastAction { border: 0; min-height: 32px; padding: 0 14px; border-radius: 999px; text-decoration: none;
+    background: color-mix(in srgb, var(--sh-accent) 24%, transparent); color: inherit; font-weight: 700;
+    box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 30%, transparent), 0 0 0 1px color-mix(in srgb, var(--sh-accent) 45%, transparent);
+    transition: transform var(--ctl-press) var(--ease-out), box-shadow var(--ctl-press) var(--ease-out); }
+html[data-style="herd"] .vcge-toast #toastAction:active { transform: translateY(1px); box-shadow: 0 0 0 1px var(--sh-accent), var(--ctl-glow); }
+html[data-style="herd"] .vcge-toast #toastAction:focus-visible { outline: 2px solid var(--sh-accent); outline-offset: 2px; }
+
+/* ---- Switches: the same lift on the knob and a soft well for the track ----------------------------------------- */
+html[data-style="herd"] input.r5-toggle { box-shadow: inset 0 1px 3px color-mix(in srgb, #000 30%, transparent); }
+html[data-style="herd"] input.r5-toggle::after { background: radial-gradient(circle at 50% 35%, #fff 0 55%, #eceef2 100%);
+    box-shadow: inset 0 -1px 0 color-mix(in srgb, #000 12%, transparent), 0 2px 5px color-mix(in srgb, #000 30%, transparent); }
+
+@media (prefers-reduced-motion: reduce) {
+    :root { --ctl-press: 0ms; }
+    html[data-style="herd"] :is(button.vcge-btn, button.vcge-iconbtn, button.vcge-sheet-close, button.r5-chip, button.r4-tab, button.vcge-pick-btn):not(:disabled):active,
+    html[data-style="herd"] button.r5-swatch:not(:disabled):active i { transform: none; }
+    html[data-style="herd"] :is(.r5-range, .r4-strength) input[type="range"]:active::-webkit-slider-thumb { transform: none; }
+}
+@media (forced-colors: active) {
+    html[data-style="herd"] :is(button.vcge-btn, button.vcge-iconbtn, button.r5-chip, button.r4-tab, button.vcge-pick-btn) { background-image: none; }
+    html[data-style="herd"] #cardCard :is(button, label).r4-pill { background-image: none; }
+    /* (the drawn chevron would vanish with the gradients: the system's own arrow comes back) */
+    html[data-style="herd"] select:is(.r5-select, .vcge-select) { -webkit-appearance: auto; appearance: auto; background-image: none; padding-right: 12px; }
+}
