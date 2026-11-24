@@ -65,6 +65,21 @@ export function nextSeen(state, hit) {
     return run >= FOUND_RUN ? { found: seen, run: 0 } : { found, run };
 }
 
+// Quick Scan (raven575, 17:38 UTC 11-24: one press, the camera takes the best shot itself). The shutter goes off once the
+// card has sat still in view for STEADY_LOOKS looks in a row (about a second at WATCH_MS 250): no corner may move more
+// than STEADY_MOVE of the picture's longer side from one look to the next.
+export const STEADY_LOOKS = 4;
+export const STEADY_MOVE = 0.04;
+
+/** The next steadiness state after a look: `quad` is the card's corners ({x, y}, cardFinder.js) or null, `w` x `h` the picture. */
+export function steadyRun(state, quad, w, h) {
+    if (!quad || quad.length !== 4) return { quad: null, run: 0 };
+    const prev = state && state.quad;
+    const limit = STEADY_MOVE * Math.max(w, h);
+    const still = !!prev && quad.every((p, i) => Math.hypot(p.x - prev[i].x, p.y - prev[i].y) <= limit);
+    return { quad: quad.map(p => ({ x: p.x, y: p.y })), run: still ? state.run + 1 : 0 };
+}
+
 /** The index of the zoom chip whose value is `zoom` (within CHIP_NEAR), or -1 for a zoom between them. */
 export function chipFor(zoom, values) {
     const z = Number(zoom);

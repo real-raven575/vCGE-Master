@@ -14,7 +14,7 @@
  */
 import { globalEventBus, Events } from '../../share/eventBus.js';
 import { isShelved } from '../mod01-shell/edition.js';
-import { visibleSourceRect, cardFrameRect, tween, nextSeen, chipFor, quadToView, quadOrientation, outlinePoints } from './viewfinder.js';
+import { visibleSourceRect, cardFrameRect, tween, nextSeen, steadyRun, STEADY_LOOKS, chipFor, quadToView, quadOrientation, outlinePoints } from './viewfinder.js';
 import { tipSeen, rememberTipSeen } from '../mod01-shell/settings.js';
 import { findCardQuad, SMALL_SIDE } from './cardFinder.js';
 import { readyClick, playShutterClick } from './shutterClick.js';
@@ -45,6 +45,7 @@ export const HINT_LOOKING = 'Fit the card inside the corners';
 export const HINT_FOUND = 'Hold still, then tap the shutter';
 export const HINT_BURST = 'Hold still…';
 export const HINT_TIP = 'Green shutter = card found';
+export const HINT_AUTO = 'Hold still: the photo takes itself';
 
 // The page's element by id, or null where there is no page (the unit tests build the camera from stand-ins)
 const byId = (id) => (typeof document !== 'undefined' ? document.getElementById(id) : null);
@@ -97,6 +98,8 @@ export class VCGEActiveCamera {
         this.liveQuad = null;         // Scan mode: the card's corners last seen, in viewfinder pixels
         this.frameTurn = null;        // the way the card in view is held ('landscape' or 'portrait'), which the frame follows
         this.scanNext = false;        // the shot being taken came from Scan: it is cropped to the card and read at once
+        this.autoScan = false;        // Quick Scan: Scan goes off by itself once the card holds still (steadyRun)
+        this.steady = { quad: null, run: 0 };
         this.tipUntil = 0;            // the one-time shutter tip shows in the hint until then
 
         this.initListeners();
@@ -450,6 +453,8 @@ export class VCGEActiveCamera {
                 if (turn !== this.frameTurn) { this.frameTurn = turn; this.layoutFrame(); }
             }
             this.showFound(this.seen.found);
+            this.steady = steadyRun(this.steady, this.seen.found ? quad : null, w, h);
+            if (this.autoScan && this.steady.run >= STEADY_LOOKS) { this.steady = { quad: null, run: 0 }; this.scan(); }
         } catch {
             // A picture that cannot be read this time (a camera mid-switch) is simply looked at again next time
         }
@@ -459,6 +464,7 @@ export class VCGEActiveCamera {
         if (this.watchTimer !== null) { clearInterval(this.watchTimer); this.watchTimer = null; }
         if (this.watchCanvas) { this.watchCanvas.width = this.watchCanvas.height = 0; }
         this.seen = { found: false, run: 0 };
+        this.steady = { quad: null, run: 0 };
         this.liveQuad = null;
         if (this.frameTurn) { this.frameTurn = null; this.layoutFrame(); }
         this.showFound(false);
@@ -468,7 +474,7 @@ export class VCGEActiveCamera {
     showFound(on) {
         if (this.viewfinderArea) this.viewfinderArea.classList[on ? 'add' : 'remove']('found');
         if (this.shutter) this.shutter.classList[on ? 'add' : 'remove']('ready');
-        if (this.hint) this.hint.textContent = on ? HINT_FOUND : (Date.now() < this.tipUntil ? HINT_TIP : HINT_LOOKING);
+        if (this.hint) this.hint.textContent = on ? (this.autoScan ? HINT_AUTO : HINT_FOUND) : (Date.now() < this.tipUntil ? HINT_TIP : HINT_LOOKING);
         if (this.outline) {
             const pts = on && this.liveQuad ? outlinePoints(this.liveQuad) : '';
             const poly = this.outline.querySelector ? this.outline.querySelector('polygon') : null;

@@ -852,6 +852,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('scan: a card held wide reads landscape, one held upright portrait', vf.quadOrientation(q) === 'landscape' && vf.quadOrientation([{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 90 }, { x: 0, y: 90 }]) === 'portrait');
   const upright = vf.cardFrameRect(390, 520), turned = vf.cardFrameRect(390, 520, 'landscape');
   ok('card frame: in a tall view it stands upright, and turns wide when a card held wide is in view (Android run 11-16)', upright.orientation === 'portrait' && turned.orientation === 'landscape' && turned.width > turned.height && Math.abs(turned.width / turned.height - vf.CARD_ASPECT) < 1e-9 && vf.cardFrameRect(390, 520, 'sideways').orientation === 'portrait');
+  // Quick Scan (raven575 11-24): the photo takes itself once the card has held still for STEADY_LOOKS looks in a row
+  const move = (d) => q.map(p => ({ x: p.x + d, y: p.y }));
+  const steady = (quads) => quads.reduce((st, k) => vf.steadyRun(st, k, 240, 180), { quad: null, run: 0 }).run;
+  ok('quick scan: a card that sits still counts up, one look per step', vf.STEADY_LOOKS === 4 && steady([q, q, q, q, q]) === 4 && steady([q, move(3), move(5)]) === 2);
+  ok('quick scan: a card that moves (over 4% of the picture) or leaves the view starts the count again', steady([q, q, q, move(12)]) === 0 && steady([q, q, null, q]) === 0 && steady([q, q, q.slice(0, 3)]) === 0);
   ok('zoom chips: the chip for the zoom asked for, none for a zoom between them', chipFor(1, [0.5, 1, 2]) === 1 && chipFor(2.02, [0.5, 1, 2]) === 2 && chipFor(0.5, [0.5, 1, 2]) === 0 && chipFor(1.5, [0.5, 1, 2]) === -1 && chipFor(NaN, [1]) === -1);
 }
 
