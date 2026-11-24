@@ -263,7 +263,12 @@ export class ContactFormMapper {
         return lines.map(line => {
             const read = line.role === 'email' ? matchEmailToWebsite(reviewText(line), site, true) : reviewText(line);
             const text = IT_ROLES.has(line.role) ? repairCapitalIT(read) : read;
-            const guesses = line.check && line.unsure ? guessesFor(text, line.swaps) : [];
+            // The card checks itself (raven575, 2026-11-23): a letter that reads better as an i, or an email domain that
+            // differs from the web address, is asked about, with the other spelling as a one-tap guess. "Looks right" keeps it.
+            const ask = line.check ? null : line.role === 'email' || line.role === 'website' ? (lookalikeAsk(text) || (line.role === 'email' && domainMismatchAsk(text, site)))
+                : line.role === 'organization' ? companyMismatchAsk(text, site, (lines.find(l => l.role === 'email') || {}).text) : null;
+            if (ask) line.check = ask.check;
+            const guesses = ask ? ask.guesses : line.check && line.unsure ? guessesFor(text, line.swaps) : [];
             return { text, role: line.role || 'ignore', icon: line.icon, ...(line.check ? { check: line.check } : {}), ...(guesses.length ? { guesses } : {}) };
         // Scraps left on Ignore (3 letters or digits at most: "ne", "J y", "oF", "3") are wood grain, a logo's edge or
         // a split the joins above did not take; they are not listed (build 562 phone run: about 15 of them on a wood table).
@@ -706,6 +711,69 @@ function matchEmailToWebsite(email, website, capitals = false) {
     const [mailName, mailEnd] = split(mailHost), [siteName, siteEnd] = split(siteHost);
     if (mailEnd !== siteEnd || siteName.length < 6 || editDistance(mailName, siteName) > 2) return email;
     return email.slice(0, at + 1) + siteHost;
+}
+
+/** The host of an email ("sam@peaklogicit.com") or web address ("www.peaklogicit.com/about"), and where it starts. */
+function hostOf(text) {
+    const t = String(text || '');
+    const at = t.lastIndexOf('@');
+    const m = at >= 0 ? { index: at + 1, host: t.slice(at + 1) } : (() => { const w = t.match(/^(?:https?:\/\/)?(?:www\.)?/i); return { index: w[0].length, host: t.slice(w[0].length).split('/')[0] }; })();
+    return m.host.includes('.') ? m : null;
+}
+
+const VOWEL = /[aeiouy]/i;
+/**
+ * An l (or a 1) the reader may have taken from an i: "peaklogiclt.com" reads as words with "peaklogicit" (a tester
+ * invite bounced on one, raven575 2026-11-23). Asked, never changed: an l between two consonants, the one before it not
+ * r, w or l ("worldwide", "carlsberg" stay quiet), or a 1 between two letters. The question names the other spelling,
+ * which is the guess button; "Looks right" keeps the letters as read.
+ */
+export function lookalikeAsk(text) {
+    const found = hostOf(text);
+    if (!found) return null;
+    const name = found.host.slice(0, found.host.lastIndexOf('.'));
+    const consonant = (c) => /[a-z]/i.test(c || '') && !VOWEL.test(c);
+    for (let k = 1; k < name.length - 1; k++) {
+        const [before, c, after] = [name[k - 1], name[k], name[k + 1]];
+        const lIsI = c === 'l' && consonant(before) && consonant(after) && !/[rwl]/i.test(before) && !/^td/i.test(name.slice(k + 1));   // "ltd" is Limited
+        const oneIsLetter = c === '1' && /[a-z]/i.test(before) && /[a-z]/i.test(after);
+        if (!lIsI && !oneIsLetter) continue;
+        const at = found.index + k;
+        const spell = (ch) => text.slice(0, at) + ch + text.slice(at + 1);
+        const asI = spell(before === before.toUpperCase() && after === after.toUpperCase() ? 'I' : 'i');
+        const host = hostOf(asI).host;
+        const asL = spell('l');
+        return oneIsLetter
+            ? { check: `Is the 1 here a letter? "${host}" or "${hostOf(asL).host}" reads more like words. If it is meant as read, tick Looks right.`, guesses: [asI, asL] }
+            : { check: `Did you mean an i here? "${host}" reads more like words. If it is meant as read, tick Looks right.`, guesses: [asI] };
+    }
+    return null;
+}
+
+/**
+ * An email domain that is not the card's web address (after matchEmailToWebsite has fixed near misses) is asked about:
+ * one of the two may be misread. Personal mail (gmail and the like) is left alone. The guess is the email at the web
+ * address's domain.
+ */
+export function domainMismatchAsk(email, website) {
+    const mail = hostOf(email), site = hostOf(website);
+    if (!mail || !site || !String(email).includes('@')) return null;
+    const mailHost = mail.host.toLowerCase(), siteHost = site.host.toLowerCase();
+    if (mailHost === siteHost || mailHost.endsWith('.' + siteHost) || siteHost.endsWith('.' + mailHost)) return null;
+    if (!companyDomain('', email).name) return null;
+    return { check: `The email ends in ${mail.host} but the web address is ${site.host}. Please check both.`, guesses: [email.slice(0, mail.index) + site.host] };
+}
+
+/**
+ * A company name a letter or two off its own web address or email domain ("PeakLogicLT" by peaklogicit.com) is asked
+ * about: one of them is misread. Further apart is taken to be a different name and left alone.
+ */
+export function companyMismatchAsk(company, website, email) {
+    const found = companyDomain(website, email && findEmail(email)), domain = found.name.toLowerCase();
+    const plain = String(company || '').toLowerCase().replace(/^the\s+/, '').replace(/[^a-z0-9]/g, '');
+    if (domain.length < 5 || !plain || plain.startsWith(domain) || domain.startsWith(plain)) return null;
+    const d = editDistance(plain, domain);
+    return d >= 1 && d <= 2 ? { check: `The company name is close to the card's ${found.from} (${domain}) but not the same. Please check both.`, guesses: [] } : null;
 }
 
 // The reader takes a capital I set as a plain bar for a small l: "TeamLogiclT" is "TeamLogicIT" (the lab's real card,
