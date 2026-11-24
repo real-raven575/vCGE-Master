@@ -53,6 +53,7 @@
     <link rel="stylesheet" href="src/modules/mod01-shell/tour-art.css">
     <!-- MOD01 wide screens: laptop, monitor and wider get two panes and no scrolling (easy + premium plan, step 1) -->
     <link rel="stylesheet" href="src/modules/mod01-shell/layout-wide.css">
+    <link rel="stylesheet" href="src/modules/mod01-shell/premium.css">
 </head>
 <body class="bg-slate-100 text-slate-900 dark:bg-slate-950 dark:text-slate-100 h-screen flex flex-col antialiased overflow-hidden">
     <!-- Opening splash (MOD01, CRTV-0020): the Herd of Helpers maker mark, "presents", then the vCGE logo (plain: the
@@ -525,7 +526,7 @@
                         <select id="logoSizeSelect" class="r4-pill r4-select" aria-label="Logo size"></select>
                         <div id="logoBgGroup" role="group" aria-label="Colour behind the logo" class="r4-behind">
                             <span>Behind logo</span>
-                            <input id="logoBgPicker" type="color" value="#f8fafc" class="logo-bg-wheel" aria-label="Pick any colour behind the logo" title="Pick any colour">
+                            <span class="logo-bg-wheel-wrap"><input id="logoBgPicker" type="color" value="#f8fafc" class="logo-bg-wheel" aria-label="Pick any colour behind the logo" title="Pick any colour"></span>
                         </div>
                     </section>
                 </div>
