@@ -213,7 +213,9 @@ html[data-cb="1"] button.r4-tab[aria-pressed="true"] span { font-weight: 800; te
 .r4-card[data-face="back"] :is(#r4StyleHead, #cardLookPanel),
 .r4-card[data-face="back"] .r4-chips > :not(#flipCardBtn) { display: none; }
 .r4-card[data-face="back"] .r4-chips { padding-top: 0; }
-.r4-qr-picks { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 10px; margin: 0 0 14px; }
+/* Phone test 562 (11-23): at 9rem two pickers shared a phone row and left 38 px for the name ("Card them|e", "Squa|re"); 12rem gives
+   each picker the whole row on a phone and three side by side on a tablet or desktop. */
+.r4-qr-picks { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 10px; margin: 0 0 14px; }
 .r4-qr-pick { display: flex; flex-direction: column; gap: 4px; min-width: 0; font: 600 13px system-ui, sans-serif; color: var(--sh-ink); }
 .r4-qr-pick > select { min-height: 48px; width: 100%; }
 
