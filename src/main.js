@@ -118,6 +118,8 @@ function refresh(contact = cardView.getContact()) {
     if (qrOk && !qrShown) vcgeQREngine.reveal($('qrCanvas'));
     qrShown = qrOk;
     $('qrHint').classList.toggle('hidden', !qrOk);
+    // Phone test 695: a blank white square on an empty card read as broken, so the back says what fills it in.
+    $('qrEmpty').classList.toggle('hidden', hasDetails);
     showReadyLights(contact, qrOk);
     egressController.setPayload(vcard, contact, { qrReal: qrOk, hasDetails });
     globalEventBus.publish(Events.CONTACT_UPDATED, { timestamp: Date.now() });

@@ -199,6 +199,7 @@ const strings = {
     'No website': 'Sin sitio web',
     'No address provided': 'Sin dirección',
     'Point a phone camera here': 'Apunta aquí la cámara de un teléfono',
+    'Add a name, phone or email and your QR code appears here': 'Añade un nombre, un teléfono o un correo y aquí aparecerá tu código QR',
     'QR code unavailable: see the message above': 'Código QR no disponible: mira el mensaje de arriba',
     'Tap the right side to spin right, the left side to spin left.': 'Toca el lado derecho para girar a la derecha y el izquierdo para girar a la izquierda.',
     'QR code design': 'Diseño del código QR',

@@ -208,15 +208,25 @@ html[data-edition="plain"] .vcge-chip-pilot { display: none; }
 /* ---- Toast: a pill at the top, under the top bar ------------------------------------------------------------- */
 /* Phone test 562 finding 10 (raven575 picked "Top", 11-23): above the dock it covered the Card design buttons and the
    Read screen for 3 to 8 s. Just under the top bar it lies over the step's title only, where there is nothing to tap. */
+/* Phone test 695 (raven575, 11-24): the old dark ink pill looked tacked on and its Undo sat off centre. It is now a
+   themed card like the rest of the app: the theme's surface, ink, line and accent (so every theme, dark mode and the
+   colour-vision palettes reach it), the app's own font, and a small accent mark in front of the words. */
 .vcge-toast { position: fixed; left: 50%; top: calc(72px + env(safe-area-inset-top, 0px)); bottom: auto; z-index: 50;
-    transform: translate3d(-50%, 0, 1000px); max-width: calc(100vw - 2rem); padding: 10px 16px; border-radius: 999px;
-    background: var(--sh-ink); color: var(--sh-bg); font: 600 14px system-ui, sans-serif; box-shadow: var(--sh-shadow-lift);
+    transform: translate3d(-50%, 0, 1000px); width: max-content; max-width: min(30rem, calc(100vw - 2rem)); padding: 10px 10px 10px 14px; border-radius: 16px;
+    background: var(--sh-surface); color: var(--sh-ink); border: 1px solid color-mix(in srgb, var(--sh-accent) 35%, var(--sh-line));
+    font-size: 14px; font-weight: 600; line-height: 1.35; font-family: inherit; box-shadow: var(--sh-shadow-lift);
     display: flex; align-items: center; gap: 12px; cursor: pointer; user-select: none; transition: opacity 200ms, transform 260ms var(--ease-out); }
+.vcge-toast::before { content: ""; flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--sh-accent);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--sh-accent) 20%, transparent); }
+.vcge-toast #toastMessage { flex: 1 1 auto; min-width: 0; }
+.vcge-toast #toastAction { flex: none; display: inline-flex; align-items: center; justify-content: center; text-align: center;
+    min-height: 32px; padding: 0 14px; line-height: 1; border-radius: 999px; }
+.vcge-toast #toastAction.hidden { display: none; }
 .vcge-toast.opacity-0 { transform: translate3d(-50%, -16px, 1000px); }   /* it slides down into place */
 /* The 1000px depth draws nothing different (no perspective above the toast), but WebKit (iPhone CI, PR #22, 2026-11-15)
    hit-tested the card's 3D layer (preserve-3d) above the toast, so a tap meant for the toast landed on the card and could
    flip it. A depth well in front of the card keeps the toast first in line for the tap. */
-.vcge-toast #toastAction { color: var(--sh-soft); }
+.vcge-toast #toastAction { color: var(--sh-accent); background: color-mix(in srgb, var(--sh-accent) 14%, transparent); border: 0; font-weight: 700; }
 
 /* ---- Welcome card: its 0.8 layout is in screens-r2.css (0.8 redo R2) ---- */
 

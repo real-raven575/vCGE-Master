@@ -3024,5 +3024,22 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   agent.destroy(); srv.kill();
 }
 
+// Phone test 695 (raven575 11-24): themed pop-up with a centred Undo, the Fold uses its width, an empty card's QR says what fills it
+{
+  const fs = await import('node:fs');
+  const deck = fs.readFileSync(`${R}/modules/mod01-shell/deck.css`, 'utf8'), wide = fs.readFileSync(`${R}/modules/mod01-shell/layout-wide.css`, 'utf8');
+  const html = fs.readFileSync(`${R}/../index.html`, 'utf8'), main = fs.readFileSync(`${R}/main.js`, 'utf8');
+  const toastRule = (deck.match(/\.vcge-toast \{[^}]*\}/) || [''])[0];
+  ok('695: the pop-up takes the theme\'s surface, ink and accent and the app\'s font (no fixed colours or system font)',
+    /background: var\(--sh-surface\)/.test(toastRule) && /color: var\(--sh-ink\)/.test(toastRule) && /--sh-accent/.test(toastRule) && /font-family: inherit/.test(toastRule) && !/system-ui|#[0-9a-f]{3,6}/i.test(toastRule), toastRule);
+  ok('695: Undo is centred in its pill (inline-flex, centred both ways) and carries no fixed brand colours',
+    /\.vcge-toast #toastAction \{[^}]*display: inline-flex;[^}]*align-items: center;[^}]*justify-content: center/.test(deck)
+    && /<button id="toastAction" type="button" class="hidden font-semibold">Undo<\/button>/.test(html));
+  ok('695: tablets and an open Fold widen the column to 56rem so Details fields are not cut off',
+    /:root:is\(\[data-tier="small-tablet"\], \[data-tier="large-tablet"\]\) \{ --sh-col: 56rem; \}/.test(wide));
+  ok('695: an empty card\'s QR side says what fills it in, and the line hides once there are details',
+    /id="qrEmpty" class="qr-hint">Add a name, phone or email and your QR code appears here</.test(html) && main.includes("$('qrEmpty').classList.toggle('hidden', hasDetails);"));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;
