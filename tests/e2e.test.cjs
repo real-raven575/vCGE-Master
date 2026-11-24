@@ -147,6 +147,14 @@ async function readEnds(page, sel = '#ocrStepText') {
   try { await page.waitForSelector(sel, { state: 'visible', timeout: 90000 }); }
   catch (e) { throw new Error(`${e.message}\n${await readStage(page)}`); }
 }
+// The toast's Undo is tapped only once the toast has landed: it slides in over 0.26 s, and since Play 562 finding 10 it
+// slides down over the screen's content, so a tap mid-slide on the slow iPhone job hit the Details form under it
+// (job 137879315210). Waits on the toast's own transition ending, not a clock.
+const toastUndo = async (page) => {
+  await page.waitForFunction(() => { const t = document.getElementById('toast'), a = document.getElementById('toastAction');
+    return t && a && !t.classList.contains('opacity-0') && !a.classList.contains('hidden') && t.getAnimations().length === 0; }, null, { timeout: 5000 }).catch(() => {});
+  await page.click('#toastAction');
+};
 const proceed = async (page) => { await page.click('#dockNext'); await page.waitForSelector('#cropReviewModal', { state: 'hidden', timeout: 5000 }); };
 
 async function decodeQr(page) {
@@ -739,6 +747,51 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
   const themeGroups = await page.evaluate(() => [...document.querySelectorAll('#appThemes > *, #moreThemesGrid > *')].reduce((a, el) => { if (el.classList.contains('r5-tgroup')) a.push([el.textContent, 0]); else a[a.length - 1][1]++; return a; }, []).map(g => g.join(':')).join('|'));
   ok(EDITION_PLAIN ? 'the theme swatches are 3 quick picks (Herd = Dark + Light, Signal, Graphite), then Everyday (2), Seasonal (7) and Autumn (8) under More themes, no characters in plain' : 'the theme swatches are 3 quick picks (Herd = Dark + Light, Signal, Graphite), then Everyday (2), Seasonal (7), Autumn (8) and Team vCGE (9 characters, each light and dark) under More themes',
     themeGroups === (EDITION_PLAIN ? 'Quick picks:3|Everyday:2|Seasonal:7|Autumn:8' : 'Quick picks:3|Everyday:2|Seasonal:7|Autumn:8|Team vCGE:9'), themeGroups);
+  // Phone test 562 (11-23): five fixed columns let "Cornerstone" run into "Shutout"; the font box cut "OpenDyslexi"
+  const fitState = await page.evaluate(async () => {
+    const box = document.getElementById('themePicker'), more = document.getElementById('moreThemes'), was = [box.open, more.open];
+    box.open = true; more.open = true;
+    const names = [...document.querySelectorAll('#appThemes .r5-swatch > span, #moreThemesGrid .r5-swatch > span')].map(s => s.getBoundingClientRect()).filter(r => r.width);
+    let overlaps = 0;
+    names.forEach((a, i) => names.slice(i + 1).forEach(c => { if (a.left < c.right - 0.5 && c.left < a.right - 0.5 && a.top < c.bottom - 0.5 && c.top < a.bottom - 0.5) overlaps++; }));
+    const sel = document.getElementById('fontSelect'), was2 = sel.value, cs = () => getComputedStyle(sel), ctx = document.createElement('canvas').getContext('2d');
+    const cut = [];
+    for (const v of ['3', '1']) {
+      sel.value = v; sel.dispatchEvent(new Event('change', { bubbles: true })); await document.fonts.ready;
+      ctx.font = `${cs().fontWeight} ${cs().fontSize} ${cs().fontFamily}`;
+      const need = ctx.measureText(sel.selectedOptions[0].textContent).width + parseFloat(cs().paddingLeft) + parseFloat(cs().paddingRight);
+      if (need > sel.clientWidth) cut.push(`${sel.selectedOptions[0].textContent} ${Math.round(need)}>${sel.clientWidth}`);
+    }
+    sel.value = was2; sel.dispatchEvent(new Event('change', { bubbles: true }));
+    [box.open, more.open] = was;
+    // The Language row shares the font row's layout: its hint must wrap inside the row, never run past it
+    const hint = document.getElementById('langHint'), row = hint && hint.closest('.r5-font-row');
+    if (hint && row && hint.getClientRects().length) {
+      const h = hint.getBoundingClientRect(), r = row.getBoundingClientRect();
+      if (hint.scrollWidth > hint.clientWidth + 1 || h.right > r.right + 0.5) cut.push(`langHint ${Math.round(h.right)}>${Math.round(r.right)}`);
+    }
+    return { names: names.length, overlaps, cut };
+  });
+  ok('Settings fit (phone test 562): no two theme names overlap, and the font box shows OpenDyslexic and Atkinson Hyperlegible in full, and the Language hint wraps inside its row', fitState.names > 0 && fitState.overlaps === 0 && fitState.cut.length === 0, JSON.stringify(fitState));
+  // Premium controls (raven575 11-23): in the Herd style buttons get a lift (top light line, bottom shadow) and sliders an
+  // accent fill up to their value; the platform styles keep their own look
+  const premium = await page.evaluate(async () => {
+    const html = document.documentElement, was = html.dataset.style, quiet = document.getElementById('navSettings'), range = document.getElementById('sizeRange');
+    const lang = document.getElementById('langSelect'), flip = document.getElementById('flipCardBtn');
+    const look = () => ({ shadow: getComputedStyle(quiet).boxShadow, face: getComputedStyle(quiet).backgroundImage, select: getComputedStyle(lang).appearance,
+      chevron: (getComputedStyle(lang).backgroundImage.match(/linear-gradient/g) || []).length, pill: getComputedStyle(flip).boxShadow });
+    html.dataset.style = 'herd'; const herd = look();
+    html.dataset.style = 'material'; const material = look();
+    html.dataset.style = was;
+    const old = range.value, fills = [];
+    for (const v of [range.min, range.max]) { range.value = v; range.dispatchEvent(new Event('input', { bubbles: true })); fills.push(range.style.getPropertyValue('--ctl-fill')); }
+    range.value = old; range.dispatchEvent(new Event('input', { bubbles: true }));
+    return { herd, material, fills, now: range.style.getPropertyValue('--ctl-fill') };
+  });
+  ok('premium controls: Herd buttons and the card pills carry the lift (inset top line + shadow) and a face, drop-downs show the drawn chevron; Material does not; the text size slider fills 0% to 100% with its value',
+    /inset/.test(premium.herd.shadow) && /gradient/.test(premium.herd.face) && !/gradient/.test(premium.material.face) && premium.herd.shadow !== premium.material.shadow
+    && premium.herd.select === 'none' && premium.herd.chevron === 3 && premium.material.select !== 'none' && /inset/.test(premium.herd.pill) && premium.herd.pill !== premium.material.pill
+    && premium.fills.join() === '0%,100%' && /%$/.test(premium.now), JSON.stringify(premium));
   // The dock's steps and buttons fade their colour (deck.css): read only once no fade is running on the step in view,
   // the primary button or the page (getAnimations() starts any pending fade first, so it can't be read too early)
   const themeSettled = () => page.waitForFunction(() => [document.querySelector('.vcge-step[data-state="now"]'), document.getElementById('dockNext'), document.body]
@@ -1823,7 +1876,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p11.click('#clearFormBtn');
     const cleared = await p11.evaluate(() => ({ font: document.getElementById('cardFontSelect').value, serif: document.getElementById('cardFront').classList.contains('font-serif'), flip: document.getElementById('card3DFlipper').style.transform, logo: !!document.querySelector('#previewLogoStrip img, #previewLogoStrip svg') }));
     ok('Clear form: Sans typeface, front side up, no logo', cleared.font === 'font-sans' && !cleared.serif && cleared.flip === 'rotateY(0deg)' && !cleared.logo, JSON.stringify(cleared));
-    await p11.click('#toastAction');
+    await toastUndo(p11);
     await p11.waitForTimeout(300);
     const undone = await p11.evaluate(() => ({ font: document.getElementById('cardFontSelect').value, back: document.getElementById('cardBack').classList.contains('font-serif'), logo: !!document.querySelector('#previewLogoStrip img, #previewLogoStrip svg') }));
     ok('Undo brings back the typeface and the logo strip', undone.font === 'font-serif' && undone.back && undone.logo, JSON.stringify(undone));
@@ -1901,7 +1954,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pU.click('#reopenScanBtn');
     await proceed(pU);
     ok('F4: proceeding again refills the tray from the lines', (await trayLines()).includes('Northwind Systems'));
-    await pU.click('#toastAction');
+    await toastUndo(pU);
     ok('F4: the scan\'s Undo empties the tray', (await trayLines()).length === 0 && await pU.$eval('#fieldsUnknown', t => t.classList.contains('hidden')));
     ok('make it cute: no page errors', errorsU.length === 0, errorsU.join(' | '));
     await ctxU.close();
@@ -1926,7 +1979,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const filled = await card();
     ok('scan into a sample: the sample is replaced, nothing of it left', filled.first === 'Maria' && !filled.middle && !filled.suffix && !filled.unit
       && filled.phones.length === 1 && filled.phones[0].value === '+1 (312) 555-0147' && filled.front === '+1 (312) 555-0147', JSON.stringify(filled));
-    await pS.click('#toastAction');
+    await toastUndo(pS);
     ok('Undo brings the sample back', (await pS.inputValue('#firstName')) === samples()[4][0] && (await rows(pS, 'phone')).length === 3);
     await pS.click('#reopenScanBtn');
     await proceed(pS);
@@ -2136,11 +2189,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p9.fill('#firstName', 'Typed'); await p9.fill('#emailValue0', 'typed@example.com');
     await p9.selectOption('#fakeContactSelect', '0');
     ok('sample preset replaces the form and offers Undo', (await p9.inputValue('#firstName')) !== 'Typed' && await p9.isVisible('#toastAction') && (await p9.textContent('#toastAction')).trim() === 'Undo');
-    await p9.click('#toastAction');
+    await toastUndo(p9);
     ok('Undo brings the typed card back', (await p9.inputValue('#firstName')) === 'Typed' && (await p9.inputValue('#emailValue0')) === 'typed@example.com' && (await p9.textContent('#toastMessage')).includes('Undone'));
     await p9.click('#clearFormBtn');
     ok('Clear form empties the form, with Undo', (await p9.inputValue('#firstName')) === '' && await p9.isVisible('#toastAction'));
-    await p9.click('#toastAction');
+    await toastUndo(p9);
     ok('Undo after Clear form restores it', (await p9.inputValue('#firstName')) === 'Typed');
 
     // Scan, fill, then reopen the last scan without new OCR
@@ -2150,7 +2203,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await readEnds(p9);
     await proceed(p9);
     ok('Fill form offers Undo and "Reopen last scan"', (await p9.inputValue('#firstName')) === 'Maria' && await p9.isVisible('#toastAction') && await onScreen(p9, '#reopenScanBtn'));
-    await p9.click('#toastAction'); await p9.waitForTimeout(600);
+    await toastUndo(p9); await p9.waitForTimeout(600);
     ok('Undo after Fill form restores the card from before the scan', (await p9.inputValue('#firstName')) === 'Typed');
     // Video review #59, #60: Undo never ends on an empty form: it reopens the scan's lines on the Read card, as edited
     ok('Undo after Fill form reopens the lines on the Read card, nothing lost, no new OCR', (await p9.evaluate(() => document.documentElement.dataset.card)) === 'read' && await p9.isVisible('#ocrStepText')
@@ -3082,6 +3135,10 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const overlay = await pV.evaluate(() => Array.from(document.querySelectorAll('#viewfinderArea > *')).filter(e => getComputedStyle(e).display !== 'none').map(e => e.id || e.className));
     ok('viewfinder: over the live picture only the corners, the hint, Close and the zoom chips (the shutter is under it)', overlay.join() === 'cameraPanel,cardFrame,camHint,stopCameraBtn,zoomChips'
       && (await pV.$$('#cardFrame .cap-corner')).length === 4 && !(await pV.$('#focusRing')) && ['Fit the card inside the corners', 'Hold still, then tap the shutter', 'Green shutter = card found'].includes(await pV.textContent('#camHint')), JSON.stringify(overlay));
+    // Phone test 562 (11-23): one line with an ellipsis cut the hint to "Hold still…"; the longest hint now shows in full
+    const hintFit = await pV.evaluate(() => { const h = document.getElementById('camHint'), was = h.textContent; h.textContent = 'Hold still, then tap the shutter';
+      const r = { scroll: h.scrollWidth, client: h.clientWidth, clip: getComputedStyle(h).textOverflow }; h.textContent = was; return r; });
+    ok('viewfinder: the hint wraps instead of cutting ("Hold still, then tap the shutter" in full, no ellipsis)', hintFit.scroll <= hintFit.client && hintFit.clip !== 'ellipsis', JSON.stringify(hintFit));
     ok('viewfinder: the card frame is upright in portrait, centred and fills most of the view', (await pV.getAttribute('#cardFrame', 'data-orientation')) === 'portrait' && frame.h > frame.w && Math.abs(frame.w / frame.h - 2 / 3.5) < 0.02
       && frame.h > view.h * 0.8 && Math.abs((frame.l + frame.r) / 2 - (view.l + view.r) / 2) < 2, JSON.stringify({ view, frame }));
     // The corners (mock-up): 3 px white brackets, rounded, nothing filled in; green while a card is in them, the shutter too
@@ -4102,6 +4159,18 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     ok('QR side: the head says Checkers ("Your QR code") and QR code design (Colours, Dots, Corners) replaces Card design, Flip card stays',
       qrSide.face === 'back' && (EDITION_PLAIN || qrSide.head === '🦓|Checkers|Your QR code') && qrSide.qr && !qrSide.tabs && !qrSide.swatches && qrSide.flip
       && qrSide.lists[0].startsWith('themed/') && qrSide.lists[0].includes('/bw/') && qrSide.lists[1] === 'square/rounded/round/diamond/bars' && qrSide.lists[2] === 'square/rounded/circle', JSON.stringify(qrSide));
+    // Phone test 562 (11-23): two pickers to a phone row left 38 px for the name, so it broke mid-word ("Squa|re", "Diamon|d")
+    const qrNames = await pT.evaluate(() => {
+      const ctx = document.createElement('canvas').getContext('2d'), cut = [];
+      for (const b of document.querySelectorAll('#qrDesign .vcge-pick-btn .vcge-pick-text b, #qrDesign .vcge-pick-row .vcge-pick-text b')) {
+        const cs = getComputedStyle(b); ctx.font = `${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+        const longest = Math.max(...b.textContent.replace(/\u2713/g, '').split(/\s+/).filter(Boolean).map(w => ctx.measureText(w).width));
+        const room = b.getBoundingClientRect().width;
+        if (room > 0 && longest > room + 0.5) cut.push(`${b.textContent.trim()} ${Math.round(longest)}>${Math.round(room)}`);
+      }
+      return cut;
+    });
+    ok('QR side: every Colours, Dots and Corners name fits its picker whole (no word broken mid-way)', qrNames.length === 0, JSON.stringify(qrNames));
     await pT.evaluate(() => { const f = document.getElementById('firstName'); f.value = 'Sam'; f.dispatchEvent(new Event('input', { bubbles: true })); }); await pT.waitForTimeout(300);
     const qrBefore = await pT.$eval('#qrCanvas', c => c.toDataURL());
     await pT.$eval('#cardQrDots', s => { s.value = 'round'; s.dispatchEvent(new Event('change')); }); await pT.waitForTimeout(200);
@@ -4434,6 +4503,11 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const faceNow = await p6.$eval('#card3DFlipper', el => el.dataset.face);
     ok('card: after a drag the browser sent no click for (WebKit), the next tap still flips', afterDrag === 'rotateY(180deg)' && (await angle()) !== afterDrag && faceNow === 'front', `${afterDrag} -> ${await angle()} ${faceNow}`);
     await p6.$eval('#flipCardBtn', b => b.click()); await settled(p6);   // (no scroll to reach it: the card stays whole, not mini)
+    // Flip card keeps its button under the finger by scrolling the box as far as the button moved (cardTabs.js). On the
+    // iPhone profile the back's QR picks (a full row each since Play 562 finding 13) push it past the mini card's 40%,
+    // and a mini card takes a tap as "show the whole card". These checks are about the whole card, so it comes back first.
+    await p6.evaluate(() => { const b = document.querySelector('#cardCard .r4-card'); if (b) b.scrollTop = 0; });
+    await p6.waitForFunction(() => document.querySelector('#cardCard .r4-card')?.dataset.mini !== 'on', null, { timeout: 5000 }).catch(() => {});
     // A tap is taken on the lift, not from a click: a press and lift with no click after it (as WebKit sends after a
     // drag) flips the card, and el.click() with no press behind it flips it too, the short way.
     const faceBefore = await p6.$eval('#card3DFlipper', el => el.dataset.face);
@@ -4495,7 +4569,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p6.$eval('#flipCardBtn', b => b.click());   // (no scroll to reach it: the card stays whole, not mini)
     ok('card: under reduce motion the flip is instant (one frame)', (await angle()) === 'rotateY(0deg)' && (await p6.evaluate(() => window.__spin.length)) === 1, JSON.stringify(await p6.evaluate(() => window.__spin)));
     await p6.emulateMedia({ reducedMotion: 'no-preference' });
-    // Toasts: above the dock, 3 s, a tap dismisses, a hold keeps it until 3 s after the release
+    // Toasts: at the top, 3 s, a tap dismisses, a hold keeps it until 3 s after the release
     // The page notes when the toast shows, so its 3 s are timed on the page's own clock, not from before the tap
     await p6.evaluate(() => { const t = document.getElementById('toast'); window.__toastAt = null;
       new MutationObserver(() => { if (window.__toastAt === null && !t.classList.contains('opacity-0')) window.__toastAt = performance.now(); }).observe(t, { attributes: true, attributeFilter: ['class'] }); });
@@ -4504,8 +4578,15 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     // measured it still 16 px low, mid-slide, over the dock.
     await p6.waitForFunction(() => { const t = document.getElementById('toast'); return !t.classList.contains('opacity-0') && t.getAnimations().length === 0; }, null, { timeout: 5000 }).catch(() => {});
     const toastBox = await p6.locator('#toast').boundingBox();
-    const dockTop = await p6.$eval('.vcge-dock', d => d.getBoundingClientRect().top);
-    ok('0.8 shell: the toast shows as a pill just above the dock (the mock-up), never over it', toastBox.y + toastBox.height <= dockTop && toastBox.y > dockTop - 200 && await p6.isVisible('#toast'), JSON.stringify({ toastBox, dockTop }));
+    // Phone test 562 finding 10 (raven575 picked "Top", 11-23): near the top, never over the top bar, over no button, far
+    // from the dock (the iPhone profile can scroll the page so the bar is partly off screen: the toast stays put)
+    const toastRoom = await p6.evaluate(() => {
+      const t = document.getElementById('toast').getBoundingClientRect(), barBottom = document.querySelector('.vcge-bar').getBoundingClientRect().bottom;
+      const covers = [...document.querySelectorAll('button, a, input, select, [role="button"]')].filter(el => !el.closest('#toast') && el.getClientRects().length && getComputedStyle(el).visibility !== 'hidden')
+        .map(el => [el, el.getBoundingClientRect()]).filter(([, r]) => r.width && r.left < t.right && t.left < r.right && r.top < t.bottom && t.top < r.bottom).map(([el]) => el.id || el.className);
+      return { top: t.top, bottom: t.bottom, barBottom, dockTop: document.querySelector('.vcge-dock').getBoundingClientRect().top, covers };
+    });
+    ok('0.8 shell: the toast shows as a pill at the top, just under the top bar, over no button and clear of the dock', toastRoom.top >= Math.max(toastRoom.barBottom, 0) - 1 && toastRoom.top <= 120 && toastRoom.bottom < toastRoom.dockTop && toastRoom.covers.length === 0 && await p6.isVisible('#toast'), JSON.stringify({ toastBox, ...toastRoom }));
     await p6.waitForFunction(() => window.__toastAt !== null && performance.now() - window.__toastAt >= 2600, null, { polling: 50, timeout: 5000 }).catch(() => {});
     const at26 = await p6.evaluate(() => ({ shown: !document.getElementById('toast').classList.contains('opacity-0'), ms: window.__toastAt === null ? null : Math.round(performance.now() - window.__toastAt) }));
     ok('toast: still there at 2.6 s', at26.shown && at26.ms !== null && at26.ms >= 2600 && at26.ms < 3000, JSON.stringify(at26));
@@ -4595,9 +4676,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p6.click('#removeAvatarBtn'); await p6.click('#removeLogoYes');
     ok('logo: Remove takes the logo off and says so; the initials are back', !(await p6.$(LOGO6)) && (await p6.textContent('#previewAvatar')).trim() === (EDITION_PLAIN ? s1First[0] + s1Last[0] : 'GR') && (await p6.textContent('#toastMessage')) === 'Logo removed.');
     ok('card: with the logo removed the rim goes too', await p6.$eval('#card3DFlipper', el => !('rim' in el.dataset) && !el.style.getPropertyValue('--card-rim')));
-    await p6.click('#toastAction').catch(() => {});
+    await toastUndo(p6).catch(() => {});
     await p6.click('#navFields'); await p6.waitForTimeout(300);
-    await p6.click('#clearFormBtn'); await p6.click('#toastAction');
+    await p6.click('#clearFormBtn'); await toastUndo(p6);
     await p6.waitForTimeout(300);
     ok('sample: Undo after Clear brings the sample back without its logo (removed before) and with its theme', (await p6.inputValue('#firstName')) === s1First && (await p6.textContent('#currentPaletteLabel')) === 'Twilight' && !(await p6.$(LOGO6)));
     // The logo's look and the card's finish (raven575 test report, 2026-10-22)
@@ -4638,7 +4719,17 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const dark = await badge();
     await p6.evaluate(() => { const w = document.getElementById('logoBgPicker'); w.value = '#ff8800'; w.dispatchEvent(new Event('input', { bubbles: true })); });
     const wheel = { ...(await badge()), on: await p6.$eval('#logoBgPicker', w => w.classList.contains('is-on')), pressed: await p6.$$eval('#logoBgGroup [aria-pressed="true"]', bs => bs.length) };
+    const wheelMark = await p6.$eval('#logoBgPicker', w => { const wrap = w.closest('.logo-bg-wheel-wrap'); return !!wrap && wrap.classList.contains('is-on') && getComputedStyle(wrap, '::after').content !== 'none'; });
     await p6.click('#logoBgGroup [data-back="auto"]');
+    // Premium controls (raven575, 2026-11-23): the picked swatch shows a check mark as well as a ring, never colour alone
+    const marks = await p6.evaluate(() => ({ auto: getComputedStyle(document.querySelector('#logoBgGroup [data-back="auto"]'), '::after').content,
+      other: getComputedStyle(document.querySelector('#logoBgGroup [data-back="dark"]'), '::after').content,
+      wheelOff: getComputedStyle(document.querySelector('.logo-bg-wheel-wrap'), '::after').content,
+      card: getComputedStyle(document.querySelector('#paletteListContainer [aria-pressed="true"]'), '::after').content,
+      cardOther: getComputedStyle(document.querySelector('#paletteListContainer [aria-pressed="false"]'), '::after').content,
+      autoLook: getComputedStyle(document.querySelector('#logoBgGroup [data-back="auto"]')).backgroundImage.slice(0, 26) }));
+    ok('premium controls: the picked card colour, behind-logo swatch or colour wheel carries a check mark; the others none; Auto shows the no-background checkerboard',
+      marks.autoLook.startsWith('repeating-conic-gradient') && wheelMark && marks.auto !== 'none' && marks.other === 'none' && marks.wheelOff === 'none' && marks.card !== 'none' && marks.cardOther === 'none', JSON.stringify({ wheelMark, ...marks }));
     const auto = { ...(await badge()), pressed: await p6.$eval('#logoBgGroup [data-back="auto"]', b => b.getAttribute('aria-pressed')) };
     ok('logo: Dark gray sits behind the logo, the colour wheel sets any colour (no swatch then lit), Auto takes it away again',
       dark.bg === 'rgb(51, 65, 85)' && wheel.bg === 'rgb(255, 136, 0)' && wheel.on && wheel.pressed === 0 && auto.bg !== 'rgb(255, 136, 0)' && auto.pressed === 'true', JSON.stringify({ dark, wheel, auto }));
@@ -4657,6 +4748,9 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     const dots = await finish();
     await p6.fill('#cardFinishStrength', '30');
     const strong = await finish();
+    // The slider's filled part follows the thumb (premium controls, 2026-11-23): 30 on 5 to 100 is 26.3% along
+    const fill = await p6.$eval('#cardFinishStrength', el => ({ fill: el.style.getPropertyValue('--ctl-fill'), appearance: getComputedStyle(el).appearance }));
+    ok('premium controls: the Strength slider is filled in the accent up to its thumb', fill.fill === '26.3%', JSON.stringify(fill));
     await p6.fill('#cardFinishBlur', '20');
     const soft = await finish();
     // Behind the text by construction: the texture is stacked below the face's own content (z-index -1) inside the face
@@ -4832,7 +4926,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await pV.click('#navFields'); await pV.waitForTimeout(400);
     await pV.click('#clearFormBtn');
     const clearedLook = await pV.evaluate(() => ({ font: document.getElementById('cardFontSelect').value, size: document.getElementById('cardSizeSelect').value }));
-    await pV.click('#toastAction'); await pV.waitForTimeout(200);
+    await toastUndo(pV); await pV.waitForTimeout(200);
     const undoneLook = await pV.evaluate(() => ({ font: document.getElementById('cardFontSelect').value, size: document.getElementById('cardSizeSelect').value, icons: document.getElementById('cardIconsBtn').getAttribute('aria-pressed') }));
     ok('#85 Clear goes back to Sans and medium text; Undo brings back the typeface and the size', clearedLook.font === 'font-sans' && clearedLook.size === 'md' && undoneLook.font === 'card-font-lexend' && undoneLook.size === 'xl' && undoneLook.icons === 'true', JSON.stringify([clearedLook, undoneLook]));
     await pV.selectOption('#cardSizeSelect', 'md');

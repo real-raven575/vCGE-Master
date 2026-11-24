@@ -2409,6 +2409,19 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
       && st.swatchFamilies(th.THEME_FAMILIES, 'Quick').map(f => f.id).join() === 'herd,signal,graphite'
       && st.swatchFamilies(th.THEME_FAMILIES, 'Everyday').map(f => f.id).join() === 'autumn,evergreen'
       && st.SWATCH_GROUPS.flatMap(g => st.swatchFamilies(th.THEME_FAMILIES, g.group)).length === th.THEME_FAMILIES.length);
+    // Phone test 562 (11-23): Cornerstone and Shutout both showed amber over near-black; the Team shows its light page
+    const swFam = (id) => th.THEME_FAMILIES.find(f => f.id === id), page = (id) => { const f = swFam(id); return st.swatchPage(f, f.light !== null ? th.themeFor(f.light) : null, f.dark !== null ? th.themeFor(f.dark) : null); };
+    const teamPages = st.swatchFamilies(th.THEME_FAMILIES, 'Team vCGE').map(f => page(f.id));
+    ok('Settings: a Team vCGE swatch shows its light page (each character its own tint), every other palette its dark page',
+      page('cornerstone') === th.themeFor(11).vars.bg && page('shutout') === th.themeFor(13).vars.bg && page('cornerstone') !== page('shutout')
+      && new Set(teamPages).size === teamPages.length && page('herd') === th.themeFor(0).vars.bg, JSON.stringify(teamPages));
+    // Premium controls (raven575 11-23): a slider's track is filled with the accent up to its value
+    const rf = await import(`${R}/modules/mod01-shell/rangeFill.js`);
+    ok('premium sliders: the fill is the value\'s share of min to max (0% at min, 100% at max, clamped, 0.1% steps; 0 to 100 when unset)',
+      rf.fillPercent(0, 0, 100) === '0%' && rf.fillPercent(100, 0, 100) === '100%' && rf.fillPercent(50, 0, 100) === '50%'
+      && rf.fillPercent(1, 0, 3) === '33.3%' && rf.fillPercent(-5, 0, 10) === '0%' && rf.fillPercent(15, 0, 10) === '100%'
+      && rf.fillPercent(25, '', '') === '25%' && rf.fillPercent(5, 10, 10) === '0%' && rf.fillPercent('0.9', '0.8', '1.4') === '16.7%');
+    ok('premium sliders: the Settings text size and the card\'s Paper sliders are the ones painted', rf.RANGE_SELECTOR === '.r5-range input[type="range"], .r4-strength input[type="range"]');
     const a11y = set5.indexOf('id="a11yLabel">Accessibility</h4>'), comfort = set5.indexOf('<h4>Comfort</h4>');
     ok('Settings: Accessibility holds Dyslexia-friendly font, Colour-blind mode and Left-handed, in that order, before Comfort (texture and Plain look)', a11y > 0 && comfort > a11y
       && ['dyslexiaToggle', 'cbToggle', 'handToggle'].map(id => set5.indexOf(`<input id="${id}" type="checkbox" role="switch"`)).every((i, n, a) => i > a11y && i < comfort && (n === 0 || i > a[n - 1]))

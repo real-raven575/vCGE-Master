@@ -93,16 +93,44 @@ html[data-edition="plain"] .card-face::after, html[data-edition="plain"] .card-p
     .logo-size-md #previewLogoStrip > div { height: 4rem; }
     .logo-size-lg #previewLogoStrip > div { height: 5rem; }
 }
-/* The colour behind the logo: quick-pick swatches and a colour wheel (card3dView.js LOGO_BACKS). Auto is half and half. */
-.logo-bg-swatch, .logo-bg-wheel { width: 2.75rem; height: 2.75rem; min-width: 2.75rem; min-height: 2.75rem; border-radius: 9999px; border: 2px solid rgb(148 163 184 / 0.6); padding: 0; cursor: pointer; }
-.logo-bg-swatch[data-back="auto"] { background: linear-gradient(135deg, #f8fafc 50%, #334155 50%); }
-.logo-bg-swatch[aria-pressed="true"], .logo-bg-wheel.is-on { border-color: #2563eb; box-shadow: 0 0 0 2px #2563eb; }
-.logo-bg-wheel { background: transparent; overflow: hidden; }
+/* The colour behind the logo: quick-pick swatches and a colour wheel (card3dView.js LOGO_BACKS). Auto is a faint checkerboard.
+   Premium controls (raven575, 2026-11-23): the same round, lifted chip as the card colours (screens-r4.css .r4-swatch),
+   and the picked one carries a check mark as well as a ring, never colour alone. The wheel sits in a rainbow ring. */
+.logo-bg-swatch, .logo-bg-wheel { width: 2.75rem; height: 2.75rem; min-width: 2.75rem; min-height: 2.75rem; border-radius: 9999px; padding: 0; cursor: pointer; }
+.logo-bg-swatch { position: relative; border: 2px solid var(--sh-bg, #fff);
+    box-shadow: 0 0 0 1.5px var(--sh-line, #cbd5e1), inset 0 1.5px 0 rgb(255 255 255 / 0.35), inset 0 -2px 3px rgb(0 0 0 / 0.12), 0 2px 6px -1px rgb(0 0 0 / 0.28); }
+/* Auto is no colour of its own: the usual transparency checkerboard, very faint, over the panel (raven575, 2026-11-23) */
+.logo-bg-swatch[data-back="auto"] { background: repeating-conic-gradient(rgb(128 128 128 / 0.22) 0 25%, transparent 0 50%) 50% / 12px 12px, var(--sh-surface, #fff); }
+.logo-bg-wheel-wrap { position: relative; display: inline-flex; flex: none; border-radius: 9999px; padding: 3px;
+    background: conic-gradient(from 0deg, hsl(0 85% 58%), hsl(60 85% 52%), hsl(120 65% 45%), hsl(180 75% 42%), hsl(240 80% 62%), hsl(300 75% 58%), hsl(360 85% 58%));   /* every hue: it picks any colour */
+    box-shadow: 0 2px 6px -1px rgb(0 0 0 / 0.28); }
+.logo-bg-wheel { width: 2.375rem; height: 2.375rem; min-width: 2.375rem; min-height: 2.375rem; border: 2px solid var(--sh-bg, #fff); background: var(--sh-bg, #fff); overflow: hidden; }
 .logo-bg-wheel::-webkit-color-swatch-wrapper { padding: 0; }
 .logo-bg-wheel::-webkit-color-swatch { border: 0; border-radius: 9999px; }
 .logo-bg-wheel::-moz-color-swatch { border: 0; border-radius: 9999px; }
-/* Colour-blind mode: the picked swatch is marked by a thick dark ring, not by colour alone. */
-html[data-cb="1"] .logo-bg-swatch[aria-pressed="true"], html[data-cb="1"] .logo-bg-wheel.is-on { border-width: 4px; border-color: #0f172a; }
+.logo-bg-swatch[aria-pressed="true"] { box-shadow: 0 0 0 2px color-mix(in srgb, var(--sh-ink, #0f172a) 70%, var(--sh-bg, #fff)),
+    0 0 0 6px color-mix(in srgb, var(--sh-accent, #2563eb) 28%, transparent), inset 0 1.5px 0 rgb(255 255 255 / 0.35), 0 2px 6px -1px rgb(0 0 0 / 0.28); }
+.logo-bg-wheel-wrap.is-on { box-shadow: 0 0 0 2px color-mix(in srgb, var(--sh-ink, #0f172a) 70%, var(--sh-bg, #fff)), 0 0 0 6px color-mix(in srgb, var(--sh-accent, #2563eb) 28%, transparent), 0 2px 6px -1px rgb(0 0 0 / 0.28); }
+/* Until a colour is picked with it, the wheel shows every hue (fading to white in the middle), so it reads as "any colour" */
+.logo-bg-wheel-wrap:not(.is-on) .logo-bg-wheel::-webkit-color-swatch { background-image: radial-gradient(circle, rgb(255 255 255 / 0.9), rgb(255 255 255 / 0) 62%),
+    conic-gradient(from 0deg, hsl(0 85% 58%), hsl(60 85% 52%), hsl(120 65% 45%), hsl(180 75% 42%), hsl(240 80% 62%), hsl(300 75% 58%), hsl(360 85% 58%)); }
+.logo-bg-wheel-wrap:not(.is-on) .logo-bg-wheel::-moz-color-swatch { background-image: radial-gradient(circle, rgb(255 255 255 / 0.9), rgb(255 255 255 / 0) 62%),
+    conic-gradient(from 0deg, hsl(0 85% 58%), hsl(60 85% 52%), hsl(120 65% 45%), hsl(180 75% 42%), hsl(240 80% 62%), hsl(300 75% 58%), hsl(360 85% 58%)); }
+/* The check badge (one look for every chosen swatch in the app, with Shutout's premium.css): a small accent disc at the top
+   right corner (::before) with a tick in the accent's own text colour (::after) */
+.logo-bg-swatch[aria-pressed="true"]::before, .logo-bg-wheel-wrap.is-on::before, .r4-swatches button.r4-swatch[aria-pressed="true"]::before {
+    content: ''; position: absolute; top: -5px; right: -5px; width: 18px; height: 18px; border-radius: 50%; box-sizing: border-box;
+    background: var(--sh-accent, #2563eb); border: 2px solid var(--sh-surface, #fff); box-shadow: 0 1px 3px rgb(0 0 0 / 0.35); pointer-events: none; }
+.logo-bg-swatch[aria-pressed="true"]::after, .logo-bg-wheel-wrap.is-on::after, .r4-swatches button.r4-swatch[aria-pressed="true"]::after {
+    content: ''; position: absolute; top: -1px; right: 1px; width: 4px; height: 7px; border: solid var(--sh-on, #fff); border-width: 0 2px 2px 0;
+    transform: rotate(45deg); pointer-events: none; }
+.logo-bg-swatch:focus-visible, .logo-bg-wheel:focus-visible { outline: 2px solid var(--sh-accent, #2563eb); outline-offset: 3px; }
+@media (prefers-reduced-motion: no-preference) {
+    .logo-bg-swatch, .logo-bg-wheel-wrap { transition: box-shadow 160ms ease-out, transform 120ms ease-out; }
+    .logo-bg-swatch:active, .logo-bg-wheel-wrap:active { transform: scale(0.96); }
+}
+/* Colour-blind mode: the picked swatch also gets a thick dark ring. */
+html[data-cb="1"] .logo-bg-swatch[aria-pressed="true"], html[data-cb="1"] .logo-bg-wheel-wrap.is-on { box-shadow: 0 0 0 4px #0f172a, 0 2px 6px -1px rgb(0 0 0 / 0.28); }
 /* The card's finish (card3dView.js CARD_FINISHES; raven575, 2026-11-10): a texture over the card colour at the strength
    picked (--finish-a, 0.05 to 1) and softened by the blur picked (--finish-blur, 0 to 2 px). Paper grain is the start.
    The paper textures are greyscale noise drawn by the browser from inline SVG (no image file, no internet) and laid on
