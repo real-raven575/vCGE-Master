@@ -77,7 +77,8 @@ async function renderMirroredCard(page) {
   const dataUrl = await page.evaluate(() => {
     const c = document.createElement('canvas'); c.width = 1050; c.height = 600;
     const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height); x.fillStyle = '#111';
-    x.translate(c.width, c.height); x.scale(-1, -1);
+    // Mirrored left to right: no quarter turn makes it readable (an upside-down card is read since Play 695's turn retry)
+    x.translate(c.width, 0); x.scale(-1, 1);
     const lines = [['bold 56px Arial', 'Maria Gonzalez'], ['34px Arial', 'Director of Engineering'], ['30px Arial', '+1 (312) 555-0147'], ['30px Arial', 'maria.gonzalez@northwind.com']];
     let y = 120; for (const [f, t] of lines) { x.font = f; x.fillText(t, 70, y); y += 110; }
     return c.toDataURL('image/png');
