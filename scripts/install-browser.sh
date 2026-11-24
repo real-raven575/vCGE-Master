@@ -3,16 +3,17 @@
 # Usage: scripts/install-browser.sh <firefox|webkit|chrome|msedge|chromium>
 #
 # Why: on 2026-11-23 the Ubuntu mirror crawled for hours, and one `playwright install --with-deps webkit`
-# ran into the step's 10-minute limit again and again before a single test started (PRs #76-#82).
+# ran into the step's 10-minute (then 20-minute) limit again and again before a single test started (PRs #76-#87).
 # This only changes how the browser gets installed. Every test still runs.
 #   - apt retries a dropped or stalled download itself, and gives up on a silent connection after 30 s.
-#   - Each try has its own time limit; leftover apt processes are stopped and dpkg is tidied before the next.
+#   - Each command gets 15 min per try; leftover apt processes are stopped and dpkg is tidied before the next.
+#     apt keeps the .deb files it already fetched, so a retry continues instead of starting over.
 #   - Try 1 uses the runner's own mirror; tries 2 and 3 switch to archive.ubuntu.com.
 set -uo pipefail
 
 BROWSER="${1:?usage: install-browser.sh <browser>}"
 TRIES="${VCGE_INSTALL_TRIES:-3}"
-LIMIT="${VCGE_INSTALL_LIMIT:-9m}"
+LIMIT="${VCGE_INSTALL_LIMIT:-15m}"
 
 printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\nAcquire::https::Timeout "30";\nDPkg::Lock::Timeout "120";\n' \
   | sudo tee /etc/apt/apt.conf.d/80-vcge-retries > /dev/null

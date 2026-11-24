@@ -15,6 +15,7 @@
  */
 import './modules/mod01-shell/shell.js';
 import { initSettings } from './modules/mod01-shell/settings.js';
+import { initRangeFill } from './modules/mod01-shell/rangeFill.js';
 import { go as showCard, use as useDeck, onBeforeChange as beforeCardChange, openSheet, closeSheet, closeTopSheet, current as currentCard, toast as deckToast, setFace as setCardFace } from './modules/mod01-shell/deck.js';
 import { tourOpen, closeTour } from './modules/mod01-shell/welcome.js';
 import { isPlain } from './modules/mod01-shell/edition.js';
@@ -1358,6 +1359,7 @@ function wireAuditLog() {
 function boot() {
     maskSecretInputs();
     initSettings(document, { hasContacts: () => hasWork() || !vaultStore.isEmpty(), restart: startFresh });   // the one saved entry: hand, colour-blind mode, theme, font, look
+    initRangeFill(document);   // the premium sliders' filled track (premium.css)
     // MOD01's deck talks to the other modules only through these hooks (and the CARD_CHANGED signal on the bus).
     useDeck({
         toast: (message) => cardView.showToast(message),

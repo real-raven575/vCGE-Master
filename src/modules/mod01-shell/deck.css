@@ -1,7 +1,7 @@
 /* vCGE-MOD01 app shell (0.8 redo R1, built to Team Creative's CRTV-0020 mock-up, vcge-0.6-preview.html): the top bar
    (the vCGE mark, the session pill with its lock ring, Settings), the head (the step, its pilot, the big title), one
    screen at a time that slides in from the side it comes from (280 ms), the dock (five steps, Back and the primary
-   button), bottom sheets that slide up over a scrim (380 ms) and the toast above the dock.
+   button), bottom sheets that slide up over a scrim (380 ms) and the toast under the top bar.
    Motion: the mock-up's two eases only; under reduced motion a screen fades in over 150 ms and nothing slides.
    No flashing, no sound. */
 
@@ -205,12 +205,14 @@ html[data-edition="plain"] .vcge-chip-pilot { display: none; }
 .vcge-sheet-hint { font-size: 0.7rem; color: var(--sh-muted); margin: -0.25rem 0 0.25rem; }
 .vcge-sheet-soon { font-size: 0.8rem; color: var(--sh-muted); }
 
-/* ---- Toast: a pill above the dock ---------------------------------------------------------------------------- */
-.vcge-toast { position: fixed; left: 50%; bottom: calc(150px + env(safe-area-inset-bottom, 0px)); top: auto; z-index: 50;
+/* ---- Toast: a pill at the top, under the top bar ------------------------------------------------------------- */
+/* Phone test 562 finding 10 (raven575 picked "Top", 11-23): above the dock it covered the Card design buttons and the
+   Read screen for 3 to 8 s. Just under the top bar it lies over the step's title only, where there is nothing to tap. */
+.vcge-toast { position: fixed; left: 50%; top: calc(72px + env(safe-area-inset-top, 0px)); bottom: auto; z-index: 50;
     transform: translate3d(-50%, 0, 1000px); max-width: calc(100vw - 2rem); padding: 10px 16px; border-radius: 999px;
     background: var(--sh-ink); color: var(--sh-bg); font: 600 14px system-ui, sans-serif; box-shadow: var(--sh-shadow-lift);
     display: flex; align-items: center; gap: 12px; cursor: pointer; user-select: none; transition: opacity 200ms, transform 260ms var(--ease-out); }
-.vcge-toast.opacity-0 { transform: translate3d(-50%, 16px, 1000px); }
+.vcge-toast.opacity-0 { transform: translate3d(-50%, -16px, 1000px); }   /* it slides down into place */
 /* The 1000px depth draws nothing different (no perspective above the toast), but WebKit (iPhone CI, PR #22, 2026-11-15)
    hit-tested the card's 3D layer (preserve-3d) above the toast, so a tap meant for the toast landed on the card and could
    flip it. A depth well in front of the card keeps the toast first in line for the tap. */

@@ -146,7 +146,7 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
   const ci = read('.github/workflows/ci.yml');
   const sh = read('scripts/install-browser.sh');
   ok('CI: every browser job installs through the retrying script, with room for its three tries',
-    /run: bash scripts\/install-browser\.sh \$\{\{ matrix\.install \}\}\n\s+timeout-minutes: 32/.test(ci) && !/playwright install --with-deps \$\{\{ matrix/.test(ci));
+    /run: bash scripts\/install-browser\.sh \$\{\{ matrix\.install \}\}\n\s+timeout-minutes: 50/.test(ci) && !/playwright install --with-deps \$\{\{ matrix/.test(ci));
   ok('CI: the install script retries apt, limits each try, tidies apt between tries and falls back to archive.ubuntu.com',
     /Acquire::Retries/.test(sh) && /Acquire::http::Timeout/.test(sh) && /timeout --kill-after=20s "\$LIMIT"/.test(sh)
       && /dpkg --configure -a/.test(sh) && /archive\.ubuntu\.com/.test(sh) && /exit 1\s*$/.test(sh));
@@ -265,7 +265,7 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
   ok('Testers page: the only outside links are the tester group, the Play testing link and the web beta',
     JSON.stringify([...away].sort()) === JSON.stringify(['https://groups.google.com/g/vcge-testers', 'https://play.google.com/apps/testing/app.vcge.vcge', 'https://real-raven575.github.io/vCGE-Master/']), away.join(' '));
   // The same folder is mirrored at herdofhelpers.com/vcge/testers/ (HQ-0366/0367), so every file it uses sits inside it.
-  const local = srcs.filter(u => !/^https?:/.test(u) && u !== '../');
+  const local = srcs.filter(u => !/^https?:/.test(u) && u !== '../' && u !== 'code/');
   ok('Testers page: every local file it uses is inside its own folder, so it works on any host',
     local.length >= 4 && local.every(u => !u.includes('/') && existsSync(ROOT + 'site/testers/' + u)), local.join(' '));
   const css = read('site/testers/testers.css');
@@ -274,6 +274,21 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
   ok('Testers page: the banner has alt text naming the group', /class="banner"[^>]*alt="[^"]*groups\.google\.com\/g\/vcge-testers/.test(page.replace(/\n\s*/g, ' ')));
   ok('Testers page: no tagline until the trademark check (CASH-0053), and never "local contact management"',
     !/Never Lose Contact|Keep the person for good|local contact management/i.test(page));
+
+  // The free-code guide (raven575 "Send and post", 2026-11-23): same CSP, no scripts, Herd header and banner from the folder above.
+  const guide = read('site/testers/code/index.html');
+  ok('Code guide: linked from the testers page', /href="code\/">Got your code\? How to use it</.test(page));
+  ok('Code guide: no scripts, no inline styles, and the same CSP as the testers page',
+    !/<script|\sstyle=|<style/i.test(guide) && /default-src 'none'; style-src 'self'; img-src 'self'/.test(guide));
+  ok('Code guide: no var() in SVG attributes (colours come from classes in code.css)', !/="var\(--/.test(guide));
+  const gLinks = [...guide.matchAll(/\s(?:src|href)="([^"]+)"/g)].map(m => m[1]);
+  const gAway = [...new Set(gLinks.filter(u => /^https?:/.test(u)))].sort();
+  ok('Code guide: the only outside links are Play redeem, the vCGE Play page and the web beta',
+    JSON.stringify(gAway) === JSON.stringify(['https://play.google.com/redeem', 'https://play.google.com/store/apps/details?id=app.vcge.vcge', 'https://real-raven575.github.io/vCGE-Master/']), gAway.join(' '));
+  const gLocal = gLinks.filter(u => !/^https?:/.test(u) && u !== '../');
+  ok('Code guide: every local file it uses is in the testers folder', gLocal.every(u => existsSync(ROOT + 'site/testers/code/' + u)), gLocal.join(' '));
+  const gCss = read('site/testers/code/code.css');
+  ok('Code guide: system fonts only (nothing downloaded), and no draft banner', !/@import|@font-face|url\(\s*['"]?https?:/i.test(gCss) && !/Draft for/.test(guide));
 }
 
 console.log(`\n${pass} passed, ${fail} failed`);
