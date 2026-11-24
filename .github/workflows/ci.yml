@@ -60,7 +60,7 @@ jobs:
   browsers:
     name: Browser e2e (${{ matrix.name }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 75   # WebKit on the iPhone profile: 23-30 min by 2026-11-14 (cut off at 30); by 2026-11-22 each pass
+    timeout-minutes: 120  # install retries can take up to 50 min on a slow mirror (2026-11-23). WebKit on the iPhone profile: 23-30 min by 2026-11-14 (cut off at 30); by 2026-11-22 each pass
                           # (source, then Vite build) took about 24 min, and the second was cut off at 45 (runs 44966180632, 44851801150)
     strategy:
       fail-fast: false
@@ -86,11 +86,13 @@ jobs:
       - run: npm ci
 
       # A stuck package mirror once held this step for the job's whole 30 minutes; a healthy install takes under 8.
-      # On 2026-11-23 the Ubuntu mirror was slow but moving: WebKit's system packages alone took 9.5 min and the 10 min cap
-      # cut the browser download off (jobs 137973046097, 137916225843), so the cap is 20: still well short of the job's 75.
+      # On 2026-11-23 the Ubuntu mirror was slow but moving: WebKit's system packages alone took 9.5 min, then even a
+      # 20 min cap ran out (jobs 137973046097, 137916225843). The script retries up to 3 times, 15 min per command;
+      # apt keeps the packages already fetched, so each try picks up where the last stopped (then archive.ubuntu.com).
+      # It only changes the install; every test still runs.
       - name: Install ${{ matrix.name }} for Playwright
-        run: npx playwright install --with-deps ${{ matrix.install }}
-        timeout-minutes: 20
+        run: bash scripts/install-browser.sh ${{ matrix.install }}
+        timeout-minutes: 50
 
 
       - name: Browser e2e (source)

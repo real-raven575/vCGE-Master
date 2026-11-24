@@ -141,6 +141,18 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
       && /name: vCGE-\$\{\{ steps\.names\.outputs\.tag \}\}/.test(ci) && /echo "tag=[^\n]*-\$\{P\}\$\{\{ github\.run_number \}\}" >> "\$GITHUB_OUTPUT"/.test(ci) && /-A\$\{\{ github\.run_number \}\}/.test(ci) && /--out "apk\/vCGE-\$TAG\.apk"/.test(ci) && /name: vCGE-\$\{\{ env\.APK_TAG \}\}/.test(ci));
 }
 
+// --- CI: browser install survives a slow package mirror (2026-11-23) ---
+{
+  const ci = read('.github/workflows/ci.yml');
+  const sh = read('scripts/install-browser.sh');
+  ok('CI: every browser job installs through the retrying script, with room for its three tries',
+    /run: bash scripts\/install-browser\.sh \$\{\{ matrix\.install \}\}\n\s+timeout-minutes: 50/.test(ci) && !/playwright install --with-deps \$\{\{ matrix/.test(ci));
+  ok('CI: the install script retries apt, limits each try, tidies apt between tries and falls back to archive.ubuntu.com',
+    /Acquire::Retries/.test(sh) && /Acquire::http::Timeout/.test(sh) && /timeout --kill-after=20s "\$LIMIT"/.test(sh)
+      && /dpkg --configure -a/.test(sh) && /archive\.ubuntu\.com/.test(sh) && /exit 1\s*$/.test(sh));
+  ok('CI: the install script never skips or filters tests', !/test:e2e|--grep|SKIP|skip/i.test(sh.replace(/^#.*$/gm, '')));
+}
+
 // --- App stores: listing text (store/listing.json) and the privacy policy (PRIVACY.md) ---
 {
   const listing = JSON.parse(read('store/listing.json'));
