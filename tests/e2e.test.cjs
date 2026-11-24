@@ -3399,6 +3399,13 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
         const after = await pQ.evaluate(() => ({ quick: document.documentElement.dataset.quick || '', first: document.getElementById('firstName').value, photo: document.getElementById('reviewImage').getAttribute('src') || '',
           toast: (document.getElementById('toastMessage') || {}).textContent || '' }));
         ok('quick scan: after the hand-off the card and photo are wiped and Quick Scan ends', after.quick === '' && after.first === '' && after.photo === '', JSON.stringify(after));
+        // The iPhone home-screen page (quick.html): no script; it sends the icon's press straight into Quick Scan
+        const pQ2 = await ctxQ.newPage();
+        await pQ2.goto(`${ORIGIN}quick.html`);
+        await pQ2.waitForFunction(() => document.documentElement.dataset.quick === 'on', null, { timeout: 10000 }).catch(() => {});
+        const home = await pQ2.evaluate(() => ({ quick: document.documentElement.dataset.quick || '', path: location.pathname + location.search }));
+        ok('quick scan: the iPhone home-screen page (quick.html) opens vCGE straight into Quick Scan', home.quick === 'on' && home.path === '/', JSON.stringify(home));
+        await pQ2.close();
         ok('quick scan: no page errors', errorsQ.length === 0, errorsQ.join(' | '));
         await ctxQ.close();
       }
