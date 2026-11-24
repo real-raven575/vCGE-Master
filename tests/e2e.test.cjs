@@ -4749,7 +4749,7 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
     await p6.fill('#cardFinishStrength', '30');
     const strong = await finish();
     // The slider's filled part follows the thumb (premium controls, 2026-11-23): 30 on 5 to 100 is 26.3% along
-    const fill = await p6.$eval('#cardFinishStrength', el => ({ fill: el.style.getPropertyValue('--ctl-fill'), track: getComputedStyle(el).getPropertyValue('--r4-track').includes('var(--ctl-fill') || getComputedStyle(el).appearance }));
+    const fill = await p6.$eval('#cardFinishStrength', el => ({ fill: el.style.getPropertyValue('--ctl-fill'), appearance: getComputedStyle(el).appearance }));
     ok('premium controls: the Strength slider is filled in the accent up to its thumb', fill.fill === '26.3%', JSON.stringify(fill));
     await p6.fill('#cardFinishBlur', '20');
     const soft = await finish();
