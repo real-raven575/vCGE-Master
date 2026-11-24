@@ -274,6 +274,19 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
   ok('Testers page: the banner has alt text naming the group', /class="banner"[^>]*alt="[^"]*groups\.google\.com\/g\/vcge-testers/.test(page.replace(/\n\s*/g, ' ')));
   ok('Testers page: no tagline until the trademark check (CASH-0053), and never "local contact management"',
     !/Never Lose Contact|Keep the person for good|local contact management/i.test(page));
+  // Tester update page (raven575 14:43 UTC 11-23): same rules, plus a share image for link previews.
+  const upd = read('site/testers/update.html');
+  ok('Tester update: no scripts, and the same CSP that loads nothing from another site',
+    !/<script/i.test(upd) && /default-src 'none'; style-src 'self'; img-src 'self'/.test(upd));
+  const usrcs = [...upd.matchAll(/\s(?:src|href)="([^"]+)"/g)].map(m => m[1]);
+  ok('Tester update: the only outside link is the Play testing link',
+    JSON.stringify(usrcs.filter(u => /^https?:/.test(u))) === JSON.stringify(['https://play.google.com/apps/testing/app.vcge.vcge']));
+  ok('Tester update: every local file it uses is inside the testers folder',
+    usrcs.filter(u => !/^https?:/.test(u)).every(u => !u.includes('/') && existsSync(ROOT + 'site/testers/' + u)));
+  ok('Tester update: link previews show the share image, and the tester page links to the update',
+    /property="og:image" content="https:\/\/real-raven575\.github\.io\/vCGE-Master\/testers\/update-share\.png"/.test(upd) && /href="update\.html"/.test(page));
+  ok('Tester update: no tagline (CASH-0053), no "local contact management", and no promise the app never goes online',
+    !/Never Lose Contact|Keep the person for good|local contact management|never goes online/i.test(upd));
 
   // The free-code guide (raven575 "Send and post", 2026-11-23): same CSP, no scripts, Herd header and banner from the folder above.
   const guide = read('site/testers/code/index.html');
