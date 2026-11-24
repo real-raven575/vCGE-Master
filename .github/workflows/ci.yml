@@ -270,6 +270,8 @@ jobs:
           "$BT/apksigner" sign --ks "$RUNNER_TEMP/test.jks" --ks-pass env:KS_PASS --out "apk/vCGE-$TAG.apk" "$RUNNER_TEMP/aligned.apk"
           rm -f "$RUNNER_TEMP/test.jks"
           "$BT/apksigner" verify "apk/vCGE-$TAG.apk"
+          # The same aligned APK, unsigned, for the sideload stores: play-sign signs it with the lasting key.
+          mkdir -p sideload && cp "$RUNNER_TEMP/aligned.apk" "sideload/vCGE-$(node -p "require('./package.json').version")-S${{ github.run_number }}.apk"
           ls -l apk
 
       # Google Play takes an Android App Bundle. Built every run and checked (three chips, no INTERNET permission);
@@ -284,6 +286,14 @@ jobs:
           unzip -p "$AAB" base/manifest/AndroidManifest.xml > "$RUNNER_TEMP/aab-manifest.pb"
           grep -q 'android.permission.CAMERA' "$RUNNER_TEMP/aab-manifest.pb" || { echo "bundle manifest unreadable"; exit 1; }
           if grep -q 'android.permission.INTERNET' "$RUNNER_TEMP/aab-manifest.pb"; then echo "bundle asks for INTERNET"; exit 1; fi
+
+      - name: Upload sideload APK (unsigned)
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node.js 24)
+        with:
+          name: vcge-sideload-unsigned
+          path: sideload/
+          if-no-files-found: error
+          retention-days: 14
 
       - name: Upload Play bundle (unsigned)
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node.js 24)
@@ -348,6 +358,10 @@ jobs:
         with:
           name: vcge-play-unsigned
           path: unsigned
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0 (Node.js 24)
+        with:
+          name: vcge-sideload-unsigned
+          path: sideload-unsigned
       - name: Sign with the upload key
         env:
           PLAY_UPLOAD_KEYSTORE_B64: ${{ secrets.PLAY_UPLOAD_KEYSTORE_B64 }}
@@ -364,9 +378,23 @@ jobs:
           jarsigner -keystore "$RUNNER_TEMP/upload.jks" -storepass:env PLAY_UPLOAD_KEYSTORE_PASSWORD \
             -sigalg SHA256withRSA -digestalg SHA-256 aab/*.aab "$PLAY_UPLOAD_KEY_ALIAS"
           jarsigner -verify aab/*.aab | tail -1
+          # Sideload stores (Aptoide, APKPure, itch.io; free, raven575 2026-11-23) get an APK signed with the same lasting
+          # key, so people can update in place. Play re-signs its own copy with Google's key, so the two never mix.
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          mkdir -p sideload
+          "$BT/apksigner" sign --ks "$RUNNER_TEMP/upload.jks" --ks-key-alias "$PLAY_UPLOAD_KEY_ALIAS" \
+            --ks-pass env:PLAY_UPLOAD_KEYSTORE_PASSWORD --key-pass env:PLAY_UPLOAD_KEYSTORE_PASSWORD \
+            --out "sideload/$(basename sideload-unsigned/*.apk)" sideload-unsigned/*.apk
+          "$BT/apksigner" verify sideload/*.apk
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node.js 24)
         with:
           name: vCGE-play-A${{ github.run_number }}
           path: aab/
+          if-no-files-found: error
+          retention-days: 14
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0 (Node.js 24)
+        with:
+          name: vCGE-sideload-S${{ github.run_number }}
+          path: sideload/
           if-no-files-found: error
           retention-days: 14
