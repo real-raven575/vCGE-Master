@@ -79,6 +79,20 @@ export class ContactFormMapper {
             });
         const free = (line) => line.role === null;
 
+        // Label words printed on a line of their own ("MAIN", "MOBILE", "EMAIL" over or beside the details: raven575's
+        // Play 695 run, 2026-11-24, MAIN phone came out as Fax). The reader often reads the label column apart from the
+        // values, so the phone labels go, in card order, to the phone lines that have no written label of their own,
+        // and win over an icon. The label lines themselves are dropped.
+        const loneLabels = lines.filter(l => LONE_LABEL.test(l.text));
+        if (loneLabels.length) {
+            const phoneLabels = loneLabels.map(l => loneLabelKind(l.text)).filter(k => PHONE_ROLE[k]);
+            lines.forEach(l => {
+                if (LONE_LABEL.test(l.text) || splitLabel(l.text).label || !findPhones(l.text).length) return;
+                if (phoneLabels.length) l.label = phoneLabels.shift();
+            });
+            loneLabels.forEach(l => { l.role = 'ignore'; l.lone = true; });
+        }
+
         // Emails (labels E/Email, or anything with an @ or an OCR look-alike of it); the first one feeds the name check
         let email = '';
         for (const line of lines) {
@@ -98,6 +112,20 @@ export class ContactFormMapper {
             else if (SOCIAL_HOSTS[line.icon] && socialProfileUrl(line.icon, line.body)) line.role = 'website';
             // A handle on its own line ("@studiocraft"), no logo beside it, is still the card's social profile.
             else if (BARE_HANDLE.test(line.text)) line.role = 'website';
+        }
+        // No email, but a "web address" that is the card's web address with a user name stuck on: its @ was read as a letter.
+        if (!email) {
+            const hosts = lines.filter(l => l.role === 'website').map(l => findWebsite(l.body, false).replace(/^www\./i, '').split('/')[0]).filter(Boolean);
+            for (const line of lines) {
+                if (line.role !== 'website') continue;
+                const token = findWebsite(line.body, false);
+                const ask = hosts.map(h => token !== h && runOnEmailAsk(token, h)).find(Boolean);
+                if (!ask) continue;
+                Object.assign(line, { role: 'email', text: ask.email, body: ask.email, label: null, atAsk: ask });
+                email = ask.email;
+                if (website === token) website = hosts.find(h => h !== token) || '';
+                break;
+            }
         }
 
         // Phones: one labelled number gets its type as the role (shown in the review picker); unlabelled numbers and
@@ -249,9 +277,12 @@ export class ContactFormMapper {
         if (place.line && place.country === DEFAULT_COUNTRY && !zipFitsState(place.zip, state)) {
             place.line.check = `${place.zip} is not a ${REGION_NAME[state] || state} ZIP code. Please check it.`;
         }
-        // A reading the reader was unsure of as a whole (MOD04 `lowConfidence`) has every line checked, phone numbers too.
+        // A reading the reader was unsure of as a whole (MOD04 `lowConfidence`) has its lines checked, phone numbers too,
+        // except a line the reader was sure of whose shape proves it (a whole phone number, an email or web address with a
+        // known ending, a City/State/ZIP that fits): raven575's Play 695 run, 2026-11-24, "the things that it got right,
+        // it wasn't sure that it got right", with nearly every line flagged.
         lines.forEach(l => {
-            if (!l.check && l.low) l.check = LOW_CONFIDENCE_NOTE;
+            if (!l.check && l.low && !(provenByShape(l) && !l.unsure)) l.check = LOW_CONFIDENCE_NOTE;
             if (!l.check && l.unsure && l.role && !PHONE_ROLES.has(l.role) && l.role !== 'phone') l.check = 'The reader was not sure of some letters here. Please check them.';
         });
 
@@ -265,14 +296,14 @@ export class ContactFormMapper {
             const text = IT_ROLES.has(line.role) ? repairCapitalIT(read) : read;
             // The card checks itself (raven575, 2026-11-23): a letter that reads better as an i, or an email domain that
             // differs from the web address, is asked about, with the other spelling as a one-tap guess. "Looks right" keeps it.
-            const ask = line.check ? null : line.role === 'email' || line.role === 'website' ? (lookalikeAsk(text) || (line.role === 'email' && domainMismatchAsk(text, site)))
+            const ask = line.atAsk || line.check ? line.atAsk || null : line.role === 'email' || line.role === 'website' ? (lookalikeAsk(text) || (line.role === 'email' && domainMismatchAsk(text, site)))
                 : line.role === 'organization' ? companyMismatchAsk(text, site, (lines.find(l => l.role === 'email') || {}).text) : null;
             if (ask) line.check = ask.check;
             const guesses = ask ? ask.guesses : line.check && line.unsure ? guessesFor(text, line.swaps) : [];
             return { text, role: line.role || 'ignore', icon: line.icon, ...(line.check ? { check: line.check } : {}), ...(guesses.length ? { guesses } : {}) };
         // Scraps left on Ignore (3 letters or digits at most: "ne", "J y", "oF", "3") are wood grain, a logo's edge or
         // a split the joins above did not take; they are not listed (build 562 phone run: about 15 of them on a wood table).
-        }).filter(l => l.role !== 'ignore' || !isScrap(l.text));
+        }).filter((l, i) => l.role !== 'ignore' || !(isScrap(l.text) || lines[i].lone));
     }
 
     /**
@@ -462,6 +493,7 @@ const titleLike = (text) => TITLE_WORDS.test(text) || TITLE_WORDS.test(fixTitleS
  * - a ZIP code split after the state ("Portage, MI 490" + "24" -> "Portage, MI 49024"), when the two parts make 5 digits;
  * - a street cut inside a word ("1200 Maplebrid" + "ge Road, Suite 405" -> "1200 Maplebridge Road, Suite 405"): a
  *   number and words ending in a small letter, then a line that starts with a few small letters and has a street word.
+ * - a town cut from its state and ZIP ("Springfield," + "IL 62701" -> "Springfield, IL 62701").
  * The second part's second guesses move with it; an icon seen beside a second part is dropped (it sat mid-line).
  */
 function rejoinSplitLines(raw) {
@@ -475,10 +507,15 @@ function rejoinSplitLines(raw) {
             const zipSplit = zip && /^\d{1,4}$/.test(after) && zip[1].length + after.length === 5;
             const streetSplit = /^(?:[A-Z] )?\d{1,6} [A-Za-z][A-Za-z .'-]*[a-z]$/.test(before) && !STREET_WORDS.test(before)
                 && /^[a-z]{1,4} \S/.test(after) && STREET_WORDS.test(after);
-            if (zipSplit || streetSplit) {
-                const shift = before.length - (text.length - text.trimStart().length);
+            // A town ending in a comma, then the state and ZIP on a line of their own ("Springfield," + "IL 62701": font
+            // bench 2026-11-24, two typewriter fonts).
+            const citySplit = /^[A-Za-z][A-Za-z .'-]{1,30},$/.test(before) && /^[A-Za-z]{2}\.?,?\s*[\dOo]{5}(?:-\d{4})?$/.test(after)
+                && !!findCityStateZip(`${before} ${after}`);
+            if (zipSplit || streetSplit || citySplit) {
+                const join = citySplit ? ' ' : '';
+                const shift = before.length + join.length - (text.length - text.trimStart().length);
                 out[out.length - 1] = {
-                    ...prev, text: before + after,
+                    ...prev, text: before + join + after,
                     alts: [...(prev.alts || []), ...(line.alts || []).map(a => ({ ...a, at: a.at + shift }))],
                     unsure: [...(Array.isArray(prev.unsure) ? prev.unsure : []), ...(Array.isArray(line.unsure) ? line.unsure : [])],
                     ...(prev.lowConfidence || line.lowConfidence ? { lowConfidence: true } : {})
@@ -536,6 +573,27 @@ const FREE_MAIL = /^(?:gmail|googlemail|yahoo|ymail|outlook|hotmail|live|msn|aol
 const ICON_LABEL = { phone: 'work', mobile: 'mobile', fax: 'fax', home: 'home', email: 'email', web: 'web' };
 // Review-picker role for a phone line whose type is known.
 const PHONE_ROLE = { work: 'phoneWork', mobile: 'phoneMobile', home: 'phoneHome', fax: 'phoneFax' };
+
+/** A line whose own shape shows it was read right: one whole phone number, an email or web address, or a fitting City/State/ZIP. */
+function provenByShape(line) {
+    const body = line.body || line.text;
+    if (PHONE_ROLES.has(line.role) || line.role === 'phone') {
+        // one number and no other digits on the line (a stray digit is a slip somewhere in it)
+        return findPhones(body).length === 1 && body.replace(/\D/g, '').length <= 11;
+    }
+    if (line.role === 'email') return !!findEmail(body);
+    if (line.role === 'website') return !!findWebsite(body, false);
+    if (line.role === 'cityStateZip') { const a = findAddressLine(line.text); return !!(a && a.country === DEFAULT_COUNTRY && zipFitsState(a.zip, a.state)); }
+    return false;
+}
+
+// A label word alone on its line ("MAIN", "Mobile:", "E-mail") and the label it stands for (see classifyLines).
+const LONE_LABEL = /^(?:main|office|work|direct|tel|telephone|phone|ph|mobile|mob|cell|cellular|fax|home|e-?mail|web|website|url)\s*[:.]?$/i;
+function loneLabelKind(text) {
+    const w = String(text).toLowerCase().replace(/[^a-z]/g, '');
+    return /^(?:mobile|mob|cell|cellular)$/.test(w) ? 'mobile' : w === 'fax' ? 'fax' : w === 'home' ? 'home'
+        : /^e?mail$/.test(w) ? 'email' : /^(?:web|website|url)$/.test(w) ? 'web' : 'work';
+}
 
 /** OCR reads the I (or l) inside an address as "\" or "|": "BrightPath\T.com" -> "BrightPathIT.com". Only between letters or digits. */
 function repairAddressText(text) {
@@ -849,7 +907,7 @@ function findEmail(text) {
 function findWebsite(text, labelled, joinPath = labelled) {
     const tokens = repairSlash(repairAddressText(text)).split(' ');
     for (let i = 0; i < tokens.length; i++) {
-        const token = tokens[i].replace(/^[^A-Za-z0-9]+/, '').replace(/[\\|,;)\]]+$/, '').replace(/\.$/, '');
+        const token = repairWww(tokens[i].replace(/^[^A-Za-z0-9]+/, '').replace(/[\\|,;)\]]+$/, '').replace(/\.$/, ''));
         if (token.includes('@') || token.length < 4) continue;
         if (!WEB_RE.test(token) && !(labelled && /^[a-z0-9-]+(?:\.[a-z0-9-]+)+(?:\/\S*)?$/i.test(token))) continue;
         const next = tokens.slice(i + 1);
@@ -865,6 +923,32 @@ function findWebsite(text, labelled, joinPath = labelled) {
 }
 
 const PATH_TAIL = /^[A-Za-z0-9-]+[\\|!]*$/;
+
+/**
+ * "www." the reader cut short or misread ("w.", "ww.", "wow.", "vvw.") in front of a domain is "www." (font bench
+ * 2026-11-24: 15 of 25 email misses on phone-photo cards; the slip was then copied into the email's domain).
+ */
+export function repairWww(token) {
+    return String(token || '').replace(/^(?:w|ww|wow|vvw|vww|wvw|vvww)\.(?=[A-Za-z0-9-]+\.[A-Za-z]{2,})/i, 'www.');
+}
+
+/**
+ * An email whose @ the reader took for a letter ("danaabrightfernstudio.com", "melleryanorthwind...": font bench
+ * 2026-11-24, mono and display fonts) reads as a web address with extra letters in front of the card's own web address.
+ * Only on a card with no email: the user name is the letters in front less the slip ("a", "an", "e"), and the review box
+ * asks, with each way of splitting it as a one-tap guess.
+ */
+export function runOnEmailAsk(token, siteHost) {
+    const t = String(token || ''), host = String(siteHost || '').toLowerCase();
+    if (host.length < 5 || !t.toLowerCase().endsWith(host) || t.length - host.length < 3) return null;
+    const front = t.slice(0, t.length - host.length);
+    if (!/^[A-Za-z0-9._%+-]+$/.test(front)) return null;
+    const domain = t.slice(front.length);
+    const guesses = [...new Set(['an', 'a', 'e'].filter(s => front.toLowerCase().endsWith(s) && front.length - s.length >= 2)
+        .map(s => `${front.slice(0, -s.length)}@${domain}`))];
+    if (!guesses.length) return null;
+    return { email: guesses[0], check: `This looks like an email with its @ read as a letter: "${t}". Please check it.`, guesses };
+}
 
 /** All US-style phone numbers in a line, each with a label written just before it ("T 616...  M 616..."). */
 function findPhones(text) {
@@ -907,11 +991,14 @@ function normaliseState(token) {
 
 /** "Springfield, IL 62701", "Springfield IL 62701", "Springfield, Illinois 62701", or a whole address on one line. */
 function findCityStateZip(text) {
-    const re = new RegExp(`^(.*?)[,\\s]+(${STATE_NAMES_RE}|[A-Za-z][A-Za-z\\\\|1!0][\\\\|!]?\\.?)[,\\s]+(\\d{5}(?:-\\d{4})?)\\b`, 'i');
+    // The ZIP may follow the state with no space ("IL62701") or have an O read for a zero ("ME o4101"): font bench
+    // 2026-11-24, manrope and cormorant-garamond.
+    const re = new RegExp(`^(.*?)[,\\s]+(${STATE_NAMES_RE}|[A-Za-z][A-Za-z\\\\|1!0][\\\\|!]?\\.?)[,\\s]*([\\dOo]{5}(?:-\\d{4})?)\\b`, 'i');
     const m = text.match(re);
-    if (!m) return null;
+    if (!m || (m[3].match(/\d/g) || []).length < 4) return null;
     const state = normaliseState(m[2]);
     if (!state) return null;
+    m[3] = m[3].replace(/[Oo]/g, '0');
     const parts = m[1].split(',').map(p => p.trim()).filter(Boolean);
     const city = (parts.pop() || '').replace(/^[^A-Za-z]+/, '');
     if (!/^[A-Za-z][A-Za-z .'-]*$/.test(city)) return null;
