@@ -62,6 +62,29 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
       && /Intent\(send\)\.apply \{ selector = Intent\(Intent\.ACTION_SENDTO,\s*Uri\.parse\("mailto:"\)\) \}/.test(activity)
       && /launch\(mailOnly\)\s*\|\|\s*launch\(Intent\.createChooser\(send,\s*subject\)\)/.test(activity));
   ok('Android: the bridge still never loads a page or opens a web link (no ACTION_VIEW on http)', !/https?:\/\//.test(activity.replace(/\/\/.*$/gm, '')));
+  // Quick Scan (raven575, 2026-11-24): long-press shortcut, home-screen widget and pulldown tile all open MainActivity with
+  // one action; the page asks once (quickLaunch) or hears vcge-quick-scan; the hand-off is the phone's own Create contact.
+  const quick = read(ANDROID + 'main/java/app/vcge/vcge/QuickScan.kt');
+  const shortcuts = read(ANDROID + 'main/res/xml/shortcuts.xml');
+  const widgetInfo = read(ANDROID + 'main/res/xml/quick_scan_widget_info.xml');
+  ok('Android Quick Scan: the long-press shortcut opens MainActivity with the Quick Scan action',
+    /android:action="app\.vcge\.vcge\.QUICK_SCAN"/.test(shortcuts) && /android:targetClass="app\.vcge\.vcge\.MainActivity"/.test(shortcuts)
+      && /<meta-data android:name="android\.app\.shortcuts" android:resource="@xml\/shortcuts"/.test(main)
+      && /<action android:name="app\.vcge\.vcge\.QUICK_SCAN" \/>/.test(main) && /QUICK_SCAN_ACTION = "app\.vcge\.vcge\.QUICK_SCAN"/.test(quick));
+  ok('Android Quick Scan: the widget is one button that opens Quick Scan, never on a timer',
+    /<receiver\s+android:name="\.QuickScanWidget"/.test(main) && /android\.appwidget\.provider/.test(main) && /android:updatePeriodMillis="0"/.test(widgetInfo)
+      && /setOnClickPendingIntent\(R\.id\.quick_scan_button,\s*quickScanPendingIntent\(context\)\)/.test(quick) && /PendingIntent\.FLAG_IMMUTABLE/.test(quick));
+  ok('Android Quick Scan: the pulldown tile is bound only by the system and asks for the unlock on a locked phone',
+    /android:name="\.QuickScanTile"\s+[^>]*android:permission="android\.permission\.BIND_QUICK_SETTINGS_TILE"/.test(main)
+      && /if \(isLocked\) unlockAndRun \{ open\(\) \} else open\(\)/.test(quick));
+  ok('Android Quick Scan: the page is told once at start, or at once when vCGE is already open',
+    /quickPending = intent\?\.action == QUICK_SCAN_ACTION/.test(activity) && /fun quickLaunch\(\): Boolean/.test(activity)
+      && /override fun onNewIntent\(intent: Intent\)/.test(activity) && /dispatchEvent\(new Event\('vcge-quick-scan'\)\)/.test(activity));
+  ok('Android Quick Scan: the hand-off opens the phone\'s own Create contact screen (ACTION_INSERT, no contacts permission)',
+    /fun newContact\(json: String\): Boolean/.test(activity) && /Intent\(ContactsContract\.Intents\.Insert\.ACTION\)\.setType\(ContactsContract\.RawContacts\.CONTENT_TYPE\)/.test(activity)
+      && /ContactsContract\.Intents\.Insert\.DATA/.test(activity) && !/READ_CONTACTS|WRITE_CONTACTS/.test(main));
+  ok('Android Quick Scan: the widget\'s colours are fixed in the app (vCGE teal, the phone\'s own colours on Android 12+), no saved setting',
+    existsSync(ROOT + ANDROID + 'main/res/values-v31/quick_scan_colors.xml') && !/SharedPreferences|getSharedPreferences|dataStore/.test(quick));
   const paths = read(ANDROID + 'main/res/xml/file_paths.xml');
   ok('Android: the FileProvider shares the app cache, where the card is written', /<cache-path\s+name="[^"]+"\s+path="\."/.test(paths) && /\$\{applicationId\}\.fileprovider/.test(main));
   const gradle = read('src-tauri/gen/android/app/build.gradle.kts');

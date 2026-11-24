@@ -2536,6 +2536,18 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('MOD08 without a name the company names the files', e.baseName() === 'Smith, Jones & Co' && e.fileName('.vcf') === 'Smith, Jones & Co.vcf');
   e.setPayload('BEGIN:VCARD', { phones: [{ type: 'work', value: '555' }] }, { hasDetails: true });
   ok('MOD08 with neither, "Contact"', e.baseName() === 'Contact' && e.fileName('.vcf') === 'Contact.vcf' && e.fileName(' QR.png') === 'Contact QR.png');
+  // Quick Scan's hand-off (raven575 11-24): the Android Create contact screen gets the name, address lines and typed lists
+  e.setPayload('BEGIN:VCARD', { firstName: 'Alex', lastName: 'Sample', organization: 'Example Co', jobTitle: ' Owner ', street: '1 Main St', unitType: 'Suite', unitNumber: '4',
+    city: 'Springfield', state: 'IL', zip: '62701', country: 'United States', addressType: 'work',
+    phones: [{ type: 'mobile', value: '555-0100' }, { type: 'work', value: '  ' }], emails: [{ type: 'work', value: 'alex@example.com' }], websites: [] }, { hasDetails: true });
+  const nc = e.newContactFields();
+  ok('MOD08 Quick Scan: the new-contact fields carry the name, company, title and the address as lines (no default country)',
+    nc.name === 'Alex Sample' && nc.organization === 'Example Co' && nc.jobTitle === 'Owner' && nc.address === '1 Main St Suite 4\nSpringfield, IL 62701' && nc.addressType === 'work', JSON.stringify(nc));
+  ok('MOD08 Quick Scan: blank entries are left out; each phone and email keeps its type', nc.phones.length === 1 && nc.phones[0].type === 'mobile' && nc.emails[0].value === 'alex@example.com' && nc.websites.length === 0);
+  const windowBefore = globalThis.window;
+  globalThis.window = { vcgeAndroid: { newContact: (json) => { globalThis.__nc = JSON.parse(json); return true; } } };
+  ok('MOD08 Quick Scan: in the Android app the hand-off opens its Create contact screen', e.newContact() === 'contacts' && globalThis.__nc.name === 'Alex Sample');
+  globalThis.window = windowBefore; delete globalThis.__nc;
   e.setPayload('BEGIN:VCARD', { firstName: 'A/B', lastName: 'C:D' }, { hasDetails: true });
   ok('MOD08 a name with path characters still makes a safe file name', e.fileName('.vcf') === 'AB CD.vcf');
   ok('MOD08 the share-sheet File carries the same name', typeof File === 'undefined' || e.vcfFile().name === 'AB CD.vcf');

@@ -264,6 +264,40 @@ export class EgressController {
     }
 
     /**
+     * The fields for the phone's own new-contact screen (Android ACTION_INSERT, MainActivity.kt newContact): the name as
+     * people read it, company, title, notes, the address as lines, and every phone, email and website with its type.
+     */
+    newContactFields() {
+        const c = this.contactData || {};
+        const text = (v) => String(v || '').trim();
+        const hasName = [c.namePrefix, c.firstName, c.middleName, c.lastName, c.nameSuffix].some(text);
+        const street = [text(c.street), [c.unitType, c.unitNumber].map(text).filter(Boolean).join(' ')].filter(Boolean).join(' ');
+        const town = [text(c.city), [c.state, c.zip].map(text).filter(Boolean).join(' ')].filter(Boolean).join(', ');
+        const country = text(c.country) === 'United States' ? '' : text(c.country);
+        const list = (key) => (Array.isArray(c[key]) ? c[key] : []).filter(e => e && text(e.value)).map(e => ({ type: text(e.type) || 'other', value: text(e.value) }));
+        return {
+            name: hasName ? this.displayName() : '', organization: text(c.organization), jobTitle: text(c.jobTitle), notes: text(c.notes),
+            address: [street, town, country].filter(Boolean).join('\n'), addressType: text(c.addressType),
+            phones: list('phones'), emails: list('emails'), websites: list('websites')
+        };
+    }
+
+    /**
+     * Quick Scan's hand-off (the one hatch, like Save .vcf): in the Android app the phone's own Create contact screen opens
+     * filled in ('contacts'); anywhere else, or if that screen could not open, the .vcf goes out as Save .vcf does.
+     */
+    newContact() {
+        if (!this.currentVCard) return false;
+        const android = androidBridge('newContact');
+        if (android) {
+            const opened = android.newContact(JSON.stringify(this.newContactFields())) === true;
+            audit('android_new_contact', { opened });
+            if (opened) return 'contacts';
+        }
+        return this.downloadVcf();
+    }
+
+    /**
      * Saves a canvas (the QR code, styled in the pop-up) as a PNG file. Refused for a blank card and for a canvas that
      * holds no scannable code.
      * @param {HTMLCanvasElement} canvas

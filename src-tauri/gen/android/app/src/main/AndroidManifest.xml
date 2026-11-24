@@ -31,7 +31,37 @@
                 <!-- AndroidTV support -->
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
+            <!-- Quick Scan (2026-11-24): the long-press shortcut, the widget and the pulldown tile open the app with this. -->
+            <intent-filter>
+                <action android:name="app.vcge.vcge.QUICK_SCAN" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity>
+
+        <!-- Quick Scan home-screen widget: one themed button. Adds no permission. -->
+        <receiver
+            android:name=".QuickScanWidget"
+            android:label="@string/quick_scan"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/quick_scan_widget_info" />
+        </receiver>
+
+        <!-- Quick Scan pulldown tile. BIND_QUICK_SETTINGS_TILE is what the system holds to show the tile, not an app permission. -->
+        <service
+            android:name=".QuickScanTile"
+            android:label="@string/quick_scan"
+            android:icon="@drawable/ic_quick_scan"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data android:name="android.service.quicksettings.ACTIVE_TILE" android:value="false" />
+        </service>
 
         <provider
           android:name="androidx.core.content.FileProvider"

@@ -1081,7 +1081,7 @@ function quickHandOff() {
     }
     closeReviewDialog();
     expectExternalApp();
-    const saved = egressController.downloadVcf();
+    const saved = egressController.newContact();
     if (saved === 'failed') { setQuick(false); cardView.showToast('No app on this phone opens a contact card.'); showCard('share'); return true; }
     flyFalcon();
     setQuick(false);

@@ -8,6 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.provider.ContactsContract
 import android.print.PrintAttributes
 import android.print.PrintManager
 import android.provider.MediaStore
@@ -20,12 +21,16 @@ import androidx.activity.enableEdgeToEdge
 import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import org.json.JSONArray
+import org.json.JSONObject
 import java.io.File
 
 class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    // Opened by Quick Scan (QuickScan.kt): the page asks once, as it starts (vcgeAndroid.quickLaunch).
+    quickPending = intent?.action == QUICK_SCAN_ACTION
     // Edge to edge draws the app under the status bar, the navigation bar and any camera cut-out (raven575's phone run,
     // 2026-11-14: the top of vCGE was hidden under the status bar). Pad the app by those bars, and by the keyboard while
     // it is open, so nothing sits under them. The bars keep the theme's colour.
@@ -38,6 +43,17 @@ class MainActivity : TauriActivity() {
     }
     clearContactFiles()
     clearShareFiles()
+  }
+
+  // Quick Scan pressed while vCGE is already open: the page starts it at once (main.js listens for vcge-quick-scan).
+  @Volatile private var quickPending = false
+
+  override fun onNewIntent(intent: Intent) {
+    super.onNewIntent(intent)
+    setIntent(intent)
+    if (intent.action == QUICK_SCAN_ACTION) {
+      page?.post { page?.evaluateJavascript("window.dispatchEvent(new Event('vcge-quick-scan'))", null) }
+    }
   }
 
   // Back in vCGE after Contacts has read the card: the one copy handed over is deleted (vCGE keeps no card).
@@ -88,6 +104,89 @@ class MainActivity : TauriActivity() {
   }
 
   inner class ContactBridge {
+    // Quick Scan: true once if vCGE was opened by the Quick Scan shortcut, widget or tile.
+    @JavascriptInterface
+    fun quickLaunch(): Boolean {
+      val pending = quickPending
+      quickPending = false
+      return pending
+    }
+
+    // Quick Scan's hand-off: the phone's own Create contact screen, filled in (ACTION_INSERT needs no contacts
+    // permission; the person checks the details there and taps Save). `json` comes from MOD08 newContactFields.
+    // False when no app on the phone takes it: the page then hands over the .vcf as Save .vcf does.
+    @JavascriptInterface
+    fun newContact(json: String): Boolean {
+      return try {
+        val c = JSONObject(json)
+        val intent = Intent(ContactsContract.Intents.Insert.ACTION).setType(ContactsContract.RawContacts.CONTENT_TYPE)
+        fun extra(key: String, value: String) { if (value.isNotBlank()) intent.putExtra(key, value) }
+        extra(ContactsContract.Intents.Insert.NAME, c.optString("name"))
+        extra(ContactsContract.Intents.Insert.COMPANY, c.optString("organization"))
+        extra(ContactsContract.Intents.Insert.JOB_TITLE, c.optString("jobTitle"))
+        extra(ContactsContract.Intents.Insert.NOTES, c.optString("notes"))
+        extra(ContactsContract.Intents.Insert.POSTAL, c.optString("address"))
+        if (c.optString("address").isNotBlank()) intent.putExtra(ContactsContract.Intents.Insert.POSTAL_TYPE, postalType(c.optString("addressType")))
+        val rows = ArrayList<ContentValues>()
+        eachEntry(c.optJSONArray("phones")) { type, value -> rows.add(ContentValues().apply {
+          put(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Phone.CONTENT_ITEM_TYPE)
+          put(ContactsContract.CommonDataKinds.Phone.NUMBER, value)
+          put(ContactsContract.CommonDataKinds.Phone.TYPE, phoneType(type))
+        }) }
+        eachEntry(c.optJSONArray("emails")) { type, value -> rows.add(ContentValues().apply {
+          put(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Email.CONTENT_ITEM_TYPE)
+          put(ContactsContract.CommonDataKinds.Email.ADDRESS, value)
+          put(ContactsContract.CommonDataKinds.Email.TYPE, emailType(type))
+        }) }
+        eachEntry(c.optJSONArray("websites")) { type, value -> rows.add(ContentValues().apply {
+          put(ContactsContract.Data.MIMETYPE, ContactsContract.CommonDataKinds.Website.CONTENT_ITEM_TYPE)
+          put(ContactsContract.CommonDataKinds.Website.URL, value)
+          put(ContactsContract.CommonDataKinds.Website.TYPE, websiteType(type))
+        }) }
+        if (rows.isNotEmpty()) intent.putParcelableArrayListExtra(ContactsContract.Intents.Insert.DATA, rows)
+        launch(intent)
+      } catch (e: Exception) {
+        false
+      }
+    }
+
+    private fun eachEntry(list: JSONArray?, each: (String, String) -> Unit) {
+      if (list == null) return
+      for (i in 0 until list.length()) {
+        val entry = list.optJSONObject(i) ?: continue
+        val value = entry.optString("value").trim()
+        if (value.isNotEmpty()) each(entry.optString("type"), value)
+      }
+    }
+
+    // vCGE's types (src/share/contactOptions.js) to Android's.
+    private fun phoneType(type: String): Int = when (type) {
+      "mobile" -> ContactsContract.CommonDataKinds.Phone.TYPE_MOBILE
+      "work" -> ContactsContract.CommonDataKinds.Phone.TYPE_WORK
+      "home" -> ContactsContract.CommonDataKinds.Phone.TYPE_HOME
+      "main" -> ContactsContract.CommonDataKinds.Phone.TYPE_MAIN
+      "workFax" -> ContactsContract.CommonDataKinds.Phone.TYPE_FAX_WORK
+      "homeFax" -> ContactsContract.CommonDataKinds.Phone.TYPE_FAX_HOME
+      "pager" -> ContactsContract.CommonDataKinds.Phone.TYPE_PAGER
+      else -> ContactsContract.CommonDataKinds.Phone.TYPE_OTHER
+    }
+    private fun emailType(type: String): Int = when (type) {
+      "work" -> ContactsContract.CommonDataKinds.Email.TYPE_WORK
+      "personal" -> ContactsContract.CommonDataKinds.Email.TYPE_HOME
+      else -> ContactsContract.CommonDataKinds.Email.TYPE_OTHER
+    }
+    private fun websiteType(type: String): Int = when (type) {
+      "work" -> ContactsContract.CommonDataKinds.Website.TYPE_WORK
+      "personal" -> ContactsContract.CommonDataKinds.Website.TYPE_HOME
+      "blog" -> ContactsContract.CommonDataKinds.Website.TYPE_BLOG
+      else -> ContactsContract.CommonDataKinds.Website.TYPE_OTHER
+    }
+    private fun postalType(type: String): Int = when (type) {
+      "home" -> ContactsContract.CommonDataKinds.StructuredPostal.TYPE_HOME
+      "work" -> ContactsContract.CommonDataKinds.StructuredPostal.TYPE_WORK
+      else -> ContactsContract.CommonDataKinds.StructuredPostal.TYPE_OTHER
+    }
+
     // Save .vcf on Android: the WebView cannot download files, so the card is handed to the phone's Contacts app, which
     // shows its own "add contact" screen. The file lives in the app's cache only until the person comes back to vCGE.
     // False when it could not be written or no app on the phone opens a contact card.

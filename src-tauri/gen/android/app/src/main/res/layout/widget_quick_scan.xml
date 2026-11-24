@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Quick Scan home-screen widget: one big themed button. A tap opens vCGE straight into Quick Scan. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/quick_scan_button"
+    android:layout_width="match_parent" android:layout_height="match_parent"
+    android:background="@drawable/quick_scan_widget_bg"
+    android:gravity="center" android:orientation="horizontal" android:padding="8dp"
+    android:contentDescription="@string/quick_scan_long">
+    <ImageView android:layout_width="28dp" android:layout_height="28dp"
+        android:src="@drawable/ic_quick_scan" android:tint="@color/quick_ink" android:importantForAccessibility="no"/>
+    <TextView android:id="@+id/quick_scan_label"
+        android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="8dp"
+        android:text="@string/quick_scan" android:textColor="@color/quick_ink" android:textSize="16sp" android:textStyle="bold"
+        android:maxLines="1" android:ellipsize="end"/>
+</LinearLayout>

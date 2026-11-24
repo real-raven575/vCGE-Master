@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12 and later: the Quick Scan button takes the phone's own accent colours (Material You). -->
+<resources>
+    <color name="quick_bg">@android:color/system_accent1_600</color>
+    <color name="quick_ink">@android:color/system_accent1_0</color>
+</resources>
