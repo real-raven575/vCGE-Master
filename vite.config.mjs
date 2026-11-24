@@ -28,6 +28,8 @@ const copyVendor = {
         fs.cpSync(path.resolve('src/modules/mod01-shell/unsupported'), path.resolve('dist/src/modules/mod01-shell/unsupported'), { recursive: true });
         // The logo (src/assets/brand): the Welcome card and the Thank You page draw it by URL at runtime, so it keeps its path.
         fs.cpSync(path.resolve('src/assets'), path.resolve('dist/src/assets'), { recursive: true });
+        // Quick Scan's iPhone home-screen page (quick.html): no script, so it is copied as it is, next to index.html.
+        fs.copyFileSync(path.resolve('quick.html'), path.resolve('dist/quick.html'));
     }
 };
 

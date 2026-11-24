@@ -852,6 +852,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('scan: a card held wide reads landscape, one held upright portrait', vf.quadOrientation(q) === 'landscape' && vf.quadOrientation([{ x: 0, y: 0 }, { x: 50, y: 0 }, { x: 50, y: 90 }, { x: 0, y: 90 }]) === 'portrait');
   const upright = vf.cardFrameRect(390, 520), turned = vf.cardFrameRect(390, 520, 'landscape');
   ok('card frame: in a tall view it stands upright, and turns wide when a card held wide is in view (Android run 11-16)', upright.orientation === 'portrait' && turned.orientation === 'landscape' && turned.width > turned.height && Math.abs(turned.width / turned.height - vf.CARD_ASPECT) < 1e-9 && vf.cardFrameRect(390, 520, 'sideways').orientation === 'portrait');
+  // Quick Scan (raven575 11-24): the photo takes itself once the card has held still for STEADY_LOOKS looks in a row
+  const move = (d) => q.map(p => ({ x: p.x + d, y: p.y }));
+  const steady = (quads) => quads.reduce((st, k) => vf.steadyRun(st, k, 240, 180), { quad: null, run: 0 }).run;
+  ok('quick scan: a card that sits still counts up, one look per step', vf.STEADY_LOOKS === 4 && steady([q, q, q, q, q]) === 4 && steady([q, move(3), move(5)]) === 2);
+  ok('quick scan: a card that moves (over 4% of the picture) or leaves the view starts the count again', steady([q, q, q, move(12)]) === 0 && steady([q, q, null, q]) === 0 && steady([q, q, q.slice(0, 3)]) === 0);
   ok('zoom chips: the chip for the zoom asked for, none for a zoom between them', chipFor(1, [0.5, 1, 2]) === 1 && chipFor(2.02, [0.5, 1, 2]) === 2 && chipFor(0.5, [0.5, 1, 2]) === 0 && chipFor(1.5, [0.5, 1, 2]) === -1 && chipFor(NaN, [1]) === -1);
 }
 
@@ -2531,6 +2536,18 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('MOD08 without a name the company names the files', e.baseName() === 'Smith, Jones & Co' && e.fileName('.vcf') === 'Smith, Jones & Co.vcf');
   e.setPayload('BEGIN:VCARD', { phones: [{ type: 'work', value: '555' }] }, { hasDetails: true });
   ok('MOD08 with neither, "Contact"', e.baseName() === 'Contact' && e.fileName('.vcf') === 'Contact.vcf' && e.fileName(' QR.png') === 'Contact QR.png');
+  // Quick Scan's hand-off (raven575 11-24): the Android Create contact screen gets the name, address lines and typed lists
+  e.setPayload('BEGIN:VCARD', { firstName: 'Alex', lastName: 'Sample', organization: 'Example Co', jobTitle: ' Owner ', street: '1 Main St', unitType: 'Suite', unitNumber: '4',
+    city: 'Springfield', state: 'IL', zip: '62701', country: 'United States', addressType: 'work',
+    phones: [{ type: 'mobile', value: '555-0100' }, { type: 'work', value: '  ' }], emails: [{ type: 'work', value: 'alex@example.com' }], websites: [] }, { hasDetails: true });
+  const nc = e.newContactFields();
+  ok('MOD08 Quick Scan: the new-contact fields carry the name, company, title and the address as lines (no default country)',
+    nc.name === 'Alex Sample' && nc.organization === 'Example Co' && nc.jobTitle === 'Owner' && nc.address === '1 Main St Suite 4\nSpringfield, IL 62701' && nc.addressType === 'work', JSON.stringify(nc));
+  ok('MOD08 Quick Scan: blank entries are left out; each phone and email keeps its type', nc.phones.length === 1 && nc.phones[0].type === 'mobile' && nc.emails[0].value === 'alex@example.com' && nc.websites.length === 0);
+  const windowBefore = globalThis.window;
+  globalThis.window = { vcgeAndroid: { newContact: (json) => { globalThis.__nc = JSON.parse(json); return true; } } };
+  ok('MOD08 Quick Scan: in the Android app the hand-off opens its Create contact screen', e.newContact() === 'contacts' && globalThis.__nc.name === 'Alex Sample');
+  globalThis.window = windowBefore; delete globalThis.__nc;
   e.setPayload('BEGIN:VCARD', { firstName: 'A/B', lastName: 'C:D' }, { hasDetails: true });
   ok('MOD08 a name with path characters still makes a safe file name', e.fileName('.vcf') === 'AB CD.vcf');
   ok('MOD08 the share-sheet File carries the same name', typeof File === 'undefined' || e.vcfFile().name === 'AB CD.vcf');

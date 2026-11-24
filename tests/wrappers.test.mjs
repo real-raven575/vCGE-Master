@@ -62,6 +62,29 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
       && /Intent\(send\)\.apply \{ selector = Intent\(Intent\.ACTION_SENDTO,\s*Uri\.parse\("mailto:"\)\) \}/.test(activity)
       && /launch\(mailOnly\)\s*\|\|\s*launch\(Intent\.createChooser\(send,\s*subject\)\)/.test(activity));
   ok('Android: the bridge still never loads a page or opens a web link (no ACTION_VIEW on http)', !/https?:\/\//.test(activity.replace(/\/\/.*$/gm, '')));
+  // Quick Scan (raven575, 2026-11-24): long-press shortcut, home-screen widget and pulldown tile all open MainActivity with
+  // one action; the page asks once (quickLaunch) or hears vcge-quick-scan; the hand-off is the phone's own Create contact.
+  const quick = read(ANDROID + 'main/java/app/vcge/vcge/QuickScan.kt');
+  const shortcuts = read(ANDROID + 'main/res/xml/shortcuts.xml');
+  const widgetInfo = read(ANDROID + 'main/res/xml/quick_scan_widget_info.xml');
+  ok('Android Quick Scan: the long-press shortcut opens MainActivity with the Quick Scan action',
+    /android:action="app\.vcge\.vcge\.QUICK_SCAN"/.test(shortcuts) && /android:targetClass="app\.vcge\.vcge\.MainActivity"/.test(shortcuts)
+      && /<meta-data android:name="android\.app\.shortcuts" android:resource="@xml\/shortcuts"/.test(main)
+      && /<action android:name="app\.vcge\.vcge\.QUICK_SCAN" \/>/.test(main) && /QUICK_SCAN_ACTION = "app\.vcge\.vcge\.QUICK_SCAN"/.test(quick));
+  ok('Android Quick Scan: the widget is one button that opens Quick Scan, never on a timer',
+    /<receiver\s+android:name="\.QuickScanWidget"/.test(main) && /android\.appwidget\.provider/.test(main) && /android:updatePeriodMillis="0"/.test(widgetInfo)
+      && /setOnClickPendingIntent\(R\.id\.quick_scan_button,\s*quickScanPendingIntent\(context\)\)/.test(quick) && /PendingIntent\.FLAG_IMMUTABLE/.test(quick));
+  ok('Android Quick Scan: the pulldown tile is bound only by the system and asks for the unlock on a locked phone',
+    /android:name="\.QuickScanTile"\s+[^>]*android:permission="android\.permission\.BIND_QUICK_SETTINGS_TILE"/.test(main)
+      && /if \(isLocked\) unlockAndRun \{ open\(\) \} else open\(\)/.test(quick));
+  ok('Android Quick Scan: the page is told once at start, or at once when vCGE is already open',
+    /quickPending = intent\?\.action == QUICK_SCAN_ACTION/.test(activity) && /fun quickLaunch\(\): Boolean/.test(activity)
+      && /override fun onNewIntent\(intent: Intent\)/.test(activity) && /dispatchEvent\(new Event\('vcge-quick-scan'\)\)/.test(activity));
+  ok('Android Quick Scan: the hand-off opens the phone\'s own Create contact screen (ACTION_INSERT, no contacts permission)',
+    /fun newContact\(json: String\): Boolean/.test(activity) && /Intent\(ContactsContract\.Intents\.Insert\.ACTION\)\.setType\(ContactsContract\.RawContacts\.CONTENT_TYPE\)/.test(activity)
+      && /ContactsContract\.Intents\.Insert\.DATA/.test(activity) && !/READ_CONTACTS|WRITE_CONTACTS/.test(main));
+  ok('Android Quick Scan: the widget\'s colours are fixed in the app (vCGE teal, the phone\'s own colours on Android 12+), no saved setting',
+    existsSync(ROOT + ANDROID + 'main/res/values-v31/quick_scan_colors.xml') && !/SharedPreferences|getSharedPreferences|dataStore/.test(quick));
   const paths = read(ANDROID + 'main/res/xml/file_paths.xml');
   ok('Android: the FileProvider shares the app cache, where the card is written', /<cache-path\s+name="[^"]+"\s+path="\."/.test(paths) && /\$\{applicationId\}\.fileprovider/.test(main));
   const gradle = read('src-tauri/gen/android/app/build.gradle.kts');
@@ -90,10 +113,27 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
   ok('Tauri: installers for every desktop system', conf.bundle.active === true && conf.bundle.targets === 'all');
 
   const cap = JSON.parse(read('src-tauri/capabilities/default.json'));
-  ok('Tauri: only the two app permissions (old key delete, close window)',
-    JSON.stringify(cap.permissions) === JSON.stringify(['allow-delete-device-secret', 'core:window:allow-close']), JSON.stringify(cap.permissions));
+  ok('Tauri: only the three app permissions (old key delete, Quick Scan start-up question, close window)',
+    JSON.stringify(cap.permissions) === JSON.stringify(['allow-delete-device-secret', 'allow-quick-launch', 'core:window:allow-close']), JSON.stringify(cap.permissions));
   ok('Tauri: no plugins that reach out (http, updater, shell, opener)',
     !/tauri-plugin-(http|updater|shell|opener|websocket|upload)/.test(read('src-tauri/Cargo.toml')));
+}
+
+// --- Quick Scan on the desktop (raven575, 2026-11-24): a Start menu entry (Windows) and a right-click action (Linux) ---
+{
+  const conf = JSON.parse(read('src-tauri/tauri.conf.json'));
+  const nsh = read('src-tauri/' + conf.bundle.windows.nsis.installerHooks);
+  const desktop = read('src-tauri/' + conf.bundle.linux.deb.desktopTemplate);
+  const lib = read('src-tauri/src/lib.rs');
+  const caps = JSON.parse(read('src-tauri/capabilities/default.json'));
+  ok('Desktop Quick Scan: the Windows installer adds "vCGE Quick Scan" to the Start menu with --quick-scan, and removes it on uninstall',
+    /NSIS_HOOK_POSTINSTALL[\s\S]*CreateShortcut "\$SMPROGRAMS\\vCGE Quick Scan\.lnk" "\$INSTDIR\\\$\{MAINBINARYNAME\}\.exe" "--quick-scan"/.test(nsh)
+      && /NSIS_HOOK_POSTUNINSTALL[\s\S]*Delete "\$SMPROGRAMS\\vCGE Quick Scan\.lnk"/.test(nsh));
+  ok('Desktop Quick Scan: the Linux menu entry has a Quick Scan action (deb and rpm)',
+    conf.bundle.linux.rpm.desktopTemplate === conf.bundle.linux.deb.desktopTemplate && /Actions=quick-scan;/.test(desktop) && /\[Desktop Action quick-scan\]\s+Name=Quick Scan\s+Exec=\{\{exec\}\} --quick-scan/.test(desktop));
+  ok('Desktop Quick Scan: the page may ask quick_launch (declared and allowed), and it answers true only once',
+    /commands\(&\["delete_device_secret", "quick_launch"\]\)/.test(read('src-tauri/build.rs')) && caps.permissions.includes('allow-quick-launch')
+      && /fn quick_launch\(\) -> bool \{\s*QUICK_SCAN\.swap\(false, Ordering::SeqCst\)/.test(lib));
 }
 
 // --- macOS: the camera reason the bundler merges into vCGE.app (macOS stops an app that opens the camera without one) ---
@@ -262,8 +302,8 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
     !/<script/i.test(page) && /default-src 'none'; style-src 'self'; img-src 'self'/.test(page));
   const srcs = [...page.matchAll(/\s(?:src|href)="([^"]+)"/g)].map(m => m[1]);
   const away = srcs.filter(u => /^https?:/.test(u));
-  ok('Testers page: the only outside links are the tester group, the Play testing link and the web beta',
-    JSON.stringify([...away].sort()) === JSON.stringify(['https://groups.google.com/g/vcge-testers', 'https://play.google.com/apps/testing/app.vcge.vcge', 'https://real-raven575.github.io/vCGE-Master/']), away.join(' '));
+  ok('Testers page: the only outside links are the tester group, the Play testing link, the web beta and its Quick Scan page',
+    JSON.stringify([...away].sort()) === JSON.stringify(['https://groups.google.com/g/vcge-testers', 'https://play.google.com/apps/testing/app.vcge.vcge', 'https://real-raven575.github.io/vCGE-Master/', 'https://real-raven575.github.io/vCGE-Master/quick.html']), away.join(' '));
   // The same folder is mirrored at herdofhelpers.com/vcge/testers/ (HQ-0366/0367), so every file it uses sits inside it.
   const local = srcs.filter(u => !/^https?:/.test(u) && u !== '../' && u !== 'code/');
   ok('Testers page: every local file it uses is inside its own folder, so it works on any host',

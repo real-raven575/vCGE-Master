@@ -847,6 +847,7 @@ async function runOcr(how) {
         const missing = missingParts(formMapper.classifyLines(mergeReadings(readings).filter(l => !l.unreadable)));
         if (missing.length && readings.length < MAX_PHOTOS) {
             ocrVault.put(READINGS[readings.length - 1], { lines: read, qr, at: Date.now() });
+            if (quickMode) { quickLookAgain(missing); return; }
             askForAnotherPhoto(missing, readings.length + 1);
             return;
         }
@@ -944,6 +945,7 @@ function openReviewFrom(readings, photo = null, qr = null) {
     const unreadable = merged.filter(l => l.unreadable).map(l => ({ text: l.text, role: 'ignore', icon: l.icon || null, check: UNREADABLE_LINE_NOTE }));
     // A QR code's vCard, MECARD or web address is exact: its lines come first and win their fields (MOD07 qrReader.js).
     ocrReview = { lines: withQrLines([...formMapper.classifyLines(merged.filter(l => !l.unreadable)), ...unreadable], parseQrPayload(qrText)), fields: null };
+    if (quickMode && quickHandOff()) return;
     renderOcrLines();
     $('ocrBackBtn').classList.toggle('hidden', !$('reviewImage').getAttribute('src'));
     readThumb.show(photo || reviewPhoto());
@@ -1032,6 +1034,75 @@ async function goExit(to) {
     await applyOcrReview();
     setGo(false);
     await showCard(to);
+}
+
+// ---- Quick Scan (raven575, 17:38 UTC 11-24, plan https://claude.ai/artifact/YEBSqjcXcoVBdE9fuSNeo3, yes 18:17 UTC): one
+// press on a home-screen button, a long-press shortcut or ?quick opens the camera; the photo takes itself once the card
+// holds still (MOD03 autoScan), is cropped to the card and read; a reading that lacks the name or a phone or email takes
+// one more look by itself (MAX_PHOTOS in all, readings merged); then the contact goes straight to the phone's own new
+// contact screen through MOD08's one hatch, and this card is wiped. The phone's contact screen is the check step. Nothing
+// readable enough: the ordinary review opens instead, so an empty contact is never sent.
+const QUICK_WIPE_MS = 1500;    // the wipe waits this long after the hand-off, so the contact app has the card first
+const QUICK_DONE = 'Sent to Contacts: check it there and tap Save. vCGE wiped this card.';
+let quickMode = false;
+function setQuick(on) {
+    quickMode = !!on;
+    camera.autoScan = quickMode;
+    if (quickMode) document.documentElement.dataset.quick = 'on'; else delete document.documentElement.dataset.quick;
+}
+async function startQuickScan() {
+    // Never over a locked card or one being worked on: that card stays as it is.
+    if (vaultMode !== 'open' || hasWork()) { deckToast('Finish or wipe the card you have open, then press Quick Scan again.'); return false; }
+    if (tourOpen()) closeTour();
+    setGo(false);
+    setQuick(true);
+    await showCard('capture');
+    camera.discardPhoto();
+    camera.initCamera();
+    return true;
+}
+function quickLookAgain(missing) {
+    camera.discardPhoto();
+    backToPhoto();
+    showPhotoCount();
+    deckToast(`One more look for ${describeMissing(missing)}: hold the card still.`);
+    camera.initCamera();
+}
+function quickHandOff() {
+    const { fields } = formMapper.buildFields(ocrReview.lines);
+    cardView.mergeContact(fields);
+    refresh();
+    if (!vcgeQREngine.hasDetails(cardView.getContact())) {
+        setQuick(false);
+        cardView.clear();
+        refresh();
+        deckToast('Not enough was read for a contact. Check the lines below.');
+        return false;
+    }
+    closeReviewDialog();
+    expectExternalApp();
+    const saved = egressController.newContact();
+    if (saved === 'failed') { setQuick(false); cardView.showToast('No app on this phone opens a contact card.'); showCard('share'); return true; }
+    flyFalcon();
+    setQuick(false);
+    setTimeout(() => wipeSession('quick scan', QUICK_DONE), QUICK_WIPE_MS);
+    return true;
+}
+// The ways in: ?quick on the address (the iPhone home-screen icon), the desktop app's --quick-scan, the Android app's launch word
+// (MainActivity.kt: vcgeAndroid.quickLaunch() once), and the vcge-quick-scan event for a press while vCGE is already open.
+function wireQuickScan() {
+    window.addEventListener('vcge-quick-scan', () => { startQuickScan(); });
+    const url = new URL(location.href);
+    const android = window.vcgeAndroid && typeof window.vcgeAndroid.quickLaunch === 'function' ? window.vcgeAndroid : null;
+    if (url.searchParams.has('quick') || (android && android.quickLaunch() === true)) {
+        url.searchParams.delete('quick');
+        history.replaceState(history.state, '', url.href);
+        startQuickScan();
+        return;
+    }
+    // The desktop app started with --quick-scan (lib.rs quick_launch, true once)
+    const invoke = window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function' ? window.__TAURI__.core.invoke : null;
+    if (invoke) invoke('quick_launch').then((quick) => { if (quick === true) startQuickScan(); }).catch(() => {});
 }
 
 // Opens the review step again with the last scan's lines (as last edited), without running OCR again.
@@ -1163,14 +1234,14 @@ function wireIntake() {
         // before its pixels are ready to draw (iPhone CI, PR #65: a clear card in the photo, yet the snap found no edges).
         if (shot && shot.scan) $('reviewImage').addEventListener('load', () => whenDrawable($('reviewImage')).then(() => setTimeout(() => {
             if ($('runOcrBtn').disabled) return;
-            if (cropEditor.snapToCard()) runOcr();
+            if (cropEditor.snapToCard() || quickMode) runOcr();
             else deckToast(SCAN_NO_EDGES);
         }, 0)), { once: true });
         // Go: read the photo as soon as it is on the crop step (its whole frame, as OK would)
         else if (goMode) $('reviewImage').addEventListener('load', () => setTimeout(() => { if (goMode && !$('runOcrBtn').disabled) runOcr(); }, 0), { once: true });
     });
-    globalEventBus.subscribe(Events.VAULT_WIPED, () => setGo(false));
-    globalEventBus.subscribe(Events.MEMORY_PURGED, () => setGo(false));
+    globalEventBus.subscribe(Events.VAULT_WIPED, () => { setGo(false); setQuick(false); });
+    globalEventBus.subscribe(Events.MEMORY_PURGED, () => { setGo(false); setQuick(false); });
 }
 
 // ---- Egress (MOD08 only) ---------------------------------------------------------------------------------------
@@ -1416,6 +1487,7 @@ function boot() {
     refresh();
     setVaultIndicator();
     updatePurgeCountdown();
+    wireQuickScan();
     biometricAvailable().then(ok => { biometricSupported = ok; setVaultIndicator(); });
 }
 

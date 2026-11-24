@@ -3368,6 +3368,47 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       ok('crop step: with a tall photo on a phone, Cancel and OK sit fully above the dock (Android run 11-16)', fit.ok <= fit.dock && fit.cancel <= fit.dock, JSON.stringify(fit));
       await ctxF.close();
       ok('scan: no page errors', errorsS.length === 0, errorsS.join(' | '));
+      // Quick Scan (raven575 11-24): ?quick opens the camera with no press; the photo takes itself once the made-up card
+      // holds still, is read, and the contact leaves through MOD08's .vcf hatch with no review step; then the card is wiped.
+      {
+        const ctxQ = await browser.newContext({ viewport: { width: 412, height: 800 }, acceptDownloads: true });
+        await ctxQ.addInitScript(() => {
+          const fake = async () => {
+            const c = document.createElement('canvas'); c.width = 640; c.height = 480; const x = c.getContext('2d');
+            const draw = () => { x.fillStyle = '#3b3f46'; x.fillRect(0, 0, 640, 480); x.fillStyle = '#f7f7f2'; x.fillRect(150, 150, 340, 196);
+              x.fillStyle = '#111'; x.font = 'bold 28px sans-serif'; x.fillText('Alex Sample', 180, 205); x.font = '20px sans-serif'; x.fillText('555-0100', 180, 250); x.fillText('alex@example.com', 180, 285); };
+            draw(); setInterval(draw, 200);
+            return c.captureStream(5);
+          };
+          try { Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: { getUserMedia: fake } }); } catch (e) {}
+        });
+        const pQ = await ctxQ.newPage();
+        const errorsQ = []; pQ.on('pageerror', e => errorsQ.push(e.message));
+        const download = pQ.waitForEvent('download', { timeout: 90000 }).catch(() => null);
+        await pQ.goto(`${ORIGIN}?quick`);
+        await pQ.waitForSelector('#cameraPanel:not(.hidden)', { timeout: 8000 }).catch(() => {});
+        const opened = await pQ.evaluate(() => ({ quick: document.documentElement.dataset.quick, url: location.search, camera: !document.getElementById('cameraPanel').classList.contains('hidden') }));
+        ok('quick scan: ?quick opens the camera straight away, and the word comes off the address', opened.quick === 'on' && opened.camera && opened.url === '', JSON.stringify(opened));
+        await pQ.waitForFunction(() => /the photo takes itself/.test(document.getElementById('camHint').textContent), null, { timeout: 8000 }).catch(() => {});
+        ok('quick scan: the hint says the photo takes itself once the card is found', /Hold still: the photo takes itself/.test(await pQ.textContent('#camHint')));
+        const dl = await download;
+        const vcf = dl ? await dl.createReadStream().then(st => new Promise(res => { let t = ''; st.on('data', d => { t += d; }); st.on('end', () => res(t)); })) : '';
+        ok('quick scan: no press needed: the photo takes itself, is read and goes out as a .vcf with no review step', !!dl && /\.vcf$/.test(dl.suggestedFilename()) && /BEGIN:VCARD/.test(vcf) && /5550100|555-0100|alex@example\.com|Alex/i.test(vcf),
+          dl ? `${dl.suggestedFilename()} ${vcf.slice(0, 300)}` : 'no download');
+        await pQ.waitForFunction(() => !document.documentElement.dataset.quick && document.getElementById('firstName').value === '' && !document.getElementById('reviewImage').getAttribute('src'), null, { timeout: 8000 }).catch(() => {});
+        const after = await pQ.evaluate(() => ({ quick: document.documentElement.dataset.quick || '', first: document.getElementById('firstName').value, photo: document.getElementById('reviewImage').getAttribute('src') || '',
+          toast: (document.getElementById('toastMessage') || {}).textContent || '' }));
+        ok('quick scan: after the hand-off the card and photo are wiped and Quick Scan ends', after.quick === '' && after.first === '' && after.photo === '', JSON.stringify(after));
+        // The iPhone home-screen page (quick.html): no script; it sends the icon's press straight into Quick Scan
+        const pQ2 = await ctxQ.newPage();
+        await pQ2.goto(`${ORIGIN}quick.html`);
+        await pQ2.waitForFunction(() => document.documentElement.dataset.quick === 'on', null, { timeout: 10000 }).catch(() => {});
+        const home = await pQ2.evaluate(() => ({ quick: document.documentElement.dataset.quick || '', path: location.pathname + location.search }));
+        ok('quick scan: the iPhone home-screen page (quick.html) opens vCGE straight into Quick Scan', home.quick === 'on' && home.path === '/', JSON.stringify(home));
+        await pQ2.close();
+        ok('quick scan: no page errors', errorsQ.length === 0, errorsQ.join(' | '));
+        await ctxQ.close();
+      }
     }
     await pV.setInputFiles('#imageUpload', await renderCardImage(pV)); await pV.waitForTimeout(300);
     ok('upload: the handles start at the full photo', await pV.isVisible('#captureReview') && (await pV.getAttribute('#cropPolygon', 'points')) === '0,0 1050,0 1050,600 0,600');

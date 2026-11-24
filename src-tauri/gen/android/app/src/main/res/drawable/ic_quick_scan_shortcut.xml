@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The long-press shortcut's icon: the Quick Scan camera on a round vCGE teal background. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item><shape android:shape="oval"><solid android:color="#FF17736E"/></shape></item>
+    <item android:drawable="@drawable/ic_quick_scan" android:top="12dp" android:bottom="12dp" android:left="12dp" android:right="12dp"/>
+</layer-list>

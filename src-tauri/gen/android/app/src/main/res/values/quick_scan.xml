@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Quick Scan (raven575, 2026-11-24): the button's colours are vCGE's own teal (themes.js default), and on Android 12 and
+     later the phone's own colours (values-v31). Fixed in the app: the widget reads no setting (only vcge_settings is kept). -->
+<resources>
+    <color name="quick_bg">#FF17736E</color>
+    <color name="quick_ink">#FFFFFFFF</color>
+    <string name="quick_scan">Quick Scan</string>
+    <string name="quick_scan_long">Scan a card into Contacts</string>
+    <string name="quick_scan_widget_description">One press: the camera opens, reads the card and fills in a new contact.</string>
+</resources>
