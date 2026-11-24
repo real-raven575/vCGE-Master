@@ -1088,7 +1088,7 @@ function quickHandOff() {
     setTimeout(() => wipeSession('quick scan', QUICK_DONE), QUICK_WIPE_MS);
     return true;
 }
-// The ways in: ?quick on the address (the iPhone home-screen icon, desktop shortcuts), the Android app's launch word
+// The ways in: ?quick on the address (the iPhone home-screen icon), the desktop app's --quick-scan, the Android app's launch word
 // (MainActivity.kt: vcgeAndroid.quickLaunch() once), and the vcge-quick-scan event for a press while vCGE is already open.
 function wireQuickScan() {
     window.addEventListener('vcge-quick-scan', () => { startQuickScan(); });
@@ -1098,7 +1098,11 @@ function wireQuickScan() {
         url.searchParams.delete('quick');
         history.replaceState(history.state, '', url.href);
         startQuickScan();
+        return;
     }
+    // The desktop app started with --quick-scan (lib.rs quick_launch, true once)
+    const invoke = window.__TAURI__ && window.__TAURI__.core && typeof window.__TAURI__.core.invoke === 'function' ? window.__TAURI__.core.invoke : null;
+    if (invoke) invoke('quick_launch').then((quick) => { if (quick === true) startQuickScan(); }).catch(() => {});
 }
 
 // Opens the review step again with the last scan's lines (as last edited), without running OCR again.

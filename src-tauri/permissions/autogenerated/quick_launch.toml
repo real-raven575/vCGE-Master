@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-quick-launch"
+description = "Enables the quick_launch command without any pre-configured scope."
+commands.allow = ["quick_launch"]
+
+[[permission]]
+identifier = "deny-quick-launch"
+description = "Denies the quick_launch command without any pre-configured scope."
+commands.deny = ["quick_launch"]

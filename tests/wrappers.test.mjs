@@ -113,10 +113,27 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
   ok('Tauri: installers for every desktop system', conf.bundle.active === true && conf.bundle.targets === 'all');
 
   const cap = JSON.parse(read('src-tauri/capabilities/default.json'));
-  ok('Tauri: only the two app permissions (old key delete, close window)',
-    JSON.stringify(cap.permissions) === JSON.stringify(['allow-delete-device-secret', 'core:window:allow-close']), JSON.stringify(cap.permissions));
+  ok('Tauri: only the three app permissions (old key delete, Quick Scan start-up question, close window)',
+    JSON.stringify(cap.permissions) === JSON.stringify(['allow-delete-device-secret', 'allow-quick-launch', 'core:window:allow-close']), JSON.stringify(cap.permissions));
   ok('Tauri: no plugins that reach out (http, updater, shell, opener)',
     !/tauri-plugin-(http|updater|shell|opener|websocket|upload)/.test(read('src-tauri/Cargo.toml')));
+}
+
+// --- Quick Scan on the desktop (raven575, 2026-11-24): a Start menu entry (Windows) and a right-click action (Linux) ---
+{
+  const conf = JSON.parse(read('src-tauri/tauri.conf.json'));
+  const nsh = read('src-tauri/' + conf.bundle.windows.nsis.installerHooks);
+  const desktop = read('src-tauri/' + conf.bundle.linux.deb.desktopTemplate);
+  const lib = read('src-tauri/src/lib.rs');
+  const caps = JSON.parse(read('src-tauri/capabilities/default.json'));
+  ok('Desktop Quick Scan: the Windows installer adds "vCGE Quick Scan" to the Start menu with --quick-scan, and removes it on uninstall',
+    /NSIS_HOOK_POSTINSTALL[\s\S]*CreateShortcut "\$SMPROGRAMS\\vCGE Quick Scan\.lnk" "\$INSTDIR\\\$\{MAINBINARYNAME\}\.exe" "--quick-scan"/.test(nsh)
+      && /NSIS_HOOK_POSTUNINSTALL[\s\S]*Delete "\$SMPROGRAMS\\vCGE Quick Scan\.lnk"/.test(nsh));
+  ok('Desktop Quick Scan: the Linux menu entry has a Quick Scan action (deb and rpm)',
+    conf.bundle.linux.rpm.desktopTemplate === conf.bundle.linux.deb.desktopTemplate && /Actions=quick-scan;/.test(desktop) && /\[Desktop Action quick-scan\]\s+Name=Quick Scan\s+Exec=\{\{exec\}\} --quick-scan/.test(desktop));
+  ok('Desktop Quick Scan: the page may ask quick_launch (declared and allowed), and it answers true only once',
+    /commands\(&\["delete_device_secret", "quick_launch"\]\)/.test(read('src-tauri/build.rs')) && caps.permissions.includes('allow-quick-launch')
+      && /fn quick_launch\(\) -> bool \{\s*QUICK_SCAN\.swap\(false, Ordering::SeqCst\)/.test(lib));
 }
 
 // --- macOS: the camera reason the bundler merges into vCGE.app (macOS stops an app that opens the camera without one) ---
@@ -285,8 +302,8 @@ const permissions = (xml) => [...xml.matchAll(/<uses-permission\s+android:name="
     !/<script/i.test(page) && /default-src 'none'; style-src 'self'; img-src 'self'/.test(page));
   const srcs = [...page.matchAll(/\s(?:src|href)="([^"]+)"/g)].map(m => m[1]);
   const away = srcs.filter(u => /^https?:/.test(u));
-  ok('Testers page: the only outside links are the tester group, the Play testing link and the web beta',
-    JSON.stringify([...away].sort()) === JSON.stringify(['https://groups.google.com/g/vcge-testers', 'https://play.google.com/apps/testing/app.vcge.vcge', 'https://real-raven575.github.io/vCGE-Master/']), away.join(' '));
+  ok('Testers page: the only outside links are the tester group, the Play testing link, the web beta and its Quick Scan page',
+    JSON.stringify([...away].sort()) === JSON.stringify(['https://groups.google.com/g/vcge-testers', 'https://play.google.com/apps/testing/app.vcge.vcge', 'https://real-raven575.github.io/vCGE-Master/', 'https://real-raven575.github.io/vCGE-Master/quick.html']), away.join(' '));
   // The same folder is mirrored at herdofhelpers.com/vcge/testers/ (HQ-0366/0367), so every file it uses sits inside it.
   const local = srcs.filter(u => !/^https?:/.test(u) && u !== '../' && u !== 'code/');
   ok('Testers page: every local file it uses is inside its own folder, so it works on any host',
