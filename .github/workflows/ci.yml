@@ -86,9 +86,11 @@ jobs:
       - run: npm ci
 
       # A stuck package mirror once held this step for the job's whole 30 minutes; a healthy install takes under 8.
+      # On 2026-11-23 the Ubuntu mirror was slow but moving: WebKit's system packages alone took 9.5 min and the 10 min cap
+      # cut the browser download off (jobs 137973046097, 137916225843), so the cap is 20: still well short of the job's 75.
       - name: Install ${{ matrix.name }} for Playwright
         run: npx playwright install --with-deps ${{ matrix.install }}
-        timeout-minutes: 10
+        timeout-minutes: 20
 
 
       - name: Browser e2e (source)

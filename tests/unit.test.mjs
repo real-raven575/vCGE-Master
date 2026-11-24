@@ -571,8 +571,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const fm = new ContactFormMapper();
   const text = 'ya O/\nYour Technology Partner\nDana Whitlock\nOwner & General Manager\n4120 Lakeshore Road, Suite 210\nSpringfield, MI 49011\nE dwhitlock@BrightPathIT.com\nT 616.555.0142\nM 616.555.0187\nW BrightPathIT.com/Holland';
   const lines = fm.classifyLines(text);
-  ok('classifyLines gives one role per line', lines.length === 10 && lines.every(l => LINE_ROLES.some(([r]) => r === l.role)), JSON.stringify(lines));
-  ok('classifyLines roles for a labelled card', JSON.stringify(lines.map(l => l.role)) === JSON.stringify(['ignore', 'notes', 'name', 'jobTitle', 'street', 'cityStateZip', 'email', 'phoneWork', 'phoneMobile', 'website']), lines.map(l => l.role).join());
+  ok('classifyLines gives one role per line, scraps left out ("ya O/": 3 letters on Ignore)', lines.length === 9 && lines.every(l => LINE_ROLES.some(([r]) => r === l.role)), JSON.stringify(lines));
+  ok('classifyLines roles for a labelled card', JSON.stringify(lines.map(l => l.role)) === JSON.stringify(['notes', 'name', 'jobTitle', 'street', 'cityStateZip', 'email', 'phoneWork', 'phoneMobile', 'website']), lines.map(l => l.role).join());
   // A real phone photo's misreads (fictional details): "I" read as "\" in the domain, the "/" of the web path read as a
   // space, lowercase "w" label, slogan with a company word ("Technology") and no readable company name (logo only).
   const slips = fm.classifyLines('2OO brightpathlogo\nYour Technology Partner\nDana Whitlock\nOwner & General Manager\n4120 Lakeshore Road, Suite 210\nSpringfield, MI 49011\nE dwhitlock@BrightPath\\T.com\nT 616.555.0142\nM 616.555.0187\nw BrightPath\\T.com Holland');
@@ -634,6 +634,20 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('a stray letter before a phone number is still that phone\'s label', fm.classifyLines('Jo Smith\nT 616.555.0140')[1].role === 'phoneWork');
   const site = (t, place = 'Portage, MI 49024') => fm.classifyLines(`Jo Smith\n${place}\n${t}`).find(l => l.role === 'website').text;
   ok('screenshot read: the web path split off its domain is joined back and ends in the state code', shot[9].text === 'PeakLogicIT.com/KalamazooMI' && site('W PeakLogicIT.com/ Kalamazoo') === 'PeakLogicIT.com/Kalamazoo' && site('W PeakLogicIT.com /Kalamazoo') === 'PeakLogicIT.com/Kalamazoo' && site('W PeakLogicIT.com KalamazooM\\ |') === 'PeakLogicIT.com/KalamazooMI', [shot[9].text, site('W PeakLogicIT.com KalamazooM\\ |')].join(' | '));
+  // Play build 562 phone run (2026-11-23, made-up details): the address came out as four lines, all on Ignore, and the
+  // web path lost its I because no state was found; scraps from the wood table were listed too
+  const split = fm.classifyLines('xx\nDana Quill\nOwner & General Manager\nP 1200 Maplebrid\nge Road, Suite 405\nPortage, MI 490\n24\nE dquill@PeakLogicIT.com\nT 616.555.0140\nJ y\nW PeakLogicIT.com/KalamazooM\\\n3');
+  const splitFields = fm.buildFields(split).fields;
+  ok('split address: the street cut inside a word and the ZIP split after the state are joined back and filled',
+    split.map(l => l.role).join() === 'name,jobTitle,street,cityStateZip,email,phoneWork,website' && splitFields.street === '1200 Maplebridge Road' && splitFields.city === 'Portage' && splitFields.state === 'MI' && splitFields.zip === '49024',
+    JSON.stringify([split.map(l => l.role + ':' + l.text), splitFields.street, splitFields.zip]));
+  ok('split address: once the state is found the web path ends in it again', splitFields.websites[0].value === 'PeakLogicIT.com/KalamazooMI', JSON.stringify(splitFields.websites));
+  ok('split lines are joined only when they fit: 5 ZIP digits, a street word after a cut word',
+    fm.classifyLines('Portage, MI 490\n2400').map(l => l.text).join('|') === 'Portage, MI 490|2400'
+    && fm.classifyLines('1200 Maplebridge\nOwner').map(l => l.text).join('|') === '1200 Maplebridge|Owner'
+    && fm.classifyLines('Dana Quill\nge Road').length === 2,
+    JSON.stringify(fm.classifyLines('Portage, MI 490\n2400').map(l => l.text)));
+  ok('split lines: a second part that carries second guesses is still joined', fm.classifyLines([{ text: '1200 Maplebrid' }, { text: 'ge Road', alts: [{ at: 3, chars: ['R', 'P'] }] }])[0].text === '1200 Maplebridge Road');
   ok('a lowercase l ends in the state code only after a capital or before a bar', site('W acme.com/KalamazooMl') === 'acme.com/KalamazooMI' && site('W acme.com/email') === 'acme.com/email' && site('W acme.com/Chicagoil', 'Chicago, IL 60601') === 'acme.com/Chicagoil', site('W acme.com/email'));
   const web = t => fm.parseOCRText(t).websites.map(w => w.value).join();
   ok('a web path read with a space inside keeps its end (bench run 2026-10-18)', web('Dana Quill\nW PeakLogicIT.com/Kalamazoo MI\nPortage, MI 49024') === 'PeakLogicIT.com/KalamazooMI' && web('Jo\nW PeakLogicIT.com/Kalamazoo Ml\nPortage, MI 49024') === 'PeakLogicIT.com/KalamazooMI' && web('Jo Smith\nnorthwind.com/Seattle WA') === 'northwind.com/SeattleWA' && web('Jo Smith\nW northwind.com/Seattle WA') === 'northwind.com/SeattleWA', [web('Dana Quill\nW PeakLogicIT.com/Kalamazoo MI\nPortage, MI 49024'), web('Jo Smith\nnorthwind.com/Seattle WA')].join(' | '));
@@ -1277,10 +1291,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('failed OCR publishes nothing to the form pipeline', evt === null);
 
   let created = 0, terminated = 0, psm = null, params = null, result = null, hold = false, psms = [], seenParams = [];
+  let stopping = null, order = [];   // stopping: what terminate() returns (a slow stop); order: starts and stops, in turn
   const words = (n, conf) => Array.from({ length: n }, (_, i) => ({ text: `word${i}`, confidence: conf }));
-  globalThis.Tesseract = { createWorker: async () => { created++; return {
+  globalThis.Tesseract = { createWorker: async () => { created++; order.push('start'); return {
     setParameters: async (p) => { params = p; seenParams.push(p); if ('tessedit_pageseg_mode' in p) { psm = p.tessedit_pageseg_mode; psms.push(psm); } },
-    recognize: async (image) => (hold ? new Promise(() => {}) : { data: typeof result === 'function' ? result(image) : result }), terminate() { terminated++; } }; } };
+    recognize: async (image) => (hold ? new Promise(() => {}) : { data: typeof result === 'function' ? result(image) : result }), terminate() { terminated++; order.push('stop'); return stopping ? stopping().then(() => order.push('stopped')) : undefined; } }; } };
   result = { text: 'Jane Doe\njane@example.com', confidence: 88, words: words(8, 90) };
   const r = await ocr.executeOCRScan('data:image/png;base64,x');
   ok('OCR returns raw text and confidence, publishes OCR_TEXT_EXTRACTED', r.text === 'Jane Doe\njane@example.com' && r.confidence === 88 && evt && evt.confidence === 88 && !('simulated' in r));
@@ -1473,6 +1488,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     const first = [{ text: 'Rhtkp Qwxzt', confidence: 21 }, { text: 'dquill@peaklogicit.com', confidence: 80 }, { text: '(616) 555-0140', confidence: 85 }];
     const one = rq.mergeReadings([first]);
     ok('one reading: garbage lines are kept as unreadable, in place, so the review can show them', one.length === 3 && one[0].unreadable && !one[1].unreadable && !('reading' in one[0]) && !('garbage' in one[1]), JSON.stringify(one));
+    const scraps = rq.mergeReadings([[{ text: 'cad', confidence: 20 }, { text: 'Xe.', confidence: 18 }, { text: 'Rhtkp Qwxzt', confidence: 21 }, { text: 'dquill@peaklogicit.com', confidence: 80 }]]);
+    ok('garbage of 3 letters or digits at most is not shown as unreadable (wood grain, build 562 phone run)', scraps.length === 2 && scraps[0].text === 'Rhtkp Qwxzt' && scraps[0].unreadable, JSON.stringify(scraps));
     const second = [{ text: 'Dana Quill', confidence: 82 }, { text: 'dquill@peaklogicit.com', confidence: 70 }, { text: '(616) 555-0140', confidence: 90 }];
     const two = rq.mergeReadings([first, second]);
     ok('two readings: the second photo fills in the name, the first\'s garbage is dropped, and each line is read once', two.map(l => l.text).join('|') === 'Dana Quill|dquill@peaklogicit.com|(616) 555-0140' && two.every(l => !l.unreadable) && two[2].confidence === 90, JSON.stringify(two));
@@ -1489,7 +1506,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     ok('photos per card: three at most', rq.MAX_PHOTOS === 3);
     // raven575, 2026-10-22 (base card): a symbol-only logo line was listed, and "Suite 405" came back "Suite 40%"
     const debris = rq.mergeReadings([[{ text: '. {) ——', confidence: 10 }, { text: 'Dana Quill', confidence: 80 }, { text: 'A', confidence: 20 }]]);
-    ok('a line with no letter or digit is dropped, not listed; a stray letter is still listed as unreadable', debris.length === 2 && debris[0].text === 'Dana Quill' && debris[1].unreadable, JSON.stringify(debris));
+    // Since the build 562 phone run (2026-11-23) a stray letter is dropped too (3 letters or digits at most); longer garbage is still listed
+    ok('a line with no letter or digit is dropped, not listed; so is a stray letter', debris.length === 1 && debris[0].text === 'Dana Quill', JSON.stringify(debris));
     const suite = 'Maplebridge Road, Suite 40%';
     const mended = rq.mergeReadings([[{ text: suite, confidence: 70, alts: [{ at: 26, chars: '5' }], unsure: [] }]])[0];
     const flagged = rq.fixNumberPercent({ text: suite, alts: [{ at: 26, chars: 'x' }], unsure: [] });
@@ -1532,6 +1550,27 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     result = () => { reads++; throw new Error('some other failure'); };
     const other = await failure(ocr.executeOCRScan('data:image/png;base64,x'));
     ok('other errors are not retried', !!other && reads === 1 && !ocr.isEngineCrash(new Error('x')) && ['unreachable executed', 'Out of bounds memory access', 'Division by zero', 'access to a null reference'].every(m => ocr.isEngineCrash(Object.assign(new Error(m), { name: 'RuntimeError' }))), String(reads));
+    // The fresh reader starts only once the crashed one is gone (iPhone CI job 137281776598: the read after a crash
+    // crashed too, right after a wipe had stopped another reader), and the label says "Extracting" again for its read
+    reads = 0; order = []; statuses = [];
+    stopping = () => new Promise(res => setTimeout(res, 50));
+    result = () => { if (reads++ === 0) { const e = new Error('Out of bounds memory access'); e.name = 'RuntimeError'; throw e; } return { text: 'Jane Doe\njane@example.com', confidence: 88, words: words(8, 90) }; };
+    const waited = await ocr.executeOCRScan('data:image/png;base64,x', { onStatus: s => statuses.push(s) });
+    ok('after a crash the fresh reader starts only once the crashed one has stopped', waited.text.startsWith('Jane Doe') && order.join() === 'stop,stopped,start', order.join());
+    ok('after a crash the read is shown as reading again once the fresh reader is up', statuses.join() === 'reading,starting,reading', statuses.join());
+    // A stop that never ends holds the fresh reader back RETIRE_WAIT_MS at most
+    reads = 0; order = [];
+    stopping = () => new Promise(() => {});
+    const t0 = Date.now();
+    const stuck = await ocr.executeOCRScan('data:image/png;base64,x');
+    const waitedMs = Date.now() - t0;
+    ok('a crashed reader that never stops holds the fresh one back RETIRE_WAIT_MS at most', stuck.text.startsWith('Jane Doe') && order.join() === 'stop,start' && waitedMs >= ocr.RETIRE_WAIT_MS - 50 && waitedMs < ocr.RETIRE_WAIT_MS + 1500, `${order.join()} ${waitedMs} ms`);
+    // A wipe stops the reader too: the next scan's reader starts after it has stopped
+    order = []; stopping = () => new Promise(res => setTimeout(res, 50));
+    share.globalEventBus.publish(share.Events.VAULT_WIPED, { reason: 'test' });
+    await ocr.executeOCRScan('data:image/png;base64,x');
+    ok('after a wipe the next scan starts its reader only once the old one has stopped', order.join() === 'stop,stopped,start', order.join());
+    stopping = null;
     result = { text: 'Jane Doe\njane@example.com', confidence: 88, words: words(8, 90) };
   }
 
@@ -1580,6 +1619,17 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   // 0.8 redo R3 (Creative's mock-up): the type chip's words and the flag's lead
   ok('read card (0.8): the type chip shows the role\'s label without the picker\'s note in brackets', read.chipLabel('Phone (type from label)') === 'Phone' && read.chipLabel('Work phone') === 'Work phone' && read.chipLabel('City / State / ZIP') === 'City / State / ZIP' && read.chipLabel(undefined) === '');
   ok('read card (0.8): a flagged line leads with words that say to check it', read.CHECK_LEAD === 'Check this line.');
+  {
+    // An icon is named under a line it fits, not under one left on Ignore or put in Notes (build 562 phone run)
+    const fake = () => { const el = { children: [], attrs: {}, classList: { add() {}, toggle() {} }, append(...c) { el.children.push(...c); }, setAttribute(k, v) { el.attrs[k] = v; }, addEventListener() {}, add() {} }; return el; };
+    const savedCreate = globalThis.document.createElement, savedNs = globalThis.document.createElementNS, savedOption = globalThis.Option;
+    globalThis.document.createElement = fake; globalThis.document.createElementNS = fake; globalThis.Option = function Option() {};
+    const named = (el) => el.children.flatMap(c => (c && c.id && c.id.startsWith('ocrLineIcon') ? [c.textContent] : (c && c.children ? named(c) : [])));
+    const rowsOut = read.renderReviewRows([{ text: 'jo@acme.com', role: 'email', icon: 'email' }, { text: 'Acme Studio 20', role: 'ignore', icon: 'email' }, { text: 'Your partner', role: 'notes', icon: 'web' }],
+      { roles: [['email', 'Email'], ['ignore', 'Ignore'], ['notes', 'Notes']], iconNames: { email: 'Email icon', web: 'Web icon' } });
+    globalThis.document.createElement = savedCreate; globalThis.document.createElementNS = savedNs; globalThis.Option = savedOption;
+    ok('read card: an icon is named under a line it fits, not under one on Ignore or in Notes', rowsOut.map(r => named(r).join()).join('|') === 'Email icon||', rowsOut.map(r => named(r).join()).join('|'));
+  }
   ok('read card (0.8): the thumbnail helper shows and drops the photo, and is dropped on a wipe or a purge', typeof read.readThumb.show === 'function' && typeof read.readThumb.hide === 'function'
     && /subscribe\(Events\.VAULT_WIPED, \(\) => readThumb\.hide\(\)\)/.test(readCode) && /subscribe\(Events\.MEMORY_PURGED, \(\) => readThumb\.hide\(\)\)/.test(readCode));
   console.log = origLog; console.error = origErr; delete globalThis.Tesseract;
@@ -2109,6 +2159,8 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('card tabs: Colour, Logo, Style and Paper, in that order', tabs.CARD_TABS.join() === 'colour,logo,style,paper');
   ok('card tabs: the mini card shows only once the box has scrolled more than 40% of the card\'s height',
     !tabs.miniWanted(0, 240) && !tabs.miniWanted(96, 240) && tabs.miniWanted(97, 240) && !tabs.miniWanted(500, 0));
+  ok('card tabs: the band behind the mini card is as tall as the shrunk card plus a small gap, and none without a card',
+    tabs.miniBandHeight(240) === Math.ceil(240 * tabs.MINI_SCALE) + 8 && tabs.miniBandHeight(0) === 0, String(tabs.miniBandHeight(240)));
   {
     const btn = (t) => ({ dataset: { tab: t }, attrs: {}, setAttribute(k, v) { this.attrs[k] = v; } });
     const bs = tabs.CARD_TABS.map(btn), body = { dataset: { tab: 'colour' } }, look = { open: false };
@@ -2335,6 +2387,19 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
       && st.swatchFamilies(th.THEME_FAMILIES, 'Quick').map(f => f.id).join() === 'herd,signal,graphite'
       && st.swatchFamilies(th.THEME_FAMILIES, 'Everyday').map(f => f.id).join() === 'autumn,evergreen'
       && st.SWATCH_GROUPS.flatMap(g => st.swatchFamilies(th.THEME_FAMILIES, g.group)).length === th.THEME_FAMILIES.length);
+    // Phone test 562 (11-23): Cornerstone and Shutout both showed amber over near-black; the Team shows its light page
+    const swFam = (id) => th.THEME_FAMILIES.find(f => f.id === id), page = (id) => { const f = swFam(id); return st.swatchPage(f, f.light !== null ? th.themeFor(f.light) : null, f.dark !== null ? th.themeFor(f.dark) : null); };
+    const teamPages = st.swatchFamilies(th.THEME_FAMILIES, 'Team vCGE').map(f => page(f.id));
+    ok('Settings: a Team vCGE swatch shows its light page (each character its own tint), every other palette its dark page',
+      page('cornerstone') === th.themeFor(11).vars.bg && page('shutout') === th.themeFor(13).vars.bg && page('cornerstone') !== page('shutout')
+      && new Set(teamPages).size === teamPages.length && page('herd') === th.themeFor(0).vars.bg, JSON.stringify(teamPages));
+    // Premium controls (raven575 11-23): a slider's track is filled with the accent up to its value
+    const rf = await import(`${R}/modules/mod01-shell/rangeFill.js`);
+    ok('premium sliders: the fill is the value\'s share of min to max (0% at min, 100% at max, clamped, 0.1% steps; 0 to 100 when unset)',
+      rf.fillPercent(0, 0, 100) === '0%' && rf.fillPercent(100, 0, 100) === '100%' && rf.fillPercent(50, 0, 100) === '50%'
+      && rf.fillPercent(1, 0, 3) === '33.3%' && rf.fillPercent(-5, 0, 10) === '0%' && rf.fillPercent(15, 0, 10) === '100%'
+      && rf.fillPercent(25, '', '') === '25%' && rf.fillPercent(5, 10, 10) === '0%' && rf.fillPercent('0.9', '0.8', '1.4') === '16.7%');
+    ok('premium sliders: the Settings text size and the card\'s Paper sliders are the ones painted', rf.RANGE_SELECTOR === '.r5-range input[type="range"], .r4-strength input[type="range"]');
     const a11y = set5.indexOf('id="a11yLabel">Accessibility</h4>'), comfort = set5.indexOf('<h4>Comfort</h4>');
     ok('Settings: Accessibility holds Dyslexia-friendly font, Colour-blind mode and Left-handed, in that order, before Comfort (texture and Plain look)', a11y > 0 && comfort > a11y
       && ['dyslexiaToggle', 'cbToggle', 'handToggle'].map(id => set5.indexOf(`<input id="${id}" type="checkbox" role="switch"`)).every((i, n, a) => i > a11y && i < comfort && (n === 0 || i > a[n - 1]))
@@ -2524,6 +2589,12 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const homeOnly = new EgressController();
   homeOnly.setPayload('BEGIN:VCARD', { firstName: 'Kai', addressType: 'other', city: 'Boise', websites: [{ type: 'other', value: 'kai.dev' }] }, { hasDetails: true });
   ok('MOD08 summary: an "Other" website and address read "Website" and "Address"', homeOnly.contactSummary() === 'Kai\nWebsite:  kai.dev\nAddress:  Boise', JSON.stringify(homeOnly.contactSummary()));
+  const countryOnly = new EgressController();
+  countryOnly.setPayload('BEGIN:VCARD', { firstName: 'Kai', addressType: 'work', country: 'United States', phones: [{ type: 'work', value: '555-0100' }] }, { hasDetails: true });
+  ok('MOD08 summary: a country alone writes no address line (Play 562 phone test: "Work address:  United States")', countryOnly.contactSummary() === 'Kai\nWork phone:  555-0100', JSON.stringify(countryOnly.contactSummary()));
+  const cityOnly = new EgressController();
+  cityOnly.setPayload('BEGIN:VCARD', { firstName: 'Kai', addressType: 'work', city: 'Boise', country: 'United States' }, { hasDetails: true });
+  ok('MOD08 summary: a city with the country still writes the address', cityOnly.contactSummary() === 'Kai\nWork address:  Boise, United States', JSON.stringify(cityOnly.contactSummary()));
 
   // Save .vcf in the Android app (raven575's phone run, 2026-11-14: "saved", but no contact): the WebView cannot download,
   // so the card goes to the phone's Contacts app through MainActivity.kt's "vcgeAndroid"
@@ -2860,7 +2931,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('mapping: a phone number with a comma slip is found and repaired', comma[0].role === 'phoneMobile' && fm.buildFields(comma).fields.phones.map(p => p.type + p.value.replace(/\D/g, '')).join() === 'mobile16165550187,work13125550100' && comma[0].text === '616.555.0187', JSON.stringify(fm.buildFields(comma).fields.phones));
   const marks = fm.classifyLines('Dana Whitlock\nBrightpath\\Tw\'\ndana@brightpath.com');
   ok('mapping: a company with OCR marks that matches the domain is the company, trimmed to the domain', marks[1].role === 'organization' && marks[1].text === 'Brightpath', JSON.stringify(marks[1]));
-  ok('mapping: logo debris without a domain match stays out', fm.classifyLines('Dana Whitlock\nya\\O/|*!\ndana@brightpath.com')[1].role === 'ignore');
+  ok('mapping: logo debris without a domain match stays out', fm.classifyLines('Dana Whitlock\nya\\O/|*!\ndana@brightpath.com').map(l => l.role).join() === 'name,email');
   const handle = fm.classifyLines('Dana Whitlock\n@brightpathtech\ndana@brightpath.com');
   ok('mapping: a bare @handle line is the social profile (website)', handle[1].role === 'website' && fm.buildFields(handle).fields.websites.some(w => w.value === '@brightpathtech'), JSON.stringify(fm.buildFields(handle).fields.websites));
   // raven575's phone run (2026-11-20), made-up card in the same shape: "Owner" read as "Ower" with a stray T in front

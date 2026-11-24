@@ -65,7 +65,7 @@ export class ContactFormMapper {
      * @returns {{ text: string, role: string, icon: string|null }[]} One entry per non-empty line, in card order.
      */
     classifyLines(input) {
-        const raw = Array.isArray(input) ? input : String(input || '').split('\n').map(text => ({ text, icon: null }));
+        const raw = rejoinSplitLines(Array.isArray(input) ? input : String(input || '').split('\n').map(text => ({ text, icon: null })));
         const lines = raw
             .map(l => {
                 const read = applySecondGuesses(String(l.text || ''), l.alts);
@@ -265,7 +265,9 @@ export class ContactFormMapper {
             const text = IT_ROLES.has(line.role) ? repairCapitalIT(read) : read;
             const guesses = line.check && line.unsure ? guessesFor(text, line.swaps) : [];
             return { text, role: line.role || 'ignore', icon: line.icon, ...(line.check ? { check: line.check } : {}), ...(guesses.length ? { guesses } : {}) };
-        });
+        // Scraps left on Ignore (3 letters or digits at most: "ne", "J y", "oF", "3") are wood grain, a logo's edge or
+        // a split the joins above did not take; they are not listed (build 562 phone run: about 15 of them on a wood table).
+        }).filter(l => l.role !== 'ignore' || !isScrap(l.text));
     }
 
     /**
@@ -449,6 +451,46 @@ const titleLike = (text) => TITLE_WORDS.test(text) || TITLE_WORDS.test(fixTitleS
  * A lone capital the reader picked up in front of a title or city line ("T Ower", "T Portage, MI"). Not N, S, E or W,
  * which start real places and titles ("W Bloomfield"); only when words follow.
  */
+/**
+ * Lines the reader split in two are joined back before anything is classified (Play build 562, raven575's phone run
+ * 2026-11-23: the address came out as four lines, all left on Ignore, so the card said "No address provided"):
+ * - a ZIP code split after the state ("Portage, MI 490" + "24" -> "Portage, MI 49024"), when the two parts make 5 digits;
+ * - a street cut inside a word ("1200 Maplebrid" + "ge Road, Suite 405" -> "1200 Maplebridge Road, Suite 405"): a
+ *   number and words ending in a small letter, then a line that starts with a few small letters and has a street word.
+ * The second part's second guesses move with it; an icon seen beside a second part is dropped (it sat mid-line).
+ */
+function rejoinSplitLines(raw) {
+    const out = [];
+    for (const line of raw) {
+        const prev = out[out.length - 1];
+        const text = String(line.text || '');
+        if (prev) {
+            const before = String(prev.text || '').replace(/\s+$/, ''), after = text.trim();
+            const zip = /\b[A-Za-z]{2}\.?,? (\d{1,4})$/.exec(before);
+            const zipSplit = zip && /^\d{1,4}$/.test(after) && zip[1].length + after.length === 5;
+            const streetSplit = /^(?:[A-Z] )?\d{1,6} [A-Za-z][A-Za-z .'-]*[a-z]$/.test(before) && !STREET_WORDS.test(before)
+                && /^[a-z]{1,4} \S/.test(after) && STREET_WORDS.test(after);
+            if (zipSplit || streetSplit) {
+                const shift = before.length - (text.length - text.trimStart().length);
+                out[out.length - 1] = {
+                    ...prev, text: before + after,
+                    alts: [...(prev.alts || []), ...(line.alts || []).map(a => ({ ...a, at: a.at + shift }))],
+                    unsure: [...(Array.isArray(prev.unsure) ? prev.unsure : []), ...(Array.isArray(line.unsure) ? line.unsure : [])],
+                    ...(prev.lowConfidence || line.lowConfidence ? { lowConfidence: true } : {})
+                };
+                continue;
+            }
+        }
+        out.push(line);
+    }
+    return out;
+}
+
+/** 3 letters or digits at most: too little to be any field (see the end of classifyLines). */
+function isScrap(text) {
+    return (String(text || '').match(/[A-Za-z0-9]/g) || []).length <= 3;
+}
+
 function dropStrayLetter(text) {
     return String(text || '').replace(/^[A-DF-MO-RT-VX-Z] (?=[A-Za-z])/, '');
 }
