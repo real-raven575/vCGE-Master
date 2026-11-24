@@ -92,6 +92,11 @@
     :root:is([data-tier="laptop"], [data-tier="monitor"], [data-tier="wide"]) .vcge-dock { padding-top: 4px; padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px)); }
 }
 
+/* Tablets and an open Fold use their width (phone test 695, raven575 11-24): in the 40rem phone column the two Details
+   columns were about 290px each, so "United States", "Choose state", "Phone number" and "Apt, Suite" were cut off.
+   The column now grows to 56rem (the whole inner screen of a Fold), so each Details column has room. */
+:root:is([data-tier="small-tablet"], [data-tier="large-tablet"]) { --sh-col: 56rem; }
+
 /* Tablets and an open Fold: Details in two columns (Name, Work and Reach | Address and Notes), so the form is about half
    as tall. Capture and Read keep the big photo on top (raven575's Fold pick, 2026-10-22). */
 :root:is([data-tier="small-tablet"], [data-tier="large-tablet"]) #cardFields #fieldsForm { grid-template-columns: repeat(2, minmax(0, 1fr));

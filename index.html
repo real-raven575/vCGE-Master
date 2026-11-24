@@ -421,6 +421,7 @@
                         <div id="cardBack" class="card-face absolute inset-0 w-full rounded-3xl p-6 shadow-xl flex flex-col justify-center items-center text-center gap-2 rotate-y-180 backface-hidden font-sans">
                             <canvas id="qrCanvas" width="320" height="320" class="w-40 h-40 rounded-xl shadow-xl bg-white"></canvas>
                             <p id="qrHint" class="qr-hint hidden"><svg class="qr-tail" viewBox="0 0 12 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M3 1.5c4.5 0 6.5 3.5 6.5 6.5S7.5 13 5 13 2 11 3.5 9.5 6.5 9.5 6.5 11"/><path d="M2 1.2 3 2.2M3.2.6l.6 1.3M1.4 2.6l1.4-.2"/></svg>Point a phone camera here</p>
+                            <p id="qrEmpty" class="qr-hint">Add a name, phone or email and your QR code appears here</p>
                             <p id="backCardName" class="text-sm font-bold">New Contact</p>
                             <!-- D2: Flipside the Chameleon sits on the bottom edge of the back (hand-drawn, still; the card's own colours) -->
                             <svg class="card-peek" viewBox="0 0 80 48" aria-hidden="true" focusable="false">
@@ -1086,7 +1087,7 @@
     <!-- Toast (MOD06): at the top under the header, 3 s; a tap dismisses it, a hold keeps it -->
     <div id="toast" class="vcge-toast -translate-y-24 opacity-0 pointer-events-none" role="status">
         <span id="toastMessage"></span>
-        <button id="toastAction" type="button" class="hidden font-semibold text-brand-400 dark:text-brand-700 hover:underline">Undo</button>
+        <button id="toastAction" type="button" class="hidden font-semibold">Undo</button>
     </div>
 
     <!-- Print sheet (MOD08): filled just before printing with the card front (3.5 x 2 in, taller when its lines need it) and the QR beside it on a 6 x 3.5 in page (taller to match); emptied on idle purge and lock -->
