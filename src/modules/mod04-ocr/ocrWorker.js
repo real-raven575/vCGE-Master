@@ -752,7 +752,7 @@ async function scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started, g
     // Preparing the photo counts as start-up: a photo the browser never finishes decoding ends at the same time limit.
     let timer;
     const late = new Promise((_, reject) => { timer = setTimeout(() => reject(new OcrUnavailableError(`preparing the photo took longer than ${Math.round(initTimeoutMs / 1000)} s`)), initTimeoutMs); });
-    const processedImage = await Promise.race([preProcessImageBuffer(imageSrc), late]).finally(() => clearTimeout(timer));
+    let processedImage = await Promise.race([preProcessImageBuffer(imageSrc), late]).finally(() => clearTimeout(timer));
     // Each start-up step moves the "Preparing the reader" percentage, so a slow first load (about 7 MB) is seen moving
     // and not taken for a freeze (raven575's first phone run of 0.8, 2026-11-03).
     // Only start-up steps: the same logger also reports "recognizing text" while reading, which must not relabel the read.
@@ -787,9 +787,15 @@ async function scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started, g
     }
     if (generation !== started) throw new OcrCancelledError();
     if (Math.round(result.data.confidence || 0) < SECOND_BINARIZE_BELOW) result = await secondBinarize(worker, processedImage, result, readTimeoutMs, started);
+    // A card held the other way reads as near nothing: the photo is read turned a quarter each way and the best kept.
+    const turn = await tryTurns(worker, processedImage, result, readTimeoutMs, started);
+    if (generation !== started) throw new OcrCancelledError();
+    processedImage = turn.image;
+    result = turn.result;
+    if (turn.quarter && Math.round(result.data.confidence || 0) < SECOND_BINARIZE_BELOW) result = await secondBinarize(worker, processedImage, result, readTimeoutMs, started);
     const text = result.data.text || '';
     const confidence = Math.round(result.data.confidence || 0);
-    const readableWords = (result.data.words || []).filter(w => w.confidence >= 60 && /[A-Za-z0-9]{2,}/.test(w.text)).length;
+    const readableWords = readableWordCount(result.data);
 
     console.log(`[${MODULE_ID}] OCR extraction complete. Confidence ${confidence}, ${readableWords} readable words, raw text length ${text.length}`);
     let failedGate = null;
@@ -817,9 +823,10 @@ async function scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started, g
     if (generation !== started) throw new OcrCancelledError();
     const lines = found.map(({ look, digits, y, ...line }) => (lowConfidence ? { ...line, lowConfidence: true } : line));
     // Where each line sits, in the reader's pixels (the photo times readerScale): the logo finder blanks out the contact
-    // text with these (logoGuess.js). Boxes and text only, like the lines themselves.
+    // text with these (logoGuess.js). Boxes and text only, like the lines themselves. A turned reading's boxes are put
+    // back on the upright photo, which is the one the logo finder looks at.
     const boxes = (result.data.lines || []).filter(l => l && l.bbox && String(l.text || '').trim())
-        .map(l => ({ text: String(l.text).trim(), confidence: Math.round(l.confidence || 0), bbox: { x0: l.bbox.x0, y0: l.bbox.y0, x1: l.bbox.x1, y1: l.bbox.y1 } }));
+        .map(l => ({ text: String(l.text).trim(), confidence: Math.round(l.confidence || 0), bbox: unturnBox({ x0: l.bbox.x0, y0: l.bbox.y0, x1: l.bbox.x1, y1: l.bbox.y1 }, turn.quarter, turn.width, turn.height) }));
     // A signal only: the text itself is contact data and goes back to the caller, never onto the bus.
     globalEventBus.publish(Events.OCR_TEXT_EXTRACTED, { sourceModule: MODULE_ID, confidence, icons: lines.filter(l => l.icon).length, timestamp: Date.now() });
     if (failedGate) return { text, confidence, lines, boxes, failedGate };
@@ -845,6 +852,82 @@ async function secondBinarize(worker, processedImage, first, timeoutMs, started)
     } finally {
         if (tesseractWorker === worker) await worker.setParameters({ thresholding_method: THRESHOLD_WHOLE_PAGE }).catch(() => {});
     }
+}
+
+/** Readable words in a reading: confidence 60+ and two letters or digits in a row (the same count the gate uses). */
+export function readableWordCount(data) {
+    return ((data && data.words) || []).filter(w => w.confidence >= 60 && /[A-Za-z0-9]{2,}/.test(w.text)).length;
+}
+
+/**
+ * Whether a reading is weak enough to try the photo turned a quarter: under OCR_MIN_CONFIDENCE, or with fewer than
+ * OCR_MIN_READABLE_WORDS readable words (the readings the gate would reject or mark to check; a sure short card is read
+ * once). A card held the other way (portrait in a landscape frame, or the reverse) reads
+ * as near nothing (raven575's Play 695 test, 2026-11-24: "It needs to work out which way the card is turned").
+ */
+export function shouldTryTurns(confidence, readableWords) {
+    return confidence < OCR_MIN_CONFIDENCE || readableWords < OCR_MIN_READABLE_WORDS;
+}
+
+/** Whether a turned reading beats the upright one: at least 2 more readable words, and no less sure overall. */
+export function turnedWins(first, turned) {
+    return turned.readableWords >= first.readableWords + 2 && turned.confidence >= first.confidence;
+}
+
+/**
+ * A box read on a picture turned `quarter` quarter-turns clockwise (1 or 3), put back on the upright picture
+ * (`width` x `height`, the upright size), so the logo finder blanks the right spots (logoGuess.js).
+ */
+export function unturnBox(box, quarter, width, height) {
+    if (quarter === 1) return { x0: box.y0, y0: height - box.x1, x1: box.y1, y1: height - box.x0 };
+    if (quarter === 3) return { x0: width - box.y1, y0: box.x0, x1: width - box.y0, y1: box.x1 };
+    return { ...box };
+}
+
+/** A prepared photo (data URL) turned `quarter` quarter-turns clockwise, as { image, width, height } of the upright one. */
+function turnImage(imageSrc, quarter) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+            try {
+                const w = img.width, h = img.height, canvas = document.createElement('canvas');
+                canvas.width = h; canvas.height = w;
+                const ctx = canvas.getContext('2d');
+                ctx.translate(h / 2, w / 2);
+                ctx.rotate(quarter * Math.PI / 2);
+                ctx.drawImage(img, -w / 2, -h / 2);
+                resolve({ image: canvas.toDataURL('image/png'), width: w, height: h });
+            } catch (err) { reject(err); }
+        };
+        img.onerror = (err) => reject(new Error(`Failed to load the photo to turn it: ${err}`));
+        img.src = imageSrc;
+    });
+}
+
+/**
+ * The photo read turned a quarter each way when the upright reading is weak (shouldTryTurns); the best reading
+ * (turnedWins) is returned with the picture it came from. Best effort: a failure keeps the upright reading; only a
+ * wipe (OcrCancelledError) ends the scan. `quarter` is 0 when the upright reading stays.
+ */
+async function tryTurns(worker, processedImage, first, timeoutMs, started) {
+    let best = { result: first, image: processedImage, quarter: 0, confidence: Math.round(first.data.confidence || 0), readableWords: readableWordCount(first.data) };
+    if (!shouldTryTurns(best.confidence, best.readableWords)) return best;
+    for (const quarter of [1, 3]) {
+        try {
+            const turned = await turnImage(processedImage, quarter);
+            const result = await readWithin(worker, turned.image, timeoutMs);
+            if (generation !== started) throw new OcrCancelledError();
+            const next = { result, image: turned.image, quarter, width: turned.width, height: turned.height, confidence: Math.round(result.data.confidence || 0), readableWords: readableWordCount(result.data) };
+            console.log(`[${MODULE_ID}] Turned ${quarter * 90}°: confidence ${next.confidence}, ${next.readableWords} readable words (best so far ${best.confidence}, ${best.readableWords})`);
+            if (turnedWins(best, next)) best = next;
+        } catch (error) {
+            if (error instanceof OcrCancelledError) throw error;
+            console.warn(`[${MODULE_ID}] Reading the photo turned ${quarter * 90}° stopped, kept the best so far:`, error);
+            // A read past its time limit retired the worker: no more turns with it.
+            if (error instanceof OcrTimeoutError) break;
+        }
+    }
+    return best;
 }
 
 /** A crash inside the engine's WebAssembly (not a timeout, a cancel or a photo it could not read). */

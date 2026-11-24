@@ -79,6 +79,20 @@ export class ContactFormMapper {
             });
         const free = (line) => line.role === null;
 
+        // Label words printed on a line of their own ("MAIN", "MOBILE", "EMAIL" over or beside the details: raven575's
+        // Play 695 run, 2026-11-24, MAIN phone came out as Fax). The reader often reads the label column apart from the
+        // values, so the phone labels go, in card order, to the phone lines that have no written label of their own,
+        // and win over an icon. The label lines themselves are dropped.
+        const loneLabels = lines.filter(l => LONE_LABEL.test(l.text));
+        if (loneLabels.length) {
+            const phoneLabels = loneLabels.map(l => loneLabelKind(l.text)).filter(k => PHONE_ROLE[k]);
+            lines.forEach(l => {
+                if (LONE_LABEL.test(l.text) || splitLabel(l.text).label || !findPhones(l.text).length) return;
+                if (phoneLabels.length) l.label = phoneLabels.shift();
+            });
+            loneLabels.forEach(l => { l.role = 'ignore'; l.lone = true; });
+        }
+
         // Emails (labels E/Email, or anything with an @ or an OCR look-alike of it); the first one feeds the name check
         let email = '';
         for (const line of lines) {
@@ -263,9 +277,12 @@ export class ContactFormMapper {
         if (place.line && place.country === DEFAULT_COUNTRY && !zipFitsState(place.zip, state)) {
             place.line.check = `${place.zip} is not a ${REGION_NAME[state] || state} ZIP code. Please check it.`;
         }
-        // A reading the reader was unsure of as a whole (MOD04 `lowConfidence`) has every line checked, phone numbers too.
+        // A reading the reader was unsure of as a whole (MOD04 `lowConfidence`) has its lines checked, phone numbers too,
+        // except a line the reader was sure of whose shape proves it (a whole phone number, an email or web address with a
+        // known ending, a City/State/ZIP that fits): raven575's Play 695 run, 2026-11-24, "the things that it got right,
+        // it wasn't sure that it got right", with nearly every line flagged.
         lines.forEach(l => {
-            if (!l.check && l.low) l.check = LOW_CONFIDENCE_NOTE;
+            if (!l.check && l.low && !(provenByShape(l) && !l.unsure)) l.check = LOW_CONFIDENCE_NOTE;
             if (!l.check && l.unsure && l.role && !PHONE_ROLES.has(l.role) && l.role !== 'phone') l.check = 'The reader was not sure of some letters here. Please check them.';
         });
 
@@ -286,7 +303,7 @@ export class ContactFormMapper {
             return { text, role: line.role || 'ignore', icon: line.icon, ...(line.check ? { check: line.check } : {}), ...(guesses.length ? { guesses } : {}) };
         // Scraps left on Ignore (3 letters or digits at most: "ne", "J y", "oF", "3") are wood grain, a logo's edge or
         // a split the joins above did not take; they are not listed (build 562 phone run: about 15 of them on a wood table).
-        }).filter(l => l.role !== 'ignore' || !isScrap(l.text));
+        }).filter((l, i) => l.role !== 'ignore' || !(isScrap(l.text) || lines[i].lone));
     }
 
     /**
@@ -556,6 +573,27 @@ const FREE_MAIL = /^(?:gmail|googlemail|yahoo|ymail|outlook|hotmail|live|msn|aol
 const ICON_LABEL = { phone: 'work', mobile: 'mobile', fax: 'fax', home: 'home', email: 'email', web: 'web' };
 // Review-picker role for a phone line whose type is known.
 const PHONE_ROLE = { work: 'phoneWork', mobile: 'phoneMobile', home: 'phoneHome', fax: 'phoneFax' };
+
+/** A line whose own shape shows it was read right: one whole phone number, an email or web address, or a fitting City/State/ZIP. */
+function provenByShape(line) {
+    const body = line.body || line.text;
+    if (PHONE_ROLES.has(line.role) || line.role === 'phone') {
+        // one number and no other digits on the line (a stray digit is a slip somewhere in it)
+        return findPhones(body).length === 1 && body.replace(/\D/g, '').length <= 11;
+    }
+    if (line.role === 'email') return !!findEmail(body);
+    if (line.role === 'website') return !!findWebsite(body, false);
+    if (line.role === 'cityStateZip') { const a = findAddressLine(line.text); return !!(a && a.country === DEFAULT_COUNTRY && zipFitsState(a.zip, a.state)); }
+    return false;
+}
+
+// A label word alone on its line ("MAIN", "Mobile:", "E-mail") and the label it stands for (see classifyLines).
+const LONE_LABEL = /^(?:main|office|work|direct|tel|telephone|phone|ph|mobile|mob|cell|cellular|fax|home|e-?mail|web|website|url)\s*[:.]?$/i;
+function loneLabelKind(text) {
+    const w = String(text).toLowerCase().replace(/[^a-z]/g, '');
+    return /^(?:mobile|mob|cell|cellular)$/.test(w) ? 'mobile' : w === 'fax' ? 'fax' : w === 'home' ? 'home'
+        : /^e?mail$/.test(w) ? 'email' : /^(?:web|website|url)$/.test(w) ? 'web' : 'work';
+}
 
 /** OCR reads the I (or l) inside an address as "\" or "|": "BrightPath\T.com" -> "BrightPathIT.com". Only between letters or digits. */
 function repairAddressText(text) {

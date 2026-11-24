@@ -583,6 +583,19 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   const split = fm.buildFields(lines('Rowan Pike\n12 Dock Street\nSpringfield,\nIL 62701')).fields;
   ok('font fix: a town split from its state and ZIP is joined back', split.city === 'Springfield' && split.state === 'IL' && split.zip === '62701' && split.street === '12 Dock Street', JSON.stringify(split));
   ok('font fix: a name line above "IL 62701" is not joined (no comma)', fm.buildFields(lines('Rowan Pike\nIL 62701')).fields.city !== 'Rowan Pike');
+  // Play 695 run (2026-11-24), made-up cards: label words on their own lines, and a low-confidence read.
+  const lone = fm.classifyLines([{ text: 'Rowan Pike', icon: null }, { text: 'MAIN', icon: null }, { text: 'MOBILE', icon: null }, { text: 'EMAIL', icon: null },
+    { text: '(269) 555-0140', icon: 'fax' }, { text: '(269) 555-0177', icon: null }, { text: 'rpike@pikeharbor.com', icon: null }]);
+  ok('695: lone label lines give their labels to the phones in order, over a wrong Fax icon, and are dropped',
+    role(lone, 'phoneWork') === '(269) 555-0140' && role(lone, 'phoneMobile') === '(269) 555-0177' && !lone.some(l => /^(MAIN|MOBILE|EMAIL)$/.test(l.text)) && !lone.some(l => l.role === 'phoneFax'), JSON.stringify(lone));
+  const ownLabel = fm.classifyLines('Rowan Pike\nMOBILE\nF (269) 555-0140\n(269) 555-0177');
+  ok('695: a phone line with its own written label keeps it; the lone label goes to the next unlabelled one',
+    role(ownLabel, 'phoneFax') === '(269) 555-0140' && role(ownLabel, 'phoneMobile') === '(269) 555-0177', JSON.stringify(ownLabel));
+  const low = fm.classifyLines(['Rowan Pike', 'Harbor Master', '(269) 555-0140', 'rpike@pikeharbor.com', 'www.pikeharbor.com', '12 Dock Street', 'Portage, MI 49024'].map(text => ({ text, icon: null, lowConfidence: true })));
+  ok('695: on an unsure photo, lines proven by their shape (phone, email, web, City/State/ZIP) are not flagged; the others are',
+    ['phoneWork', 'phone', 'email', 'website', 'cityStateZip'].every(r => !low.some(l => l.role === r && l.check)) && line(low, 'street').check && low.find(l => l.text === 'Rowan Pike').check, JSON.stringify(low.map(l => [l.role, !!l.check])));
+  const lowUnsure = fm.classifyLines([{ text: 'rpike@pikeharbor.com', icon: null, lowConfidence: true, unsure: [{ at: 2 }] }]);
+  ok('695: a proven line with unsure letters is still flagged', !!line(lowUnsure, 'email').check, JSON.stringify(lowUnsure));
   const peak = lines('Owner & Ceneral Manager\n7950 Lakeview Road\nPortage, MI 49024\nE jdoe@PeakLogiclT.com\nT 269.555.0140\nW PeakLogiclT.com/KalamazooMI');
   ok('mapping: "Ceneral" is General in a title; "lT" is "IT" in the email and web address', role(peak, 'jobTitle') === 'Owner & General Manager' && role(peak, 'email') === 'jdoe@PeakLogicIT.com' && role(peak, 'website') === 'PeakLogicIT.com/KalamazooMI', JSON.stringify(peak));
   const advisor = lines('Technology\nAdvisor\nOwner & General Manager\n7950 Lakeview Road\nPortage, MI 49024\nT 269.555.0140');
@@ -655,9 +668,10 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('a ZIP code that fits its state is not flagged', zipCheck('Portage, MI 49024') === undefined && zipCheck('Boston, MA 02108') === undefined && zipCheck('Austin, TX 73301') === undefined, zipCheck('Boston, MA 02108'));
   ok('a line with words the reader was unsure of is flagged for checking', camera.find(l => l.role === 'website').check === 'The reader was not sure of some letters here. Please check them.');
   {
-    // A reading the reader was unsure of as a whole (MOD04 lowConfidence): every line is flagged, phone numbers too
+    // A reading the reader was unsure of as a whole (MOD04 lowConfidence): lines are flagged, except a whole phone
+    // number, an email or web address, or a fitting City/State/ZIP that the reader was sure of (raven575, Play 695 run)
     const low = fm.classifyLines([{ text: 'Jo Smith', lowConfidence: true }, { text: 'T 616.555.0140', lowConfidence: true }, { text: 'jo@acme.com', lowConfidence: true }, { text: '12 Main Street', lowConfidence: true }, { text: 'Portage, MI 42024', lowConfidence: true }]);
-    ok('every line of a low-confidence reading is flagged for checking, phone included', low.length === 5 && low.filter(l => l.role !== 'cityStateZip').every(l => l.check === LOW_CONFIDENCE_NOTE) && low.some(l => l.role === 'phoneWork' && l.check === LOW_CONFIDENCE_NOTE), JSON.stringify(low));
+    ok('a low-confidence reading flags name and street; a whole phone number and an email stay unflagged', low.length === 5 && ['name', 'street'].every(r => low.find(l => l.role === r).check === LOW_CONFIDENCE_NOTE) && ['phoneWork', 'email'].every(r => !low.find(l => l.role === r).check), JSON.stringify(low));
     ok('a wrong ZIP code keeps its own, more exact note', low.find(l => l.role === 'cityStateZip').check === '42024 is not a Michigan ZIP code. Please check it.', JSON.stringify(low));
     ok('lines of a sure reading get no low-confidence note', fm.classifyLines([{ text: 'Jo Smith' }, { text: 'T 616.555.0140' }]).every(l => !('check' in l)));
   }
@@ -1268,13 +1282,30 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 {
   // The fake canvas hands back `fakePixels(w, h)`: flat grey unless a check draws something (blur score checks)
   let fakePixels = (w, h) => new Uint8ClampedArray(w * h * 4).fill(128);
-  globalThis.document = { baseURI: 'http://localhost/', createElement: () => ({ getContext: () => ({ drawImage() {}, getImageData: (x, y, w, h) => ({ data: fakePixels(w, h) }), putImageData() {} }), toDataURL: () => 'data:image/png;base64,' }) };
+  globalThis.document = { baseURI: 'http://localhost/', createElement: () => ({ getContext: () => ({ drawImage() {}, translate() {}, rotate() {}, getImageData: (x, y, w, h) => ({ data: fakePixels(w, h) }), putImageData() {} }), toDataURL: () => 'data:image/png;base64,' }) };
   globalThis.Image = class { set src(v) { this.width = 10; this.height = 10; setTimeout(() => this.onload && this.onload(), 0); } };
   const origLog = console.log, origErr = console.error; console.log = () => {}; console.error = () => {};
   const ocr = await import(`${R}/modules/mod04-ocr/ocrWorker.js`);
   // raven575's first phone run of 0.8 (2026-11-03): "Preparing the reader…" sat still through the first ~7 MB load and read as a freeze
   ok('MOD04 0.8 run: start-up steps move forward from 0 to 1', ocr.startProgress('loading tesseract core', 0) === 0 && ocr.startProgress('loading tesseract core', 1) === 0.5 && ocr.startProgress('loading language traineddata', 0.5) === 0.75 && ocr.startProgress('initializing api', 1) === 1);
   ok('MOD04 0.8 run: the read\'s own progress ("recognizing text") is not a start-up step', ocr.startProgress('recognizing text', 0.4) === null);
+  // raven575's Play 695 test (2026-11-24): a card held the other way must still read
+  ok('695: a weak reading (unsure, or under 3 readable words) tries the photo turned; a sure one, even short, does not',
+    ocr.shouldTryTurns(40, 30) && ocr.shouldTryTurns(80, 2) && !ocr.shouldTryTurns(80, 12) && !ocr.shouldTryTurns(88, 8));
+  ok('695: a turned reading wins only with 2+ more readable words and no less confidence',
+    ocr.turnedWins({ confidence: 30, readableWords: 1 }, { confidence: 82, readableWords: 14 })
+    && !ocr.turnedWins({ confidence: 30, readableWords: 1 }, { confidence: 25, readableWords: 14 })
+    && !ocr.turnedWins({ confidence: 50, readableWords: 8 }, { confidence: 60, readableWords: 9 }));
+  {
+    // A 300 x 100 upright picture; a box near its top-left corner, read on the picture turned each way, comes back there
+    const W = 300, H = 100, up = { x0: 10, y0: 20, x1: 60, y1: 30 };
+    const cw = { x0: H - up.y1, y0: up.x0, x1: H - up.y0, y1: up.x1 };     // the same box on the picture turned 90° clockwise
+    const ccw = { x0: up.y0, y0: W - up.x1, x1: up.y1, y1: W - up.x0 };    // ... and turned 270° clockwise
+    const same = (a, b) => ['x0', 'y0', 'x1', 'y1'].every(k => a[k] === b[k]);
+    ok('695: boxes read on a turned picture are put back on the upright photo for the logo finder',
+      same(ocr.unturnBox(cw, 1, W, H), up) && same(ocr.unturnBox(ccw, 3, W, H), up) && same(ocr.unturnBox(up, 0, W, H), up),
+      JSON.stringify([ocr.unturnBox(cw, 1, W, H), ocr.unturnBox(ccw, 3, W, H)]));
+  }
   let evt = null; share.globalEventBus.subscribe(share.Events.OCR_TEXT_EXTRACTED, e => evt = e);
   const failure = (p) => p.then(() => null, e => e);
 
@@ -1404,6 +1435,11 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     result = () => { ++reads; return { text: 'Jane Doe\njane@example.com', confidence: 88, words: words(8, 90) }; };
     await ocr.executeOCRScan('data:image/png;base64,x');
     ok('second black-and-white: a sure reading is read once', reads === 1 && !seenParams.some(p => 'thresholding_method' in p), JSON.stringify({ reads, seenParams }));
+    // Play 695: a card held the other way reads as near nothing upright (and again with the local step); turned 90° it reads
+    reads = 0; seenParams = [];
+    result = () => (++reads === 3 ? { text: 'Jane Doe\nSales Manager\n616.555.0140\njane@example.com', confidence: 86, words: words(14, 90) } : { text: '~ |', confidence: 20, words: words(1, 30) });
+    const turned = await ocr.executeOCRScan('data:image/png;base64,x');
+    ok('695: a sideways card is read turned a quarter and the turned reading kept', reads === 4 && turned.confidence === 86 && turned.lines.length === 4 && !('lowConfidence' in turned), JSON.stringify({ reads, c: turned.confidence }));
     reads = 0;
     result = () => { if (++reads === 2) throw new Error('boom'); return { text: 'Jane Doe\nSales Manager', confidence: 70, words: words(12, 80) }; };
     const failedSecond = await ocr.executeOCRScan('data:image/png;base64,x');
