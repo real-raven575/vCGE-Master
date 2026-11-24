@@ -526,7 +526,7 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
 // OCR for the Monday testers (raven575's ask, 2026-11-21): faint lines and mapping slips from the lab's card bench. Fictional people.
 {
   const fl = await import(`${R}/modules/mod04-ocr/faintLines.js`);
-  const { ContactFormMapper, repairCapitalIT } = await import(`${R}/modules/mod05-form/formMapper.js`);
+  const { ContactFormMapper, repairCapitalIT, repairWww } = await import(`${R}/modules/mod05-form/formMapper.js`);
   // A 400 x 200 card at paper 230: a dark line read at y 40-60, a pale line (200) at y 100-120 nobody read, a dark
   // blade of grass from top to bottom at x 5-8, and a dark band (a coloured stripe) at y 160-200.
   const W = 400, H = 200, gray = new Uint8Array(W * H).fill(230);
@@ -567,6 +567,22 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
     /^The company name is close to the card's web address \(northwindtrails\)/.test(line(co, 'organization').check || '')
     && !line(lines('Dana Quill\nNorthwind Trails\nwww.northwindtrails.com'), 'organization').check
     && line(lines('Dana Quill\nNorthwind Trails\nwww.northwindtrails.com'), 'organization').text === 'Northwind Trails', JSON.stringify(co));
+  // Font bench quick fixes (2026-11-24), all made-up cards.
+  const ww = lines('Rowan Pike\nPike Harbor Supply\nrpike@pikeharbor.com\nw.pikeharbor.com');
+  ok('font fix: "w." in front of a web address is "www.", and the email does not take the slip', role(ww, 'website') === 'www.pikeharbor.com' && role(ww, 'email') === 'rpike@pikeharbor.com', JSON.stringify(ww));
+  ok('font fix: "ww." and "wow." are "www." too; a plain two-part domain is left alone', repairWww('ww.pikeharbor.com') === 'www.pikeharbor.com' && repairWww('wow.pikeharbor.com') === 'www.pikeharbor.com' && repairWww('w.co') === 'w.co' && repairWww('wade.pikeharbor.com') === 'wade.pikeharbor.com');
+  const runA = lines('Rowan Pike\nrowanapikeharbor.com\npikeharbor.com');
+  ok('font fix: an email with its @ read as "a" is an email, asked about, the web address kept', role(runA, 'email') === 'rowan@pikeharbor.com' && /@ read as a letter/.test(line(runA, 'email').check || '') && JSON.stringify(line(runA, 'email').guesses) === '["rowan@pikeharbor.com"]' && role(runA, 'website') === 'pikeharbor.com', JSON.stringify(runA));
+  const runAn = fm.buildFields(lines('Rowan Pike\nrpikeanpikeharbor.com\nwww.pikeharbor.com')).fields;
+  ok('font fix: "an" for the @ fills the email and one web address', runAn.emails[0]?.value === 'rpike@pikeharbor.com' && runAn.websites.length === 1 && runAn.websites[0].value === 'www.pikeharbor.com', JSON.stringify(runAn));
+  ok('font fix: a card with an email, or two different web addresses, is not changed',
+    !lines('Rowan Pike\nrpike@pikeharbor.com\nshoppikeharbor.com\npikeharbor.com').some(l => /read as a letter/.test(l.check || ''))
+    && lines('Rowan Pike\nnorthwind.com\npikeharbor.com').every(l => l.role !== 'email'));
+  const csz = (t) => fm.buildFields(lines(`Rowan Pike\n12 Dock Street\n${t}`)).fields;
+  ok('font fix: a ZIP with no space after the state, and an O read for a zero, are read', ['IL62701', 'ME o4101'].every((z, i) => { const f = csz(`Springfield, ${z}`); return f.city === 'Springfield' && f.state === ['IL', 'ME'][i] && f.zip === ['62701', '04101'][i]; }), JSON.stringify(csz('Springfield, IL62701')));
+  const split = fm.buildFields(lines('Rowan Pike\n12 Dock Street\nSpringfield,\nIL 62701')).fields;
+  ok('font fix: a town split from its state and ZIP is joined back', split.city === 'Springfield' && split.state === 'IL' && split.zip === '62701' && split.street === '12 Dock Street', JSON.stringify(split));
+  ok('font fix: a name line above "IL 62701" is not joined (no comma)', fm.buildFields(lines('Rowan Pike\nIL 62701')).fields.city !== 'Rowan Pike');
   const peak = lines('Owner & Ceneral Manager\n7950 Lakeview Road\nPortage, MI 49024\nE jdoe@PeakLogiclT.com\nT 269.555.0140\nW PeakLogiclT.com/KalamazooMI');
   ok('mapping: "Ceneral" is General in a title; "lT" is "IT" in the email and web address', role(peak, 'jobTitle') === 'Owner & General Manager' && role(peak, 'email') === 'jdoe@PeakLogicIT.com' && role(peak, 'website') === 'PeakLogicIT.com/KalamazooMI', JSON.stringify(peak));
   const advisor = lines('Technology\nAdvisor\nOwner & General Manager\n7950 Lakeview Road\nPortage, MI 49024\nT 269.555.0140');
