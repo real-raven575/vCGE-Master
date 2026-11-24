@@ -1854,6 +1854,20 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   ok('gate: Firefox on Windows 8.1 warns about the system only', gate.warnReasons(env({ navigator: { userAgent: 'Mozilla/5.0 (Windows NT 6.3; Win64; x64; rv:115.0) Gecko/20100101 Firefox/115.0', mediaDevices: { getUserMedia() {} } } })).join() === 'oldos');
   ok('gate: no camera or no 3D flip only warns', gate.warnReasons(env({ navigator: { userAgent: 'x' }, CSS: { supports: () => false } })).join() === 'nocamera,no3d');
   ok('gate: every warning has its text', ['oldos', 'oldengine', 'nocamera', 'no3d'].every(k => typeof gate.WARNINGS[k] === 'string'));
+  // Blocking stops this page first and opens the "cannot run" page only on the next turn, so WebKit's stop does not
+  // also cancel that page's own files (CI 2026-11-23); it opens at once where there is no timer, and only once
+  {
+    const log = [], timers = [];
+    const win = { stop: () => log.push('stop'), setTimeout: (fn, ms) => { log.push('timer ' + ms); timers.push(fn); }, location: { replace: (u) => log.push('open ' + u) } };
+    gate.showUnsupported(win, ['netlock', 'wasm']);
+    const before = log.join(' | ');
+    timers.forEach(fn => fn());
+    gate.showUnsupported(win, ['csp']);
+    ok('gate: blocking stops the page, then opens the "cannot run" page on the next turn, once',
+      before === 'stop | timer 0' && log.join(' | ') === `stop | timer 0 | open ${gate.UNSUPPORTED_PAGE}#netlock,wasm` && win.__vcgeGateBlocked === true, log.join(' | '));
+    const bare = []; gate.showUnsupported({ location: { replace: (u) => bare.push(u) } }, ['modules']);
+    ok('gate: with no timer the "cannot run" page opens at once', bare.join() === `${gate.UNSUPPORTED_PAGE}#modules`, bare.join());
+  }
   // The gate starts the app itself, after the page has been read, and never once it has blocked
   const fakeDoc = (state, meta) => {
     const added = [], waiting = [];

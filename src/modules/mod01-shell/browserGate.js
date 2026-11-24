@@ -69,7 +69,12 @@
             if (typeof env.stop === 'function') env.stop();
             else if (env.document && env.document.execCommand) env.document.execCommand('Stop');
         } catch (e) { /* keep going */ }
-        env.location.replace(UNSUPPORTED_PAGE + '#' + reasons.join(','));
+        // Opened on the next turn, after the stop has finished cancelling this page's loads: in the same turn WebKit
+        // also cancelled the new page's own files (unsupported.js and .css "WebKit encountered an internal error"),
+        // so it opened with no reasons listed (iPhone and WebKit CI, PRs #82 and #83, 2026-11-23)
+        var target = UNSUPPORTED_PAGE + '#' + reasons.join(',');
+        if (typeof env.setTimeout === 'function') env.setTimeout(function () { env.location.replace(target); }, 0);
+        else env.location.replace(target);
     }
 
     function showBanner(env, reasons) {
@@ -158,7 +163,7 @@
 
     if (typeof module === 'object' && module.exports) {
         module.exports = { blockReasons: blockReasons, warnReasons: warnReasons, WARNINGS: WARNINGS, UNSUPPORTED_PAGE: UNSUPPORTED_PAGE,
-            APP_ENTRY: APP_ENTRY, appEntry: appEntry, startApp: startApp, splashOff: splashOff };
+            APP_ENTRY: APP_ENTRY, appEntry: appEntry, startApp: startApp, splashOff: splashOff, showUnsupported: showUnsupported };
     } else {
         run(window);
     }
