@@ -71,7 +71,7 @@ export const BAND_MIN_CHROMA = 0.07;          // the added strip's colour must d
  * patches: the flood fill from the centre stops at the band and cuts it off. So the finder fills a second time with
  * "anything that is not table" and keeps that bigger patch when it holds the first one, grows it by a band's share,
  * stays off the photo's edges, and the strip it adds has a colour of its own. The last test tells a band from the
- * card's shadow or glare on the table, which change the table's brightness but hardly its hue (chromaticity). Null
+ * card's own shadows or glare on the table, which change the table's brightness but hardly its hue (chromaticity). Null
  * when there is no such band. Night Shift, 2026-11-27: band-layout cards' edges were right on 3 of 59 photos.
  */
 function withBand(small, quad, image, step) {
