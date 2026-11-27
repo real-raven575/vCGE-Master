@@ -3076,5 +3076,70 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   agent.destroy(); srv.kill();
 }
 
+// HQ-0427: the Herd's ideas for Glyph (raven575's go, 2026-11-27)
+{
+  const cb = await import(`${R}/modules/mod04-ocr/colourBands.js`);
+  // A white card 400 x 200 with a blue band (rows 20-60) holding red "letters" of the same grey (rgb 220,40,40 on 40,110,160)
+  const W = 400, H = 200, rgba = new Uint8ClampedArray(W * H * 4);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const o = (y * W + x) * 4; let c = [255, 255, 255];
+    if (y >= 20 && y < 60) c = (y >= 30 && y < 50 && x > 40 && x < 300 && Math.floor(x / 8) % 2 === 0) ? [220, 40, 40] : [40, 110, 160];
+    else if (y >= 100 && y < 120 && x > 40 && x < 300 && Math.floor(x / 8) % 2 === 0) c = [20, 20, 20];
+    rgba[o] = c[0]; rgba[o + 1] = c[1]; rgba[o + 2] = c[2]; rgba[o + 3] = 255;
+  }
+  const grey = (c) => Math.round(0.299 * c[0] + 0.587 * c[1] + 0.114 * c[2]);
+  ok('colour bands: the made-up red-on-blue band really is one grey (the reading sees nothing there)', Math.abs(grey([220, 40, 40]) - grey([40, 110, 160])) <= 2);
+  ok('colour bands: the paper is white', cb.paperColour(rgba, W, H).every(v => v >= 240));
+  const bands = cb.findColourBands(rgba, W, H, [{ x0: 40, y0: 100, x1: 300, y1: 120 }], 20);
+  ok('colour bands: the unread band is found, the read black line is not a band', bands.length === 1 && bands[0].y0 === 20 && bands[0].y1 === 60, JSON.stringify(bands));
+  ok('colour bands: a band a reading already covers is left alone', cb.findColourBands(rgba, W, H, [{ x0: 40, y0: 30, x1: 300, y1: 50 }], 20).length === 0);
+  ok('colour bands: none without a line height', cb.findColourBands(rgba, W, H, [], 0).length === 0);
+  const strip = cb.bandStrip(rgba, W, bands[0]);
+  const at = (x, y) => strip.gray[(y - 20) * strip.width + x];
+  ok('colour bands: the strip uses the red channel, flipped so the band is light and the letters dark', strip.channel === 'R' && strip.flipped && at(10, 25) > 200 && at(48, 40) < 50, JSON.stringify({ c: strip.channel, f: strip.flipped, band: at(10, 25), ink: at(48, 40) }));
+
+  const { lineSize } = await import(`${R}/modules/mod04-ocr/ocrWorker.js`);
+  ok('line size: a line 1.5 times a usual line is size 1.5; unknown sizes give nothing', lineSize({ bbox: { y0: 0, y1: 45 } }, 30).size === 1.5 && Object.keys(lineSize({}, 30)).length === 0 && Object.keys(lineSize({ bbox: { y0: 0, y1: 45 } }, 0)).length === 0);
+
+  const fm = await import(`${R}/modules/mod05-form/formMapper.js`);
+  ok('name size: big type helps, small type hurts a little, unknown is neutral', fm.nameSizeBonus(1.5) === 0.75 && fm.nameSizeBonus(0.7) === -0.25 && fm.nameSizeBonus(1) === 0 && fm.nameSizeBonus(null) === 0);
+  const mapper = new fm.ContactFormMapper();
+  const roles = (lines) => Object.fromEntries(mapper.classifyLines(lines).map(l => [l.text, l.role]));
+  const two = [{ text: 'Avery Collins' }, { text: 'Jordan Patel' }];
+  ok('name size: with no sizes the first name-shaped line is the name (as before)', roles(two)['Avery Collins'] === 'name');
+  ok('name size: the line printed largest wins the name over an earlier one', roles([{ text: 'Avery Collins', size: 1 }, { text: 'Jordan Patel', size: 1.6 }])['Jordan Patel'] === 'name');
+  ok('name size: the email username still beats size', roles([{ text: 'Avery Collins', size: 1 }, { text: 'Jordan Patel', size: 1.6 }, { text: 'avery.collins@northwind.com' }])['Avery Collins'] === 'name');
+
+  ok('common domains: gmai1.com asks for gmail.com', (fm.commonDomainAsk('jo@gmai1.com') || {}).guesses?.[0] === 'jo@gmail.com');
+  ok('common domains: hotmial.com asks for hotmail.com', (fm.commonDomainAsk('jo@hotmial.com') || {}).guesses?.[0] === 'jo@hotmail.com');
+  ok('common domains: .corn asks for .com, on a web address too', (fm.commonDomainAsk('www.acme.corn') || {}).guesses?.[0] === 'www.acme.com' && (fm.commonDomainAsk('jo@acme.corn') || {}).guesses?.[0] === 'jo@acme.com');
+  ok('common domains: right spellings and company domains are left alone', fm.commonDomainAsk('jo@gmail.com') === null && fm.commonDomainAsk('jo@acme.com') === null && fm.commonDomainAsk('northwind.net') === null && fm.commonDomainAsk('jo@mail.com') === null && fm.commonDomainAsk('jo@ymail.com') === null);
+
+  const qr = await import(`${R}/modules/mod07-qr/qrReader.js`);
+  const vcard = 'BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Avery Collins\r\nTEL;TYPE=WORK:+1 312 555 0147\r\nEND:VCARD';
+  ok('QR first: a vCard with a name and a phone fills the card without reading', qr.isFullQrContact(qr.parseQrPayload(vcard)));
+  ok('QR first: a vCard with a name only still has the card read', !qr.isFullQrContact(qr.parseQrPayload('BEGIN:VCARD\r\nVERSION:3.0\r\nFN:Avery Collins\r\nEND:VCARD')));
+  ok('QR first: a link or a coupon code never skips the read', !qr.isFullQrContact(qr.parseQrPayload('https://northwind.com/deal')) && qr.parseQrPayload('SAVE20 at checkout') === null && !qr.isFullQrContact(null));
+  const link = qr.parseQrPayload('https://northwind.com/coupon');
+  ok('QR links: a bare link is marked as a link only', link && link.linkOnly === true);
+  const read = [{ text: 'northwind.com', role: 'website' }, { text: 'Avery Collins', role: 'name' }];
+  const withLink = qr.withQrLines(read, link);
+  ok('QR links: a link that is not the printed website goes last, set to Ignore, with a note', withLink.length === 3 && withLink[0] === read[0] && withLink[2].role === 'ignore' && withLink[2].check === qr.QR_OTHER_LINK_NOTE);
+  ok('QR links: a link to the printed website adds nothing', qr.withQrLines(read, qr.parseQrPayload('https://northwind.com')).length === 2);
+  const noSite = qr.withQrLines([{ text: 'Avery Collins', role: 'name' }], link);
+  ok('QR links: with no printed website the link is offered first, as a website to check', noSite[0].role === 'website' && noSite[0].check === qr.QR_LINK_NOTE);
+
+  const { findCardQuad, ASPECT_RANGE } = await import(`${R}/modules/mod03-camera/cardFinder.js`);
+  const SW = 1200, SH = 1000, sq = new Uint8ClampedArray(SW * SH * 4);
+  for (let y = 0; y < SH; y++) for (let x = 0; x < SW; x++) {
+    const inCard = x >= 350 && x < 850 && y >= 250 && y < 750;
+    const ink = inCard && y > 300 && y < 700 && x > 400 && x < 800 && Math.floor(y / 50) % 2 === 0 && Math.floor(x / 14) % 3 !== 2;
+    const v = inCard ? (ink ? 30 : 250) : 110, o = (y * SW + x) * 4;
+    sq[o] = sq[o + 1] = sq[o + 2] = v; sq[o + 3] = 255;
+  }
+  const sqQuad = findCardQuad({ data: sq, width: SW, height: SH });
+  ok('square cards: the card finder allows a 1 : 1 card (Creative, HQ-0427)', ASPECT_RANGE[0] === 1 && !!sqQuad && Math.abs(sqQuad[0].x - 350) < 15 && Math.abs(sqQuad[2].y - 750) < 15, JSON.stringify(sqQuad));
+}
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exitCode = fail ? 1 : 0;

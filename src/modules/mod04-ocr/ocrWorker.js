@@ -11,6 +11,7 @@ import { globalEventBus, Events } from '../../share/eventBus.js';
 import { loadIconTemplates, grayFromDataUrl, detectLineIcons } from './iconDetector.js';
 import { refineLines, altsForText } from './glyphChoices.js';
 import { findFaintBands, usualLineHeight, trimStripText } from './faintLines.js';
+import { findColourBands, bandStrip } from './colourBands.js';
 
 const MODULE_ID = 'vCGE-MOD04';
 const MODULE_NAME = 'OCR Engine Module';
@@ -122,6 +123,12 @@ const THRESHOLD_WHOLE_PAGE = '0', THRESHOLD_LOCAL = '2';
 // 45: a pale name reads around 50 ("Nick Zarter", 49) and is still worth showing, marked for checking.
 export const FAINT_LOOK_MIN_CONFIDENCE = 45;
 export const FAINT_LOOK_BUDGET_MS = 6000;
+
+// Colour look (HQ-0427, the Herd's ideas for Glyph, raven575's go 2026-11-27): a wide coloured band no reading covers is
+// read again in its best colour channel, flipped dark-on-light (colourBands.js). Red lettering on a blue band of the same
+// brightness turns into one flat grey for the grey reading and was lost (a made-up card: the company line, gone).
+export const COLOUR_LOOK_MIN_CONFIDENCE = 60;
+export const COLOUR_LOOK_BUDGET_MS = 6000;
 
 /** Thrown when the photo is too blurry or unclear to read; the caller should ask for a new photo. */
 export class OcrUnreadableError extends Error {
@@ -696,6 +703,92 @@ async function faintLook(worker, processedImage, data, found, started) {
     }
 }
 
+/** The colour photo `imageSrc` at the reader's size (readerScale), as { rgba, width, height }. */
+async function colourAtReaderSize(imageSrc) {
+    const img = new Image();
+    img.src = imageSrc;
+    await img.decode();
+    const scale = readerScale(Math.max(img.naturalWidth, img.naturalHeight) || 1);
+    const width = Math.max(1, Math.round(img.naturalWidth * scale)), height = Math.max(1, Math.round(img.naturalHeight * scale));
+    const c = document.createElement('canvas');
+    c.width = width;
+    c.height = height;
+    const ctx = c.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(img, 0, 0, width, height);
+    return { rgba: ctx.getImageData(0, 0, width, height).data, width, height };
+}
+
+/** A grey strip (bandStrip) as a PNG data URL, enlarged SECOND_LOOK_SCALE times like the other strips. */
+function stripDataUrl({ gray, width, height }) {
+    const c = document.createElement('canvas');
+    c.width = width;
+    c.height = height;
+    const ctx = c.getContext('2d');
+    const img = ctx.createImageData(width, height);
+    for (let i = 0; i < gray.length; i++) { img.data[i * 4] = img.data[i * 4 + 1] = img.data[i * 4 + 2] = gray[i]; img.data[i * 4 + 3] = 255; }
+    ctx.putImageData(img, 0, 0);
+    const big = document.createElement('canvas');
+    big.width = Math.round(width * SECOND_LOOK_SCALE);
+    big.height = Math.round(height * SECOND_LOOK_SCALE);
+    const bctx = big.getContext('2d');
+    bctx.imageSmoothingEnabled = true;
+    bctx.imageSmoothingQuality = 'high';
+    bctx.drawImage(c, 0, 0, big.width, big.height);
+    return big.toDataURL('image/png');
+}
+
+/**
+ * Colour look: wide coloured bands no reading covers (findColourBands) are read again in their best colour channel,
+ * flipped dark-on-light, and each sure line with a real word is added to `found` in its place from the top. Only for
+ * an upright reading (the colour photo is not turned). Changes `found` in place; best effort like the other looks.
+ */
+async function colourLook(worker, imageSrc, data, found, started) {
+    const lineHeight = usualLineHeight(data.lines);
+    if (!lineHeight || !found.length || found.some(l => l.y === undefined)) return;
+    const until = Date.now() + COLOUR_LOOK_BUDGET_MS;
+    try {
+        const photo = await colourAtReaderSize(imageSrc);
+        const boxes = (data.lines || []).filter(l => l && l.bbox && String(l.text || '').trim()).map(l => l.bbox);
+        const bands = findColourBands(photo.rgba, photo.width, photo.height, boxes, lineHeight);
+        if (!bands.length) return;
+        const known = new Set(found.map(l => l.text.toLowerCase()));
+        for (const band of bands) {
+            if (Date.now() > until) break;
+            const strip = bandStrip(photo.rgba, photo.width, band);
+            const { data: read } = await readWithin(worker, stripDataUrl(strip), OCR_READ_TIMEOUT_MS);
+            if (generation !== started) throw new OcrCancelledError();
+            for (const line of (read.lines || [])) {
+                const words = (line.words || []).filter(w => w.text && w.text.trim());
+                const confidence = meanConfidence(words);
+                const text = trimStripText(words.map(w => w.text).join(' '));
+                const real = words.some(w => w.confidence >= 60 && (w.text.match(/[A-Za-z0-9]/g) || []).length >= 3);
+                if (!text || !real || confidence < COLOUR_LOOK_MIN_CONFIDENCE || known.has(text.toLowerCase())) continue;
+                console.log(`[${MODULE_ID}] Colour look: a line on a coloured band read in the ${strip.channel} channel${strip.flipped ? ', flipped' : ''}, confidence ${confidence}`);
+                known.add(text.toLowerCase());
+                const y = band.y0 + (line.bbox ? Math.round(line.bbox.y0 / SECOND_LOOK_SCALE) : 0);
+                const at = found.findIndex(l => l.y > y);
+                const unsure = words.filter(w => w.confidence < OCR_UNSURE_WORD_CONFIDENCE).map(w => w.text.trim()).filter(t => t.length > 1);
+                found.splice(at < 0 ? found.length : at, 0, { text, icon: null, alts: [], unsure, confidence, y });
+            }
+        }
+    } catch (error) {
+        if (error instanceof OcrCancelledError) throw error;
+        console.warn(`[${MODULE_ID}] Colour look stopped, nothing added:`, error);
+    }
+}
+
+/**
+ * How big a line is printed (HQ-0427: the biggest line near the top is most often the name, a clue the field mapper
+ * never had): { size } = the line's height over a usual line's height (usualLineHeight), to two places, or {} when
+ * either is unknown. A ratio, not pixels, so it means the same at any photo size.
+ */
+export function lineSize(line, usual) {
+    const h = line && line.bbox ? line.bbox.y1 - line.bbox.y0 : 0;
+    return h > 0 && usual > 0 ? { size: Math.round((h / usual) * 100) / 100 } : {};
+}
+
 /**
  * Icons in front of each OCR line (phone handset, envelope, social logo...). Best effort: any failure means no icons,
  * never a failed scan. Returns [{ text, icon, alts, unsure, confidence, look? }] in card order (lines that were only an icon are dropped);
@@ -705,9 +798,10 @@ async function faintLook(worker, processedImage, data, found, started) {
  */
 async function linesWithIcons(processedImage, data) {
     const lines = refineLines(data.lines || []);
+    const usual = usualLineHeight(data.lines);
     if (!lines.length) return String(data.text || '').split('\n').map(text => ({ text: text.trim(), icon: null, alts: [], unsure: [] })).filter(l => l.text);
     const withAlts = (found) => found.map((l, i) => {
-        const out = { text: l.text, icon: l.icon, alts: altsForText(l.text, lines[i].words), unsure: unsureWords(l.text, lines[i].words), confidence: meanConfidence(lines[i].words), y: lines[i].bbox ? lines[i].bbox.y0 : undefined };
+        const out = { text: l.text, icon: l.icon, alts: altsForText(l.text, lines[i].words), unsure: unsureWords(l.text, lines[i].words), confidence: meanConfidence(lines[i].words), y: lines[i].bbox ? lines[i].bbox.y0 : undefined, ...lineSize(lines[i], usual) };
         const look = secondLookTarget(lines[i], out.unsure), digits = digitsLookTarget(lines[i]);
         return { ...out, ...(look ? { look } : {}), ...(digits ? { digits } : {}) };
     }).filter(l => l.text);
@@ -820,6 +914,8 @@ async function scan(imageSrc, initTimeoutMs, readTimeoutMs, onStatus, started, g
     await digitsLook(worker, processedImage, found, started);
     if (generation !== started) throw new OcrCancelledError();
     await faintLook(worker, processedImage, result.data, found, started);
+    if (generation !== started) throw new OcrCancelledError();
+    if (!turn.quarter) await colourLook(worker, imageSrc, result.data, found, started);
     if (generation !== started) throw new OcrCancelledError();
     const lines = found.map(({ look, digits, y, ...line }) => (lowConfidence ? { ...line, lowConfidence: true } : line));
     // Where each line sits, in the reader's pixels (the photo times readerScale): the logo finder blanks out the contact

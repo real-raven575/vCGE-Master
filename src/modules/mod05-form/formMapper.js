@@ -70,12 +70,12 @@ export class ContactFormMapper {
             .map(l => {
                 const read = applySecondGuesses(String(l.text || ''), l.alts);
                 // (the words the reader nearly read otherwise, for the review's guess buttons: MOD04 guesses.js)
-                return { text: read.replace(/[“”]/g, '"').replace(/[‘’]/g, "'").replace(/\s+/g, ' ').trim(), icon: l.icon || null, unsure: Array.isArray(l.unsure) && l.unsure.length > 0, low: l.lowConfidence === true, swaps: wordSwaps(read, l.alts) };
+                return { text: read.replace(/[“”]/g, '"').replace(/[‘’]/g, "'").replace(/\s+/g, ' ').trim(), icon: l.icon || null, unsure: Array.isArray(l.unsure) && l.unsure.length > 0, low: l.lowConfidence === true, swaps: wordSwaps(read, l.alts), size: typeof l.size === 'number' ? l.size : null };
             })
             .filter(l => l.text.length > 0)
-            .map(({ text, icon, unsure, low, swaps }) => {
+            .map(({ text, icon, unsure, low, swaps, size }) => {
                 const parsed = splitLabel(text);
-                return { text, icon, unsure, low, swaps, ...parsed, label: parsed.label || ICON_LABEL[icon] || null, role: null };
+                return { text, icon, unsure, low, swaps, size, ...parsed, label: parsed.label || ICON_LABEL[icon] || null, role: null };
             });
         const free = (line) => line.role === null;
 
@@ -189,6 +189,9 @@ export class ContactFormMapper {
             if (trimmed && (titleLike(line.text) || COMPANY_SUFFIX.test(line.text))) score -= 3;
             // Words dropped as debris make the line a weaker name; a trailing mark alone ("Jane Doe;") does not.
             if (trimmed && trimmed.split(' ').length < line.text.split(' ').length) score -= 0.5;
+            // How big it is printed (HQ-0427, the Herd's ideas for Glyph): a name is usually set larger than the lines
+            // around it. A clue, never a rule: the email username (+3) and the title and company words still decide.
+            score += nameSizeBonus(line.size);
             candidates.push({ line, index, score, trimmed, ofDomain: !!domain && domainMatches(line.text, domain) });
         });
         // A name-shaped line that spells the web or email domain ("Brightpath Tech", brightpathtech.com) is the company
@@ -296,7 +299,7 @@ export class ContactFormMapper {
             const text = IT_ROLES.has(line.role) ? repairCapitalIT(read) : read;
             // The card checks itself (raven575, 2026-11-23): a letter that reads better as an i, or an email domain that
             // differs from the web address, is asked about, with the other spelling as a one-tap guess. "Looks right" keeps it.
-            const ask = line.atAsk || line.check ? line.atAsk || null : line.role === 'email' || line.role === 'website' ? (lookalikeAsk(text) || (line.role === 'email' && domainMismatchAsk(text, site)))
+            const ask = line.atAsk || line.check ? line.atAsk || null : line.role === 'email' || line.role === 'website' ? (lookalikeAsk(text) || commonDomainAsk(text) || (line.role === 'email' && domainMismatchAsk(text, site)))
                 : line.role === 'organization' ? companyMismatchAsk(text, site, (lines.find(l => l.role === 'email') || {}).text) : null;
             if (ask) line.check = ask.check;
             const guesses = ask ? ask.guesses : line.check && line.unsure ? guessesFor(text, line.swaps) : [];
@@ -529,6 +532,15 @@ function rejoinSplitLines(raw) {
 }
 
 /** 3 letters or digits at most: too little to be any field (see the end of classifyLines). */
+/** A name candidate's bonus for its printed size (MOD04 lineSize: its height over a usual line's): +0.75 when set at
+ * least 1.25 times as tall, -0.25 when at most 0.8 times, else 0 (also when the size is unknown). */
+export function nameSizeBonus(size) {
+    if (typeof size !== 'number') return 0;
+    if (size >= 1.25) return 0.75;
+    if (size <= 0.8) return -0.25;
+    return 0;
+}
+
 function isScrap(text) {
     return (String(text || '').match(/[A-Za-z0-9]/g) || []).length <= 3;
 }
@@ -780,6 +792,43 @@ function hostOf(text) {
 }
 
 const VOWEL = /[aeiouy]/i;
+
+// Mail services people print on cards, and web endings the reader gets wrong (HQ-0427, Team eMail and TEAM 9to5).
+const COMMON_MAIL = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com', 'aol.com', 'comcast.net', 'att.net', 'msn.com', 'live.com', 'protonmail.com', 'sbcglobal.net', 'verizon.net'];
+// Real services one letter from a common one ("mail.com" by gmail.com, "ymail.com" by yahoo's gmail look-alike): never asked about.
+const OTHER_MAIL = ['mail.com', 'ymail.com', 'gmx.com', 'me.com', 'mac.com', 'aim.com', 'live.ca', 'att.com', 'msn.cn'];
+const ENDING_SLIPS = { corn: 'com', con: 'com', cam: 'com', c0m: 'com', comn: 'com', ner: 'net', nel: 'net', ort: 'org', orq: 'org' };
+
+/** Letters apart: one letter added, dropped, changed or two swapped (0, 1, or 2 for further). */
+function oneSlip(a, b) {
+    if (a === b) return 0;
+    if (Math.abs(a.length - b.length) > 1) return 2;
+    let i = 0;
+    while (i < a.length && i < b.length && a[i] === b[i]) i++;
+    const restA = a.slice(i + 1), restB = b.slice(i + 1);
+    if (a.length === b.length) return restA === restB || (a[i] === b[i + 1] && a[i + 1] === b[i] && a.slice(i + 2) === b.slice(i + 2)) ? 1 : 2;
+    return (a.length > b.length ? a.slice(i + 1) === b.slice(i) : a.slice(i) === b.slice(i + 1)) ? 1 : 2;
+}
+
+/**
+ * A mail service or web ending one letter off a common one ("gmai1.com", "yahooo.com", "example.corn") is asked about,
+ * never changed (HQ-0427: Team eMail's repair list). The guess is the common spelling; "Looks right" keeps it as read.
+ */
+export function commonDomainAsk(text) {
+    const found = hostOf(text);
+    if (!found) return null;
+    const host = found.host.toLowerCase(), dot = host.lastIndexOf('.');
+    const ending = host.slice(dot + 1);
+    const swap = (to) => text.slice(0, found.index) + to + text.slice(found.index + found.host.length);
+    if (ENDING_SLIPS[ending]) {
+        const fixed = host.slice(0, dot + 1) + ENDING_SLIPS[ending];
+        return { check: `Did you mean .${ENDING_SLIPS[ending]}? "${host}" ends in .${ending}, which is most often a misread .${ENDING_SLIPS[ending]}.`, guesses: [swap(fixed)] };
+    }
+    if (!String(text).includes('@') || COMMON_MAIL.includes(host) || OTHER_MAIL.includes(host)) return null;
+    const near = COMMON_MAIL.find(m => oneSlip(host, m) === 1 && host.length >= 7);
+    return near ? { check: `Did you mean ${near}? "${host}" is one letter off. If it is meant as read, tick Looks right.`, guesses: [swap(near)] } : null;
+}
+
 /**
  * An l (or a 1) the reader may have taken from an i: "peaklogiclt.com" reads as words with "peaklogicit" (a tester
  * invite bounced on one, raven575 2026-11-23). Asked, never changed: an l between two consonants, the one before it not

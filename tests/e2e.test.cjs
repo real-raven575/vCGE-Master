@@ -2699,12 +2699,14 @@ const cameraFeedMissing = (page) => page.evaluate(() => [typeof HTMLCanvasElemen
       return c.toDataURL('image/png');
     });
     await pQ.setInputFiles('#imageUpload', { name: 'qr-card.png', mimeType: 'image/png', buffer: Buffer.from(dataUrl.split(',')[1], 'base64') }); await pQ.waitForTimeout(300);
+    // Counts reader start-ups: a code holding a whole contact needs none (raven575, 2026-11-27, HQ-0427)
+    await pQ.evaluate(() => { const real = window.Tesseract.createWorker; window.__readers = 0; window.Tesseract.createWorker = (...args) => { window.__readers++; return real(...args); }; });
     await pQ.click('#runOcrBtn');
     await readEnds(pQ);
     const lines = await pQ.$$eval('#ocrLines input[id^="ocrLineText"]', els => els.map(e => e.value));
     const summary = await pQ.textContent('#ocrSummary');
     ok('printed QR: the code\'s name, title and company come first and fill the fields', lines[0] === 'Jane Rivera' && lines[1] === 'Studio Manager' && lines[2] === 'Northwind Studio' && summary.includes('Northwind Studio'), JSON.stringify({ lines, summary }));
-    ok('printed QR: the printed lines for the same fields are set to Ignore with a note', (await pQ.$$('#ocrLines [id^="ocrLineCheck"]')).length >= 2, JSON.stringify(lines));
+    ok('printed QR: a code holding a whole contact fills the card without reading its text (no reader started, only the code\'s lines)', await pQ.evaluate(() => window.__readers) === 0 && lines.length === 5 && lines.includes('jane@northwind.example'), JSON.stringify(lines));
     await ctxQ.close();
   });
 
