@@ -35,7 +35,7 @@ import { CropEditor, whenDrawable } from './modules/mod03-camera/cropEditor.js';
 import { executeOCRScan, shutdownOCREngine } from './modules/mod04-ocr/ocrWorker.js';
 import { guessLogo } from './modules/mod04-ocr/logoGuess.js';
 import { mergeReadings, missingParts, describeMissing, MAX_PHOTOS } from './modules/mod04-ocr/readingQuality.js';
-import { readCardQr, withoutQr, parseQrPayload, withQrLines } from './modules/mod07-qr/qrReader.js';
+import { readCardQr, withoutQr, parseQrPayload, withQrLines, isFullQrContact } from './modules/mod07-qr/qrReader.js';
 import { readIndicator, readThumb, renderReviewRows, initReadCard, resetBlink, READER_UNAVAILABLE_MESSAGE, READER_STOPPED_MESSAGE } from './modules/mod04-ocr/readCard.js';
 import { ContactFormMapper, LINE_ROLES, PHONE_FORMATS } from './modules/mod05-form/formMapper.js';
 import { parseZipTowns } from './modules/mod05-form/zipTowns.js';
@@ -834,6 +834,18 @@ async function runOcr(how) {
         // started after Cancel was left holding the next read until it timed out).
         if (ocrStoppedByUser || $('cropReviewModal').classList.contains('hidden')) throw Object.assign(new Error('Reading cancelled during the QR search'), { code: 'OCR_CANCELLED' });
         const qr = found ? found.data : null;
+        // A QR code holding a whole contact (a vCard or MECARD with a name and a phone or email) fills the card by
+        // itself, so the text is not read at all; the logo is still looked for, on the photo with the code painted
+        // out (raven575, 2026-11-27, HQ-0427). Its contents are checked first: a link or a coupon code never skips the read.
+        if (isFullQrContact(parseQrPayload(qr))) {
+            offerLogoGuess(found.corners ? await withoutQr(photo, found.corners) : photo, []);
+            readIndicator.stop(); readIndicator.set(1); readIndicator.finish();
+            await new Promise(res => setTimeout(res, 250));
+            if ($('cropReviewModal').classList.contains('hidden')) return;
+            if (ocrStoppedByUser) { backToPhoto(); $('retakePhotoBtn').classList.remove('hidden'); return; }
+            openReviewFrom([...heldReadings(), []], photo, qr);
+            return;
+        }
         const { text, lines, boxes } = await executeOCRScan(found && found.corners ? await withoutQr(photo, found.corners) : photo, { onStatus });
         offerLogoGuess(photo, boxes);
         // Finished early: the wash fills up (and the owl closes its eyes) before the review step opens.
@@ -958,7 +970,7 @@ let morePhotoSource = null;   // 'camera' or 'upload': the next photo comes the 
 function askForAnotherPhoto(missing, next) {
     morePhotoSource = camera.lastSource;
     camera.discardPhoto();
-    $('ocrMorePhotoText').textContent = `We got most of this card, but not ${describeMissing(missing)}. Can you take one more photo? Try a different angle or more light.`;
+    $('ocrMorePhotoText').textContent = `We got most of this card, but not ${describeMissing(missing)}. Can you take one more photo? If the card has a back, flip it over and scan that side; if not, try a different angle or more light.`;
     $('ocrMorePhotoCount').textContent = `This would be photo ${next} of ${MAX_PHOTOS}.`;
     $('ocrMorePhotoModal').classList.remove('hidden');
     $('ocrAnotherPhotoBtn').focus();

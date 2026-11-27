@@ -16,6 +16,10 @@
 export const QR_READ_MAX_SIDE = 1400;
 
 export const QR_DUPLICATE_NOTE = 'The QR code on the card already gave this, so this line is set to Ignore.';
+// A QR code that holds only a link may be a coupon, a menu or a sign-up page, not the person's website (raven575,
+// 2026-11-27: "check the contents first"). Such a link never beats the website printed on the card.
+export const QR_LINK_NOTE = "From the card's QR code: check this is their website, not a coupon or menu link.";
+export const QR_OTHER_LINK_NOTE = "The card's QR code links here, not to the website printed on the card (maybe a coupon or menu page). Choose Website only if it is theirs.";
 
 const TYPE_ROLE = [[/\b(?:cell|mobile|iphone)\b/i, 'phoneMobile'], [/\bfax\b/i, 'phoneFax'], [/\bhome\b/i, 'phoneHome']];
 
@@ -137,8 +141,17 @@ export function parseQrPayload(text) {
     let contact = null;
     if (/^BEGIN:VCARD/i.test(t)) contact = parseVCard(t);
     else if (/^MECARD:/i.test(t)) contact = parseMeCard(t);
-    else if (/^(?:https?:\/\/|www\.)\S+$/i.test(t)) contact = { ...emptyContact(), websites: [t] };
+    else if (/^(?:https?:\/\/|www\.)\S+$/i.test(t)) contact = { ...emptyContact(), websites: [t], linkOnly: true };
     return contact && hasAny(contact) ? contact : null;
+}
+
+/**
+ * A QR contact complete enough to fill the card without reading its text (raven575, 2026-11-27: "If the business card
+ * already has a QR code, then you can load straight from that instead of having to run the OCR"): a vCard or MECARD
+ * with a name and a phone or an email. A bare link, or a code without those, still has the card read.
+ */
+export function isFullQrContact(contact) {
+    return !!(contact && !contact.linkOnly && contact.name && (contact.phones.length || contact.emails.length));
 }
 
 /** Review lines for a parsed QR contact, with their roles already set (they come first, so they win every field). */
@@ -171,6 +184,14 @@ const bodyOf = (text) => String(text || '').replace(/^(?:[a-z]{1,6}\.?\s*[:.-]?\
 export function withQrLines(lines, contact) {
     const fromQr = qrLines(contact);
     if (!fromQr.length) return lines;
+    if (contact.linkOnly) {
+        // Only a link: the reader's own website line wins; the link is offered, checked, never put first over it.
+        const link = plainSite(contact.websites[0]);
+        const printed = lines.filter(l => l.role === 'website').map(l => plainSite(bodyOf(l.text)));
+        if (printed.includes(link)) return lines;
+        if (printed.length) return [...lines, { ...fromQr[0], role: 'ignore', check: QR_OTHER_LINK_NOTE }];
+        return [{ ...fromQr[0], check: QR_LINK_NOTE }, ...lines];
+    }
     const single = new Set(fromQr.map(l => l.role).filter(r => ['name', 'jobTitle', 'organization'].includes(r)));
     const hasAddress = fromQr.some(l => ADDRESS_ROLES.has(l.role));
     const phones = new Set(contact.phones.map(p => digitsOf(p.value)));
