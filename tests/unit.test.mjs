@@ -1136,6 +1136,30 @@ ok('share barrel exports its public API', ['globalEventBus','EventBus','Events',
   })();
   const beige = findCardQuad(counter.image);
   ok('finder: a white card on a beige counter of the same brightness is found by colour, every corner within 2% of the diagonal (cut corner included)', !!beige && beige.every((p, i) => Math.hypot(p.x - counter.truth[i][0], p.y - counter.truth[i][1]) < 0.02 * Math.hypot(1200, 1000)), JSON.stringify({ beige, truth: counter.truth }));
+  // A card with a coloured header band (Night Shift, 2026-11-27: band cards' edges right on 3 of 59 photos): a cream card
+  // with a blue strip across its top quarter, on a brown table, and the same card with only a darker-brown shadow along
+  // its bottom (the table's own hue in shade), which must not be taken for a band.
+  const colourCard = (band, shadow) => {
+    const W = 1600, H = 1200, data = new Uint8ClampedArray(W * H * 4), inv = invert(m);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const [u, v] = apply(inv, x + 0.5, y + 0.5);
+      let rgb = [128, 96, 70];                                                                     // brown table
+      if (shadow && u >= 0 && u < 1050 && v >= 600 && v < 690) rgb = [64, 48, 35];                // its shadow below the card
+      if (u >= 0 && u < 1050 && v >= 0 && v < 600) {
+        rgb = band && v < 150 ? [31, 95, 168] : [250, 248, 240];
+        if (v > 200 && v < 520 && u > 70 && u < 800 && Math.floor(v / 60) % 2 === 0 && Math.floor(u / 14) % 3 !== 2) rgb = [30, 34, 40];
+        if (band && v > 50 && v < 100 && u > 60 && u < 600 && Math.floor(u / 14) % 3 !== 2) rgb = [255, 255, 255];
+      }
+      const o = (y * W + x) * 4; data[o] = rgb[0]; data[o + 1] = rgb[1]; data[o + 2] = rgb[2]; data[o + 3] = 255;
+    }
+    return { data, width: W, height: H };
+  };
+  const within = (q, px) => !!q && q.every((p, i) => Math.hypot(p.x - corners[i][0], p.y - corners[i][1]) < px);
+  const banded = findCardQuad(colourCard(true, false));
+  ok('finder: a card with a blue header band keeps its band (all four corners within 2% of the diagonal, not the band\'s lower edge)', within(banded, 0.02 * Math.hypot(1600, 1200)), JSON.stringify(banded));
+  const shaded = findCardQuad(colourCard(false, true));
+  ok('finder: a dark shadow of the table\'s own colour next to the card is not taken for a band', within(shaded, 0.02 * Math.hypot(1600, 1200)), JSON.stringify(shaded));
+  ok('finder: a plain card on the brown table is still found as before', within(findCardQuad(colourCard(false, false)), 0.02 * Math.hypot(1600, 1200)));
   ok('finder: a corner far inside the rectangle while the other three sit on theirs counts as cut; a trapezoid does not', isCutCorner([2, 1, 160, 3], 2, [[0, 0], [550, 0], [550, 330], [0, 330]]) && !isCutCorner([20, 25, 30, 22], 2, [[0, 0], [550, 0], [550, 330], [0, 330]]));
   ok('convex hull drops inner points and keeps the corners', convexHull([[0, 0], [10, 0], [10, 10], [0, 10], [5, 5], [2, 3]]).length === 4);
   ok('corners are ordered top-left, top-right, bottom-right, bottom-left', orderCorners([{ x: 9, y: 9 }, { x: 0, y: 10 }, { x: 10, y: 0 }, { x: 1, y: 1 }]).map(p => `${p.x},${p.y}`).join(' ') === '1,1 10,0 9,9 0,10');

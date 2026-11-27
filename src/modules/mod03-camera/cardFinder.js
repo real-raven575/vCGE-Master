@@ -57,9 +57,80 @@ export function findCardQuad(image) {
         const split = makeSplit(small);
         if (!split) continue;
         const quad = quadFromSplit(small, split, image, step);
-        if (quad) return quad;
+        if (quad) return withBand(small, quad, image, step) || quad;
     }
     return null;
+}
+
+export const BAND_AREA_RANGE = [1.08, 1.9];   // a printed band adds this share to the patch found without it
+export const TABLE_SPREADS = 3;               // a pixel within this many of the border's own spreads is table
+export const BAND_MIN_CHROMA = 0.07;          // the added strip's colour must differ from the table's by this much
+
+/**
+ * A card printed with a coloured band along one side (a header strip with the company name in it) splits into two
+ * patches: the flood fill from the centre stops at the band and cuts it off. So the finder fills a second time with
+ * "anything that is not table" and keeps that bigger patch when it holds the first one, grows it by a band's share,
+ * stays off the photo's edges, and the strip it adds has a colour of its own. The last test tells a band from the
+ * card's shadow or glare on the table, which change the table's brightness but hardly its hue (chromaticity). Null
+ * when there is no such band. Night Shift, 2026-11-27: band-layout cards' edges were right on 3 of 59 photos.
+ */
+function withBand(small, quad, image, step) {
+    const notTable = tableSplit(small);
+    if (!notTable) return null;
+    const wide = quadFromSplit(small, notTable, image, step, true);
+    if (!wide) return null;
+    const ratio = polygonArea(wide) / polygonArea(quad);
+    if (!(ratio >= BAND_AREA_RANGE[0] && ratio <= BAND_AREA_RANGE[1])) return null;
+    if (!quad.every(p => insideQuad(wide, p, 2 * step + 2))) return null;
+    return stripChroma(small, quad, wide, step) >= BAND_MIN_CHROMA ? wide : null;
+}
+
+/** "Not table" by colour: farther than TABLE_SPREADS border spreads from the border's median colour (Mahalanobis). */
+export function tableSplit({ rgb, borderIdx }) {
+    const median = (k) => { const v = borderIdx.map(i => rgb[i * 3 + k]).sort((a, b) => a - b); return v[v.length >> 1]; };
+    const b = [median(0), median(1), median(2)];
+    const S = [[25, 0, 0], [0, 25, 0], [0, 0, 25]];   // a little sensor noise, as in colourSplit
+    for (const i of borderIdx) {
+        const d = [rgb[i * 3] - b[0], rgb[i * 3 + 1] - b[1], rgb[i * 3 + 2] - b[2]];
+        for (let r = 0; r < 3; r++) for (let q = 0; q < 3; q++) S[r][q] += d[r] * d[q] / borderIdx.length;
+    }
+    const inv = [0, 1, 2].map(k => solve3(S, [0, 1, 2].map(j => (j === k ? 1 : 0))));   // columns of S's inverse
+    if (inv.some(c => !c)) return null;
+    const lim = TABLE_SPREADS * TABLE_SPREADS;
+    return (r, g, bl) => {
+        const d = [r - b[0], g - b[1], bl - b[2]];
+        let m = 0;
+        for (let x = 0; x < 3; x++) for (let y = 0; y < 3; y++) m += d[x] * inv[y][x] * d[y];
+        return m > lim;
+    };
+}
+
+/** How far the mean chromaticity (r and g shares) of the strip in wide but not in quad sits from the table's. */
+export function stripChroma({ rgb, w, h, borderIdx }, quad, wide, step) {
+    const share = (i) => { const t = rgb[i] + rgb[i + 1] + rgb[i + 2] + 1; return [rgb[i] / t, rgb[i + 1] / t]; };
+    const inner = quad.map(p => ({ x: p.x / step, y: p.y / step })), outer = wide.map(p => ({ x: p.x / step, y: p.y / step }));
+    let n = 0, r = 0, g = 0;
+    for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+            const p = { x: x + 0.5, y: y + 0.5 };
+            if (!insideQuad(outer, p, -1) || insideQuad(inner, p, 1)) continue;
+            const c = share((y * w + x) * 3); r += c[0]; g += c[1]; n++;
+        }
+    }
+    if (!n) return 0;
+    let tr = 0, tg = 0;
+    for (const i of borderIdx) { const c = share(i * 3); tr += c[0]; tg += c[1]; }
+    return Math.hypot(r / n - tr / borderIdx.length, g / n - tg / borderIdx.length);
+}
+
+/** True when p lies inside the convex quad (corners in order) or within slack pixels of it (negative: well inside). */
+export function insideQuad(quad, p, slack = 0) {
+    for (let i = 0; i < 4; i++) {
+        const a = quad[i], b = quad[(i + 1) % 4];
+        const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+        if (((b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x)) / len < -slack) return false;
+    }
+    return true;
 }
 
 const luma = (r, g, b) => (r * 299 + g * 587 + b * 114) / 1000;
@@ -111,7 +182,7 @@ export function solve3(S, v) {
 }
 
 // The patch of card pixels connected to the centre, wrapped in its hull and fitted with a rotated rectangle.
-function quadFromSplit({ rgb, w, h }, isCardRGB, image, step) {
+function quadFromSplit({ rgb, w, h }, isCardRGB, image, step, mustNotTouch = false) {
     const { width, height } = image;
     const isCard = (i) => isCardRGB(rgb[i * 3], rgb[i * 3 + 1], rgb[i * 3 + 2]);
 
@@ -151,6 +222,8 @@ function quadFromSplit({ rgb, w, h }, isCardRGB, image, step) {
     if (count < MIN_AREA * w * h) return null;
     // Running off all four sides means the photo already is the card (or the split found nothing): no edges to snap to
     if (touchLeft > h * 0.5 && touchRight > h * 0.5 && touchTop > w * 0.5 && touchBottom > w * 0.5) return null;
+    // The band pass must stay off the photo's edges: a patch that reaches them has run into the table or a hand
+    if (mustNotTouch && touchLeft + touchRight + touchTop + touchBottom > 0) return null;
 
     const hull = convexHull(points);
     if (hull.length < 4) return null;
